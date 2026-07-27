@@ -1,0 +1,43 @@
+# ── 敏感配置（API密钥） ──
+*.env
+config/*.env
+shared/config/*.env
+
+# ── 日志 ──
+logs/
+*.log
+
+# ── Python 缓存 ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── 运行时生成的状态文件 ──
+strategies/config/s3_events.json
+strategies/config/s3_market_data.json
+strategies/config/s3_rolling_cache.json
+strategies/config/s3_signals.json
+strategies/config/s3_spot_movers.json
+strategies/config/s3_pulse_signals.json
+strategies/config/S6_state.json
+strategies/config/S8_state.json
+strategies/config/sandbox_state.json
+strategies/config/loss_cooldowns.json
+shared/config/*.json
+services/s0/market_state.json
+services/s7/config/*.json
+config/*.json
+
+# ── 编辑备份 ──
+*.bak
+*.bak.*
+*.tmp
+
+# ── 二进制/安装文件 ──
+clickhouse
+trade.zip
+
+# ── 系统 ──
+.DS_Store
+Thumbs.db
