@@ -1269,6 +1269,8 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
                 if new_sl is None or (entry_be > new_sl and entry_be < price):
                     new_sl = entry_be
 
+    if new_sl is not None and new_sl == pos.get('sl'):
+        return None
     return new_sl
 
 
@@ -1280,6 +1282,8 @@ def _place_trail_sl(symbol: str, pos: dict, trail_sl: float, positions: dict):
         return
     _, _, _, _, _, _, _, _ = _s6api()
     old = pos['sl']
+    if trail_sl == old:
+        return
     pos['sl'] = trail_sl
     _last_api_call[symbol] = now
     _save(positions)
