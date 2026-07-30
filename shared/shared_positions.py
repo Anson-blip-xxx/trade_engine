@@ -10,9 +10,10 @@ def is_open(symbol: str) -> bool:
     return False
 
 def get_live_price(symbol: str) -> float:
+    from shared.binance_api import FAPI
     import requests as _req
     try:
-        r = _req.get(f'https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}', timeout=5)
+        r = _req.get(f'{FAPI}/fapi/v1/ticker/price?symbol={symbol}', timeout=5)
         return float(r.json()['price'])
     except Exception:
         return 0.0

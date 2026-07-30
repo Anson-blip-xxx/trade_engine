@@ -7,21 +7,29 @@ v1.1: 增加统一regime（S6/S7/S8共用）、山寨联动、冲击分
 import os, time, json, logging, hmac, hashlib, requests
 from urllib.parse import urlencode
 from dotenv import load_dotenv
+from pathlib import Path
 import sys
-sys.path.insert(0, "/root/.openclaw/trade/trading_engine/services/s0")
-sys.path.insert(0, "/root/.openclaw/trade/trading_engine")
-from indicators import calc_ema, calc_atr
-from shared.redis_store import set as _rset
+_BASE = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_BASE / 'services/s0'))
+sys.path.insert(0, str(_BASE))
+from shared.redis_store import get as _rget, set as _rset
+from shared.binance_api import FAPI
 
-load_dotenv("/root/.openclaw/trade/trading_engine/config/binance.env")
+load_dotenv(_BASE / 'config/binance.env')
 API_KEY    = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
-BASE       = "https://fapi.binance.com"
-STATE_FILE = "/root/.openclaw/trade/trading_engine/services/s0/market_state.json"
+BASE       = FAPI
+STATE_FILE = _BASE / 'services/s0/market_state.json'
 VERSION    = "1.1.0"
 
+# 日志：stdout + 日期分割文件（logs/s0/YYYYMMDD.log）
+LOG_DIR = _BASE.parent / 'logs/s0'
+_LOG_FILE = LOG_DIR / f'{time.strftime("%Y%m%d")}.log'
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("s0")
+_log_handler = logging.FileHandler(str(_LOG_FILE), encoding='utf-8')
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+log.addHandler(_log_handler)
 
 BREADTH_N = 50
 _breadth_symbols_cache: list = []
@@ -53,27 +61,43 @@ def fapi_get(path, params=None):
     return r.json()
 
 
-def get_klines(symbol, interval, limit):
-    return fapi_get("/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+def _s3_window(symbol, tf):
+    """从 s3 的 market:s3_data 读取指定币种时间窗"""
+    try:
+        data = _rget('market:s3_data')
+        if data and 'symbols' in data:
+            sym_data = data['symbols'].get(symbol, {})
+            return sym_data.get(tf, {})
+    except Exception:
+        pass
+    return {}
+
+
+def _s3_win(w, key, default=0):
+    """安全读取窗口字段（兼容 list 和 dict 格式）"""
+    if isinstance(w, dict):
+        return w.get(key, default)
+    return default
 
 
 def sample_btc():
-    k4h = get_klines("BTCUSDT", "4h", 70)
-    closes = [float(k[4]) for k in k4h]
-    highs  = [float(k[2]) for k in k4h]
-    lows   = [float(k[3]) for k in k4h]
+    w4h  = _s3_window('BTCUSDT', '4h')
+    w15m = _s3_window('BTCUSDT', '15m')
+    w24h = _s3_window('BTCUSDT', '24h')
 
-    ema20 = calc_ema(closes, 20)
-    ema60 = calc_ema(closes, 60)
-    price = closes[-1]
+    ema20 = _s3_win(w4h, 'ema20')
+    ema60 = _s3_win(w4h, 'ema60')
+    price = _s3_win(w4h, 'close')
 
-    atr_recent = calc_atr(k4h[-4:],  3)
-    atr_avg    = calc_atr(k4h[-21:], 20)
-    atr_expanding = atr_recent > atr_avg * 1.3
+    # ATR 扩张：15m 波动率 > 24h 波动率 × 1.3
+    vol_15m = _s3_win(w15m, 'volatility')
+    vol_24h = _s3_win(w24h, 'volatility')
+    atr_expanding = vol_15m > vol_24h * 1.3 if vol_24h > 0 else False
 
-    k15m = get_klines("BTCUSDT", "15m", 3)
-    last = k15m[-2]
-    amp  = (float(last[2]) - float(last[3])) / float(last[1])
+    # 15m 振幅
+    high_15m = _s3_win(w15m, 'high')
+    low_15m  = _s3_win(w15m, 'low')
+    amp      = (high_15m - low_15m) / price if price > 0 else 0
 
     if ema20 > ema60 and price > ema20:
         btc_trend = "bull"
@@ -90,49 +114,51 @@ def sample_btc():
 
 def sample_breadth():
     above, total = 0, 0
-    for sym in get_breadth_symbols():
-        try:
-            k = get_klines(sym, "1h", 22)
-            closes = [float(x[4]) for x in k]
-            ema20  = calc_ema(closes, 20)
-            if closes[-1] > ema20:
-                above += 1
-            total += 1
-        except Exception:
-            pass
+    try:
+        data = _rget('market:s3_data')
+        symbols_data = (data or {}).get('symbols', {})
+    except Exception:
+        symbols_data = {}
+    scan_list = get_breadth_symbols()
+    for sym in scan_list:
+        w1h = symbols_data.get(sym, {}).get('1h', {}) if sym in symbols_data else _s3_window(sym, '1h')
+        close = _s3_win(w1h, 'close')
+        ema20 = _s3_win(w1h, 'ema20')
+        if close > ema20 > 0:
+            above += 1
+        total += 1
     ratio   = above / total if total else 0.5
     breadth = "strong" if ratio > 0.7 else ("normal" if ratio > 0.4 else "weak")
     return breadth, ratio
 
 
 def sample_alts_sync() -> tuple:
-    """
-    山寨联动度：跟踪主流山寨是否跟随BTC方向
-    返回 (sync_ratio, alts_bullish_count, alts_total)
-    """
     alts = ['ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT',
             'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT']
     try:
-        btc_k = get_klines('BTCUSDT', '1h', 2)
-        btc_direction = 1 if float(btc_k[-1][4]) >= float(btc_k[-2][4]) else -1
+        data = _rget('market:s3_data')
+        symbols_data = (data or {}).get('symbols', {})
     except Exception:
         return 0.5, 0, 0
+
+    btc_1h = symbols_data.get('BTCUSDT', {}).get('1h', {}) if 'BTCUSDT' in symbols_data else _s3_window('BTCUSDT', '1h')
+    btc_chg = _s3_win(btc_1h, 'chg')
+    if btc_chg == 0:
+        return 0.5, 0, 0
+    btc_direction = 1 if btc_chg > 0 else -1
 
     following = 0
     total = 0
     for sym in alts:
-        try:
-            k = get_klines(sym, '1h', 2)
-            if k and len(k) >= 2:
-                alt_pct = (float(k[-1][4]) - float(k[-2][4])) / float(k[-2][4]) * 100
-                btc_pct = 0
-                if btc_direction > 0:
-                    following += 1 if alt_pct > -0.5 else 0  # 跟随或小幅背离都算
-                else:
-                    following += 1 if alt_pct < 0.5 else 0
-                total += 1
-        except Exception:
-            pass
+        w1h = symbols_data.get(sym, {}).get('1h', {}) if sym in symbols_data else _s3_window(sym, '1h')
+        chg = _s3_win(w1h, 'chg')
+        if chg == 0:
+            continue
+        if btc_direction > 0:
+            following += 1 if chg > -0.5 else 0
+        else:
+            following += 1 if chg < 0.5 else 0
+        total += 1
     sync = following / max(total, 1)
     return round(sync, 2), following, total
 
@@ -243,13 +269,13 @@ def write_state(state):
         _rset('market:s0', state)
     except Exception:
         pass
-    tmp = STATE_FILE + ".tmp"
+    tmp = str(STATE_FILE) + ".tmp"
     with open(tmp, "w") as f:
         json.dump(state, f)
-    os.replace(tmp, STATE_FILE)
+    os.replace(tmp, str(STATE_FILE))
     # 同步写入 ClickHouse
     try:
-        import subprocess
+        from shared.clickhouse_client import insert as _ch_insert
         row = json.dumps({
             'market_state':  state['market_state'],
             'btc_trend':     state['btc_trend'],
@@ -258,11 +284,7 @@ def write_state(state):
             'volatility':    state['volatility'],
             'risk_off':      1 if state['risk_off'] else 0,
         })
-        subprocess.run(
-            ['clickhouse-client', '--query',
-             'INSERT INTO default.market_state_log FORMAT JSONEachRow'],
-            input=row, text=True, timeout=5, capture_output=True
-        )
+        _ch_insert('default.market_state_log', row)
     except Exception as e:
         log.warning(f"CH write error: {e}")
 

@@ -15,7 +15,7 @@ def calc_position_live_score(symbol: str, pos: dict) -> int:
 
     # 懒加载避免循环引用
     import sys, os
-    from trading_engine.shared.s6_auto_trader import get_price, get_rsi, get_ema
+    from shared.market_data import get_price, get_rsi, get_ema
 
     score     = pos.get('score', 3)
     direction = pos.get('side', 'SHORT')

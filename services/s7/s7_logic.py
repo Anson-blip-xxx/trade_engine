@@ -331,10 +331,8 @@ def _ch_write_fee_log(symbol, decision, reason, spread_pct, min_required_pct, ma
             'min_required_pct': round(min_required_pct, 6),
             'market_state': market_state,
         })
-        subprocess.run(
-            ['clickhouse-client', '-q', 'INSERT INTO default.s7_fee_engine_logs FORMAT JSONEachRow'],
-            input=row, text=True, timeout=3, capture_output=True
-        )
+        from shared.clickhouse_client import insert as _ch
+        _ch('default.s7_fee_engine_logs', row)
     except Exception as e:
         core.log(f'[CH] fee_engine_log write error: {e}')
 
@@ -426,11 +424,8 @@ def _ch_write_fill(symbol, side, price, qty, fee_usdt, avg_cost, inventory, real
             'realized_pnl': realized_pnl, 'fill_id': fill_id,
             'market_state': market_state,
         })
-        subprocess.run(
-            ['clickhouse-client', '-q',
-             'INSERT INTO default.s7_grid_fills FORMAT JSONEachRow'],
-            input=row, text=True, timeout=3, capture_output=True
-        )
+        from shared.clickhouse_client import insert as _ch
+        _ch('default.s7_grid_fills', row)
     except Exception as e:
         core.log(f'[CH] s7_grid_fills write error: {e}')
 
@@ -881,10 +876,8 @@ def manage_grid(symbol, state):
                 'unrealized_pnl': round(total_unrealized, 4),
                 'open_positions': open_count,
             })
-            subprocess.run(
-                ['clickhouse-client', '-q', 'INSERT INTO default.equity_snapshot FORMAT JSONEachRow'],
-                input=row, text=True, timeout=5, capture_output=True
-            )
+            from shared.clickhouse_client import insert as _ch
+            _ch('default.equity_snapshot', row)
         except Exception as e:
             core.log(f'[equity_snapshot] s7 write error: {e}')
 

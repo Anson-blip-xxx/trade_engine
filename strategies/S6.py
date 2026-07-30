@@ -25,7 +25,7 @@ from shared_executor import (
     is_event_fresh, load_state, save_state,
     reconcile_positions, pm_monitor,
     open_position, calc_position_qty, fapi_get, tg_send,
-    market_allows_trading,
+    market_allows_trading, get_position_count, has_position,
 )
 
 NAME = 'S6'
@@ -37,21 +37,32 @@ STOP_LOSS_PCT = {
     'PULSE_UP': 0.04,       # 逐仓: 4% 紧止损
     'TREND_UP': 0.08,       # 全仓: 8% 宽松止损
     'VIOLENT_BULLISH': 0.10, # 极端波动: 10% 宽止损
+    'PUMP_UP': 0.08,        # 泵多: 8% 止损
 }
 MAX_POSITIONS = 2           # 最多同时持有 2 个做多仓位
 LEVERAGE = {
     'PULSE_UP': 5,
     'TREND_UP': 3,
     'VIOLENT_BULLISH': 3,
+    'PUMP_UP': 2,
 }
 MARGIN_MODE = {
     'PULSE_UP': 'ISOLATED',
     'TREND_UP': 'CROSSED',
     'VIOLENT_BULLISH': 'CROSSED',
+    'PUMP_UP': 'ISOLATED',
+}
+
+# ── 系统标签映射 ──
+SYSTEM_TAG = {
+    'PULSE_UP': 'S6A',
+    'TREND_UP': 'S6A',
+    'VIOLENT_BULLISH': 'S6A',
+    'PUMP_UP': 'S6B',
 }
 
 # ── 事件类型映射 ──
-LONG_SIGNALS = ('PULSE_UP', 'TREND_UP', 'VIOLENT_BULLISH')
+LONG_SIGNALS = ('PULSE_UP', 'TREND_UP', 'VIOLENT_BULLISH', 'PUMP_UP')
 
 # ── TG 通知 ──
 def _tg(msg: str) -> Optional[int]:
@@ -61,6 +72,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     """根据 S3 事件开做多仓位"""
     symbol = evt['symbol']
     event_type = evt['type']
+    system_tag = SYSTEM_TAG.get(event_type, NAME)
 
     # ── 信号冷却检查 ──
     if not is_event_fresh(symbol, event_type, cooldown_s=180):
@@ -68,7 +80,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # ── 仓位上限 ──
-    pos_count = len(state.get('positions', {}))
+    pos_count = get_position_count(NAME)
     if pos_count >= MAX_POSITIONS:
         _log(NAME, f'已达仓位上限 {MAX_POSITIONS}/{MAX_POSITIONS}，跳过 {symbol}')
         return state
@@ -84,7 +96,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # ── 已有仓位检查 ──
-    if symbol in state.get('positions', {}):
+    if has_position(NAME, symbol):
         _log(NAME, f'{symbol} 已有持仓，跳过')
         return state
 
@@ -125,23 +137,17 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     stop_price = round(price * (1 - stop_pct), 8)
 
     # ── 开仓 ──
-    ok = open_position(NAME, symbol, 'LONG', price, stop_price,
+    ok = open_position(system_tag, symbol, 'LONG', price, stop_price,
                        qty, margin, leverage, event_type, evt.get('strength', 50),
                        tg_fn=_tg)
     if ok:
-        state.setdefault('positions', {})[symbol] = {
-            'entry': price, 'stop': stop_price, 'side': 'LONG',
-            'qty': qty, 'margin': margin,
-            'event_type': event_type, 'strength': evt.get('strength', 50),
-            'ts': time.time(), 'open_time': time.time(),
-        }
-        save_state(NAME, state)
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')
     return state
 
 def main():
     _log(NAME, 'S6 v3 启动 (S3 Market Brain 驱动 | 做多执行器)')
-    _log(NAME, '消费事件: PULSE_UP(逐仓) TREND_UP(全仓)')
+    _log(NAME, 'S6A: PULSE_UP(逐仓) TREND_UP(全仓) VIOLENT_BULLISH(全仓)')
+    _log(NAME, 'S6B: PUMP_UP(逐仓)')
 
     state = load_state(NAME)
     state = reconcile_positions(NAME, state)
@@ -152,23 +158,16 @@ def main():
             events = read_s3_events()
             market = read_s3_market_data()
 
-            # 2. PM 监控
+            # 2. PM 监控（持仓全由 PM 的 pm:positions 管理）
             state, closed = pm_monitor(NAME, state, tg_fn=_tg)
-            # 平仓后设置冷却期（在策略主循环内写入，防止 PM 与策略并发写覆盖）
-            now = time.time()
-            for sym, reason, pnl_pct in closed:
-                cd = 14400 if pnl_pct < 0 else 7200  # 亏损4h, 正常2h
-                state.setdefault('cooldowns', {})[sym] = now + cd
-            if closed:
-                save_state(NAME, state)
 
             # 3. 处理做多事件
             for evt in events:
                 if evt.get('type') in LONG_SIGNALS:
                     state = _open_long(state, evt, market)
 
-            # 4. 心跳
-            pos_count = len(state.get('positions', {}))
+            # 4. 心跳（从 PM 查询持仓数）
+            pos_count = get_position_count(NAME)
             if pos_count > 0:
                 _log(NAME, f'[心跳] 当前持仓: {pos_count}')
 

@@ -26,7 +26,7 @@ from shared_executor import (
     is_event_fresh, load_state, save_state,
     reconcile_positions, pm_monitor,
     open_position, calc_position_qty, fapi_get, tg_send,
-    market_allows_trading,
+    market_allows_trading, get_position_count, has_position,
 )
 
 NAME = 'S8'
@@ -39,6 +39,7 @@ STOP_LOSS_PCT = {
     'PANIC_SELL':  0.035,   # 逐仓: 3.5% 更紧止损
     'TREND_DOWN':  0.08,    # 全仓: 8% 宽松止损
     'VIOLENT_BEARISH': 0.10, # 极端波动: 10% 宽止损
+    'PUMP_DOWN':  0.08,     # 泵空: 8% 止损
 }
 MAX_POSITIONS = 2
 LEVERAGE = {
@@ -46,15 +47,17 @@ LEVERAGE = {
     'PANIC_SELL':  5,
     'TREND_DOWN':  3,
     'VIOLENT_BEARISH': 3,
+    'PUMP_DOWN':  2,
 }
 MARGIN_MODE = {
     'PULSE_DOWN':  'ISOLATED',
     'PANIC_SELL':  'ISOLATED',
     'TREND_DOWN':  'CROSSED',
     'VIOLENT_BEARISH': 'CROSSED',
+    'PUMP_DOWN':  'ISOLATED',
 }
 
-SHORT_SIGNALS = ('PULSE_DOWN', 'TREND_DOWN', 'PANIC_SELL', 'VIOLENT_BEARISH')
+SHORT_SIGNALS = ('PULSE_DOWN', 'TREND_DOWN', 'PANIC_SELL', 'VIOLENT_BEARISH', 'PUMP_DOWN')
 
 def _tg(msg: str) -> Optional[int]:
     return tg_send(f'<b>{NAME}</b> {msg}')
@@ -69,7 +72,7 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # 仓位上限
-    pos_count = len(state.get('positions', {}))
+    pos_count = get_position_count(NAME)
     if pos_count >= MAX_POSITIONS:
         _log(NAME, f'已达仓位上限 {MAX_POSITIONS}/{MAX_POSITIONS}')
         return state
@@ -85,7 +88,7 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # 已有仓位
-    if symbol in state.get('positions', {}):
+    if has_position(NAME, symbol):
         _log(NAME, f'{symbol} 已有持仓')
         return state
 
@@ -130,19 +133,12 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
                        qty, margin, leverage, event_type, evt.get('strength', 50),
                        tg_fn=_tg)
     if ok:
-        state.setdefault('positions', {})[symbol] = {
-            'entry': price, 'stop': stop_price, 'side': 'SHORT',
-            'qty': qty, 'margin': margin,
-            'event_type': event_type, 'strength': evt.get('strength', 50),
-            'ts': time.time(), 'open_time': time.time(),
-        }
-        save_state(NAME, state)
         _log(NAME, f'✅ 开空 {symbol} {margin} {event_type} str={evt.get("strength")}')
     return state
 
 def main():
     _log(NAME, 'S8 v3 启动 (S3 Market Brain 驱动 | 做空执行器)')
-    _log(NAME, '消费事件: PULSE_DOWN(逐仓) TREND_DOWN(全仓) PANIC_SELL(逐仓)')
+    _log(NAME, '消费事件: PULSE_DOWN(逐仓) TREND_DOWN(全仓) PANIC_SELL(逐仓) PUMP_DOWN(逐仓)')
 
     state = load_state(NAME)
     state = reconcile_positions(NAME, state)
@@ -153,19 +149,12 @@ def main():
             market = read_s3_market_data()
 
             state, closed = pm_monitor(NAME, state, tg_fn=_tg)
-            # 平仓后设置冷却期（在策略主循环内写入，防止 PM 与策略并发写覆盖）
-            now = time.time()
-            for sym, reason, pnl_pct in closed:
-                cd = 14400 if pnl_pct < 0 else 7200
-                state.setdefault('cooldowns', {})[sym] = now + cd
-            if closed:
-                save_state(NAME, state)
 
             for evt in events:
                 if evt.get('type') in SHORT_SIGNALS:
                     state = _open_short(state, evt, market)
 
-            pos_count = len(state.get('positions', {}))
+            pos_count = get_position_count(NAME)
             if pos_count > 0:
                 _log(NAME, f'[心跳] 当前持仓: {pos_count}')
 

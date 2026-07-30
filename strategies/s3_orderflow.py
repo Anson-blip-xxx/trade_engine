@@ -19,13 +19,13 @@ from urllib.parse import urlencode
 from collections import deque
 
 # ── 目录 ────────────────────────────────────────────────────
-TRADE_DIR  = Path('/root/.openclaw/trade')
-CONFIG_DIR = TRADE_DIR / 'trading_engine/strategies/config'
-_LOG_DIR   = TRADE_DIR / 'trading_engine/logs/s3'
+TRADE_DIR  = Path(__file__).resolve().parent.parent
+CONFIG_DIR = TRADE_DIR / 'strategies/config'
+_LOG_DIR   = TRADE_DIR.parent / 'logs/s3'
 
 # Redis
-sys.path.insert(0, str(TRADE_DIR / 'trading_engine'))
 sys.path.insert(0, str(TRADE_DIR))
+sys.path.insert(0, str(TRADE_DIR.parent))
 from shared.redis_store import set as _rset, get as _rget
 
 # ── 参数 ────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ THRESHOLDS = {
     'trend_down':    {'1h': -1.0, '4h': -2.0, '24h': -5.0},
     'high_vol':      {'vol_ratio': 2.0},
     'low_vol':       {'vol_ratio': 0.3},
+    'pump_up':       {'15m': 8.0, '1h': 12.0, 'vol_ratio': 2.0},
+    'pump_down':     {'15m': -8.0, '1h': -12.0, 'vol_ratio': 2.0},
 }
 
 # ── Event 冷却 ──────────────────────────────────────────────
@@ -418,6 +420,30 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
                 'close_pos': round((_price - _low) / (_high - _low) * 100, 1) if _high != _low else 50,
             })
             _log(f'[S3] {symbol} VIOLENT_{_dir} 波动 {_1h_vol:.0f}%/4h={_4h_vol:.0f}%')
+
+    # ── PUMP_UP（极端拉盘：高涨幅 + 放量） ──
+    if w15m.get('chg', 0) >= THRESHOLDS['pump_up']['15m'] or \
+       w1h.get('chg', 0) >= THRESHOLDS['pump_up']['1h']:
+        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pump_up']['vol_ratio']:
+            strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
+            events.append({
+                'type': 'PUMP_UP', 'symbol': symbol,
+                'strength': max(30, strength),
+                'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
+                'vol_ratio': w15m.get('vol_ratio'),
+            })
+
+    # ── PUMP_DOWN（极端砸盘：高跌幅 + 放量） ──
+    if w15m.get('chg', 0) <= THRESHOLDS['pump_down']['15m'] or \
+       w1h.get('chg', 0) <= THRESHOLDS['pump_down']['1h']:
+        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pump_down']['vol_ratio']:
+            strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
+            events.append({
+                'type': 'PUMP_DOWN', 'symbol': symbol,
+                'strength': max(30, strength),
+                'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
+                'vol_ratio': w15m.get('vol_ratio'),
+            })
 
     # ── TREND_UP ──
     trend_up_1h4h = w1h.get('chg', 0) >= THRESHOLDS['trend_up']['1h'] and \

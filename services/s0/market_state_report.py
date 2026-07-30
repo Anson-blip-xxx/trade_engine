@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """P1 市场状态日报 — 状态占比 + s6 盈亏归因"""
-import subprocess, json
+import sys, json
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from shared.clickhouse_client import query as _chq
 
 TG_BOT  = "8488191250:AAEMOmEY3UZE0WtCn-3Ywn-2ESje5eIKngY"
 TG_CHAT = "5709781617"
 
 def ch(sql):
-    r = subprocess.run(['clickhouse-client','-q', sql], capture_output=True, text=True, timeout=10)
-    return [l.split('\t') for l in r.stdout.strip().splitlines() if l.strip()]
+    r = _chq(sql)
+    return [list(row) for row in r] if r else []
 
 def tg(msg):
     import requests

@@ -6,19 +6,22 @@ position_manager.py — 统一持仓生命周期管理
 日志： logs/position_manager/YYYYMMDD.log
 状态： config/pm_state.json
 
-同步：平仓/状态变更时自动回写各系统 legacy state（过渡兼容）
+数据源：pm:positions 是唯一持仓状态来源。
+平仓/开仓由 PM 全权管理，策略直接查询 PM 获取持仓计数。
 
 ✅ 2026-07-18: 接入 Algo Order API（/fapi/v1/algoOrder）下止损单，
-   轮询止损保留作为兜底。
+    轮询止损保留作为兜底。
 ✅ 2026-07-20: Algo 限速改为队列消费模式，后台线程以 11s 间隔依次处理。
 """
 
-import time, json, threading
+import time, json, threading, hmac, hashlib
 from pathlib import Path
+from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
+from shared.binance_api import FAPI as _FAPI
 
 _BASE       = Path(__file__).parent.parent
-_LOG_DIR    = _BASE / 'logs/position_manager'
+_LOG_DIR    = _BASE.parent / 'logs/position_manager'
 
 # ── 沙盘模式 ──
 try:
@@ -44,13 +47,21 @@ def _ensure_apikey():
     if _API_KEY is None:
         env_path = _BASE / 'config/binance.env'
         if env_path.exists():
+            is_testnet = False
             for line in env_path.read_text().splitlines():
                 line = line.strip()
                 if '=' in line and not line.startswith('#'):
                     k, v = line.split('=', 1)
-                    if k.strip() == 'BINANCE_API_KEY':
+                    k = k.strip()
+                    if k == 'BINANCE_TESTNET':
+                        is_testnet = v.strip().lower() == 'true'
+                    elif k == 'BINANCE_API_KEY' and not is_testnet:
                         _API_KEY = v.strip()
-                    elif k.strip() in ('BINANCE_SECRET_KEY', 'BINANCE_API_SECRET'):
+                    elif k in ('BINANCE_SECRET_KEY', 'BINANCE_API_SECRET') and not is_testnet:
+                        _API_SECRET = v.strip()
+                    elif k == 'BINANCE_TESTNET_API_KEY' and is_testnet:
+                        _API_KEY = v.strip()
+                    elif k == 'BINANCE_TESTNET_API_SECRET' and is_testnet:
                         _API_SECRET = v.strip()
 
 def _light_fapi_post(path: str, params: dict) -> dict | None:
@@ -71,7 +82,7 @@ def _light_fapi_post(path: str, params: dict) -> dict | None:
     sig = hmac.new(_API_SECRET.encode('utf-8'), query.encode('utf-8'), hashlib.sha256).hexdigest()
     params['signature'] = sig
     try:
-        r = requests.post(f'https://fapi.binance.com{path}', params=params,
+        r = requests.post(f'{_FAPI}{path}', params=params,
                           headers={'X-MBX-APIKEY': _API_KEY}, timeout=10)
         return r.json() if r.status_code == 200 else r.json()
     except Exception as e:
@@ -101,7 +112,7 @@ def _light_fapi_get(path: str, params: dict = None) -> dict | list | None:
     sig = hmac.new(_API_SECRET.encode('utf-8'), query.encode('utf-8'), hashlib.sha256).hexdigest()
     params['signature'] = sig
     try:
-        r = requests.get(f'https://fapi.binance.com{path}', params=params,
+        r = requests.get(f'{_FAPI}{path}', params=params,
                          headers={'X-MBX-APIKEY': _API_KEY}, timeout=10)
         return r.json() if r.status_code == 200 else r.json()
     except Exception as e:
@@ -130,7 +141,7 @@ def _light_fapi_delete(path: str, params: dict = None) -> dict | None:
     sig = hmac.new(_API_SECRET.encode('utf-8'), query.encode('utf-8'), hashlib.sha256).hexdigest()
     params['signature'] = sig
     try:
-        r = requests.delete(f'https://fapi.binance.com{path}', params=params,
+        r = requests.delete(f'{_FAPI}{path}', params=params,
                             headers={'X-MBX-APIKEY': _API_KEY}, timeout=10)
         return r.json() if r.status_code == 200 else r.json()
     except Exception as e:
@@ -142,7 +153,7 @@ def _light_get_price(symbol: str) -> float:
     """轻量获取最新价（公开 ticker API，无需签名）"""
     import requests as _req
     try:
-        r = _req.get(f'https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}', timeout=5)
+        r = _req.get(f'{_FAPI}/fapi/v1/ticker/price?symbol={symbol}', timeout=5)
         return float(r.json()['price']) if r.status_code == 200 else 0.0
     except Exception:
         return 0.0
@@ -211,7 +222,7 @@ def _algo_place_sl_inner(symbol: str, side: str,
         # 按交易所精度舍入数量和价格（exchangeInfo 是公开 API）
         import requests as _req
         try:
-            _ei = _req.get('https://fapi.binance.com/fapi/v1/exchangeInfo', timeout=10)
+            _ei = _req.get(f'{_FAPI}/fapi/v1/exchangeInfo', timeout=10)
             if _ei.status_code == 200:
                 _ei_data = _ei.json()
                 for s in _ei_data.get('symbols', []):
@@ -291,12 +302,9 @@ def _s6api():
     global _S6_API
     if _S6_API is None:
         try:
-            from trading_engine.shared.s6_auto_trader import (
-                fapi_get, fapi_post, fapi_delete,
-                get_price, get_symbol_info,
-                get_oi_and_funding, get_rsi,
-                record_trade,
-            )
+            from shared.binance_api import fapi_get, fapi_post, fapi_delete
+            from shared.market_data import get_price, get_symbol_info, get_oi_and_funding, get_rsi
+            from shared.trade_recorder import record_trade
             _S6_API = (fapi_get, fapi_post, fapi_delete, get_price, get_symbol_info,
                         get_oi_and_funding, get_rsi, record_trade)
         except Exception as e:
@@ -316,11 +324,101 @@ def _s6api():
             _pmlog(f'[_s6api 兜底] s6_auto_trader 不可用: {e}，使用轻量 API')
     return _S6_API
 
+# ═══════════════════════════════════════════════════════════════════════
+#  WS 实时持仓（一层数据源）
+# ═══════════════════════════════════════════════════════════════════════
+
+_WS_POSITIONS: dict[str, dict] = {}
+_WS_LAST_UPDATE: float = 0
+_WS_LOCK = threading.Lock()
+_WS_STOP = False
+
+def _ws_url() -> str:
+    u = _FAPI.replace('https://', 'wss://')
+    return u.replace('fapi', 'fstream')
+
+def _ws_listen_key() -> str:
+    _ensure_apikey()
+    import requests as _req
+    r = _req.post(f'{_FAPI}/fapi/v1/listenKey',
+                   headers={'X-MBX-APIKEY': _API_KEY}, timeout=10)
+    return r.json().get('listenKey', '')
+
+def _ws_on_message(ws, message):
+    global _WS_LAST_UPDATE
+    try:
+        data = json.loads(message)
+        if data.get('e') != 'ACCOUNT_UPDATE':
+            return
+        with _WS_LOCK:
+            for p in data['a']['P']:
+                sym = p['s']
+                amt = float(p['pa'])
+                if abs(amt) < 0.001:
+                    prev = _WS_POSITIONS.pop(sym, None)
+                    if prev and not _was_closed_recently(sym):
+                        _mark_closed(sym)
+                        side = prev.get('side', 'LONG')
+                        _pmlog(f'[WS平仓] {sym} {side} AlgoSL(入场={prev.get("entry", 0)})')
+                        _try_record_ghost_trade(sym, prev)
+                        _RECENTLY_GHOSTED.append((sym, 'AlgoSL', float(p.get('ep', 0)),
+                                              prev.get('entry', 0), prev.get('qty', 0), side))
+                else:
+                    side = 'LONG' if amt > 0 else 'SHORT'
+                    _WS_POSITIONS[sym] = {
+                        'entry': float(p['ep']), 'side': side, 'qty': abs(amt),
+                        'leverage': int(p.get('lev', 3)),
+                        'margin': p.get('mt', 'cross').upper(),
+                        'system': '?', 'open_time': time.time(),
+                        'sl': 0, 'be_done': False,
+                    }
+            _WS_LAST_UPDATE = time.time()
+
+    except Exception as e:
+        _pmlog(f'[WS消息异常] {e}')
+
+def _ws_on_open(ws):
+    _pmlog('[WS已连接] 开始接收实时仓位')
+
+def _ws_on_error(ws, error):
+    _pmlog(f'[WS错误] {error}')
+
+def _ws_on_close(ws, close_status_code, close_msg):
+    _pmlog(f'[WS断开] code={close_status_code} msg={close_msg} 5s后重连')
+
+def _ws_connect_loop():
+    while not _WS_STOP:
+        try:
+            import websocket
+            import requests as _req
+            key = _ws_listen_key()
+            if not key:
+                time.sleep(5)
+                continue
+            url = f'{_ws_url()}/ws/{key}'
+            _pmlog(f'[WS连接] 用户数据流 {url}')
+            ws = websocket.WebSocketApp(
+                url,
+                on_open=_ws_on_open,
+                on_message=_ws_on_message,
+                on_error=_ws_on_error,
+                on_close=_ws_on_close,
+            )
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+        except Exception as e:
+            _pmlog(f'[WS重连] {e}')
+        time.sleep(5)
+
 # ── 系统级参数 ──────────────────────────────────────────────────────────
 SYSTEM_CFG = {
     'S8A': {
         'be_done_threshold': 2.0,      # 浮盈≥% 触发止损移到成本
-        'trail_mult': 0.3,             # 追踪间距 (×ATR)
+        'trail': {
+            'base_mult': 0.3,          # 基础追踪间距 (×ATR)
+            'tighten_pct': 8.0,        # 浮盈≥此值开始收紧
+            'tighten_min': 0.5,        # 最紧间距倍率
+            'breakeven_atr': 1.5,      # 浮盈≥此值×ATR → 保本加固
+        },
         'time_stop_min': 240,          # 时间止损（分钟）
         'time_extend_min': 60,         # 可延期（分钟）
         'extend_rsi_min': 60,          # 延期条件：RSI > 此值
@@ -329,14 +427,45 @@ SYSTEM_CFG = {
     },
     'S8B': {
         'be_done_threshold': 3.0,
-        'trail_mult': 0.3,
+        'trail': {
+            'base_mult': 0.3,
+            'tighten_pct': 8.0,
+            'tighten_min': 0.5,
+            'breakeven_atr': 1.5,
+        },
         'time_stop_min': 300,
-        'time_stop_fast_min': 150,     # 资金费<-0.015%时快速结束
+        'time_stop_fast_min': 150,
         'funding_fast_threshold': -0.00015,
     },
+    'S6A': {
+        'be_done_threshold': 2.5,
+        'trail': {
+            'base_mult': 0.3,
+            'tighten_pct': 5.0,        # 普通做多浮盈保护更积极
+            'tighten_min': 0.3,
+            'breakeven_atr': 1.5,
+        },
+        'time_stop_min': 120,
+    },
+    'S6B': {
+        'be_done_threshold': 3.0,      # 泵多需要更大空间
+        'trail': {
+            'base_mult': 0.3,
+            'tighten_pct': 8.0,        # 泵多收紧更晚
+            'tighten_min': 0.5,
+            'breakeven_atr': 1.5,
+        },
+        'time_stop_min': 120,
+    },
+    # 旧 S6 兜底（存量仓位可能还是 system='S6'）
     'S6': {
         'be_done_threshold': 2.5,
-        'trail_mult': 0.3,
+        'trail': {
+            'base_mult': 0.3,
+            'tighten_pct': 5.0,
+            'tighten_min': 0.3,
+            'breakeven_atr': 1.5,
+        },
         'time_stop_min': 120,
     },
 }
@@ -345,7 +474,7 @@ SYSTEM_CFG = {
 def _get_funding_rate(symbol: str) -> float:
     """获取当前资金费率，失败返回 0"""
     try:
-        r = requests.get(f'https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}',
+        r = requests.get(f'{_FAPI}/fapi/v1/premiumIndex?symbol={symbol}',
                          timeout=5)
         return float(r.json().get('lastFundingRate', 0))
     except Exception:
@@ -361,6 +490,10 @@ def _pmlog(msg: str):
             f.write(f'[{ts}] {msg}\n')
     except Exception:
         pass
+
+_WS_THREAD = threading.Thread(target=_ws_connect_loop, daemon=True)
+_WS_THREAD.start()
+_pmlog('[WS] 后台线程已启动')
 
 
 def _try_record_ghost_trade(sym: str, meta: dict):
@@ -391,16 +524,67 @@ _SYSTEM_KEYS = {
     'S8': 'state:s8',
 }
 
+def _load_meta() -> dict:
+    """从 pm:positions 读取本地元数据。"""
+    try:
+        local_pos = _rget('pm:positions')
+        if isinstance(local_pos, dict):
+            return {s: p for s, p in local_pos.items() if isinstance(p, dict)}
+    except Exception:
+        pass
+    return {}
+
+def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
+    """用本地元数据 enrich 原始持仓数据。"""
+    merged = {}
+    for sym, bp in raw.items():
+        if _was_closed_recently(sym):
+            _pmlog(f'[闭标记修复] {sym} 实际仍有持仓，清除关闭标记')
+            _clear_closed_marker(sym)
+        mp = meta.pop(sym, {})
+        merged[sym] = {
+            'entry': bp['entry'], 'side': bp['side'], 'qty': bp['qty'],
+            'leverage': bp.get('leverage', 3),
+            'margin': bp.get('margin', mp.get('margin', 'CROSSED')),
+            'system': mp.get('system', 'S6' if bp['side'] == 'LONG' else 'S8'),
+            'open_time': mp.get('open_time', now),
+            'event_type': mp.get('event_type', ''),
+            'strength': mp.get('strength', 50),
+            'score': mp.get('score', mp.get('strength', 50)),
+            'sl': mp.get('sl') or round(bp['entry'] * (1.08 if bp['side'] == 'SHORT' else 0.92), 8),
+            'be_done': mp.get('be_done', False),
+            'trail': mp.get('trail', False),
+            'atr': mp.get('atr', 0),
+            'algo_sl_id': mp.get('algo_sl_id', 0),
+            'ts': mp.get('ts', now), 'stop': mp.get('stop', bp['entry']),
+        }
+    return merged
+
 def _load() -> dict:
     """
-    合并加载：Binance 实际持仓 + 本地策略元数据。
-    Binance 是 existence/entry/qty 的绝对来源；本地文件只存策略上下文（event_type, strength, be_done 等）。
-    返回 {symbol: pos_dict}，其中 pos_dict 含 system 标签。
+    三层加载持仓：
+      一层 WS 实时流 → 二层 REST 轮询 → 三层本地元数据
+    沙盘模式：跳过 WS/REST，仅用本地。
     """
     now = time.time()
 
-    # 1. 从 Binance 拉实际持仓
-    real_positions: dict[str, dict] = {}
+    if _sandbox_active():
+        meta = _load_meta()
+        return {s: p for s, p in meta.items() if not _was_closed_recently(s)}
+
+    # ── 一层：WS 实时流 ──
+    ws_fresh = _WS_LAST_UPDATE > 0 and now - _WS_LAST_UPDATE < 30
+    if ws_fresh:
+        with _WS_LOCK:
+            ws_positions = dict(_WS_POSITIONS)
+        if ws_positions:
+            meta = _load_meta()
+            merged = _merge_meta(ws_positions, meta, now)
+            _save(merged)
+            return merged
+
+    # ── 二层：REST 轮询 ──
+    rest_positions: dict[str, dict] = {}
     try:
         real_r = _light_fapi_get('/fapi/v2/positionRisk')
         if isinstance(real_r, list):
@@ -408,108 +592,35 @@ def _load() -> dict:
                 amt = abs(float(p.get('positionAmt', 0)))
                 if amt < 0.001:
                     continue
-                sym = p['symbol']
-                entry = float(p['entryPrice'])
-                upnl = float(p.get('unRealizedProfit', 0))
                 side = 'SHORT' if float(p.get('positionAmt', 0)) < 0 else 'LONG'
-                real_positions[sym] = {
-                    'entry': entry, 'side': side, 'qty': amt,
-                    'upnl': upnl, 'leverage': int(p.get('leverage', 3)),
+                rest_positions[p['symbol']] = {
+                    'entry': float(p['entryPrice']), 'side': side, 'qty': amt,
+                    'leverage': int(p.get('leverage', 3)),
                     'margin': p.get('marginType', 'CROSSED').upper(),
                 }
     except Exception:
-        pass  # 拉不到 Binance 时回退到本地文件
+        pass
 
-    # 2. 从 Redis 读策略元数据
-    meta: dict[str, dict] = {}
-    for name, key in _SYSTEM_KEYS.items():
-        try:
-            state = _rget(key)
-            if not state:
-                continue
-            for sym, pos in state.get('positions', {}).items():
-                pos['system'] = name
-                if 'open_time' not in pos:
-                    pos['open_time'] = pos.get('ts', now)
-                if 'sl' not in pos:
-                    pos['sl'] = pos.get('stop', 0)
-                if 'stop' not in pos:
-                    pos['stop'] = pos.get('sl', 0)
-                if 'qty' not in pos:
-                    pos['qty'] = pos.get('original_qty', 0)
-                meta[sym] = pos
-        except Exception:
-            pass
-
-    # 3. 合并：Binance 为来源，补充本地元数据
-    merged: dict[str, dict] = {}
-    for sym, bp in real_positions.items():
-        mp = meta.pop(sym, {})
-        merged[sym] = {
-            # Binance 绝对来源
-            'entry': bp['entry'],
-            'side': bp['side'],
-            'qty': bp['qty'],
-            'leverage': bp['leverage'],
-            'margin': bp.get('margin', mp.get('margin', 'CROSSED')),
-            # 本地元数据（不存在则用猜的系统标签）
-            'system': mp.get('system', 'S6' if bp['side'] == 'LONG' else 'S8'),
-            'open_time': mp.get('open_time', now),
-            'event_type': mp.get('event_type', ''),
-            'strength': mp.get('strength', 50),
-            'score': mp.get('score', mp.get('strength', 50)),
-            'sl': mp.get('sl', 0),  # 不要 fallback 到 entry，entry=sl 导致硬止损立刻触发
-            'be_done': mp.get('be_done', False),
-            'trail': mp.get('trail', False),
-            'atr': mp.get('atr', 0),
-            'algo_sl_id': mp.get('algo_sl_id', 0),
-            'ts': mp.get('ts', now),
-            'stop': mp.get('stop', bp['entry']),
-        }
-
-    # 4. 清理本地有但 Binance 无的幽灵（meta 中剩下的就是幽灵）
-    #    仅当日首次出现时 log，避免每周期刷屏
-    if hasattr(_load, '_ghost_seen'):
-        _ghost_seen = _load._ghost_seen
-    else:
-        _ghost_seen = set()
-        _load._ghost_seen = _ghost_seen
-    for sym in list(meta.keys()):
-        if sym not in _ghost_seen:
-            _ghost_seen.add(sym)
-            _pmlog(f'[幽灵仓] {sym} 交易所已无持仓，忽略 (入场={meta[sym].get("entry", 0)})')
-            # 首次出现幽灵：调用 record_trade 写入 ClickHouse
-            _try_record_ghost_trade(sym, meta[sym])
-
-    # 5. 如果 Binance 返回了真实的持仓数据，则写回 state 文件修复不一致
-    #    如果 Binance 不可用（real_positions 为空），则回退到本地数据
-    if real_positions:
+    if rest_positions:
+        meta = _load_meta()
+        merged = _merge_meta(rest_positions, meta, now)
         _save(merged)
         return merged
 
-    # 回退：使用本地文件数据
-    _pmlog('[_load] Binance 不可用，回退到本地文件')
-    for sym, mp in meta.items():
-        merged[sym] = mp
+    # ── 三层：本地元数据 ──
+    meta = _load_meta()
+    merged = {s: p for s, p in meta.items() if not _was_closed_recently(s)}
+    if merged:
+        _save(merged)
     return merged
 
 
 def _save(positions: dict):
-    """
-    写入回各系统 Redis（按 system 标签分组），保持单一数据源。
-    """
-    by_system: dict[str, dict] = {}
-    for sym, pos in positions.items():
-        sys_name = pos.get('system', '')
-        by_system.setdefault(sys_name, {})[sym] = pos
-    for name, key in _SYSTEM_KEYS.items():
-        try:
-            existing = _rget(key) or {}
-            if name in by_system:
-                existing['positions'] = by_system[name]
-            _rset(key, existing)
-        except Exception:
-            pass
+    """写入 pm:positions 单一数据源。"""
+    try:
+        _rset('pm:positions', positions)
+    except Exception:
+        pass
 
 
 def _round_qty(symbol: str, qty: float) -> float:
@@ -517,9 +628,9 @@ def _round_qty(symbol: str, qty: float) -> float:
         _, _, _, _, get_symbol_info, _, _, _ = _s6api()
         info = get_symbol_info(symbol)
         if isinstance(info, (list, tuple)):
-            _, prec = info
+            prec = info[0]  # (qty_precision, price_precision)
         elif isinstance(info, dict):
-            prec = info.get('price_precision', info.get('quantity_precision', 6))
+            prec = info.get('quantity_precision', info.get('price_precision', 6))
         else:
             prec = 6
         return round(qty, prec)
@@ -530,7 +641,7 @@ def _round_qty(symbol: str, qty: float) -> float:
 def _get_cfg(pos: dict) -> dict:
     """从持仓获取系统配置，兜底用 S8A"""
     system = pos.get('system', '') or pos.get('signal_type', '')
-    for key in ('S8A', 'S8B', 'S6'):
+    for key in ('S8A', 'S8B', 'S6A', 'S6B', 'S6'):
         if key in system:
             return SYSTEM_CFG.get(key, {})
     return SYSTEM_CFG.get('S8A', {})
@@ -565,6 +676,9 @@ def open_position(
     - 挂条件止损单 Algo Order API（/fapi/v1/algoOrder）
     - 写入 pm_state + 同步原系统
     """
+    if _was_closed_recently(symbol):
+        _pmlog(f'[开仓拒绝] {symbol} 4h 内被平仓过，跳过')
+        return False
     _, fapi_post, _, _, _, _, _, _ = _s6api()
 
     # 1. 杠杆
@@ -618,7 +732,6 @@ def open_position(
     positions[symbol] = position
     _save(positions)
     _pmlog(f'[开仓] {system} {symbol} {side} 入场{entry} 止损{sl} {leverage}x score={score}')
-    _sync_to_legacy(symbol, position)
     return True
 
 
@@ -626,8 +739,10 @@ def open_position(
 #  监控
 # ═══════════════════════════════════════════════════════════════════════
 
-def _ghost_cleanup(positions: dict) -> list:
-    """幽灵仓清理：对比 Binance positionRisk，从 state 文件和内存中清除并记录 trade"""
+def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
+    """幽灵仓清理：对比 Binance positionRisk，清除并记录 trade。沙盘模式跳过。"""
+    if _sandbox_active():
+        return []
     closed = []
     try:
         _, _, _, _, _, _, _, record_trade = _s6api()
@@ -644,9 +759,13 @@ def _ghost_cleanup(positions: dict) -> list:
         for sym in list(positions.keys()):
             if sym in real_syms:
                 continue
-            pos = positions.pop(sym, None)
+            pos = positions.get(sym)
             if not pos:
                 continue
+            # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
+            if system_filter and not pos.get('system', '').startswith(system_filter):
+                continue
+            positions.pop(sym, None)
             entry = pos.get('entry', 0)
             side = pos.get('side', 'LONG')
             qty = pos.get('original_qty', pos.get('qty', 0))
@@ -664,25 +783,16 @@ def _ghost_cleanup(positions: dict) -> list:
                          trail_active=pos.get('trail', False),
                          algo_sl_id=pos.get('algo_sl_id', 0),
                          ghost_cleanup=True)
-            _sync_remove_from_legacy(sym, pos.get('system', ''))
-            closed.append((sym, '手动平仓', ghost_price))
+            closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
         if closed:
-            for name, key in _SYSTEM_KEYS.items():
-                try:
-                    existing = _rget(key) or {}
-                    updated = existing.get('positions', {})
-                    updated = {s: p for s, p in updated.items() if p.get('system') != name}
-                    sys_positions = {s: p for s, p in positions.items() if p.get('system') == name}
-                    updated.update(sys_positions)
-                    existing['positions'] = updated
-                    _rset(key, existing)
-                except Exception:
-                    pass
             _pmlog(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
     except Exception as e:
         _pmlog(f'[幽灵检测异常] {e}')
     return closed
 
+
+_monitor_heartbeat_ts: float = 0
+_RECENTLY_GHOSTED: list = []  # 本轮检测到的幽灵仓，monitor_all 消费后清空
 
 def monitor_all(system_filter: str = '') -> list:
     """
@@ -694,24 +804,74 @@ def monitor_all(system_filter: str = '') -> list:
 
     system_filter: 如 'S6' 则只处理该系统的持仓（防止双进程重复推送）
     """
+    global _monitor_heartbeat_ts
     positions = _load()
     if not positions:
+        now = time.time()
+        if now - _monitor_heartbeat_ts > 60:
+            _monitor_heartbeat_ts = now
+            _pmlog('[监控心跳] 无持仓')
         return []
+    now = time.time()
+    if now - _monitor_heartbeat_ts > 60:
+        _monitor_heartbeat_ts = now
+        _, _, _, get_price, _, _, _, _ = _s6api()
+        parts = []
+        for s, p in list(positions.items())[:8]:
+            entry = p.get('entry')
+            side_mark = p.get('side', '?')[:1]
+            if entry:
+                try:
+                    cur = get_price(s)
+                    if cur:
+                        pnl = (entry - cur) / entry * 100 if p.get('side') == 'SHORT' else (cur - entry) / entry * 100
+                        parts.append(f'{s}({side_mark} {pnl:+.1f}%)')
+                    else:
+                        parts.append(f'{s}({side_mark})')
+                except Exception:
+                    parts.append(f'{s}({side_mark})')
+            else:
+                parts.append(f'{s}({side_mark})')
+        _pmlog(f'[监控心跳] {", ".join(parts)}' if parts else '[监控心跳] 无持仓')
+    # Step 0: Ghost 清理 — 对比交易所实盘，已平但 PM 未知的仓位
+    ghost_closed = _ghost_cleanup(positions, system_filter)
     # 过滤系统
     if system_filter:
-        positions = {s: p for s, p in positions.items() if p.get('system') == system_filter}
-    if not positions:
-        return []
-
-    closed = []
-    for symbol in list(positions.keys()):
-        try:
-            r = _monitor_one(symbol, positions[symbol], positions)
-            if r:
-                closed.append((symbol, *r))
-        except Exception as e:
-            _pmlog(f'[监控异常] {symbol}: {e}')
-    _save(positions)
+        all_positions = positions
+        positions = {s: p for s, p in positions.items() if p.get('system', '').startswith(system_filter)}
+    else:
+        all_positions = positions
+    closed = list(ghost_closed)
+    if positions:
+        for symbol in list(positions.keys()):
+            try:
+                r = _monitor_one(symbol, positions[symbol], all_positions)
+                if r:
+                    closed.append((symbol, *r))
+            except Exception as e:
+                _pmlog(f'[监控异常] {symbol}: {e}')
+    # 消费本轮幽灵仓（AlgoSL 平仓），只消费属于本系统的
+    closed_syms = {c[0] for c in closed}
+    remaining = []
+    while _RECENTLY_GHOSTED:
+        g = _RECENTLY_GHOSTED.pop(0)
+        g_sym = g[0]
+        g_side = g[5] if len(g) >= 6 else None
+        if g_sym in closed_syms:
+            continue  # ghost_cleanup 已经处理过了，跳过重复
+        if not system_filter or not g_side:
+            closed.append(g)
+            closed_syms.add(g_sym)
+        elif system_filter == 'S6' and g_side == 'LONG':
+            closed.append(g)
+            closed_syms.add(g_sym)
+        elif system_filter == 'S8' and g_side == 'SHORT':
+            closed.append(g)
+            closed_syms.add(g_sym)
+        else:
+            remaining.append(g)
+    _RECENTLY_GHOSTED.extend(remaining)
+    _save(all_positions)
 
     # 持仓快照日志
     if closed:
@@ -735,12 +895,12 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
         _pmlog(f'[费率警告] {symbol} SHORT 资金费率 {fund_rate:.4%} <-0.5% 强制平仓')
         reason = f'资金费率过高 {fund_rate:.4%}'
         _close(symbol, pos, price, reason, positions)
-        return (reason, price)
+        return (reason, price, entry, pos['qty'], pos['side'])
     if pos['side'] == 'LONG' and fund_rate > 0.005:
         _pmlog(f'[费率警告] {symbol} LONG 资金费率 {fund_rate:.4%} >0.5% 强制平仓')
         reason = f'资金费率过高 {fund_rate:.4%}'
         _close(symbol, pos, price, reason, positions)
-        return (reason, price)
+        return (reason, price, entry, pos['qty'], pos['side'])
     # 警告级别（仅通知一次）
     warn_tag = 'fund_warned'
     if not pos.get(warn_tag):
@@ -761,31 +921,27 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
     # 1. 硬止损
     if sl_breached:
         _close(symbol, pos, price, '硬止损', positions)
-        return ('硬止损', price)
+        return ('硬止损', price, entry, pos['qty'], pos['side'])
 
     # 2. 紧急止损（主止损 — Binance 已废弃 STOP_MARKET，全靠轮询）
     max_loss = cfg.get('sl_breach_max', -8.0)
     if pnl < max_loss:
         _close(symbol, pos, price, f'紧急止损 pnl={pnl:.1f}%', positions)
-        return (f'紧急止损 pnl={pnl:.1f}%', price)
+        return (f'紧急止损 pnl={pnl:.1f}%', price, entry, pos['qty'], pos['side'])
 
     # 3. be_done：盈利达标 → 止损移到成本
     be_pct = cfg.get('be_done_threshold', 2.0)
     if not pos.get('be_done') and pnl >= be_pct:
         _update_stop_loss(symbol, pos, price, entry)
 
-    # 4. 追踪锁利（专业量化版）
-    #    - 多周期 ATR 基价（防泵后 ATR 虚低）
-    #    - 15m 收盘确认（不收市不追踪）
-    #    - 收 > EMA20 进入等待区（下根确认是否真反转）
-    #    - 1h EMA 趋势安全阀
+    # 4. 追踪锁利
     if pos.get('be_done') and pnl >= be_pct:
-        trail_mult = cfg.get('trail_mult', 0.3)
-        trail_result = _calc_trail_sl(symbol, pos, price, trail_mult, positions)
+        trail_cfg = cfg.get('trail', {'base_mult': 0.3})
+        trail_result = _calc_trail_sl(symbol, pos, price, trail_cfg, positions)
         if trail_result == 'exit':
             # 等待区确认：2根连续收>EMA20 → 趋势反转离场
             _close(symbol, pos, price, '趋势反转（2次收>EMA20）', positions)
-            return ('趋势反转', price)
+            return ('趋势反转', price, entry, pos['qty'], pos['side'])
         elif trail_result is not None:
             # 新追踪价位
             _place_trail_sl(symbol, pos, trail_result, positions)
@@ -803,10 +959,10 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                 ema20_1h = sum(c1h[-20:]) / 20
                 if pos['side'] == 'SHORT' and ema9_1h > ema20_1h * 1.02:
                     _close(symbol, pos, price, '1h趋势反转', positions)
-                    return ('1h趋势反转', price)
+                    return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
                 elif pos['side'] != 'SHORT' and ema9_1h < ema20_1h * 0.98:
                     _close(symbol, pos, price, '1h趋势反转', positions)
-                    return ('1h趋势反转', price)
+                    return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
         except Exception:
             pass
 
@@ -832,11 +988,11 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                 if time.time() < pos.get('extend_deadline', 0):
                     return None
             _close(symbol, pos, price, '时间止损', positions)
-            return ('时间止损', price)
+            return ('时间止损', price, entry, pos['qty'], pos['side'])
         elif pnl < be_pct:
             # 微盈/不亏 — 提前释放
             _close(symbol, pos, price, '时间止损', positions)
-            return ('时间止损', price)
+            return ('时间止损', price, entry, pos['qty'], pos['side'])
 
     return None
 
@@ -883,7 +1039,6 @@ def reconcile_all():
             _pmlog(f'[对账] 幽灵仓清除: {sym} entry={positions[sym].get("entry")}（state有但交易所无）')
             positions.pop(sym, None)
             ghost.append(sym)
-            _sync_remove_from_legacy(sym, positions.get(sym, {}).get('system', ''))
 
     # Binance有但PM无
     for sym, info in real_positions.items():
@@ -990,24 +1145,34 @@ def _calc_trail_base(symbol: str, price: float) -> float:
     return max(atr_15m, atr_1h / 4, pct_base)
 
 
-def _calc_trail_sl(symbol: str, pos: dict, price: float, mult: float, positions: dict):
+def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positions: dict):
     """
-    专业量化追踪止损。
+    统一追踪止损。
+
+    trail_cfg:
+      base_mult      — 基础间距 (×ATR)
+      tighten_pct    — 浮盈≥此值开始收紧
+      tighten_min    — 最紧间距倍率
+      breakeven_atr  — 浮盈≥此值×ATR → 保本加固
 
     策略：
-    1. 多周期 ATR 基价（而非单一 15m ATR）
-    2. 泵后币自动 ×3 间距（24h 振幅 > 20%）
-    3. 15m 收盘确认（不收市不追踪，再紧的针也打不掉）
-    4. 收 > EMA20 → 进入等待区（不下单不收紧）
-       下一根也收 > EMA20 → 返回 'exit' 信号离场
-       下一根收 < EMA20 → 清理等待区，恢复追踪
+    1. 多周期 ATR 基价（max(15m_ATR, 1h_ATR/4, 价格×1.5%)）
+    2. 泵后币自动 ×1.5 间距（24h 振幅 > 4%）
+    3. 15m 收盘确认（不收市不追踪）
+    4. 收 > EMA20 → 等待区（下一根验证后 exit）
+    5. 保本加固（breakeven_atr）
 
     返回：
-      None     → 不需要更新（同根K线，或等待区第1根）
+      None     → 不需要更新
       数值     → 新止损价
-      'exit'   → 等待区确认趋势反转，需要离场
+      'exit'   → 趋势反转离场
     """
     dc = _get_data_cache()
+    mult = float(trail_cfg.get('base_mult', 0.3))
+    tighten_pct = float(trail_cfg.get('tighten_pct', 8.0))
+    tighten_min = float(trail_cfg.get('tighten_min', 0.5))
+    be_atr = trail_cfg.get('breakeven_atr')  # None 表示不做
+
     pump_mult = 1.0
 
     # ── 0. 泵后检测（24h 内任一 15m 蜡烛振幅 > 4%）──
@@ -1023,16 +1188,14 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, mult: float, positions:
         pass
 
     # ── 1a. 大浮盈自动收紧间距 ──
-    # 当浮盈 > 8% 时，逐步收紧追踪（保护利润）
     if pos['side'] == 'SHORT':
         pnl_pct = (pos['entry'] - price) / pos['entry'] * 100
     else:
         pnl_pct = (price - pos['entry']) / pos['entry'] * 100
-    if pnl_pct > 8:
-        # 浮盈每多 2%，间距收紧一档（最少 0.5x base）
-        tighten = max(0.5, 1.0 - (pnl_pct - 8) / 20)
+    if pnl_pct > tighten_pct:
+        tighten = max(tighten_min, 1.0 - (pnl_pct - tighten_pct) / 20)
         mult *= tighten
-        pump_mult = min(pump_mult, 1.5)  # 泵后间距也同时收紧
+        pump_mult = min(pump_mult, 1.5)
 
     # ── 1. 多周期 ATR 基价 ──
     base_atr = _calc_trail_base(symbol, price)
@@ -1048,13 +1211,11 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, mult: float, positions:
     except Exception:
         return None
 
-    # kl[-1] = 未完成蜡烛, kl[-2] = 最新收盘
     last_closed_ts = k15[-2][0]
     if pos.get('last_15m_candle', 0) >= last_closed_ts:
-        return None  # 同根K线，不收市不追踪
+        return None
     pos['last_15m_candle'] = last_closed_ts
 
-    # 15m EMA20 计算
     if len(k15) < 21:
         return None
     c15 = [float(x[4]) for x in k15[-21:]]
@@ -1065,11 +1226,9 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, mult: float, positions:
     wait_key = 'trail_confirm_until'
     if pos['side'] == 'SHORT' and last_close > ema20_15:
         if pos.get(wait_key):
-            # 已经等了一根，第二根也收在 EMA20 之上 → 趋势可能反转
             pos.pop(wait_key, None)
             return 'exit'
         else:
-            # 第一根收 > EMA20 → 进入等待区，不更新止损
             pos[wait_key] = last_closed_ts
             return None
     elif pos['side'] != 'SHORT' and last_close < ema20_15:
@@ -1080,21 +1239,37 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, mult: float, positions:
             pos[wait_key] = last_closed_ts
             return None
 
-    # 收盘回归 EMA20 之下 → 清理等待区
     pos.pop(wait_key, None)
 
     # ── 4. 计算新止损价 ──
+    new_sl = None
     if pos['side'] == 'SHORT':
         sl = round(price + effective_atr, 6)
-        sl = max(sl, round(ema20_15, 6))  # EMA20 兜底
+        sl = max(sl, round(ema20_15, 6))
         if sl < pos['sl'] and sl > price:
-            return sl
+            new_sl = sl
     else:
         sl = round(price - effective_atr, 6)
-        sl = min(sl, round(ema20_15, 6))  # EMA20 兜底
+        sl = min(sl, round(ema20_15, 6))
         if sl > pos['sl'] and sl < price:
-            return sl
-    return None
+            new_sl = sl
+
+    # ── 5. 保本加固：浮盈≥breakeven_atr×ATR 时止损拉到成本 ──
+    if be_atr is not None and base_atr > 0:
+        if pos['side'] == 'SHORT':
+            profit_atr = (pos['entry'] - price) / base_atr
+            if profit_atr >= be_atr:
+                entry_be = round(pos['entry'] * 1.001, 6)
+                if new_sl is None or (entry_be < new_sl and entry_be > price):
+                    new_sl = entry_be
+        else:
+            profit_atr = (price - pos['entry']) / base_atr
+            if profit_atr >= be_atr:
+                entry_be = round(pos['entry'] * 0.999, 6)
+                if new_sl is None or (entry_be > new_sl and entry_be < price):
+                    new_sl = entry_be
+
+    return new_sl
 
 
 def _place_trail_sl(symbol: str, pos: dict, trail_sl: float, positions: dict):
@@ -1163,12 +1338,54 @@ def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
     return False
 
 
+def _clear_closed_marker(symbol: str):
+    """清除关闭标记（仓位重新打开后调用）"""
+    try:
+        marker = _LOG_DIR / 'closed_markers' / symbol
+        if marker.exists():
+            marker.unlink()
+    except Exception:
+        pass
+
+
 def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict):
-    """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录 → 同步原系统"""
+    """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录"""
     _mark_closed(symbol)
+    _, fapi_post, _, _, _, _, _, record_trade = _s6api()
+
+    # ═══ 沙盘模式：跳过 Binance API 检查，直接记录 ═══
+    if _sandbox_active():
+        try:
+            from scripts.sandbox import _close_position as _sb_close
+            _sb_close(symbol)
+        except Exception:
+            pass
+        _pmlog(f'[平仓·沙盘] {symbol} {reason} 入场={pos.get("entry")} 现价={price}')
+        close_qty = pos.get('original_qty', pos.get('qty', 0))
+        if pos['side'] == 'SHORT':
+            pnl_pct = (pos['entry'] - price) / pos['entry'] * 100
+            pnl_u   = round((pos['entry'] - price) * close_qty, 2)
+        else:
+            pnl_pct = (price - pos['entry']) / pos['entry'] * 100
+            pnl_u   = round((price - pos['entry']) * close_qty, 2)
+        record_trade(symbol, pos['entry'], price, close_qty, pos.get("leverage", 3),
+                     pos.get('system', ''), pos['open_time'],
+                     exit_reason=reason, side=pos['side'],
+                     score=pos.get('score', 0),
+                     atr_entry=pos.get('atr', 0),
+                     sl_price=pos.get('sl', 0),
+                     margin_mode=pos.get('margin', ''),
+                     be_done=pos.get('be_done', False),
+                     trail_active=pos.get('trail', False),
+                     algo_sl_id=pos.get('algo_sl_id', 0))
+        positions.pop(symbol, None)
+        _save(positions)
+        return
+
+    # ═══ 实盘模式 ═══
     fapi_get, fapi_post, _, _, _, _, _, record_trade = _s6api()
 
-    # 0. 取消该币所有条件单（防止残留重复单）
+    # 0. 取消该币所有条件单
     try:
         _cancel_all_algo(symbol)
         _pmlog(f'[平仓Algo取消] {symbol} 已清理全部条件单')
@@ -1204,7 +1421,6 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict):
                          algo_sl_id=pos.get('algo_sl_id', 0))
             positions.pop(symbol, None)
             _save(positions)
-            _sync_remove_from_legacy(symbol, pos.get('system', ''))
             return
 
         close_qty = _round_qty(symbol, abs(float(real_pos['positionAmt'])))
@@ -1242,44 +1458,15 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict):
                  trail_active=pos.get('trail', False),
                  algo_sl_id=pos.get('algo_sl_id', 0))
 
-    # 删记录 + 同步
+    # 删记录
     positions.pop(symbol, None)
     _save(positions)
-    _sync_remove_from_legacy(symbol, pos.get('system', ''))
 
 
 def _set_cooldown(symbol: str, system: str, pnl_pct: float):
     """平仓后写入对应系统的冷却期（由策略主循环负责，PM 写入会导致并发覆盖）"""
     pass
 
-
-
-def _sync_to_legacy(symbol: str, pos: dict):
-    """写回原系统 state"""
-    key = _SYSTEM_KEYS.get(pos.get('system', ''))
-    if not key:
-        return
-    try:
-        state = _rget(key)
-        if state and 'positions' in state:
-            state['positions'][symbol] = pos
-            _rset(key, state)
-    except Exception:
-        pass
-
-
-def _sync_remove_from_legacy(symbol: str, system: str):
-    """平仓后从原系统 state 删除"""
-    key = _SYSTEM_KEYS.get(system)
-    if not key:
-        return
-    try:
-        state = _rget(key)
-        if state:
-            state.get('positions', {}).pop(symbol, None)
-            _rset(key, state)
-    except Exception:
-        pass
 
 
 def migrate_existing_positions():

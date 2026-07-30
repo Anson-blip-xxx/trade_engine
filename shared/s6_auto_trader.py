@@ -44,10 +44,10 @@ from shared_positions import (
 # 泵检测已合并到s2扫描器 >> shared_scanner不再需要
 
 # === 配置 ===
-CONFIG_FILE = Path(__file__).parent / 'config/binance.env'
+CONFIG_FILE = Path(__file__).resolve().parent.parent / 'config/binance.env'
 CIRCUIT_LOSS_COUNT = 3
 CIRCUIT_COOLDOWN = 3600
-S2P_REJECT_LOG = Path(__file__).parent / 'config/s2p_rejection_log.jsonl'
+S2P_REJECT_LOG = Path(__file__).resolve().parent.parent / 'config/s2p_rejection_log.jsonl'
 
 def _ch_query(sql):
     """执行ClickHouse查询，返回结果行列表"""
@@ -257,7 +257,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'market_state': _market_state,
             'btc_trend': _btc_trend,
             'btc_price_close': round(_btc_price, 2),
-            'market_breadth': round(float(_breadth), 4) if _breadth else 0,
+            'market_breadth': round(float(_breadth), 4) if _breadth and _breadth.replace('.','',1).replace('-','',1).isdigit() else 0,
             'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0,
             'ghost_cleanup': 1 if ghost_cleanup else 0,
         })
@@ -525,7 +525,7 @@ def tg(text):
     except:
         pass
 
-_LOG_DIR = Path(__file__).parent.parent / 'logs/s6'
+_LOG_DIR = Path(__file__).parent.parent.parent / 'logs/s6'
 
 def log(msg):
     ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1795,7 +1795,7 @@ def market_close(symbol, qty, side='SELL'):
 
 
 def _handle_pump_exit(state, symbol, pos, price, atr, hold_min, real_sym) -> bool:
-    """妖币泵仓位专用退出逻辑（source='s2p'）：3-TP + 量能衰减 + 120min"""
+    """妖币泵仓位退出逻辑（source='s2p'）：3-TP + 120min（追踪已交PM）"""
     orig_qty = pos.get('original_qty', pos['qty'])
     profit_pct = (price - pos['entry']) / pos['entry'] * 100
     profit_atr = (price - pos['entry']) / atr if atr > 0 else 0
@@ -1872,20 +1872,6 @@ def _handle_pump_exit(state, symbol, pos, price, atr, hold_min, real_sym) -> boo
                 return True
         return False
 
-    # 剩余仓位追踪(0.3xATR)
-    if pos.get("tp3_done") or pos.get("tp2_done"):
-        if price > pos.get("highest", pos["entry"]):
-            state["positions"][symbol]["highest"] = price
-            trail_sl = round(price - 0.3 * atr, 8)
-            if trail_sl > pos["sl"]:
-                state["positions"][symbol]["sl"] = trail_sl
-                log(f'[泵追踪] {symbol} 止损上移至{trail_sl:.6f}')
-                return True
-        # 浮盈保护>3%
-        if profit_pct >= 3.0 and not pos.get("partial_tp_done"):
-            state["positions"][symbol]["sl"] = max(pos["sl"], round(pos["entry"] * 1.001, 8))
-            state["positions"][symbol]["partial_tp_done"] = True
-
     # 时间止损120min
     if hold_min >= 120:
         log(f'[泵时间止损] {symbol} 持仓{hold_min:.0f}min超过120min')
@@ -1901,7 +1887,7 @@ def _handle_pump_exit(state, symbol, pos, price, atr, hold_min, real_sym) -> boo
     return False
 
 def monitor_positions():
-    """2秒高频监控：软件止损+追踪止盈+评分检查"""
+    """2秒高频监控：软件止损+评分检查"""
     state = load_state()
     if not state['positions']:
         return
@@ -1930,17 +1916,6 @@ def monitor_positions():
                              signal_type=pos.get('signal_type',''), market_state_entry=pos.get('market_state_entry',''), btc_trend_entry=pos.get('btc_trend_entry',''), breadth_entry=pos.get('breadth_entry',''), score=pos.get('score',0))
                         changed = True
                         continue
-                # 做空追踪止盈：跌幅>1%后才开始追踪
-                profit_pct = (pos['entry'] - price) / pos['entry'] * 100
-                if profit_pct >= 1.0 and price < pos.get('lowest', pos['entry']):
-                    state['positions'][symbol]['lowest'] = price
-                    ls = calc_position_live_score(real_sym, pos)
-                    tm = 1.5 if ls >= 6 else 1.0 if ls >= 4 else 0.6
-                    new_sl = round(price + tm * atr, 8)
-                    if new_sl < pos['sl']:
-                        state['positions'][symbol]['sl'] = new_sl
-                        log(f'[做空追踪] {real_sym} 止损下移至{new_sl:.6f} (live_score={ls}, mult={tm})')
-                        changed = True
                 # 做空止盈
                 if price <= pos['tp']:
                     log(f'[做空止盈] {real_sym} 价格{price} <= 止盈{pos["tp"]}')
@@ -2146,33 +2121,6 @@ def monitor_positions():
                              signal_type=pos.get('signal_type',''), market_state_entry=pos.get('market_state_entry',''), btc_trend_entry=pos.get('btc_trend_entry',''), breadth_entry=pos.get('breadth_entry',''), score=pos.get('score',0))
                             changed = True
                             continue
-
-                profit_pct = (price - pos['entry']) / pos['entry'] * 100
-                profit_atr = (price - pos['entry']) / atr if atr > 0 else 0
-                if profit_pct >= 1.0 and price > pos.get('highest', pos['entry']):
-                    state['positions'][symbol]['highest'] = price
-                    # 浮盈>3%用2.5×ATR，否则1.5×ATR
-                    trail_atr = 2.5 if profit_pct >= 3.0 else 1.5
-                    new_sl = round(price - trail_atr * atr, 8)
-                    # A-3: 浮盈≥1.5×ATR时止损抬到开仓价（保本）
-                    if profit_atr >= 1.5:
-                        new_sl = max(new_sl, pos['entry'])
-                    if new_sl > pos['sl']:
-                        state['positions'][symbol]['sl'] = new_sl
-                        log(f'[追踪止损] {symbol} 止损上移至{new_sl:.6f} (浮盈{profit_pct:.1f}%/{profit_atr:.1f}×ATR trail={trail_atr}×ATR)')
-                        changed = True
-                # A-4 分层止盈：浮盈≥2×ATR时平仓50%
-                if profit_atr >= 2.0 and not pos.get('partial_tp_done'):
-                    half_qty = pos['qty'] / 2
-                    log(f'[分层止盈] {symbol} 平仓50% 价格{price} 浮盈{profit_atr:.1f}×ATR')
-                    r = market_close(symbol, half_qty)
-                    if 'orderId' in r:
-                        state['positions'][symbol]['partial_tp_done'] = True
-                        state['positions'][symbol]['qty'] = half_qty
-                        # 剩余仓位保本止损
-                        state['positions'][symbol]['sl'] = max(pos['sl'], pos['entry'])
-                        tg(f'[分层止盈] {symbol} 平仓50% 价格{price:.4f} 浮盈{profit_atr:.1f}×ATR')
-                        changed = True
 
                 # 做多止盈
                 if price >= pos['tp']:

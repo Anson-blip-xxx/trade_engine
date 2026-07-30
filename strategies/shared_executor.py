@@ -7,18 +7,22 @@ from urllib.parse import urlencode
 from pathlib import Path
 from typing import Optional
 
-TRADE_DIR = Path('/root/.openclaw/trade')
-CONFIG_DIR = TRADE_DIR / 'trading_engine/strategies/config'
-LOG_DIR = TRADE_DIR / 'trading_engine/logs'
+TRADE_DIR = Path(__file__).resolve().parent.parent
+CONFIG_DIR = TRADE_DIR / 'strategies/config'
+LOG_DIR = TRADE_DIR.parent / 'logs'
 
-sys.path.insert(0, str(TRADE_DIR / 'trading_engine'))
 sys.path.insert(0, str(TRADE_DIR))
-from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_start_worker
+sys.path.insert(0, str(TRADE_DIR.parent))
+from shared.binance_api import FAPI
+from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_start_worker, _load as _pm_load
+
+# 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
+_POS_CACHE: dict[str, dict] | None = None
 from shared.redis_store import get as _rget, set as _rset
 
 # ── Telegram ──
 # 从 binance.env 加载 TG 配置 + API 密钥
-_CONFIG_ENV = Path('/root/.openclaw/trade/trading_engine/config/binance.env')
+_CONFIG_ENV = TRADE_DIR / 'config/binance.env'
 _TG_TOKEN = ''
 _TG_CHAT_ID = 0
 _API_KEY = ''
@@ -26,13 +30,17 @@ _API_SECRET = ''
 
 
 if _CONFIG_ENV.exists():
+    _is_testnet = False
     for line in _CONFIG_ENV.read_text().splitlines():
         if '=' in line:
             k, v = line.strip().split('=', 1)
             if k == 'TG_NOTIFY_TOKEN': _TG_TOKEN = v
             elif k == 'TG_NOTIFY_CHAT_ID': _TG_CHAT_ID = int(v)
-            elif k == 'BINANCE_API_KEY': _API_KEY = v
-            elif k == 'BINANCE_API_SECRET': _API_SECRET = v
+            elif k == 'BINANCE_TESTNET': _is_testnet = v.strip().lower() == 'true'
+            elif k == 'BINANCE_API_KEY' and not _is_testnet: _API_KEY = v
+            elif k == 'BINANCE_API_SECRET' and not _is_testnet: _API_SECRET = v
+            elif k == 'BINANCE_TESTNET_API_KEY' and _is_testnet: _API_KEY = v
+            elif k == 'BINANCE_TESTNET_API_SECRET' and _is_testnet: _API_SECRET = v
 
 
 
@@ -63,10 +71,8 @@ def tg_pin(message_id: int):
 # ── 最小名义价值缓存 ──
 _MIN_NOTIONAL_CACHE: dict = {}
 def _get_funding_rate(symbol: str) -> float:
-    """获取当前资金费率，失败返回 0。极值：-0.001 ~ 0.001"""
     try:
-        import requests
-        r = requests.get(f'https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}', timeout=5)
+        r = requests.get(f'{FAPI}/fapi/v1/premiumIndex?symbol={symbol}', timeout=5)
         return float(r.json().get('lastFundingRate', 0))
     except Exception:
         return 0.0
@@ -97,7 +103,7 @@ def _sandbox_check():
     global _SANDBOX_ACTIVE
     if _SANDBOX_ACTIVE is not None:
         return _SANDBOX_ACTIVE
-    p = Path('/root/.openclaw/trade/trading_engine/strategies/config/SANDBOX_MODE')
+    p = TRADE_DIR / 'strategies/config/SANDBOX_MODE'
     _SANDBOX_ACTIVE = p.exists()
     return _SANDBOX_ACTIVE
 
@@ -137,13 +143,12 @@ def fapi_get(path: str, params: dict = None) -> Optional[dict | list]:
     sb = _sandbox_get(path, params)
     if sb is not None:
         return sb
-    base = 'https://fapi.binance.com'
     params = params or {}
     params['timestamp'] = int(time.time() * 1000)
     params['signature'] = _fapi_sig(params)
     headers = {'X-MBX-APIKEY': _API_KEY}
     try:
-        r = requests.get(f'{base}{path}', params=params, headers=headers, timeout=10)
+        r = requests.get(f'{FAPI}{path}', params=params, headers=headers, timeout=10)
         return r.json() if r.status_code == 200 else None
     except Exception:
         return None
@@ -153,12 +158,11 @@ def fapi_post(path: str, params: dict) -> Optional[dict]:
     sb = _sandbox_post(path, params)
     if sb is not None:
         return sb
-    base = 'https://fapi.binance.com'
     params['timestamp'] = int(time.time() * 1000)
     params['signature'] = _fapi_sig(params)
     headers = {'X-MBX-APIKEY': _API_KEY}
     try:
-        r = requests.post(f'{base}{path}', params=params, headers=headers, timeout=10)
+        r = requests.post(f'{FAPI}{path}', params=params, headers=headers, timeout=10)
         return r.json() if r.status_code == 200 else None
     except Exception:
         return None
@@ -169,7 +173,7 @@ def _log(name: str, msg: str):
     line = f'[{ts}] [{name}] {msg}'
     print(line, flush=True)
     try:
-        d = LOG_DIR / name
+        d = LOG_DIR / name.lower()
         d.mkdir(parents=True, exist_ok=True)
         (d / f'{time.strftime("%Y%m%d")}.log').open('a').write(line + '\n')
     except Exception:
@@ -224,78 +228,123 @@ _KEY_MAP_OVERRIDE = {
 }
 
 def load_state(name: str) -> dict:
+    """加载策略非持仓状态（冷却期等）。持仓由 PM 的 pm:positions 统一管理。"""
     key = _KEY_MAP_OVERRIDE.get(name, f'state:{name.lower()}')
     try:
         data = _rget(key)
         if data:
+            if 'positions' in data:
+                del data['positions']
             return data
     except Exception:
         pass
-    return {'positions': {}, 'cooldowns': {}}
+    return {'cooldowns': {}}
 
 def save_state(name: str, state: dict):
+    """保存策略非持仓状态。positions 字段由 PM 管理，存储时剥离。"""
     key = _KEY_MAP_OVERRIDE.get(name, f'state:{name.lower()}')
+    to_save = {k: v for k, v in state.items() if k != 'positions'}
     try:
-        _rset(key, state)
+        _rset(key, to_save)
     except Exception as e:
         _log(name, f'Save state failed: {e}')
 
 def reconcile_positions(name: str, state: dict) -> dict:
-    """对比交易所实际持仓 vs state，清鬼魂 + 补充止损单"""
-    try:
-        acct = fapi_get('/fapi/v2/account')
-        if not isinstance(acct, dict):
-            return state
-        actual_syms = {p['symbol'] for p in acct.get('positions', [])
-                       if abs(float(p.get('positionAmt', 0))) > 0}
-        for sym in list(state.get('positions', {}).keys()):
-            if sym not in actual_syms:
-                _log(name, f'[对账] {sym} state有仓但交易所无持仓，清幽灵')
-                del state['positions'][sym]
-                save_state(name, state)
-            else:
-                # 已有持仓但可能缺少止损单 → 补充入队
-                pos = state['positions'].get(sym, {})
-                sl = pos.get('stop')
-                side = pos.get('side', 'LONG')
-                if sl and sl > 0:
-                    close_side = 'BUY' if side == 'SHORT' else 'SELL'
-                    qty = pos.get('qty', 0)
-                    if qty > 0:
-                        try:
-                            _algo_enqueue(sym, close_side, sl, qty)
-                            _log(name, f'[补止损] {sym} 止损{sl} 已入队')
-                        except Exception as e:
-                            _log(name, f'[补止损异常] {sym}: {e}')
-    except Exception as e:
-        _log(name, f'[对账异常] {e}')
+    """持仓对账由 PM 的 monitor_all 全权处理，此函数不再管理 positions。"""
     return state
 
 # 确保 AlgoWorker 已启动（导入后只启动一次）
 _algo_start_worker()
 
-def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
-    """PM 监控，返回已平仓列表"""
-    if not state.get('positions'):
-        return state, []
+def _refresh_positions() -> dict | None:
+    """刷新并返回全量持仓缓存（pm:positions）。"""
+    global _POS_CACHE
+    try:
+        _POS_CACHE = _pm_load()
+    except Exception:
+        _POS_CACHE = None
+    return _POS_CACHE
 
+def _update_pos_cache(name: str, symbol: str, side: str,
+                      entry: float, qty: float, stop_price: float,
+                      leverage: int, margin: str, event_type: str, strength: int):
+    global _POS_CACHE
+    if _POS_CACHE is None:
+        _POS_CACHE = {}
+    now = time.time()
+    _POS_CACHE[symbol] = {
+        'entry': entry,
+        'side': side.upper(),
+        'qty': qty,
+        'leverage': leverage,
+        'margin': margin.upper(),
+        'system': name,
+        'open_time': now,
+        'event_type': event_type,
+        'strength': strength,
+        'score': strength,
+        'sl': stop_price,
+        'be_done': False,
+        'trail': False,
+        'atr': 0,
+        'algo_sl_id': 0,
+        'ts': now,
+        'stop': entry,
+    }
+
+def _get_positions(name: str) -> dict:
+    """从缓存获取指定系统的持仓。"""
+    if _POS_CACHE is None:
+        _refresh_positions()
+    if _POS_CACHE:
+        return {s: p for s, p in _POS_CACHE.items() if p.get('system', '').startswith(name)}
+    return {}
+
+def get_position_count(name: str) -> int:
+    """获取指定系统的持仓数量（优先 PM 实时数据，防重复开仓）。"""
+    try:
+        positions = _pm_load()
+        pm_count = sum(1 for p in positions.values() if p.get('system', '').startswith(name))
+    except Exception:
+        pm_count = 0
+    cached = _get_positions(name)
+    return max(pm_count, len(cached))
+
+def has_position(name: str, symbol: str) -> bool:
+    """判断指定系统是否持有某币。
+    先查缓存，缓存没有则直接查 PM（防缓存滞后导致重复开仓）。"""
+    if symbol in _get_positions(name):
+        return True
+    try:
+        positions = _pm_load()
+        return any(s == symbol and p.get('system', '').startswith(name) for s, p in positions.items())
+    except Exception:
+        return False
+
+def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
+    """PM 监控，返回已平仓列表。持仓由 PM 全权管理。"""
     closed = monitor_all(system_filter=name)
+    _refresh_positions()
     closed_list = []
-    for symbol, reason, close_price in closed:
-        pos = state['positions'].pop(symbol, None)
-        if not pos:
-            continue
-        entry = pos['entry']
-        qty = pos.get('qty', 0)
-        side_mult = -1 if pos.get('side') == 'SHORT' else 1
+    for item in closed:
+        symbol, reason, close_price = item[:3]
+        if len(item) >= 6:
+            entry, qty, side = item[3], item[4], item[5]
+        else:
+            pos = (_POS_CACHE or {}).get(symbol, {})
+            entry = pos.get('entry', close_price)
+            qty = pos.get('qty', 0)
+            side = pos.get('side', 'LONG')
+        side_mult = -1 if side == 'SHORT' else 1
         pnl_pct = ((close_price - entry) / entry * 100) * side_mult
         pnl_usdt = (close_price - entry) * qty * side_mult
-        _log(name, f'平仓 {symbol} PnL: {pnl_pct:+.1f}% ({pnl_usdt:+.2f}U) 原因={reason}')
-        # 不在这里发 TG——record_trade 已经发完整通知（含胜率/周期盈亏等统计）
-        # 任何平仓后都加冷静期（不管盈亏），防止刚平又开
-        state.setdefault('cooldowns', {})[symbol] = time.time() + 7200  # 2h cooldown
+        msg = f'平仓 {symbol} PnL: {pnl_pct:+.1f}% ({pnl_usdt:+.2f}U) 原因={reason}'
+        _log(name, msg)
+        if tg_fn:
+            tg_fn(f'[{name}] {msg}')
+        state.setdefault('cooldowns', {})[symbol] = time.time() + 7200
         if pnl_pct < 0:
-            state['cooldowns'][symbol] = time.time() + 14400  # 亏损 → 4h 更长冷静
+            state['cooldowns'][symbol] = time.time() + 14400
         save_state(name, state)
         closed_list.append((symbol, reason, pnl_pct))
     return state, closed_list
@@ -397,21 +446,24 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         # 检查资金费率
         fund_rate = _get_funding_rate(symbol)
         if side == 'SHORT' and fund_rate < -0.001:  # 负费率 = 空头付钱，极值跳过
-            _log(name, f'{symbol} 跳过开空：资金费率 {fund_rate:.4%} 对空头不利')
-            msg = (f'⏭️ 跳过 {symbol} SHORT\n'
-                   f'原因: 资金费率 {fund_rate:.4%}（空头付钱）\n'
-                   f'信号: {event_type}')
-            if tg_fn:
-                tg_fn(msg)
+            _log(name, f'跳过 {symbol} SHORT：资金费率 {fund_rate:.4%} 对空头不利')
             return False
         if side == 'LONG' and fund_rate > 0.001:  # 正费率 = 多头付钱，极值跳过
-            _log(name, f'{symbol} 跳过开多：资金费率 {fund_rate:.4%} 对多头不利')
-            msg = (f'⏭️ 跳过 {symbol} LONG\n'
-                   f'原因: 资金费率 {fund_rate:.4%}（多头付钱）\n'
-                   f'信号: {event_type}')
-            if tg_fn:
-                tg_fn(msg)
+            _log(name, f'跳过 {symbol} LONG：资金费率 {fund_rate:.4%} 对多头不利')
             return False
+
+        # ── 实盘已有仓位检查（防缓存滞后导致重复加仓） ──
+        try:
+            existing = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
+            if isinstance(existing, list):
+                for p in existing:
+                    amt = float(p.get('positionAmt', 0))
+                    existing_side = 'LONG' if amt > 0 else 'SHORT'
+                    if abs(amt) >= 0.001 and existing_side == side:
+                        _log(name, f'{symbol} 交易所已有 {side} 仓位 {abs(amt)}，跳过开仓')
+                        return True
+        except Exception as e:
+            _log(name, f'{symbol} 检查交易所仓位失败: {e}')
 
         # 设置杠杆和保证金模式
         fapi_post('/fapi/v1/leverage', {'symbol': symbol, 'leverage': leverage})
@@ -441,20 +493,15 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         avg_price_str = result.get('avgPrice', '0')
         avg_price = float(avg_price_str) if avg_price_str and float(avg_price_str) > 0 else entry_price
 
-        # 未成交：MARKET 单可能排隊，记录但不视为失败
+        # 未成交：MARKET 单未成交 → 取消并返回失败（低流动币种，避免虚假开仓循环）
         if status == 'NEW' and filled_qty == 0:
-            _log(name, f'{symbol} 开仓挂单中 (orderId={result["orderId"]})，PM 将自动追踪')
-            # 仍然发送通知
-            msg = (f'{name} 开仓 {symbol} (挂单中)\n'
-                   f'方向: {side} | 类型: {margin_mode}\n'
-                   f'入场: {entry_price:.4f} | 开单量: {qty}\n'
-                   f'止损: {stop_price:.4f}\n'
-                   f'信号: {event_type}(str={strength})\n'
-                   f'杠杆: {leverage}x | 费率: {fund_rate:.4%}')
-            if tg_fn:
-                tg_fn(msg)
-            _log(name, msg)
-            return True
+            _log(name, f'{symbol} MARKET 未成交 (orderId={result["orderId"]})，取消订单')
+            if result.get('orderId'):
+                fapi_post('/fapi/v1/cancelOrder', {
+                    'symbol': symbol,
+                    'orderId': result['orderId']
+                })
+            return False
 
         # 成交量为 0 且不是挂单中 → 失败
         if filled_qty < 0.01 and cum_qty < 0.01:
@@ -476,6 +523,22 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
                     'symbol': symbol,
                     'orderId': result['orderId']
                 })
+
+        # 先更新缓存（保证原子性，失败则不开单也不发通知）
+        try:
+            _update_pos_cache(name, symbol, side, avg_price, filled_qty,
+                              stop_price, leverage, margin_mode, event_type, strength)
+        except Exception as e:
+            _log(name, f'{symbol} 缓存更新失败，取消开单: {e}')
+            if result.get('orderId'):
+                try:
+                    fapi_post('/fapi/v1/cancelOrder', {
+                        'symbol': symbol,
+                        'orderId': result['orderId']
+                    })
+                except Exception:
+                    pass
+            return False
 
         # 开仓成功 → 通知
         msg = (f'{name} 开仓 {symbol}\n'

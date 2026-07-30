@@ -9,20 +9,22 @@ from pathlib import Path
 from prometheus_client import start_http_server, Gauge, Counter
 
 # ── Paths ──
-TRADE_DIR = Path('/root/.openclaw/trade')
-LOGS_DIR  = TRADE_DIR / 'logs'
+TRADE_DIR = Path(__file__).resolve().parent.parent
+LOGS_DIR  = TRADE_DIR.parent / 'logs'
 
 # ── Redis helpers ──
 sys.path.insert(0, str(TRADE_DIR))
-sys.path.insert(0, str(TRADE_DIR / 'trading_engine'))
+sys.path.insert(0, str(TRADE_DIR.parent))
 from shared.redis_store import get as redis_get
 
 # ── ClickHouse helpers ──
 def ch_scalar(sql: str) -> str:
     try:
-        r = subprocess.run(['clickhouse-client', '--query', sql],
-                           capture_output=True, text=True, timeout=5)
-        return r.stdout.strip()
+        from shared.clickhouse_client import query as _q
+        r = _q(sql)
+        if r and r[0] and r[0][0] is not None:
+            return str(r[0][0])
+        return ''
     except Exception:
         return ''
 
@@ -35,7 +37,7 @@ def _load_tg():
     global TG_TOKEN, TG_CHAT_ID
     if not TG_TOKEN:
         try:
-            from trading_engine.shared.s6_auto_trader import load_config
+            from shared.binance_api import load_config
             cfg = load_config()
             TG_TOKEN = cfg.get('TG_NOTIFY_TOKEN', '')
             TG_CHAT_ID = cfg.get('TG_CHAT_ID', '') or '5709781617'
@@ -122,9 +124,9 @@ def collect_heartbeat_age():
     now = time.time()
     # S6, S8A, S8B, S3, S6B
     hb_config = {
-        's3':  (TRADE_DIR / 'trading_engine/logs/s3', ['[s3]'], 300),
-        's6':  (TRADE_DIR / 'trading_engine/logs/s6', ['[S6]'], 120),
-        's8':  (TRADE_DIR / 'trading_engine/logs/s8', ['[S8]'], 300),
+        's3':  (LOGS_DIR / 's3', ['[s3]'], 300),
+        's6':  (LOGS_DIR / 's6', ['[S6]'], 120),
+        's8':  (LOGS_DIR / 's8', ['[S8]'], 300),
     }
     for name, (log_dir, keywords, threshold) in hb_config.items():
         log_file = log_dir / time.strftime('%Y%m%d.log')
@@ -150,9 +152,9 @@ def collect_heartbeat_age():
 
 def collect_errors():
     now_ts = time.time()
-    log_dirs = [('s6', TRADE_DIR / 'trading_engine/logs/s6'),
-                ('s8', TRADE_DIR / 'trading_engine/logs/s8'),
-                ('s3', TRADE_DIR / 'trading_engine/logs/s3')]
+    log_dirs = [('s6', LOGS_DIR / 's6'),
+                ('s8', LOGS_DIR / 's8'),
+                ('s3', LOGS_DIR / 's3')]
     for name, log_dir in log_dirs:
         log_file = log_dir / time.strftime('%Y%m%d.log')
         if not log_file.exists():
@@ -222,7 +224,7 @@ def collect_positions():
 
 def collect_wallet():
     try:
-        from trading_engine.shared.s6_auto_trader import load_config, fapi_get
+        from shared.binance_api import load_config, fapi_get
         cfg = load_config()
         acc = fapi_get('/fapi/v2/account')
         if isinstance(acc, dict):
@@ -269,7 +271,7 @@ def collect_pause():
 
 def collect_algo_orders():
     try:
-        from trading_engine.shared.s6_auto_trader import fapi_get
+        from shared.binance_api import fapi_get
         orders = fapi_get('/fapi/v1/openAlgoOrders')
         algo_orders_count.set(len(orders) if isinstance(orders, list) else -1)
     except Exception:

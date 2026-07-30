@@ -11,7 +11,7 @@ from datetime import datetime
 
 # === 配置 ===
 CONFIG_FILE = Path(__file__).parent / 'config/grid.env'
-LOG_DIR     = Path(__file__).parent.parent / 'logs/s7'
+LOG_DIR     = Path(__file__).parent.parent.parent / 'logs/s7'
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from shared.redis_store import get as _rget, set as _rset

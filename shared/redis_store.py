@@ -10,7 +10,7 @@ from pathlib import Path
 import redis as _redis
 
 _REDIS = None
-_BASE = Path('/root/.openclaw/trade')
+_BASE = Path(__file__).resolve().parent.parent.parent
 
 _REDIS_AVAILABLE = None  # None=未检查, True=可用, False=不可用
 _REDIS_RETRY_AFTER = 30  # 不可用时每 30s 重试一次

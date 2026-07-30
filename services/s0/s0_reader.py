@@ -4,7 +4,9 @@ s0_reader.py v1.1 — 各策略共享的市场状态读取模块
 v1.1: 增加regime/shock_score/alts_sync/system_permissions
 """
 import time, logging, sys
-sys.path.insert(0, "/root/.openclaw/trade/trading_engine")
+from pathlib import Path
+_BASE = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_BASE))
 from shared.redis_store import get as _rget
 
 STALE_THRESHOLD = 180
