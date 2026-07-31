@@ -25,8 +25,7 @@ _LOG_DIR   = TRADE_DIR.parent / 'logs/s3'
 
 # Redis
 sys.path.insert(0, str(TRADE_DIR))
-sys.path.insert(0, str(TRADE_DIR.parent))
-from shared.redis_store import set as _rset, get as _rget
+from shared.redis_store import set as _rset, get as _rget, publish as _rpublish
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -823,6 +822,23 @@ class KlineManager:
 #  计算 + 检测 + 输出
 # ════════════════════════════════════════════════════════════
 
+def _merged_klines(symbol: str) -> list:
+    """已收盘 1m K 线 + 进行中的 1m K 线（最新→最旧）。
+
+    把 _current_kline 合并进窗口计算，让 15m/1h/4h/24h 指标反映「现在」
+    而不是「上一根已收盘 K 线」。进行中 K 线时间戳比最后一根已收盘新才合并。
+    """
+    with _lock:
+        klines = _symbol_klines.get(symbol, [])
+        if not klines:
+            return []
+        merged = klines[:]
+        cur = _current_kline.get(symbol)
+        if cur and cur['t'] > merged[0]['t']:
+            merged = [cur] + merged
+        return merged
+
+
 def compute_and_detect(symbols: list):
     """
     对所有币计算窗口数据 + 检测事件
@@ -832,13 +848,17 @@ def compute_and_detect(symbols: list):
     
     now = time.time()
     
-    # 1. 在锁内：拷贝数据快照
+    # 1. 在锁内：拷贝数据快照（合并进行中 K 线，指标反映最新价格）
     with _lock:
         klines_snapshot = {}
         for sym in symbols:
             klines = _symbol_klines.get(sym)
             if klines and len(klines) >= 15:
-                klines_snapshot[sym] = klines[:]
+                merged = klines[:]
+                cur = _current_kline.get(sym)
+                if cur and cur['t'] > merged[0]['t']:
+                    merged = [cur] + merged
+                klines_snapshot[sym] = merged
     
     if not klines_snapshot:
         return
@@ -890,6 +910,7 @@ def compute_and_detect(symbols: list):
             
             try:
                 _rset('event:s3', evt_data)
+                _rpublish('s3:event:notify')
             except Exception:
                 pass
         else:

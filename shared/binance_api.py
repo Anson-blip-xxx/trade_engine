@@ -56,12 +56,12 @@ def _sandbox_intercept(path: str, params: dict):
             return sb.mock_get_position_risk((params or {}).get('symbol'))
         if 'account' in low and 'trade' not in low:
             return sb.mock_get_account()
+        if 'openorders' in low:
+            return sb.mock_get_open_orders((params or {}).get('symbol'))
         if 'order' in low or 'algo' in low:
             if 'cancel' in low or 'delete' in low:
                 return sb.mock_cancel_order((params or {}).get('symbol', ''), (params or {}).get('orderId'))
             return sb.mock_post_order(params or {})
-        if 'openorders' in low:
-            return sb.mock_get_open_orders((params or {}).get('symbol'))
     except Exception:
         pass
     return None

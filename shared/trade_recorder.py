@@ -102,6 +102,25 @@ def _write_equity_snapshot():
 
 
 # ── 记录交易 ──
+def _is_duplicate_record(symbol, entry, qty, exit_reason):
+    """双进程重复记账防御：2 分钟内已有完全相同的平仓记录（币种/入场/数量/原因）则跳过。
+
+    双进程重复平仓时两进程各记一条，只有 exit_price 有微小差异，
+    故以 entry+qty+exit_reason 为键、加 2 分钟时间窗判重。"""
+    try:
+        _sym = str(symbol).replace("'", "''")
+        _reason = str(exit_reason).replace("'", "''")
+        _r = _ch_query(
+            "SELECT count() FROM default.trade_history "
+            f"WHERE symbol='{_sym}' AND entry={float(entry)} AND qty={float(qty)} "
+            f"AND exit_reason='{_reason}' "
+            "AND trade_time >= now() - INTERVAL 2 MINUTE"
+        )
+        return bool(_r) and int(_r[0][0]) > 0
+    except Exception:
+        return False
+
+
 def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, exit_reason='',
                  signal_type='', market_state_entry='', btc_trend_entry='', breadth_entry='',
                  side='LONG', score=0,
@@ -111,6 +130,8 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
                  pool_remaining=0.0, be_done=0, trail_active=0,
                  algo_sl_id=0, ghost_cleanup=0):
     try:
+        if _is_duplicate_record(symbol, entry, qty, exit_reason):
+            return
         if side == 'SHORT':
             _pct = (entry - exit_price) / entry * 100
             _pnl = (entry - exit_price) * qty
@@ -224,7 +245,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
     try:
         emoji = '✅' if pct > 0 else '❌'
         msg = (f"{emoji} *平仓* {symbol}\n"
-               f"入场: {entry} → 出场: {exit_price:.4f}\n"
+               f"入场: {entry:.4f} → 出场: {exit_price:.4f}\n"
                f"盈亏: {pct:+.1f}% | {pnl_usdt:+.2f} USDT\n"
                f"持仓: {duration_min}分钟 | 杠杆: {leverage}x\n\n"
                f"📊 *累计战绩* ({total}单)\n"

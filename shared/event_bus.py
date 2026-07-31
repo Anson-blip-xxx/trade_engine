@@ -26,7 +26,7 @@ event_bus.py — 模块间事件总线
 
 import time, json
 from pathlib import Path
-from shared.redis_store import get, set as _rset, delete as _rdel
+from shared.redis_store import get, set as _rset, delete as _rdel, keys
 
 # ============================================================
 # 事件键模式: event:{type}:{symbol}          ← 事件本体

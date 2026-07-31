@@ -4,7 +4,7 @@ s6_auto_trader.py — 自动交易引擎
 触发条件: s2信号(主) + s3加仓(副)
 策略: 动态杠杆 + ATR止损 + 追踪止盈
 """
-import hmac, hashlib, time, requests, json, os
+import hmac, hashlib, time, requests, json, os, subprocess
 from urllib.parse import urlencode
 import sys
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
@@ -161,6 +161,21 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
                  algo_sl_id=0, ghost_cleanup=0):
     """记录交易结果（尽力而为，绝不抛异常） v3 — 从 Binance 拉实际数据，不自己算"""
     try:
+        # 双进程重复记账防御：2 分钟内已有相同 币种/入场/数量/原因 的记录则跳过
+        try:
+            _d_sym = str(symbol).replace("'", "''")
+            _d_reason = str(exit_reason).replace("'", "''")
+            _d_r = _ch_query(
+                "SELECT count() FROM default.trade_history "
+                f"WHERE symbol='{_d_sym}' AND entry={float(entry)} AND qty={float(qty)} "
+                f"AND exit_reason='{_d_reason}' "
+                "AND trade_time >= now() - INTERVAL 2 MINUTE"
+            )
+            if _d_r and int(_d_r[0].strip()) > 0:
+                log(f'[查重跳过] {symbol} 2分钟内已有相同平仓记录')
+                return
+        except Exception:
+            pass
         # 以 Binance 实际数据为准，初始值用作 API 失败时的兜底
         if side == 'SHORT':
             _pct = (entry - exit_price) / entry * 100
@@ -293,7 +308,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
     try:
         emoji = '✅' if pct > 0 else '❌'
         msg = (f"{emoji} *平仓* {symbol}\n"
-               f"入场: {entry} → 出场: {exit_price:.4f}\n"
+               f"入场: {entry:.4f} → 出场: {exit_price:.4f}\n"
                f"盈亏: {pct:+.1f}% | {pnl_usdt:+.2f} USDT\n"
                f"持仓: {duration_min}分钟 | 杠杆: {leverage}x\n\n"
                f"📊 *累计战绩* ({total}单)\n"
@@ -456,12 +471,12 @@ def _sandbox_intercept(path, params):
             return sb.mock_get_position_risk((params or {}).get('symbol'))
         if 'account' in low and 'trade' not in low:
             return sb.mock_get_account()
+        if 'openorders' in low:
+            return sb.mock_get_open_orders((params or {}).get('symbol'))
         if 'order' in low or 'algo' in low:
             if 'cancel' in low or 'delete' in low:
                 return sb.mock_cancel_order((params or {}).get('symbol', ''), (params or {}).get('orderId'))
             return sb.mock_post_order(params or {})
-        if 'openorders' in low:
-            return sb.mock_get_open_orders((params or {}).get('symbol'))
     except Exception:
         pass
     return None
@@ -1125,7 +1140,7 @@ def _flush_reject_matrix():
     # 漏斗统计
     if _FUNNEL_STATS:
         flines = [f"  {k}: {v}" for k, v in sorted(_FUNNEL_STATS.items(), key=lambda x: -x[1])]
-        log(f'[Pass Funnel]\n' + '\n'.join(flines))
+        log('[Pass Funnel]\n' + '\n'.join(flines))
         try:
             import subprocess as _sp2
             _rows2 = ''.join(
@@ -1268,7 +1283,7 @@ def open_position(symbol, signal_source='s2'):
 
     # 熔断检查
     if is_circuit_open():
-        log(f'[熔断] 暂停开仓，冷却中')
+        log('[熔断] 暂停开仓，冷却中')
         return _rj(_local_rj, 'circuit_breaker')
     _FUNNEL_STATS['03_pass_btc_vol'] += 1
 
@@ -1532,7 +1547,7 @@ def open_position(symbol, signal_source='s2'):
         return _rj(_local_rj, 'global_budget')
     remaining = get_shared_remaining()
     if remaining <= 0:
-        _rj('budget_s6', symbol); return False
+        _rj(_local_rj, 'budget_s6'); return False
     # 评分驱动仓位：先算分，再定仓
     entry_score = score_signal(symbol, signal_source=signal_source)
     if entry_score < 5:
@@ -1681,10 +1696,11 @@ def open_position(symbol, signal_source='s2'):
 def open_short(symbol, signal_source='s2'):
     """做空开仓（比做多多2个验证条件）"""
     state = load_state()
+    _local_rj = {}  # 本次调用的拒绝原因
 
     # 熔断检查
     if is_circuit_open():
-        log(f'[熔断] 暂停开仓，冷却中')
+        log('[熔断] 暂停开仓，冷却中')
         return False
     short_sym = symbol + '_SHORT'
 
@@ -1746,7 +1762,7 @@ def open_short(symbol, signal_source='s2'):
         return False
     remaining = get_shared_remaining()
     if remaining <= 0:
-        _rj('budget_s6', symbol); return False
+        _rj(_local_rj, 'budget_s6'); return False
     entry_score = score_signal(symbol, signal_source=signal_source)
     if entry_score < 5:
         log(f'[跳过] {symbol} 评分{entry_score}<5，信号质量不足')

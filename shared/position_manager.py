@@ -14,7 +14,7 @@ position_manager.py — 统一持仓生命周期管理
 ✅ 2026-07-20: Algo 限速改为队列消费模式，后台线程以 11s 间隔依次处理。
 """
 
-import time, json, threading, hmac, hashlib
+import time, json, threading, hmac, hashlib, os, uuid, requests
 from pathlib import Path
 from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
@@ -173,6 +173,9 @@ _S6_API = None
 # API 限速保护：每个标的最近一次修改止损的时间戳
 _last_api_call = {}  # {symbol: timestamp}
 _API_COOLDOWN = 3    # 同标的API调用最小间隔（秒）
+_last_algo_update = {}  # {symbol: timestamp} AlgoSL 更新节流
+_ALGO_UPDATE_INTERVAL = 60  # AlgoSL 最少间隔（秒）
+_ALGO_MIN_CHANGE_PCT = 0.2  # SL 变化 < 此值（%）不更新 AlgoSL
 
 # Algo Order API 限速：队列消费，后台线程以 11s 间隔依次处理
 _ALGO_QUEUE = []           # [(symbol, side, trigger_price, qty), ...]
@@ -333,6 +336,26 @@ _WS_LAST_UPDATE: float = 0
 _WS_LOCK = threading.Lock()
 _WS_STOP = False
 
+# WS 领导选举：Redis 原子锁，只允许一个进程持有用户数据流连接，
+# 避免 s6/s8 双进程共用同一 listenKey 互相踢线。
+_WS_LEASE_KEY = 'ws:leader'
+_WS_LEASE_TTL = 45
+_WS_INSTANCE = f'{os.getpid()}-{uuid.uuid4().hex[:8]}'
+
+def _ws_am_leader() -> bool:
+    """尝试成为 WS 领导者：抢锁成功或仍持有锁则返回 True。"""
+    try:
+        from shared.redis_store import lock_owner, lock_acquire, lock_renew
+        owner = lock_owner(_WS_LEASE_KEY)
+        if owner == _WS_INSTANCE:
+            lock_renew(_WS_LEASE_KEY, _WS_INSTANCE, _WS_LEASE_TTL)
+            return True
+        if owner is None:
+            return lock_acquire(_WS_LEASE_KEY, _WS_INSTANCE, _WS_LEASE_TTL)
+        return False
+    except Exception:
+        return True  # 兜底：锁服务异常时允许连接，避免完全失去实时监控
+
 def _ws_url() -> str:
     u = _FAPI.replace('https://', 'wss://')
     return u.replace('fapi', 'fstream')
@@ -357,12 +380,12 @@ def _ws_on_message(ws, message):
                 if abs(amt) < 0.001:
                     prev = _WS_POSITIONS.pop(sym, None)
                     if prev and not _was_closed_recently(sym):
-                        _mark_closed(sym)
                         side = prev.get('side', 'LONG')
                         _pmlog(f'[WS平仓] {sym} {side} AlgoSL(入场={prev.get("entry", 0)})')
+                        # 先落库（此时 closed 标记未设，不会被 _try_record_ghost_trade 自跳）
+                        # 再标记，供 _load/ghost_cleanup 跨进程去重
                         _try_record_ghost_trade(sym, prev)
-                        _RECENTLY_GHOSTED.append((sym, 'AlgoSL', float(p.get('ep', 0)),
-                                              prev.get('entry', 0), prev.get('qty', 0), side))
+                        _mark_closed(sym)
                 else:
                     side = 'LONG' if amt > 0 else 'SHORT'
                     _WS_POSITIONS[sym] = {
@@ -388,6 +411,9 @@ def _ws_on_close(ws, close_status_code, close_msg):
 
 def _ws_connect_loop():
     while not _WS_STOP:
+        if not _ws_am_leader():
+            time.sleep(5)
+            continue
         try:
             import websocket
             import requests as _req
@@ -424,6 +450,7 @@ SYSTEM_CFG = {
         'extend_rsi_min': 60,          # 延期条件：RSI > 此值
         'extend_funding_min': 0.0005,  # 延期条件：资金费 > 此值
         'sl_breach_max': -8.0,         # 紧急止损（%）
+        'partial_tp': {5: 0.3},        # 浮盈≥% → 平仓比例
     },
     'S8B': {
         'be_done_threshold': 3.0,
@@ -436,6 +463,7 @@ SYSTEM_CFG = {
         'time_stop_min': 300,
         'time_stop_fast_min': 150,
         'funding_fast_threshold': -0.00015,
+        'partial_tp': {8: 0.3},
     },
     'S6A': {
         'be_done_threshold': 2.5,
@@ -446,6 +474,7 @@ SYSTEM_CFG = {
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
+        'partial_tp': {5: 0.5},
     },
     'S6B': {
         'be_done_threshold': 3.0,      # 泵多需要更大空间
@@ -456,6 +485,7 @@ SYSTEM_CFG = {
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
+        'partial_tp': {8: 0.3},
     },
     # 旧 S6 兜底（存量仓位可能还是 system='S6'）
     'S6': {
@@ -467,6 +497,7 @@ SYSTEM_CFG = {
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
+        'partial_tp': {5: 0.3},
     },
 }
 
@@ -491,9 +522,10 @@ def _pmlog(msg: str):
     except Exception:
         pass
 
-_WS_THREAD = threading.Thread(target=_ws_connect_loop, daemon=True)
-_WS_THREAD.start()
-_pmlog('[WS] 后台线程已启动')
+if os.environ.get('PM_NO_WS') != '1':
+    _WS_THREAD = threading.Thread(target=_ws_connect_loop, daemon=True)
+    _WS_THREAD.start()
+    _pmlog('[WS] 后台线程已启动')
 
 
 def _try_record_ghost_trade(sym: str, meta: dict):
@@ -543,7 +575,7 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
             _clear_closed_marker(sym)
         mp = meta.pop(sym, {})
         merged[sym] = {
-            'entry': bp['entry'], 'side': bp['side'], 'qty': bp['qty'],
+            'entry': bp['entry'], 'side': bp['side'], 'qty': min(bp['qty'], mp.get('qty', bp['qty'])),
             'leverage': bp.get('leverage', 3),
             'margin': bp.get('margin', mp.get('margin', 'CROSSED')),
             'system': mp.get('system', 'S6' if bp['side'] == 'LONG' else 'S8'),
@@ -557,6 +589,9 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
             'atr': mp.get('atr', 0),
             'algo_sl_id': mp.get('algo_sl_id', 0),
             'ts': mp.get('ts', now), 'stop': mp.get('stop', bp['entry']),
+            'tp_done': mp.get('tp_done', []),
+            'highest': mp.get('highest', bp['entry']),
+            'lowest': mp.get('lowest', bp['entry']),
         }
     return merged
 
@@ -721,6 +756,9 @@ def open_position(
         'signal_type': signal_type, 'score': score,
         'margin_type': margin_type,
         'be_done': False,
+        'tp_done': [],
+        'highest': entry if side != 'SHORT' else entry,
+        'lowest': entry if side == 'SHORT' else entry,
         'algo_sl_id': algo_sl_id,
         **(metadata or {}),
         **(reasons or {}),
@@ -762,6 +800,10 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
             pos = positions.get(sym)
             if not pos:
                 continue
+            # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
+            if _was_closed_recently(sym):
+                positions.pop(sym, None)
+                continue
             # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
             if system_filter and not pos.get('system', '').startswith(system_filter):
                 continue
@@ -783,6 +825,8 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
                          trail_active=pos.get('trail', False),
                          algo_sl_id=pos.get('algo_sl_id', 0),
                          ghost_cleanup=True)
+            # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
+            _mark_closed(sym)
             closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
         if closed:
             _pmlog(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
@@ -934,7 +978,20 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
     if not pos.get('be_done') and pnl >= be_pct:
         _update_stop_loss(symbol, pos, price, entry)
 
-    # 4. 追踪锁利
+    # 4. 分层止盈：浮盈达到阈值时平掉部分仓位
+    partial_tp = cfg.get('partial_tp', {})
+    if partial_tp and pnl > 0:
+        # 按阈值升序检查（低→高），避免低阈值被高阈值覆盖
+        for tp_pct in sorted(partial_tp.keys()):
+            if tp_pct <= pnl and tp_pct not in pos.get('tp_done', []):
+                close_ratio = partial_tp[tp_pct]
+                close_qty = _round_qty(symbol, pos['qty'] * close_ratio)
+                if close_qty > 0 and pos['qty'] > close_qty:
+                    pos['tp_done'] = pos.get('tp_done', []) + [tp_pct]
+                    _partial_close(symbol, pos, price, close_qty, tp_pct, positions)
+                break  # 每次只触发一层
+
+    # 5. 追踪锁利
     if pos.get('be_done') and pnl >= be_pct:
         trail_cfg = cfg.get('trail', {'base_mult': 0.3})
         trail_result = _calc_trail_sl(symbol, pos, price, trail_cfg, positions)
@@ -946,7 +1003,7 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
             # 新追踪价位
             _place_trail_sl(symbol, pos, trail_result, positions)
 
-    # 4.5 1h EMA 安全阀：大周期趋势转向 → 强制离场（但免开仓后前60分钟）
+    # 6. 1h EMA 安全阀：大周期趋势转向 → 强制离场（但免开仓后前60分钟）
     #      浮盈 >=150% 时豁免，完全交给移动止盈
     if hold < 60 or pnl >= 40:
         pass  # 新开仓60分钟内不介入 / 大盈利仓只靠移动止盈
@@ -966,7 +1023,7 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
         except Exception:
             pass
 
-    # 5. 时间止损
+    # 7. 时间止损
     ts_min = cfg.get('time_stop_min', 240)
     if hold > ts_min:
         if pnl < 0:
@@ -1241,32 +1298,37 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
 
     pos.pop(wait_key, None)
 
-    # ── 4. 计算新止损价 ──
+    # ── 4. 计算新止损价（吊灯式 Chandelier Exit：锚定持仓期极值，天然只升不降）──
     new_sl = None
     if pos['side'] == 'SHORT':
-        sl = round(price + effective_atr, 6)
+        lowest = min(pos.get('lowest', pos['entry']), price)
+        pos['lowest'] = lowest
+        sl = round(lowest + effective_atr, 6)
         sl = max(sl, round(ema20_15, 6))
         if sl < pos['sl'] and sl > price:
             new_sl = sl
     else:
-        sl = round(price - effective_atr, 6)
+        highest = max(pos.get('highest', pos['entry']), price)
+        pos['highest'] = highest
+        sl = round(highest - effective_atr, 6)
         sl = min(sl, round(ema20_15, 6))
         if sl > pos['sl'] and sl < price:
             new_sl = sl
 
     # ── 5. 保本加固：浮盈≥breakeven_atr×ATR 时止损拉到成本 ──
+    #    注意：只允许向有利方向调整（LONG 只升不降, SHORT 只降不升），防止震荡
     if be_atr is not None and base_atr > 0:
         if pos['side'] == 'SHORT':
             profit_atr = (pos['entry'] - price) / base_atr
             if profit_atr >= be_atr:
                 entry_be = round(pos['entry'] * 1.001, 6)
-                if new_sl is None or (entry_be < new_sl and entry_be > price):
+                if entry_be < pos['sl'] and (new_sl is None or (entry_be < new_sl and entry_be > price)):
                     new_sl = entry_be
         else:
             profit_atr = (price - pos['entry']) / base_atr
             if profit_atr >= be_atr:
                 entry_be = round(pos['entry'] * 0.999, 6)
-                if new_sl is None or (entry_be > new_sl and entry_be < price):
+                if entry_be > pos['sl'] and (new_sl is None or (entry_be > new_sl and entry_be < price)):
                     new_sl = entry_be
 
     if new_sl is not None and new_sl == pos.get('sl'):
@@ -1276,16 +1338,22 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
 
 def _place_trail_sl(symbol: str, pos: dict, trail_sl: float, positions: dict):
     """更新追踪止损（轮询用） + 尝试同步到Algo Order API"""
-    global _last_api_call
+    global _last_algo_update
     now = time.time()
-    if now - _last_api_call.get(symbol, 0) < _API_COOLDOWN:
-        return
     _, _, _, _, _, _, _, _ = _s6api()
     old = pos['sl']
     if trail_sl == old:
         return
+
+    # ── 节流：AlgoSL 更新间隔 < 60s 或 SL 变化 < 0.2% 时只存本地，不更新交易所 ──
+    change_pct = abs(trail_sl - old) / old * 100 if old else 0
+    if now - _last_algo_update.get(symbol, 0) < _ALGO_UPDATE_INTERVAL and change_pct < _ALGO_MIN_CHANGE_PCT:
+        pos['sl'] = trail_sl
+        _save(positions)
+        return
+
     pos['sl'] = trail_sl
-    _last_api_call[symbol] = now
+    _last_algo_update[symbol] = now
     _save(positions)
     locked = (pos['entry'] - trail_sl) / pos['entry'] * 100 if pos['side'] == 'SHORT' \
         else (trail_sl - pos['entry']) / pos['entry'] * 100
@@ -1315,28 +1383,24 @@ def close_position(symbol: str, reason: str) -> bool:
         return False
     _, _, _, get_price, _, _, _, _ = _s6api()
     price = get_price(symbol)
-    _close(symbol, pos, price, reason, positions)
+    _close(symbol, pos, price, reason, positions, force=True)
     return True
 
 
 def _mark_closed(symbol: str):
-    """跨进程标记：该 symbol 已被 _close 处理过，幽灵忽略"""
+    """跨进程标记：该 symbol 已被 _close 处理过（Redis + 4h TTL），幽灵忽略"""
     try:
-        d = _LOG_DIR / 'closed_markers'
-        d.mkdir(parents=True, exist_ok=True)
-        (d / symbol).write_text(str(time.time()))
+        _rset(f'closed:{symbol}', {'ts': time.time()})
     except Exception:
         pass
 
 
 def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
-    """检查 symbol 近期是否被 _close 处理过"""
+    """检查 symbol 近期是否被 _close 处理过（Redis 原子性，跨进程共享）"""
     try:
-        d = _LOG_DIR / 'closed_markers'
-        marker = d / symbol
-        if marker.exists():
-            age = time.time() - float(marker.read_text().strip())
-            return age < within_hours * 3600
+        data = _rget(f'closed:{symbol}')
+        if data and 'ts' in data:
+            return time.time() - data['ts'] < within_hours * 3600
     except Exception:
         pass
     return False
@@ -1345,15 +1409,42 @@ def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
 def _clear_closed_marker(symbol: str):
     """清除关闭标记（仓位重新打开后调用）"""
     try:
-        marker = _LOG_DIR / 'closed_markers' / symbol
-        if marker.exists():
-            marker.unlink()
+        from shared.redis_store import delete as _rdelete
+        _rdelete(f'closed:{symbol}')
     except Exception:
         pass
 
 
-def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict):
-    """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录"""
+def _partial_close(symbol: str, pos: dict, price: float, close_qty: float,
+                   tp_pct: float, positions: dict):
+    """分层止盈：市价平掉 close_qty 数量，保留剩余仓位"""
+    _, fapi_post, _, _, _, _, _, _ = _s6api()
+    close_side = 'BUY' if pos['side'] == 'SHORT' else 'SELL'
+    try:
+        r = fapi_post('/fapi/v1/order', {
+            'symbol': symbol, 'side': close_side, 'type': 'MARKET',
+            'quantity': close_qty, 'positionSide': 'BOTH',
+        })
+        if not isinstance(r, dict) or r.get('code') is not None:
+            _pmlog(f'[分层止盈失败] {symbol} qty={close_qty}: 交易所拒绝 {r}')
+            return
+    except Exception as e:
+        _pmlog(f'[分层止盈失败] {symbol} qty={close_qty}: {e}')
+        return
+    pos['qty'] = round(pos['qty'] - close_qty, 4)
+    pnl_u = round((price - pos['entry']) * close_qty, 2) if pos['side'] == 'LONG' \
+        else round((pos['entry'] - price) * close_qty, 2)
+    _save(positions)
+    _pmlog(f'[分层止盈] {symbol} +{pnl_u:.2f}USDT qty={close_qty} 剩余={pos["qty"]} ({tp_pct}%)')
+
+
+def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *,
+           force: bool = False):
+    """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录
+    force=False 时防重入：该币 4h 内已被处理过则直接跳过，避免双进程重复平仓/重复记账。"""
+    if not force and _was_closed_recently(symbol):
+        _pmlog(f'[平仓跳过] {symbol} 近期已处理，防止重复平仓 ({reason})')
+        return
     _mark_closed(symbol)
     _, fapi_post, _, _, _, _, _, record_trade = _s6api()
 
@@ -1435,9 +1526,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict):
         })
         if isinstance(result, dict) and result.get('code'):
             _pmlog(f'[平仓失败] {symbol}: {result.get("msg")}')
+            _clear_closed_marker(symbol)
             return
     except Exception as e:
         _pmlog(f'[平仓异常] {symbol}: {e}')
+        _clear_closed_marker(symbol)
         return
 
     # 盈亏

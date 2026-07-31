@@ -204,3 +204,65 @@ def keys(pattern: str = '*') -> list:
         except Exception:
             _REDIS_AVAILABLE = False
     return []
+
+
+# ── 发布订阅（通知，不做文件降级；消费方丢失可回退轮询） ──
+def publish(channel: str, message: str = '1') -> bool:
+    """发布消息。失败静默返回 False，调用方自行忽略。"""
+    if not _check_redis():
+        return False
+    try:
+        _conn().publish(channel, message)
+        return True
+    except Exception:
+        _REDIS_AVAILABLE = False
+        return False
+
+
+def subscribe(channel: str):
+    """订阅频道，返回 redis pubsub 对象（可能为 None）。
+
+    调用方用 pubsub.get_message(timeout=...) 阻塞等待，异常时回退普通轮询。
+    """
+    if not _check_redis():
+        return None
+    try:
+        ps = _conn().pubsub()
+        ps.subscribe(channel)
+        return ps
+    except Exception:
+        _REDIS_AVAILABLE = False
+        return None
+
+
+# ── 分布式锁（仅 Redis，不做文件降级；多进程原子选主） ──
+def lock_owner(key: str):
+    """返回锁当前持有者标识（原始字符串），无锁返回 None"""
+    if not _check_redis():
+        return None
+    try:
+        return _conn().get(key)
+    except Exception:
+        return None
+
+def lock_acquire(key: str, value: str, ttl: int = 45) -> bool:
+    """SET NX EX 原子抢占锁。仅当无锁时成功，返回是否抢到。"""
+    if not _check_redis():
+        return False
+    try:
+        return bool(_conn().set(key, value, nx=True, ex=ttl))
+    except Exception:
+        return False
+
+def lock_renew(key: str, value: str, ttl: int = 45) -> bool:
+    """仅当锁仍属于自己时续期（Lua 原子比较）。"""
+    if not _check_redis():
+        return False
+    try:
+        r = _conn()
+        lua = ("if redis.call('get', KEYS[1]) == ARGV[1] "
+               "then return redis.call('pexpire', KEYS[1], ARGV[2]) "
+               "else return 0 end")
+        return bool(r.eval(lua, 1, key, value, ttl * 1000))
+    except Exception:
+        return False

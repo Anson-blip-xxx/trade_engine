@@ -12,13 +12,12 @@ CONFIG_DIR = TRADE_DIR / 'strategies/config'
 LOG_DIR = TRADE_DIR.parent / 'logs'
 
 sys.path.insert(0, str(TRADE_DIR))
-sys.path.insert(0, str(TRADE_DIR.parent))
 from shared.binance_api import FAPI
 from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_start_worker, _load as _pm_load
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
-from shared.redis_store import get as _rget, set as _rset
+from shared.redis_store import get as _rget, set as _rset, subscribe as _rsubscribe
 
 # ── Telegram ──
 # 从 binance.env 加载 TG 配置 + API 密钥
@@ -103,6 +102,9 @@ def _sandbox_check():
     global _SANDBOX_ACTIVE
     if _SANDBOX_ACTIVE is not None:
         return _SANDBOX_ACTIVE
+    if os.environ.get('SANDBOX', '').strip() in ('1', 'true', 'TRUE'):
+        _SANDBOX_ACTIVE = True
+        return True
     p = TRADE_DIR / 'strategies/config/SANDBOX_MODE'
     _SANDBOX_ACTIVE = p.exists()
     return _SANDBOX_ACTIVE
@@ -181,6 +183,32 @@ def _log(name: str, msg: str):
 
 # ── S3 事件读取 ──
 S3_STALE_S = 90  # 事件超过 90s 视为过期
+
+_S3_NOTIFY_CHANNEL = 's3:event:notify'
+
+def subscribe_s3_notify():
+    """订阅 s3 事件通知频道。返回 pubsub 对象或 None（Redis 不可用时降级轮询）。"""
+    try:
+        return _rsubscribe(_S3_NOTIFY_CHANNEL)
+    except Exception:
+        return None
+
+def wait_scan(ps, timeout: float):
+    """等待下一轮扫描：s3 事件通知唤醒即返回，否则超时轮询兜底。
+
+    ps 为 None（未订阅成功）时退化为普通 sleep，行为与旧版一致。
+    """
+    if ps is not None:
+        try:
+            msg = ps.get_message(timeout=timeout)
+            if msg and msg.get('type') == 'message':
+                return
+            if msg is not None:
+                return  # subscribe 确认等非消息帧，也立即返回（无害，下一轮继续等）
+            return  # 超时
+        except Exception:
+            pass
+    time.sleep(timeout)
 
 def read_s3_events(max_age: int = S3_STALE_S) -> list:
     """读取 s3 事件数据, 返回有效事件列表"""
@@ -354,6 +382,7 @@ _POOL_BUDGET = 0.80          # 账户总余额最高使用比例
 _POSITION_MIN_PCT = 0.03     # 单仓最低占可用池比例
 _POSITION_MAX_PCT = 0.15     # 单仓最高占可用池比例
 _POSITION_MIN_USDT = 10      # 单仓最低 USDT 名义价值
+_RISK_PER_TRADE = 0.01       # 单笔止损最大亏损 ≤ 账户 1%（固定风险比例法）
 
 
 def score_to_fraction(score: float) -> float:
@@ -399,13 +428,42 @@ def _calc_used_margin(state: dict) -> float:
         return 0.0
 
 
+# ── 账户级回撤熔断 ──────────────────────────────────────────────────────
+_DD_HALF = 0.08    # 权益从峰值回撤 ≥8% → 仓位减半
+_DD_PAUSE = 0.15   # 回撤 ≥15% → 暂停开仓
+
+def _drawdown_status() -> tuple:
+    """账户回撤状态：(仓位系数, 当前回撤%)；同时维护 Redis 权益峰值
+    回撤 ≥15% → (0, 15+) 暂停开仓；回撤 ≥8% → (0.5, …) 减半；否则 (1.0, …)
+    """
+    balance = _get_balance()
+    if balance <= 0:
+        return 1.0, 0.0
+    peak = _rget('account:peak')
+    if not peak or float(peak.get('bal', 0)) < balance:
+        _rset('account:peak', {'bal': balance, 'ts': time.time()})
+        return 1.0, 0.0
+    peak_bal = float(peak.get('bal', 0))
+    if peak_bal <= 0:
+        return 1.0, 0.0
+    dd = (peak_bal - balance) / peak_bal
+    if dd >= _DD_PAUSE:
+        return 0.0, dd * 100
+    if dd >= _DD_HALF:
+        return 0.5, dd * 100
+    return 1.0, dd * 100
+
+
 def calc_position_qty(name: str, state: dict, symbol: str, price: float,
-                      event_type: str, strength: int, leverage: int) -> float:
+                      event_type: str, strength: int, leverage: int,
+                      atr_pct: float = 0, stop_pct: float = 0) -> float:
     """动态仓位计算：
        1. 取账户余额 × 80% = 资金池
        2. 减去已有持仓占用 = 可用池
        3. 信号评分 → 分配比例（3%~15%）
-       4. qty = 分配额 / price * leverage
+       4. ATR 高波动衰减：ATR% 越大仓位越小（ATR 4% 为基准，ATR 8% 减半）
+       5. 风险硬约束：止损亏损 ≤ 账户 1%（固定风险比例法）
+       6. qty = 分配额 / price * leverage
     """
     balance = _get_balance()
     pool = balance * _POOL_BUDGET
@@ -413,6 +471,19 @@ def calc_position_qty(name: str, state: dict, symbol: str, price: float,
     remaining = max(0, pool - used)
     alloc_pct = score_to_fraction(strength)
     position_usdt = remaining * alloc_pct
+
+    # ATR 波动率衰减：高波动币种减仓
+    if atr_pct > 4:
+        atr_factor = max(0.2, 4.0 / atr_pct)
+        position_usdt *= atr_factor
+        _log(name, f'{symbol} ATR={atr_pct:.1f}% 衰减因子={atr_factor:.2f} → ${position_usdt:.0f}')
+
+    # 风险硬约束：止损亏损 = 名义 × stop_pct = margin × leverage × stop_pct ≤ 账户 1%
+    if stop_pct > 0:
+        risk_cap = balance * _RISK_PER_TRADE / (leverage * stop_pct)
+        if position_usdt > risk_cap:
+            _log(name, f'{symbol} 风险约束 ${position_usdt:.0f}→${risk_cap:.0f} (止损{stop_pct:.1%}×{leverage}x≤1%)')
+            position_usdt = risk_cap
 
     # 最小名义价值保护
     position_usdt = max(position_usdt, _POSITION_MIN_USDT)
@@ -422,12 +493,65 @@ def calc_position_qty(name: str, state: dict, symbol: str, price: float,
     return qty
 
 
+# ── R:R 预判 ────────────────────────────────────────────────────────────
+_MIN_RR = 1.0  # 预期延续幅度 / 止损距离 最低门槛
+
+def _event_expected_move(evt: dict) -> float:
+    """估算事件预期延续幅度（%）：以事件自身触发强度为延续参考，无数据返回 0（不拦截）"""
+    et = evt.get('type', '')
+    try:
+        if et in ('PULSE_UP', 'PULSE_DOWN', 'PUMP_UP', 'PUMP_DOWN', 'PANIC_SELL'):
+            return abs(float(evt.get('chg_15m', 0) or 0))
+        if et in ('TREND_UP', 'TREND_DOWN'):
+            return abs(float(evt.get('chg_1h', 0) or 0))
+        if et.startswith('VIOLENT_'):
+            return float(evt.get('vol_1h', 0) or 0)
+    except Exception:
+        pass
+    return 0
+
+
+# ── 近期平仓检查（Redis 原子性，与 PM 共享） ──
+def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
+    """检查 symbol 近期是否被 PM _close 处理过"""
+    try:
+        data = _rget(f'closed:{symbol}')
+        if data and 'ts' in data:
+            return time.time() - data['ts'] < within_hours * 3600
+    except Exception:
+        pass
+    return False
+
+
 # ── 开仓工具 ──
 def open_position(name: str, symbol: str, side: str, entry_price: float,
                   stop_price: float, qty: float, margin_mode: str,
                   leverage: int, event_type: str, strength: int,
-                  tg_fn: callable = None) -> bool:
+                  tg_fn: callable = None, expected_move_pct: float = 0) -> bool:
     """通过 Binance API + PM 开仓"""
+    # ── 信号质量过滤 ──
+    if strength < 30:
+        _log(name, f'{symbol} strength={strength} < 30，信号太弱跳过')
+        return False
+    # ── R:R 预判：预期延续幅度 vs 止损距离 ──
+    if expected_move_pct > 0 and stop_price > 0:
+        stop_dist_pct = abs(entry_price - stop_price) / entry_price * 100
+        rr = expected_move_pct / stop_dist_pct if stop_dist_pct > 0 else 0
+        if rr < _MIN_RR:
+            _log(name, f'{symbol} R:R={rr:.1f} < {_MIN_RR} (预期{expected_move_pct:.1f}%/止损{stop_dist_pct:.1f}%)，跳过')
+            return False
+    # ── 账户级回撤熔断 ──
+    dd_factor, dd_pct = _drawdown_status()
+    if dd_factor <= 0:
+        _log(name, f'{symbol} 账户回撤 {dd_pct:.1f}% ≥ {_DD_PAUSE*100:.0f}%，暂停开仓')
+        return False
+    if dd_factor < 1.0:
+        _log(name, f'{symbol} 账户回撤 {dd_pct:.1f}%，仓位 ×{dd_factor:.1f}')
+        qty *= dd_factor
+    # ── 近期平仓检查（4h 内不重开同标的，给趋势充分消化时间） ──
+    if _was_closed_recently(symbol):
+        _log(name, f'{symbol} 4h 内刚被平仓过，跳过重开')
+        return False
     # ── 全局暂停开仓（PAUSE_OPEN 文件存在时跳过所有开仓） ──
     _pause_file = Path(__file__).parent / 'config/PAUSE_OPEN'
     if _pause_file.exists():

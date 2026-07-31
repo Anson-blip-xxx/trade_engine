@@ -3,18 +3,34 @@ ClickHouse 客户端 — 基于 clickhouse-connect SDK
 统一管理连接，替代分散的 subprocess clickhouse-client 调用。
 """
 import clickhouse_connect
+from pathlib import Path
 
 _CLIENT = None
+
+_CONFIG_FILE = Path(__file__).resolve().parent.parent / 'config/binance.env'
+
+def _cfg():
+    env = {}
+    try:
+        for line in _CONFIG_FILE.read_text().splitlines():
+            line = line.strip()
+            if '=' in line and not line.startswith('#'):
+                k, v = line.split('=', 1)
+                env[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return env
 
 
 def get_client():
     global _CLIENT
     if _CLIENT is None:
+        env = _cfg()
         _CLIENT = clickhouse_connect.get_client(
-            host='localhost',
-            port=8123,
-            username='admin',
-            password='xa178188',
+            host=env.get('CLICKHOUSE_HOST', 'localhost'),
+            port=int(env.get('CLICKHOUSE_PORT', '8123')),
+            username=env.get('CLICKHOUSE_USER', 'admin'),
+            password=env.get('CLICKHOUSE_PASSWORD', ''),
             database='default',
         )
     return _CLIENT

@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Optional
 
 _BASE = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_BASE))
 sys.path.insert(0, str(_BASE / 'trading_engine'))
 
 from shared_executor import (
@@ -26,6 +25,7 @@ from shared_executor import (
     reconcile_positions, pm_monitor,
     open_position, calc_position_qty, fapi_get, tg_send,
     market_allows_trading, get_position_count, has_position,
+    _event_expected_move, subscribe_s3_notify, wait_scan,
 )
 
 NAME = 'S6'
@@ -133,13 +133,14 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     if _atr_pct_val > 0:
         stop_pct = max(stop_pct, _atr_pct_val * 2 / 100)
 
-    qty = calc_position_qty(NAME, state, symbol, price, event_type, evt.get('strength', 50), leverage)
+    qty = calc_position_qty(NAME, state, symbol, price, event_type, evt.get('strength', 50), leverage,
+                            atr_pct=_atr_pct_val, stop_pct=stop_pct)
     stop_price = round(price * (1 - stop_pct), 8)
 
     # ── 开仓 ──
     ok = open_position(system_tag, symbol, 'LONG', price, stop_price,
                        qty, margin, leverage, event_type, evt.get('strength', 50),
-                       tg_fn=_tg)
+                       tg_fn=_tg, expected_move_pct=_event_expected_move(evt))
     if ok:
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')
     return state
@@ -151,6 +152,8 @@ def main():
 
     state = load_state(NAME)
     state = reconcile_positions(NAME, state)
+
+    _ps = subscribe_s3_notify()
 
     while True:
         try:
@@ -174,7 +177,8 @@ def main():
         except Exception as e:
             _log(NAME, f'主循环异常: {e}')
 
-        time.sleep(SCAN_INTERVAL)
+        # s3 事件通知唤醒（即时响应），无通知则 10s 轮询兜底
+        wait_scan(_ps, SCAN_INTERVAL)
 
 if __name__ == '__main__':
     main()

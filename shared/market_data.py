@@ -83,7 +83,7 @@ def get_balance():
 
 # ── K线 ──
 _klines_cache: dict = {}
-_KLINES_TTL = 300
+_KLINES_TTL = 30
 
 def get_klines(symbol, interval='1h', limit=20):
     key = (symbol, interval, limit)
