@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared.binance_api import fapi_get, TG_TOKEN, TG_CHAT_ID
 from shared.redis_store import get as _rget, set as _rset
 from shared.clickhouse_client import query as _ch_query, query_column, insert as _ch_insert
+from shared.trade_analyzer import enqueue_closed_trade
 
 
 # ── 周期盈亏 ──
@@ -223,6 +224,28 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'ghost_cleanup': 1 if ghost_cleanup else 0,
         })
         _ch_insert('default.trade_history', row)
+
+        # 异步平仓分析（失败不影响记账与交易主链路）
+        enqueue_closed_trade({
+            'symbol': symbol,
+            'source': source,
+            'side': side,
+            'entry': entry,
+            'exit_price': exit_price,
+            'qty': qty,
+            'leverage': leverage,
+            'pct': pct,
+            'pnl_usdt': pnl_usdt,
+            'duration_min': duration_min,
+            'result': result,
+            'exit_reason': exit_reason,
+            'signal_type': signal_type,
+            'score': score,
+            'market_state': _market_state,
+            'btc_trend': _btc_trend,
+            'sl_price': sl_price,
+            'open_time': open_time,
+        })
     except Exception:
         pass
 

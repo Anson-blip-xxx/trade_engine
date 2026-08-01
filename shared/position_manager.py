@@ -595,6 +595,20 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
         }
     return merged
 
+
+def _merge_meta_preserving_missing(raw: dict[str, dict], meta: dict,
+                                   now: float) -> dict:
+    """保留交易所快照中暂时缺失的本地仓位，交给幽灵仓流程核验。
+
+    WS/REST 快照可能短暂不完整，不能在这里直接删除本地元数据；否则
+    ``_ghost_cleanup`` 看不到该仓位，也就无法记录平仓或发送通知。
+    """
+    merged = _merge_meta(raw, dict(meta), now)
+    for symbol, position in meta.items():
+        if symbol not in merged and not _was_closed_recently(symbol):
+            merged[symbol] = position
+    return merged
+
 def _load() -> dict:
     """
     三层加载持仓：
@@ -614,7 +628,7 @@ def _load() -> dict:
             ws_positions = dict(_WS_POSITIONS)
         if ws_positions:
             meta = _load_meta()
-            merged = _merge_meta(ws_positions, meta, now)
+            merged = _merge_meta_preserving_missing(ws_positions, meta, now)
             _save(merged)
             return merged
 
@@ -638,7 +652,7 @@ def _load() -> dict:
 
     if rest_positions:
         meta = _load_meta()
-        merged = _merge_meta(rest_positions, meta, now)
+        merged = _merge_meta_preserving_missing(rest_positions, meta, now)
         _save(merged)
         return merged
 
@@ -938,13 +952,15 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
     if pos['side'] == 'SHORT' and fund_rate < -0.005:
         _pmlog(f'[费率警告] {symbol} SHORT 资金费率 {fund_rate:.4%} <-0.5% 强制平仓')
         reason = f'资金费率过高 {fund_rate:.4%}'
-        _close(symbol, pos, price, reason, positions)
-        return (reason, price, entry, pos['qty'], pos['side'])
+        if _close(symbol, pos, price, reason, positions):
+            return (reason, price, entry, pos['qty'], pos['side'])
+        return None
     if pos['side'] == 'LONG' and fund_rate > 0.005:
         _pmlog(f'[费率警告] {symbol} LONG 资金费率 {fund_rate:.4%} >0.5% 强制平仓')
         reason = f'资金费率过高 {fund_rate:.4%}'
-        _close(symbol, pos, price, reason, positions)
-        return (reason, price, entry, pos['qty'], pos['side'])
+        if _close(symbol, pos, price, reason, positions):
+            return (reason, price, entry, pos['qty'], pos['side'])
+        return None
     # 警告级别（仅通知一次）
     warn_tag = 'fund_warned'
     if not pos.get(warn_tag):
@@ -964,14 +980,17 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
 
     # 1. 硬止损
     if sl_breached:
-        _close(symbol, pos, price, '硬止损', positions)
-        return ('硬止损', price, entry, pos['qty'], pos['side'])
+        if _close(symbol, pos, price, '硬止损', positions):
+            return ('硬止损', price, entry, pos['qty'], pos['side'])
+        return None
 
     # 2. 紧急止损（主止损 — Binance 已废弃 STOP_MARKET，全靠轮询）
     max_loss = cfg.get('sl_breach_max', -8.0)
     if pnl < max_loss:
-        _close(symbol, pos, price, f'紧急止损 pnl={pnl:.1f}%', positions)
-        return (f'紧急止损 pnl={pnl:.1f}%', price, entry, pos['qty'], pos['side'])
+        reason = f'紧急止损 pnl={pnl:.1f}%'
+        if _close(symbol, pos, price, reason, positions):
+            return (reason, price, entry, pos['qty'], pos['side'])
+        return None
 
     # 3. be_done：盈利达标 → 止损移到成本
     be_pct = cfg.get('be_done_threshold', 2.0)
@@ -997,8 +1016,9 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
         trail_result = _calc_trail_sl(symbol, pos, price, trail_cfg, positions)
         if trail_result == 'exit':
             # 等待区确认：2根连续收>EMA20 → 趋势反转离场
-            _close(symbol, pos, price, '趋势反转（2次收>EMA20）', positions)
-            return ('趋势反转', price, entry, pos['qty'], pos['side'])
+            if _close(symbol, pos, price, '趋势反转（2次收>EMA20）', positions):
+                return ('趋势反转', price, entry, pos['qty'], pos['side'])
+            return None
         elif trail_result is not None:
             # 新追踪价位
             _place_trail_sl(symbol, pos, trail_result, positions)
@@ -1015,11 +1035,13 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                 ema9_1h = sum(c1h[-9:]) / 9
                 ema20_1h = sum(c1h[-20:]) / 20
                 if pos['side'] == 'SHORT' and ema9_1h > ema20_1h * 1.02:
-                    _close(symbol, pos, price, '1h趋势反转', positions)
-                    return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    if _close(symbol, pos, price, '1h趋势反转', positions):
+                        return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    return None
                 elif pos['side'] != 'SHORT' and ema9_1h < ema20_1h * 0.98:
-                    _close(symbol, pos, price, '1h趋势反转', positions)
-                    return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    if _close(symbol, pos, price, '1h趋势反转', positions):
+                        return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    return None
         except Exception:
             pass
 
@@ -1044,12 +1066,14 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                     pass
                 if time.time() < pos.get('extend_deadline', 0):
                     return None
-            _close(symbol, pos, price, '时间止损', positions)
-            return ('时间止损', price, entry, pos['qty'], pos['side'])
+            if _close(symbol, pos, price, '时间止损', positions):
+                return ('时间止损', price, entry, pos['qty'], pos['side'])
+            return None
         elif pnl < be_pct:
             # 微盈/不亏 — 提前释放
-            _close(symbol, pos, price, '时间止损', positions)
-            return ('时间止损', price, entry, pos['qty'], pos['side'])
+            if _close(symbol, pos, price, '时间止损', positions):
+                return ('时间止损', price, entry, pos['qty'], pos['side'])
+            return None
 
     return None
 
@@ -1383,8 +1407,7 @@ def close_position(symbol: str, reason: str) -> bool:
         return False
     _, _, _, get_price, _, _, _, _ = _s6api()
     price = get_price(symbol)
-    _close(symbol, pos, price, reason, positions, force=True)
-    return True
+    return _close(symbol, pos, price, reason, positions, force=True)
 
 
 def _mark_closed(symbol: str):
@@ -1439,12 +1462,12 @@ def _partial_close(symbol: str, pos: dict, price: float, close_qty: float,
 
 
 def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *,
-           force: bool = False):
+           force: bool = False) -> bool:
     """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录
     force=False 时防重入：该币 4h 内已被处理过则直接跳过，避免双进程重复平仓/重复记账。"""
     if not force and _was_closed_recently(symbol):
         _pmlog(f'[平仓跳过] {symbol} 近期已处理，防止重复平仓 ({reason})')
-        return
+        return False
     _mark_closed(symbol)
     _, fapi_post, _, _, _, _, _, record_trade = _s6api()
 
@@ -1475,7 +1498,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                      algo_sl_id=pos.get('algo_sl_id', 0))
         positions.pop(symbol, None)
         _save(positions)
-        return
+        return True
 
     # ═══ 实盘模式 ═══
     fapi_get, fapi_post, _, _, _, _, _, record_trade = _s6api()
@@ -1490,9 +1513,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
         real_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
         if pos['side'] == 'SHORT':
             real_pos = next((x for x in real_r if isinstance(x, dict)
+                           and x.get('symbol') == symbol
                            and float(x.get('positionAmt', 0)) < 0), None)
         else:
             real_pos = next((x for x in real_r if isinstance(x, dict)
+                           and x.get('symbol') == symbol
                            and float(x.get('positionAmt', 0)) > 0), None)
         if not real_pos:
             # 止损单已在交易所触发平仓，记录本次平仓
@@ -1516,7 +1541,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                          algo_sl_id=pos.get('algo_sl_id', 0))
             positions.pop(symbol, None)
             _save(positions)
-            return
+            return True
 
         close_qty = _round_qty(symbol, abs(float(real_pos['positionAmt'])))
         close_side = 'BUY' if pos['side'] == 'SHORT' else 'SELL'
@@ -1527,11 +1552,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
         if isinstance(result, dict) and result.get('code'):
             _pmlog(f'[平仓失败] {symbol}: {result.get("msg")}')
             _clear_closed_marker(symbol)
-            return
+            return False
     except Exception as e:
         _pmlog(f'[平仓异常] {symbol}: {e}')
         _clear_closed_marker(symbol)
-        return
+        return False
 
     # 盈亏
     if pos['side'] == 'SHORT':
@@ -1558,6 +1583,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
     # 删记录
     positions.pop(symbol, None)
     _save(positions)
+    return True
 
 
 def _set_cooldown(symbol: str, system: str, pnl_pct: float):

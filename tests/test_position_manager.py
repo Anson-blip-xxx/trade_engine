@@ -86,12 +86,50 @@ def test_close_force_bypasses_guard(patch_pm):
 def test_close_failure_clears_marker(patch_pm):
     """下单失败 → 清除 closed 标记，允许后续重试。"""
     pm, calls = patch_pm['pm'], patch_pm['calls']
-    patch_pm['set_s6api'](fapi_post=lambda *a, **k: {'code': -2019, 'msg': 'insufficient'})
+    patch_pm['set_s6api'](
+        fapi_get=lambda *a, **k: [{'symbol': 'YUSDT', 'positionAmt': '100', 'entryPrice': '1.0'}],
+        fapi_post=lambda *a, **k: {'code': -2019, 'msg': 'insufficient'},
+    )
 
     pos = {'qty': 100.0, 'entry': 1.0, 'side': 'LONG', 'open_time': time.time(), 'system': 'S6'}
-    pm._close('YUSDT', pos, 1.1, '时间止损', {})
+    ok = pm._close('YUSDT', pos, 1.1, '时间止损', {})
 
+    assert ok is False
     assert 'YUSDT' in calls['clear_closed']  # 失败后清标记
+
+
+def test_monitor_one_does_not_report_closed_when_close_fails(patch_pm, monkeypatch):
+    """硬止损触发但交易所拒绝平仓 → 不返回 closed，避免 S8/TG 虚假平仓刷屏。"""
+    pm = patch_pm['pm']
+    monkeypatch.setattr(pm, '_get_funding_rate', lambda sym: 0.0)
+    patch_pm['set_s6api'](
+        fapi_get=lambda *a, **k: [{'symbol': 'DEXEUSDT', 'positionAmt': '-10', 'entryPrice': '2.48'}],
+        fapi_post=lambda *a, **k: {'code': -4016, 'msg': 'PERCENT_PRICE filter limit'},
+        record_trade=lambda *a, **k: None,
+    )
+
+    pos = {'qty': 10.0, 'original_qty': 10.0, 'entry': 2.48, 'side': 'SHORT',
+           'open_time': time.time() - 3600, 'system': 'S8', 'sl': 2.68}
+
+    assert pm._monitor_one('DEXEUSDT', pos, {'DEXEUSDT': pos}) is None
+
+
+def test_close_matches_positionrisk_symbol(patch_pm):
+    """positionRisk 必须按 symbol 匹配，不能拿别的同方向仓位误判/误取 qty。"""
+    pm, calls = patch_pm['pm'], patch_pm['calls']
+    posts = []
+    patch_pm['set_s6api'](
+        fapi_get=lambda *a, **k: [{'symbol': 'OTHERUSDT', 'positionAmt': '-99', 'entryPrice': '1.0'}],
+        fapi_post=lambda *a, **k: (posts.append(a), {'status': 'FILLED'})[1],
+    )
+
+    pos = {'qty': 10.0, 'original_qty': 10.0, 'entry': 2.48, 'side': 'SHORT',
+           'open_time': time.time() - 3600, 'system': 'S8'}
+    ok = pm._close('DEXEUSDT', pos, 2.7, '硬止损', {'DEXEUSDT': pos})
+
+    assert ok is True                    # DEXE 已不在交易所 → 只记录并清本地
+    assert posts == []                    # 不用 OTHERUSDT 的 qty 去给 DEXE 下单
+    assert len(calls['record_trade']) == 1
 
 
 def test_ghost_cleanup_marks_closed_prevents_repeat(patch_pm):
@@ -154,3 +192,20 @@ def test_merge_meta_exchange_qty_wins_when_meta_empty():
     merged = _merge_meta(raw, {}, time.time())
     assert merged['BTCUSDT']['qty'] == 5.0
     assert merged['BTCUSDT']['tp_done'] == []
+
+
+def test_merge_meta_preserves_missing_position_for_ghost_cleanup():
+    """交易所快照缺币时不能静默删本地仓位，须交给幽灵清理记录。"""
+    from shared.position_manager import _merge_meta_preserving_missing
+
+    now = time.time()
+    meta = {
+        'KOMAUSDT': {
+            'entry': 0.0239, 'qty': 18146.0, 'side': 'LONG',
+            'system': 'S6', 'open_time': now,
+        },
+    }
+
+    merged = _merge_meta_preserving_missing({}, meta, now)
+
+    assert merged['KOMAUSDT'] == meta['KOMAUSDT']

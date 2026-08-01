@@ -377,6 +377,37 @@ def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
         closed_list.append((symbol, reason, pnl_pct))
     return state, closed_list
 
+
+def _should_notify_close(name: str, symbol: str, reason: str, entry: float, qty: float, side: str,
+                         window_sec: int = 7200) -> bool:
+    """TG 平仓通知去重：同一笔平仓在窗口内只推一次，避免 PM 并发/重试刷屏。"""
+    try:
+        key = 'notify:close'
+        data = _rget(key)
+        if not isinstance(data, dict):
+            data = {}
+        now = time.time()
+        # 顺手清理旧项；未知 Redis key 不会文件降级写本地。
+        data = {k: v for k, v in data.items() if now - float(v or 0) < window_sec}
+        dedup_key = '|'.join([
+            str(name), str(symbol), str(reason), str(side),
+            f'{float(entry):.10g}', f'{float(qty):.10g}',
+        ])
+        if dedup_key in data:
+            try:
+                _rset(key, data, double_write=False)
+            except TypeError:
+                _rset(key, data)
+            return False
+        data[dedup_key] = now
+        try:
+            _rset(key, data, double_write=False)
+        except TypeError:
+            _rset(key, data)
+        return True
+    except Exception:
+        return True
+
 # ── 动态仓位计算 ────────────────────────────────────────────────────────
 _POOL_BUDGET = 0.80          # 账户总余额最高使用比例
 _POSITION_MIN_PCT = 0.03     # 单仓最低占可用池比例
@@ -496,6 +527,17 @@ def calc_position_qty(name: str, state: dict, symbol: str, price: float,
 # ── R:R 预判 ────────────────────────────────────────────────────────────
 _MIN_RR = 1.0  # 预期延续幅度 / 止损距离 最低门槛
 
+# ── 订单分析过滤（trade_analysis） ──────────────────────────────────────
+_ANALYSIS_FILTER_MIN_TRADES = 6
+_ANALYSIS_FILTER_WINRATE_MIN = 35.0
+_ANALYSIS_FILTER_QUALITY_MIN = 40.0
+_ANALYSIS_FILTER_T60_MIN = -0.8
+_ANALYSIS_FILTER_TTL = 120
+_ANALYSIS_SOFT_PENALTY = 0.5
+_analysis_filter_cache: dict = {}
+_ANALYSIS_REJECT_KEY = 'event:analysis_reject'
+_analysis_panel_last_log: dict = {}
+
 def _event_expected_move(evt: dict) -> float:
     """估算事件预期延续幅度（%）：以事件自身触发强度为延续参考，无数据返回 0（不拦截）"""
     et = evt.get('type', '')
@@ -509,6 +551,141 @@ def _event_expected_move(evt: dict) -> float:
     except Exception:
         pass
     return 0
+
+
+def _analysis_allows_open(symbol: str, event_type: str, system_name: str) -> tuple[bool, str, float]:
+    """基于 trade_analysis 滚动统计做轻量过滤。历史不足时不拦截。"""
+    if os.environ.get('ANALYSIS_FILTER_OFF', '').strip() in ('1', 'true', 'TRUE'):
+        return True, '', 1.0
+
+    now = time.time()
+    key = (symbol, event_type, system_name)
+    cached = _analysis_filter_cache.get(key)
+    if cached and now - cached['ts'] < _ANALYSIS_FILTER_TTL:
+        stats = cached['stats']
+    else:
+        try:
+            from shared.trade_analyzer import get_rollup_stats
+            stats = get_rollup_stats(symbol=symbol, event_type=event_type, system_name=system_name, lookback_days=14)
+            _analysis_filter_cache[key] = {'ts': now, 'stats': stats}
+        except Exception:
+            return True, '', 1.0
+
+    trades = int(stats.get('trades', 0) or 0)
+    if trades < _ANALYSIS_FILTER_MIN_TRADES:
+        return True, '', 1.0
+
+    win_rate = float(stats.get('win_rate', 0) or 0)
+    quality = float(stats.get('avg_quality_score', 0) or 0)
+    t60_ret = float(stats.get('t60_avg_post_close_return_pct', 0) or 0)
+    avg_pct = float(stats.get('avg_pct', 0) or 0)
+
+    if win_rate < _ANALYSIS_FILTER_WINRATE_MIN and quality < _ANALYSIS_FILTER_QUALITY_MIN:
+        return False, (f'分析过滤[low_quality]: {symbol} {event_type} 历史{trades}单 '
+                       f'胜率{win_rate:.1f}% 质量{quality:.1f} 过低'), _ANALYSIS_SOFT_PENALTY
+    if t60_ret < _ANALYSIS_FILTER_T60_MIN and avg_pct <= 0:
+        return False, (f'分析过滤[bad_follow]: {symbol} {event_type} T60复盘均值{t60_ret:.2f}% '
+                       f'且平均收益{avg_pct:.2f}%'), _ANALYSIS_SOFT_PENALTY
+    return True, '', 1.0
+
+
+def _record_analysis_decision(name: str, symbol: str, event_type: str, action: str, reason: str, penalty: float):
+    """记录分析过滤命中（Redis，不落本地文件）。"""
+    try:
+        data = _rget(_ANALYSIS_REJECT_KEY)
+        if not isinstance(data, dict):
+            data = {}
+        items = data.get('items', []) if isinstance(data.get('items', []), list) else []
+        items.append({
+            'ts': time.time(),
+            'system': name,
+            'symbol': symbol,
+            'event_type': event_type,
+            'action': action,
+            'penalty': round(float(penalty), 4),
+            'reason': reason,
+        })
+        data['items'] = items[-200:]
+        data['ts'] = time.time()
+        _rset(_ANALYSIS_REJECT_KEY, data)
+    except Exception:
+        pass
+
+
+def get_analysis_reject_summary(window_sec: int = 3600) -> dict:
+    """汇总分析过滤命中（最近 window_sec）。"""
+    now = time.time()
+    out = {
+        'window_sec': int(window_sec),
+        'total': 0,
+        'by_system': {},
+        'by_event': {},
+        'by_action': {'block': 0, 'soft': 0},
+    }
+    try:
+        data = _rget(_ANALYSIS_REJECT_KEY)
+        items = data.get('items', []) if isinstance(data, dict) else []
+        for it in items:
+            ts = float(it.get('ts', 0) or 0)
+            if ts <= 0 or now - ts > window_sec:
+                continue
+            sys_name = str(it.get('system', '') or '-')
+            event_type = str(it.get('event_type', '') or '-')
+            action = str(it.get('action', '') or 'block')
+
+            out['total'] += 1
+            out['by_action'][action] = out['by_action'].get(action, 0) + 1
+            out['by_system'][sys_name] = out['by_system'].get(sys_name, 0) + 1
+            out['by_event'][event_type] = out['by_event'].get(event_type, 0) + 1
+    except Exception:
+        pass
+    return out
+
+
+def _format_analysis_reject_summary(summary: dict) -> str:
+    total = int(summary.get('total', 0) or 0)
+    if total <= 0:
+        return ''
+    block_n = int(summary.get('by_action', {}).get('block', 0) or 0)
+    soft_n = int(summary.get('by_action', {}).get('soft', 0) or 0)
+    by_sys = summary.get('by_system', {})
+    by_evt = summary.get('by_event', {})
+
+    top_sys = sorted(by_sys.items(), key=lambda x: -x[1])[:3]
+    top_evt = sorted(by_evt.items(), key=lambda x: -x[1])[:3]
+    sys_txt = ', '.join(f'{k}:{v}' for k, v in top_sys) if top_sys else '-'
+    evt_txt = ', '.join(f'{k}:{v}' for k, v in top_evt) if top_evt else '-'
+    mins = max(1, int(summary.get('window_sec', 3600) // 60))
+    return f'[分析过滤面板 {mins}m] total={total} block={block_n} soft={soft_n} | system[{sys_txt}] | event[{evt_txt}]'
+
+
+def maybe_log_analysis_panel(name: str, interval_sec: int = 300, window_sec: int = 3600):
+    """按 interval 节流输出分析过滤面板。"""
+    now = time.time()
+    last = float(_analysis_panel_last_log.get(name, 0) or 0)
+    if now - last < interval_sec:
+        return
+    _analysis_panel_last_log[name] = now
+    msg = _format_analysis_reject_summary(get_analysis_reject_summary(window_sec=window_sec))
+    if msg:
+        _log(name, msg)
+
+
+def _analysis_gate(name: str, symbol: str, event_type: str, qty: float) -> tuple[bool, float, str]:
+    """分析过滤门禁：hard=拒单，soft=降权。"""
+    ok_hist, reason, penalty = _analysis_allows_open(symbol, event_type, name)
+    if ok_hist:
+        return True, qty, ''
+
+    mode = os.environ.get('ANALYSIS_FILTER_MODE', 'hard').strip().lower()
+    if mode == 'soft':
+        new_qty = max(qty * max(0.1, min(1.0, penalty)), 0.0)
+        msg = f'{reason} -> soft降权 qty {qty:.4f}->{new_qty:.4f}'
+        _record_analysis_decision(name, symbol, event_type, 'soft', reason, penalty)
+        return True, new_qty, msg
+
+    _record_analysis_decision(name, symbol, event_type, 'block', reason, penalty)
+    return False, qty, reason
 
 
 # ── 近期平仓检查（Redis 原子性，与 PM 共享） ──
@@ -533,6 +710,13 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
     if strength < 30:
         _log(name, f'{symbol} strength={strength} < 30，信号太弱跳过')
         return False
+    # ── 历史分析过滤（弱质量信号跳过） ──
+    ok_hist, qty, reason = _analysis_gate(name, symbol, event_type, qty)
+    if not ok_hist:
+        _log(name, reason)
+        return False
+    if reason:
+        _log(name, reason)
     # ── R:R 预判：预期延续幅度 vs 止损距离 ──
     if expected_move_pct > 0 and stop_price > 0:
         stop_dist_pct = abs(entry_price - stop_price) / entry_price * 100

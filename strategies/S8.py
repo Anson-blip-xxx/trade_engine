@@ -27,6 +27,7 @@ from shared_executor import (
     open_position, calc_position_qty, fapi_get, tg_send,
     market_allows_trading, get_position_count, has_position,
     _event_expected_move, subscribe_s3_notify, wait_scan,
+    maybe_log_analysis_panel,
 )
 
 NAME = 'S8'
@@ -160,6 +161,7 @@ def main():
             pos_count = get_position_count(NAME)
             if pos_count > 0:
                 _log(NAME, f'[心跳] 当前持仓: {pos_count}')
+            maybe_log_analysis_panel(NAME, interval_sec=300, window_sec=3600)
 
         except Exception as e:
             _log(NAME, f'主循环异常: {e}')

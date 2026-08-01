@@ -85,3 +85,94 @@ def test_strength_filter_below_30_blocks_open(patch_executor):
     result = se.open_position('S6', 'XXX', 'LONG', 1.0, 0.95, 100, 'CROSSED', 3,
                               'PULSE_UP', 25)  # strength=25 < 30
     assert result is False
+
+
+def test_analysis_filter_blocks_open(patch_executor, monkeypatch):
+    """分析统计劣化时，开仓在早期直接被拒绝。"""
+    se = patch_executor['se']
+    monkeypatch.setattr(se, '_analysis_gate', lambda *a, **k: (False, 100.0, 'bad history'))
+
+    result = se.open_position('S6', 'XXX', 'LONG', 1.0, 0.95, 100, 'CROSSED', 3,
+                              'PULSE_UP', 80)
+    assert result is False
+
+
+def test_analysis_gate_hard_mode_blocks(monkeypatch, patch_executor):
+    se = patch_executor['se']
+    monkeypatch.delenv('ANALYSIS_FILTER_MODE', raising=False)
+    monkeypatch.setattr(se, '_analysis_allows_open', lambda *a, **k: (False, 'low quality', 0.5))
+    monkeypatch.setattr(se, '_record_analysis_decision', lambda *a, **k: None)
+
+    ok, qty, reason = se._analysis_gate('S6', 'BTCUSDT', 'TREND_UP', 100.0)
+    assert ok is False
+    assert qty == 100.0
+    assert 'low quality' in reason
+
+
+def test_analysis_gate_soft_mode_scales_qty(monkeypatch, patch_executor):
+    se = patch_executor['se']
+    monkeypatch.setenv('ANALYSIS_FILTER_MODE', 'soft')
+    monkeypatch.setattr(se, '_analysis_allows_open', lambda *a, **k: (False, 'bad follow', 0.4))
+    monkeypatch.setattr(se, '_record_analysis_decision', lambda *a, **k: None)
+
+    ok, qty, reason = se._analysis_gate('S8', 'ETHUSDT', 'TREND_DOWN', 100.0)
+    assert ok is True
+    assert qty == pytest.approx(40.0)
+    assert 'soft降权' in reason
+
+
+def test_analysis_reject_summary_aggregates_recent_items(patch_executor):
+    se = patch_executor['se']
+    now = time.time()
+    se._rset('event:analysis_reject', {
+        'items': [
+            {'ts': now - 60, 'system': 'S6', 'event_type': 'TREND_UP', 'action': 'block'},
+            {'ts': now - 30, 'system': 'S6', 'event_type': 'TREND_UP', 'action': 'soft'},
+            {'ts': now - 10, 'system': 'S8', 'event_type': 'TREND_DOWN', 'action': 'block'},
+            {'ts': now - 7200, 'system': 'S8', 'event_type': 'PULSE_DOWN', 'action': 'block'},  # 过窗
+        ]
+    })
+
+    s = se.get_analysis_reject_summary(window_sec=3600)
+    assert s['total'] == 3
+    assert s['by_action']['block'] == 2
+    assert s['by_action']['soft'] == 1
+    assert s['by_system']['S6'] == 2
+    assert s['by_event']['TREND_UP'] == 2
+
+
+def test_maybe_log_analysis_panel_throttled(monkeypatch, patch_executor):
+    se = patch_executor['se']
+    now = time.time()
+    se._analysis_panel_last_log.clear()
+    se._rset('event:analysis_reject', {
+        'items': [{'ts': now - 10, 'system': 'S6', 'event_type': 'TREND_UP', 'action': 'block'}]
+    })
+
+    logs = []
+    monkeypatch.setattr(se, '_log', lambda n, m: logs.append((n, m)))
+
+    se.maybe_log_analysis_panel('S6', interval_sec=300, window_sec=3600)
+    se.maybe_log_analysis_panel('S6', interval_sec=300, window_sec=3600)
+    assert len(logs) == 1
+    assert '分析过滤面板' in logs[0][1]
+
+
+def test_close_notify_dedup_blocks_same_trade(patch_executor):
+    se = patch_executor['se']
+
+    assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG') is True
+    assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG') is False
+    assert se._should_notify_close('S6', 'COTIUSDT', '时间止损', 0.014, 1000, 'LONG') is True
+
+
+def test_close_notify_dedup_expires(patch_executor, monkeypatch):
+    se = patch_executor['se']
+    t = [1000.0]
+    monkeypatch.setattr(se.time, 'time', lambda: t[0])
+
+    assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG', window_sec=10) is True
+    t[0] = 1005.0
+    assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG', window_sec=10) is False
+    t[0] = 1011.0
+    assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG', window_sec=10) is True
