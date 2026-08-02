@@ -27,7 +27,7 @@ from shared_executor import (
     open_position, calc_position_qty, fapi_get, tg_send,
     market_allows_trading, get_position_count, has_position,
     _event_expected_move, subscribe_s3_notify, wait_scan,
-    maybe_log_analysis_panel,
+    maybe_log_analysis_panel, bounded_stop_pct,
 )
 
 NAME = 'S8'
@@ -39,10 +39,12 @@ STOP_LOSS_PCT = {
     'PULSE_DOWN':  0.04,    # 逐仓: 4% 紧止损
     'PANIC_SELL':  0.035,   # 逐仓: 3.5% 更紧止损
     'TREND_DOWN':  0.08,    # 全仓: 8% 宽松止损
-    'VIOLENT_BEARISH': 0.10, # 极端波动: 10% 宽止损
+    'VIOLENT_BEARISH': 0.08, # 极端波动: 8% 止损上限
     'PUMP_DOWN':  0.08,     # 泵空: 8% 止损
 }
 MAX_POSITIONS = 2
+MAX_ATR_PCT = 6.0
+MAX_STOP_LOSS_PCT = 0.08
 LEVERAGE = {
     'PULSE_DOWN':  5,
     'PANIC_SELL':  5,
@@ -111,10 +113,10 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
         _log(NAME, f'{symbol} 价格 {price:.4f} > 1h EMA20 {_ema20:.4f}，不做空')
         return state
 
-    # 波动率过滤：1h ATR% > 8% 跳过
+    # 波动率过滤：1h ATR% > 6% 跳过
     _atr_pct = float(_1h.get('atr_pct', 0))
-    if _atr_pct > 8:
-        _log(NAME, f'{symbol} 1h ATR={_atr_pct:.1f}% > 8%，跳过')
+    if _atr_pct > MAX_ATR_PCT:
+        _log(NAME, f'{symbol} 1h ATR={_atr_pct:.1f}% > {MAX_ATR_PCT:.0f}%，跳过')
         return state
 
     # 参数
@@ -123,8 +125,7 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
     stop_pct = STOP_LOSS_PCT.get(event_type, 0.05)
 
     # ATR 自适应止损（ATR × 2，不低于固定止损）
-    if _atr_pct > 0:
-        stop_pct = max(stop_pct, _atr_pct * 2 / 100)
+    stop_pct = bounded_stop_pct(stop_pct, _atr_pct, MAX_STOP_LOSS_PCT)
 
     qty = calc_position_qty(NAME, state, symbol, price, event_type, evt.get('strength', 50), leverage,
                             atr_pct=_atr_pct, stop_pct=stop_pct)

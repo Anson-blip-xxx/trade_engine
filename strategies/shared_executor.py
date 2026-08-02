@@ -95,6 +95,13 @@ def _get_min_notional(symbol: str) -> float:
         pass
     return 5.0  # 默认最小 5 USDT
 
+
+def bounded_stop_pct(base_stop_pct: float, atr_pct: float,
+                     max_stop_pct: float = 0.08) -> float:
+    """Apply ATR expansion without allowing an unbounded stop distance."""
+    stop_pct = max(float(base_stop_pct), float(atr_pct) * 2 / 100) if atr_pct > 0 else float(base_stop_pct)
+    return min(stop_pct, max_stop_pct)
+
 # ── 沙盘模式 ──
 _SANDBOX_ACTIVE = None
 

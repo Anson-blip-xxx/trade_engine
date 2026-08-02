@@ -78,6 +78,15 @@ def test_event_expected_move_rr_support():
     assert _event_expected_move({'type': 'UNKNOWN'}) == 0.0
 
 
+def test_bounded_stop_pct_caps_atr_expansion():
+    """ATR 放大止损时仍必须受尾部风险上限约束。"""
+    from strategies.shared_executor import bounded_stop_pct
+
+    assert bounded_stop_pct(0.04, 2) == pytest.approx(0.04)
+    assert bounded_stop_pct(0.04, 5) == pytest.approx(0.08)
+    assert bounded_stop_pct(0.10, 0) == pytest.approx(0.08)
+
+
 def test_strength_filter_below_30_blocks_open(patch_executor):
     """strength<30 信号直接拒绝开仓（函数第一步，无副作用）。"""
     se = patch_executor['se']
