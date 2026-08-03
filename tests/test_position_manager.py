@@ -98,6 +98,35 @@ def test_close_failure_clears_marker(patch_pm):
     assert 'YUSDT' in calls['clear_closed']  # 失败后清标记
 
 
+def test_close_failure_keeps_protective_algo(patch_pm, monkeypatch):
+    """市价平仓被 PERCENT_PRICE 拒绝时，不得先取消原止损条件单。"""
+    pm = patch_pm['pm']
+    cancelled = []
+    monkeypatch.setattr(pm, '_cancel_all_algo', lambda symbol: cancelled.append(symbol))
+    patch_pm['set_s6api'](
+        fapi_get=lambda *a, **k: [{'symbol': 'KOMAUSDT', 'positionAmt': '100', 'entryPrice': '1.0'}],
+        fapi_post=lambda *a, **k: {'code': -4016, 'msg': 'The counterparty\'s best price does not meet the PERCENT_PRICE filter limit'},
+    )
+
+    pos = {'qty': 100.0, 'entry': 1.0, 'side': 'LONG',
+           'open_time': time.time(), 'system': 'S6'}
+    assert pm._close('KOMAUSDT', pos, 0.9, '硬止损', {}) is False
+    assert cancelled == []
+
+
+def test_close_error_is_rate_limited(patch_pm, monkeypatch):
+    """同一币种持续被交易所拒绝时，错误日志按周期限频。"""
+    pm = patch_pm['pm']
+    messages = []
+    monkeypatch.setattr(pm, '_pmlog', lambda message: messages.append(message))
+    monkeypatch.setattr(pm, '_CLOSE_ERROR_LOG_TS', {})
+
+    pm._log_close_error('COTIUSDT', 'PERCENT_PRICE', interval=60)
+    pm._log_close_error('COTIUSDT', 'PERCENT_PRICE', interval=60)
+
+    assert len(messages) == 1
+
+
 def test_monitor_one_does_not_report_closed_when_close_fails(patch_pm, monkeypatch):
     """硬止损触发但交易所拒绝平仓 → 不返回 closed，避免 S8/TG 虚假平仓刷屏。"""
     pm = patch_pm['pm']

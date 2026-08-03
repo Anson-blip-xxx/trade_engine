@@ -2,7 +2,7 @@
 交易记录 — ClickHouse 落库 + Telegram 推送 + PnL 追踪
 依赖: binance_api (fapi_get, TG_TOKEN, TG_CHAT_ID), market_data, redis_store, clickhouse_client
 """
-import time, json, requests, sys
+import time, json, requests, sys, hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -122,14 +122,19 @@ def _is_duplicate_record(symbol, entry, qty, exit_reason):
         return False
 
 
+def _partial_key(position_id):
+    digest = hashlib.sha1(str(position_id).encode()).hexdigest()
+    return f'trade:partial:{digest}'
+
+
 def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, exit_reason='',
                  signal_type='', market_state_entry='', btc_trend_entry='', breadth_entry='',
                  side='LONG', score=0,
                  atr_entry=0.0, rsi_entry=0.0, funding_entry=0.0,
                  oi_change_entry=0.0, btc_1h_pct=0.0, sl_price=0.0, tp1_price=0.0,
                  margin_mode='', position_alloc_usdt=0.0, account_balance=0.0,
-                 pool_remaining=0.0, be_done=0, trail_active=0,
-                 algo_sl_id=0, ghost_cleanup=0):
+                  pool_remaining=0.0, be_done=0, trail_active=0,
+                  algo_sl_id=0, ghost_cleanup=0, position_id='', final_close=True):
     try:
         if _is_duplicate_record(symbol, entry, qty, exit_reason):
             return
@@ -140,6 +145,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             _pct = (exit_price - entry) / entry * 100
             _pnl = (exit_price - entry) * qty
         pct, pnl_usdt = _pct, _pnl
+        formula_pnl = _pnl
         result = 'win' if pct > 0 else 'loss'
 
         try:
@@ -167,6 +173,31 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             pass
 
         duration_min = int((time.time() - open_time) / 60)
+
+        # Partial fills are accumulated and emitted as one position-level row
+        # when the exchange confirms the position is flat.
+        if position_id:
+            key = _partial_key(position_id)
+            partial = _rget(key) or {}
+            if not final_close:
+                partial['qty'] = float(partial.get('qty', 0)) + float(qty)
+                partial['pnl_usdt'] = float(partial.get('pnl_usdt', 0)) + float(formula_pnl)
+                partial['exit_notional'] = float(partial.get('exit_notional', 0)) + float(exit_price) * float(qty)
+                partial['entry'] = float(entry)
+                partial['open_time'] = float(open_time)
+                partial['last_exit_reason'] = exit_reason
+                _rset(key, partial)
+                return
+            if partial.get('qty', 0) > 0:
+                qty = float(partial['qty']) + float(qty)
+                formula_pnl = float(partial.get('pnl_usdt', 0)) + float(formula_pnl)
+                exit_notional = float(partial.get('exit_notional', 0)) + float(exit_price) * float(qty - partial['qty'])
+                exit_price = exit_notional / qty if qty else exit_price
+                pnl_usdt = formula_pnl
+                pct = pnl_usdt / (float(entry) * qty) * 100 if entry and qty else 0
+                result = 'win' if pnl_usdt > 0 else 'loss'
+                duration_min = max(duration_min, int((time.time() - float(partial.get('open_time', open_time))) / 60))
+                _rset(key, {})
 
         _market_state = market_state_entry or ''
         _btc_trend = btc_trend_entry or ''
@@ -222,6 +253,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'market_breadth': round(float(_breadth), 4) if _breadth and _breadth.replace('.','',1).replace('-','',1).isdigit() else 0,
             'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0,
             'ghost_cleanup': 1 if ghost_cleanup else 0,
+            'position_id': str(position_id),
         })
         _ch_insert('default.trade_history', row)
 

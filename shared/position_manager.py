@@ -592,6 +592,10 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
             'tp_done': mp.get('tp_done', []),
             'highest': mp.get('highest', bp['entry']),
             'lowest': mp.get('lowest', bp['entry']),
+            'position_id': mp.get(
+                'position_id',
+                f"{mp.get('system', 'S6')}:{sym}:{mp.get('open_time', now):.6f}",
+            ),
         }
     return merged
 
@@ -851,6 +855,24 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
 
 _monitor_heartbeat_ts: float = 0
 _RECENTLY_GHOSTED: list = []  # 本轮检测到的幽灵仓，monitor_all 消费后清空
+_CLOSE_ERROR_LOG_TS: dict[str, float] = {}
+
+
+def _log_close_error(symbol: str, message: str, interval: int = 60):
+    """限频重复平仓错误；实际重试仍由监控循环继续执行。"""
+    now = time.time()
+    if now - _CLOSE_ERROR_LOG_TS.get(symbol, 0) >= interval:
+        _CLOSE_ERROR_LOG_TS[symbol] = now
+        _pmlog(f'[平仓失败] {symbol}: {message}')
+
+
+def _position_id(symbol: str, pos: dict) -> str:
+    """Return a stable ID for one aggregate exchange position."""
+    return str(pos.get('position_id') or ':'.join([
+        str(pos.get('system', '')), symbol,
+        f"{float(pos.get('entry', 0)):.12g}",
+        f"{float(pos.get('open_time', 0)):.6f}",
+    ]))
 
 def monitor_all(system_filter: str = '') -> list:
     """
@@ -1492,10 +1514,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                      score=pos.get('score', 0),
                      atr_entry=pos.get('atr', 0),
                      sl_price=pos.get('sl', 0),
-                     margin_mode=pos.get('margin', ''),
-                     be_done=pos.get('be_done', False),
-                     trail_active=pos.get('trail', False),
-                     algo_sl_id=pos.get('algo_sl_id', 0))
+                      margin_mode=pos.get('margin', ''),
+                      be_done=pos.get('be_done', False),
+                      trail_active=pos.get('trail', False),
+                      algo_sl_id=pos.get('algo_sl_id', 0),
+                      position_id=_position_id(symbol, pos), final_close=True)
         positions.pop(symbol, None)
         _save(positions)
         return True
@@ -1503,12 +1526,6 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
     # ═══ 实盘模式 ═══
     fapi_get, fapi_post, _, _, _, _, _, record_trade = _s6api()
 
-    # 0. 取消该币所有条件单
-    try:
-        _cancel_all_algo(symbol)
-        _pmlog(f'[平仓Algo取消] {symbol} 已清理全部条件单')
-    except Exception as e:
-        _pmlog(f'[平仓Algo取消异常] {symbol}: {e}')
     try:
         real_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
         if pos['side'] == 'SHORT':
@@ -1521,6 +1538,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                            and float(x.get('positionAmt', 0)) > 0), None)
         if not real_pos:
             # 止损单已在交易所触发平仓，记录本次平仓
+            try:
+                _cancel_all_algo(symbol)
+                _pmlog(f'[平仓Algo取消] {symbol} 已清理全部条件单')
+            except Exception as e:
+                _pmlog(f'[平仓Algo取消异常] {symbol}: {e}')
             close_qty = pos.get('original_qty', pos.get('qty', 0))
             if pos['side'] == 'SHORT':
                 pnl_pct = (pos['entry'] - price) / pos['entry'] * 100
@@ -1538,7 +1560,8 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                          margin_mode=pos.get('margin', ''),
                          be_done=pos.get('be_done', False),
                          trail_active=pos.get('trail', False),
-                         algo_sl_id=pos.get('algo_sl_id', 0))
+                         algo_sl_id=pos.get('algo_sl_id', 0),
+                         position_id=_position_id(symbol, pos), final_close=True)
             positions.pop(symbol, None)
             _save(positions)
             return True
@@ -1550,13 +1573,47 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
             'quantity': close_qty, 'positionSide': 'BOTH', 'reduceOnly': 'true',
         })
         if isinstance(result, dict) and result.get('code'):
-            _pmlog(f'[平仓失败] {symbol}: {result.get("msg")}')
+            _log_close_error(symbol, result.get('msg', result), interval=60)
+            # 不要在市价单失败前删除原止损单，避免仓位裸奔。
             _clear_closed_marker(symbol)
             return False
+
+        # Market orders can be partially filled. Keep the position and
+        # accumulate this slice until positionRisk confirms it is flat.
+        filled_qty = abs(float(result.get('executedQty', close_qty))) if isinstance(result, dict) else close_qty
+        remaining_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
+        remaining_pos = next((x for x in (remaining_r or []) if isinstance(x, dict)
+                              and x.get('symbol') == symbol
+                              and ((pos['side'] == 'SHORT' and float(x.get('positionAmt', 0)) < 0)
+                                   or (pos['side'] != 'SHORT' and float(x.get('positionAmt', 0)) > 0))), None)
+        remaining_qty = abs(float(remaining_pos.get('positionAmt', 0))) if remaining_pos else 0.0
+        if remaining_qty >= 0.001:
+            pos['qty'] = remaining_qty
+            positions[symbol] = pos
+            _save(positions)
+            record_trade(symbol, pos['entry'], price, filled_qty, pos.get("leverage", 3),
+                         pos.get('system', ''), pos['open_time'],
+                         exit_reason=reason, side=pos['side'],
+                         score=pos.get('score', 0), atr_entry=pos.get('atr', 0),
+                         sl_price=pos.get('sl', 0), margin_mode=pos.get('margin', ''),
+                         be_done=pos.get('be_done', False),
+                         trail_active=pos.get('trail', False),
+                         algo_sl_id=pos.get('algo_sl_id', 0),
+                         position_id=_position_id(symbol, pos), final_close=False)
+            _pmlog(f'[平仓部分成交] {symbol} qty={filled_qty} 剩余={remaining_qty}')
+            return False
+        close_qty = filled_qty
     except Exception as e:
         _pmlog(f'[平仓异常] {symbol}: {e}')
         _clear_closed_marker(symbol)
         return False
+
+    # 市价平仓成功后再清理剩余条件单。
+    try:
+        _cancel_all_algo(symbol)
+        _pmlog(f'[平仓Algo取消] {symbol} 已清理全部条件单')
+    except Exception as e:
+        _pmlog(f'[平仓Algo取消异常] {symbol}: {e}')
 
     # 盈亏
     if pos['side'] == 'SHORT':
@@ -1577,8 +1634,9 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                  sl_price=pos.get('sl', 0),
                  margin_mode=pos.get('margin', ''),
                  be_done=pos.get('be_done', False),
-                 trail_active=pos.get('trail', False),
-                 algo_sl_id=pos.get('algo_sl_id', 0))
+                  trail_active=pos.get('trail', False),
+                  algo_sl_id=pos.get('algo_sl_id', 0),
+                  position_id=_position_id(symbol, pos), final_close=True)
 
     # 删记录
     positions.pop(symbol, None)
