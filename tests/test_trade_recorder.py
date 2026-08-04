@@ -53,3 +53,13 @@ def test_record_trade_enqueues_analysis_non_blocking():
 
     # 主记账应已执行（分析入队失败不影响）
     assert any(c[0][0] == 'default.trade_history' for c in ins.call_args_list)
+
+
+def test_record_trade_ignores_zero_quantity():
+    """交易所响应无成交数量时不得写入零数量交易。"""
+    from shared import trade_recorder as tr
+
+    with patch('shared.trade_recorder._ch_insert') as ins:
+        tr.record_trade('COTIUSDT', 1.0, 0.9, 0, 3, 'S6', time.time(), '硬止损')
+
+    ins.assert_not_called()

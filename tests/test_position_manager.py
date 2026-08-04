@@ -180,6 +180,22 @@ def test_ghost_cleanup_marks_closed_prevents_repeat(patch_pm):
     assert len(calls['record_trade']) == 1       # 只记一次
 
 
+def test_ghost_cleanup_records_current_exit_price(patch_pm):
+    """幽灵仓必须用实际现价落库，不能把出场价写成入场价。"""
+    pm = patch_pm['pm']
+    recorded = []
+    patch_pm['set_s6api'](record_trade=lambda *args, **kwargs: recorded.append((args, kwargs)))
+    positions = {'RIFUSDT': {'qty': 100.0, 'entry': 1.0, 'side': 'LONG',
+                             'open_time': time.time(), 'system': 'S6'}}
+    pm._light_fapi_get = lambda *a, **k: []
+    pm._light_get_price = lambda *a, **k: 0.8
+
+    pm._ghost_cleanup(positions, system_filter='S6')
+
+    assert recorded[0][0][2] == pytest.approx(0.8)
+    assert recorded[0][1]['exit_reason'] == '手动平仓'
+
+
 def test_ghost_cleanup_skips_closed_recently(patch_pm):
     """WS 领导者已标记 closed 的幽灵仓 → 不重复记账，直接移除。"""
     pm, calls = patch_pm['pm'], patch_pm['calls']
@@ -221,6 +237,26 @@ def test_merge_meta_exchange_qty_wins_when_meta_empty():
     merged = _merge_meta(raw, {}, time.time())
     assert merged['BTCUSDT']['qty'] == 5.0
     assert merged['BTCUSDT']['tp_done'] == []
+
+
+def test_1h_reversal_only_exits_at_breakeven_or_profit():
+    """亏损仓遇到 1h 反转先观察，避免回本途中被提前平掉。"""
+    from shared.position_manager import _should_exit_1h_reversal
+
+    assert _should_exit_1h_reversal(-0.1) is False
+    assert _should_exit_1h_reversal(0.0) is True
+    assert _should_exit_1h_reversal(2.5) is True
+
+
+def test_early_loss_momentum_weak():
+    """15m 仍逆向运行时触发早期亏损保护，反向恢复时不触发。"""
+    from shared.position_manager import _early_loss_momentum_weak
+
+    down = [[0, 0, 0, 0, p] for p in (10.0, 9.9, 9.8, 9.7)]
+    up = [[0, 0, 0, 0, p] for p in (10.0, 9.9, 10.0, 10.1)]
+    assert _early_loss_momentum_weak(down, 'LONG') is True
+    assert _early_loss_momentum_weak(down, 'SHORT') is False
+    assert _early_loss_momentum_weak(up, 'LONG') is False
 
 
 def test_merge_meta_preserves_missing_position_for_ghost_cleanup():

@@ -136,6 +136,8 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
                   pool_remaining=0.0, be_done=0, trail_active=0,
                   algo_sl_id=0, ghost_cleanup=0, position_id='', final_close=True):
     try:
+        if float(qty) <= 0:
+            return
         if _is_duplicate_record(symbol, entry, qty, exit_reason):
             return
         if side == 'SHORT':
@@ -164,11 +166,15 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
                     break
                 page_since = batch[-1]['time'] + 1
             if income_data:
-                pnl_usdt = sum(float(x['income']) for x in income_data)
-                result = 'win' if pnl_usdt > 0 else 'loss'
-                notional = entry * qty
-                if notional > 0:
-                    pct = pnl_usdt / notional * 100
+                income_pnl = sum(float(x['income']) for x in income_data)
+                # Do not let a zero/empty income response erase a valid
+                # price-based PnL calculation.
+                if abs(income_pnl) > 1e-9:
+                    pnl_usdt = income_pnl
+                    result = 'win' if pnl_usdt > 0 else 'loss'
+                    notional = entry * qty
+                    if notional > 0:
+                        pct = pnl_usdt / notional * 100
         except Exception as e:
             pass
 

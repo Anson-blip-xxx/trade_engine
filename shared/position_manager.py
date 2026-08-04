@@ -547,7 +547,9 @@ def _try_record_ghost_trade(sym: str, meta: dict):
         record_trade(sym, entry, ghost_price, qty, leverage, system_name, open_time,
                      exit_reason='幽灵仓关闭', side=side,
                      score=meta.get('score', 0), atr_entry=meta.get('atr', 0),
-                     sl_price=meta.get('sl', 0), ghost_cleanup=True)
+                     sl_price=meta.get('sl', 0),
+                     position_id=_position_id(sym, meta), final_close=True,
+                     ghost_cleanup=True)
     except Exception as e:
         _pmlog(f'[幽灵记录失败] {sym}: {e}')
 
@@ -596,6 +598,7 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
                 'position_id',
                 f"{mp.get('system', 'S6')}:{sym}:{mp.get('open_time', now):.6f}",
             ),
+            'trend_reversal_warned': mp.get('trend_reversal_warned', False),
         }
     return merged
 
@@ -831,7 +834,7 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
             qty = pos.get('original_qty', pos.get('qty', 0))
             ghost_price = _light_get_price(sym) or entry
             _pmlog(f'[幽灵仓] {sym} 交易所已无持仓，清理 (入场={entry} 现价={ghost_price})')
-            record_trade(sym, entry, entry, qty,
+            record_trade(sym, entry, ghost_price, qty,
                          pos.get('leverage', 1), pos.get('system', ''),
                          pos.get('open_time', time.time()),
                          exit_reason='手动平仓', side=side,
@@ -839,10 +842,11 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
                          atr_entry=pos.get('atr', 0),
                          sl_price=pos.get('sl', 0),
                          margin_mode=pos.get('margin', ''),
-                         be_done=pos.get('be_done', False),
-                         trail_active=pos.get('trail', False),
-                         algo_sl_id=pos.get('algo_sl_id', 0),
-                         ghost_cleanup=True)
+                          be_done=pos.get('be_done', False),
+                          trail_active=pos.get('trail', False),
+                          algo_sl_id=pos.get('algo_sl_id', 0),
+                          position_id=_position_id(sym, pos), final_close=True,
+                          ghost_cleanup=True)
             # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
             _mark_closed(sym)
             closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
@@ -873,6 +877,22 @@ def _position_id(symbol: str, pos: dict) -> str:
         f"{float(pos.get('entry', 0)):.12g}",
         f"{float(pos.get('open_time', 0)):.6f}",
     ]))
+
+
+def _should_exit_1h_reversal(pnl: float) -> bool:
+    """Only exit on reversal once the position is at least breakeven."""
+    return pnl >= 0
+
+
+def _early_loss_momentum_weak(klines: list, side: str) -> bool:
+    """Check whether the last 15m candles still move against the position."""
+    if not klines or len(klines) < 4:
+        return False
+    closes = [float(row[4]) for row in klines[-4:]]
+    baseline = sum(closes[:3]) / 3
+    if side == 'SHORT':
+        return closes[-1] >= closes[-2] and closes[-1] > baseline
+    return closes[-1] <= closes[-2] and closes[-1] < baseline
 
 def monitor_all(system_filter: str = '') -> list:
     """
@@ -1014,6 +1034,19 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
             return (reason, price, entry, pos['qty'], pos['side'])
         return None
 
+    # Early-loss protection: cut a losing trade after 30 minutes only when
+    # 15m momentum still confirms the adverse direction.
+    if hold >= 30 and pnl <= -2.0:
+        try:
+            k15 = _get_data_cache().get_klines(symbol, '15m', 4)
+            if _early_loss_momentum_weak(k15, pos['side']):
+                reason = f'早期亏损保护 pnl={pnl:.1f}%'
+                if _close(symbol, pos, price, reason, positions):
+                    return (reason, price, entry, pos['qty'], pos['side'])
+                return None
+        except Exception as e:
+            _pmlog(f'[早期亏损保护异常] {symbol}: {e}')
+
     # 3. be_done：盈利达标 → 止损移到成本
     be_pct = cfg.get('be_done_threshold', 2.0)
     if not pos.get('be_done') and pnl >= be_pct:
@@ -1057,12 +1090,20 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                 ema9_1h = sum(c1h[-9:]) / 9
                 ema20_1h = sum(c1h[-20:]) / 20
                 if pos['side'] == 'SHORT' and ema9_1h > ema20_1h * 1.02:
-                    if _close(symbol, pos, price, '1h趋势反转', positions):
-                        return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    if _should_exit_1h_reversal(pnl):
+                        if _close(symbol, pos, price, '1h趋势反转', positions):
+                            return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    elif not pos.get('trend_reversal_warned'):
+                        pos['trend_reversal_warned'] = True
+                        _pmlog(f'[1h反转观察] {symbol} 当前亏损 {pnl:+.1f}%，暂不平仓，交给止损/时间止损处理')
                     return None
                 elif pos['side'] != 'SHORT' and ema9_1h < ema20_1h * 0.98:
-                    if _close(symbol, pos, price, '1h趋势反转', positions):
-                        return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    if _should_exit_1h_reversal(pnl):
+                        if _close(symbol, pos, price, '1h趋势反转', positions):
+                            return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
+                    elif not pos.get('trend_reversal_warned'):
+                        pos['trend_reversal_warned'] = True
+                        _pmlog(f'[1h反转观察] {symbol} 当前亏损 {pnl:+.1f}%，暂不平仓，交给止损/时间止损处理')
                     return None
         except Exception:
             pass
@@ -1566,7 +1607,8 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
             _save(positions)
             return True
 
-        close_qty = _round_qty(symbol, abs(float(real_pos['positionAmt'])))
+        requested_close_qty = _round_qty(symbol, abs(float(real_pos['positionAmt'])))
+        close_qty = requested_close_qty
         close_side = 'BUY' if pos['side'] == 'SHORT' else 'SELL'
         result = fapi_post('/fapi/v1/order', {
             'symbol': symbol, 'side': close_side, 'type': 'MARKET',
@@ -1580,7 +1622,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
 
         # Market orders can be partially filled. Keep the position and
         # accumulate this slice until positionRisk confirms it is flat.
-        filled_qty = abs(float(result.get('executedQty', close_qty))) if isinstance(result, dict) else close_qty
+        reported_filled_qty = abs(float(result.get('executedQty', 0))) if isinstance(result, dict) else 0.0
         remaining_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
         remaining_pos = next((x for x in (remaining_r or []) if isinstance(x, dict)
                               and x.get('symbol') == symbol
@@ -1588,6 +1630,13 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                                    or (pos['side'] != 'SHORT' and float(x.get('positionAmt', 0)) > 0))), None)
         remaining_qty = abs(float(remaining_pos.get('positionAmt', 0))) if remaining_pos else 0.0
         if remaining_qty >= 0.001:
+            if reported_filled_qty < 0.001:
+                pos['qty'] = remaining_qty
+                positions[symbol] = pos
+                _save(positions)
+                _log_close_error(symbol, '平仓响应无成交数量，保留仓位等待重试')
+                return False
+            filled_qty = reported_filled_qty
             pos['qty'] = remaining_qty
             positions[symbol] = pos
             _save(positions)
@@ -1602,7 +1651,10 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                          position_id=_position_id(symbol, pos), final_close=False)
             _pmlog(f'[平仓部分成交] {symbol} qty={filled_qty} 剩余={remaining_qty}')
             return False
-        close_qty = filled_qty
+        # Some Binance-compatible responses omit executedQty on a filled
+        # market order. If positionRisk is flat, the requested quantity is
+        # the only safe fallback for accounting.
+        close_qty = reported_filled_qty if reported_filled_qty >= 0.001 else requested_close_qty
     except Exception as e:
         _pmlog(f'[平仓异常] {symbol}: {e}')
         _clear_closed_marker(symbol)
