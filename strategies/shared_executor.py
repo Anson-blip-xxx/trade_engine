@@ -469,10 +469,15 @@ def _calc_used_margin(state: dict) -> float:
 # ── 账户级回撤熔断 ──────────────────────────────────────────────────────
 _DD_HALF = 0.08    # 权益从峰值回撤 ≥8% → 仓位减半
 _DD_PAUSE = 0.15   # 回撤 ≥15% → 暂停开仓
+_DD_RECOVERY_DELAY = 4 * 3600  # 完全暂停后观察 4h，再进入恢复模式
+_DD_RECOVERY_FACTOR = 0.25
+_DD_RECOVERY_MAX_POSITIONS = 1
 
 def _drawdown_status() -> tuple:
-    """账户回撤状态：(仓位系数, 当前回撤%)；同时维护 Redis 权益峰值
-    回撤 ≥15% → (0, 15+) 暂停开仓；回撤 ≥8% → (0.5, …) 减半；否则 (1.0, …)
+    """账户回撤状态：(仓位系数, 当前回撤%)。
+
+    回撤达到 15% 后先暂停 4h，随后进入 25% 仓位的恢复模式，避免
+    熔断永久阻断系统；回撤恢复到 15% 以下时退出恢复状态。
     """
     balance = _get_balance()
     if balance <= 0:
@@ -486,10 +491,31 @@ def _drawdown_status() -> tuple:
         return 1.0, 0.0
     dd = (peak_bal - balance) / peak_bal
     if dd >= _DD_PAUSE:
-        return 0.0, dd * 100
+        pause = _rget('account:dd_pause') or {}
+        paused_at = float(pause.get('ts', 0)) if isinstance(pause, dict) else 0.0
+        if paused_at <= 0:
+            paused_at = time.time()
+            _rset('account:dd_pause', {'ts': paused_at})
+        if time.time() - paused_at < _DD_RECOVERY_DELAY:
+            return 0.0, dd * 100
+        return _DD_RECOVERY_FACTOR, dd * 100
+    if _rget('account:dd_pause'):
+        _rset('account:dd_pause', {})
     if dd >= _DD_HALF:
         return 0.5, dd * 100
     return 1.0, dd * 100
+
+
+def drawdown_mode() -> str:
+    """Return normal, reduced, recovery, or halt for strategy gating."""
+    factor, _ = _drawdown_status()
+    if factor <= 0:
+        return 'halt'
+    if factor <= _DD_RECOVERY_FACTOR:
+        return 'recovery'
+    if factor < 1:
+        return 'reduced'
+    return 'normal'
 
 
 def calc_position_qty(name: str, state: dict, symbol: str, price: float,

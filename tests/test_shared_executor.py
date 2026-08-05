@@ -58,6 +58,20 @@ def test_drawdown_pause(patch_executor):
     assert dd >= 15
 
 
+def test_drawdown_recovery_mode_after_pause(patch_executor):
+    """暂停观察期结束后进入 25% 仓位恢复模式，而非永久停机。"""
+    se = patch_executor['se']
+    patch_executor['set_balance'](4000)
+    se._rset('account:peak', {'bal': 4800, 'ts': time.time()})
+    se._rset('account:dd_pause', {'ts': time.time() - se._DD_RECOVERY_DELAY - 1})
+
+    coeff, dd = se._drawdown_status()
+
+    assert coeff == se._DD_RECOVERY_FACTOR
+    assert dd >= 15
+    assert se.drawdown_mode() == 'recovery'
+
+
 def test_drawdown_normal(patch_executor):
     """回撤 <8% → 正常系数 1。"""
     se = patch_executor['se']
