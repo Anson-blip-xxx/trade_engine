@@ -18,7 +18,7 @@ import time, json, threading, hmac, hashlib, os, uuid, requests
 from pathlib import Path
 from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
-from shared.binance_api import FAPI as _FAPI
+from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID
 from shared.postgres_client import record_trade_event as _pg_record_event
 
 _BASE       = Path(__file__).parent.parent
@@ -569,7 +569,8 @@ def _load_meta() -> dict:
         pass
     return {}
 
-def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
+def _merge_meta(raw: dict[str, dict], meta: dict, now: float,
+                alert_external: bool = False) -> dict:
     """用本地元数据 enrich 原始持仓数据。"""
     merged = {}
     for sym, bp in raw.items():
@@ -577,6 +578,10 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float) -> dict:
             _pmlog(f'[闭标记修复] {sym} 实际仍有持仓，清除关闭标记')
             _clear_closed_marker(sym)
         mp = meta.pop(sym, {})
+        if not mp and alert_external:
+            _notify_external_position(sym, bp, 'S6' if bp['side'] == 'LONG' else 'S8')
+        elif mp:
+            _rset(f'alert:external_position:pending:{sym}', {})
         merged[sym] = {
             'entry': bp['entry'], 'side': bp['side'], 'qty': min(bp['qty'], mp.get('qty', bp['qty'])),
             'leverage': bp.get('leverage', 3),
@@ -611,7 +616,7 @@ def _merge_meta_preserving_missing(raw: dict[str, dict], meta: dict,
     WS/REST 快照可能短暂不完整，不能在这里直接删除本地元数据；否则
     ``_ghost_cleanup`` 看不到该仓位，也就无法记录平仓或发送通知。
     """
-    merged = _merge_meta(raw, dict(meta), now)
+    merged = _merge_meta(raw, dict(meta), now, alert_external=True)
     for symbol, position in meta.items():
         if symbol not in merged and not _was_closed_recently(symbol):
             merged[symbol] = position
@@ -878,6 +883,47 @@ def _position_id(symbol: str, pos: dict) -> str:
         f"{float(pos.get('entry', 0)):.12g}",
         f"{float(pos.get('open_time', 0)):.6f}",
     ]))
+
+
+def _notify_external_position(symbol: str, raw: dict, system: str):
+    """Alert once when an exchange position has no local open event."""
+    grace_sec = 30
+    entry = float(raw.get('entry', 0))
+    qty = float(raw.get('qty', 0))
+    side = raw.get('side', 'LONG')
+    fingerprint = f'{side}:{entry:.12g}:{qty:.12g}'
+    key = f'alert:external_position:{symbol}'
+    pending_key = f'alert:external_position:pending:{symbol}'
+    pending = _rget(pending_key) or {}
+    if pending.get('fingerprint') != fingerprint:
+        _rset(pending_key, {'fingerprint': fingerprint, 'ts': time.time()})
+        return
+    if time.time() - float(pending.get('ts', 0)) < grace_sec:
+        return
+    seen = _rget(key) or {}
+    if seen.get('fingerprint') == fingerprint and time.time() - float(seen.get('ts', 0)) < 86400:
+        return
+    _rset(key, {'fingerprint': fingerprint, 'ts': time.time()})
+    _rset(pending_key, {})
+    msg = (f'⚠️ 外部/漏记仓位 {symbol}\n'
+           f'方向: {side} | 入场: {entry:.8g} | 数量: {qty:.8g}\n'
+           f'已纳入 {system} PM 监控，请核对开仓来源。')
+    _pmlog(f'[外部仓位] {symbol} {side} entry={entry} qty={qty} 未找到本地开仓事件')
+    try:
+        if _TG_TOKEN and _TG_CHAT_ID:
+            requests.post(
+                f'https://api.telegram.org/bot{_TG_TOKEN}/sendMessage',
+                json={'chat_id': _TG_CHAT_ID, 'text': msg}, timeout=5,
+            )
+    except Exception:
+        pass
+    _pg_record_event({
+        'event_id': f'external:{symbol}:{fingerprint}',
+        'position_id': f'external:{symbol}:{fingerprint}',
+        'event_type': 'EXTERNAL_POSITION_DETECTED',
+        'order_id': '', 'fill_id': '', 'price': entry, 'qty': qty,
+        'realized_pnl': 0.0, 'payload': {'system': system, 'raw': raw},
+    })
 
 
 def _should_exit_1h_reversal(pnl: float) -> bool:

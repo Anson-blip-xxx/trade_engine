@@ -259,6 +259,21 @@ def test_early_loss_momentum_weak():
     assert _early_loss_momentum_weak(up, 'LONG') is False
 
 
+def test_external_position_alert_has_grace_period(patch_pm, monkeypatch):
+    """开仓写入 PM 元数据前的短暂竞态不能立即报警。"""
+    pm = patch_pm['pm']
+    sent = []
+    monkeypatch.setattr(pm, '_pmlog', lambda message: sent.append(message))
+    monkeypatch.setattr(pm, '_TG_TOKEN', '')
+    monkeypatch.setattr(pm, '_pg_record_event', lambda *a, **k: None)
+
+    raw = {'entry': 1.0, 'qty': 10.0, 'side': 'LONG'}
+    pm._notify_external_position('TESTUSDT', raw, 'S6')
+
+    assert sent == []
+    assert pm._rget('alert:external_position:pending:TESTUSDT')['fingerprint'] == 'LONG:1:10'
+
+
 def test_merge_meta_preserves_missing_position_for_ghost_cleanup():
     """交易所快照缺币时不能静默删本地仓位，须交给幽灵清理记录。"""
     from shared.position_manager import _merge_meta_preserving_missing
