@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared.binance_api import fapi_get, TG_TOKEN, TG_CHAT_ID
 from shared.redis_store import get as _rget, set as _rset
 from shared.clickhouse_client import query as _ch_query, query_column, insert as _ch_insert
+from shared.postgres_client import upsert_trade_episode as _pg_upsert_trade
 from shared.trade_analyzer import enqueue_closed_trade
 
 
@@ -138,6 +139,8 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
     try:
         if float(qty) <= 0:
             return
+        if not position_id:
+            position_id = f'{source}:{symbol}:{float(entry):.12g}:{float(open_time):.6f}'
         if _is_duplicate_record(symbol, entry, qty, exit_reason):
             return
         if side == 'SHORT':
@@ -260,6 +263,28 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0,
             'ghost_cleanup': 1 if ghost_cleanup else 0,
             'position_id': str(position_id),
+        })
+        _pg_upsert_trade({
+            'position_id': str(position_id),
+            'symbol': symbol,
+            'system_name': source,
+            'side': side,
+            'entry_price': float(entry),
+            'exit_price': float(exit_price),
+            'qty': float(qty),
+            'leverage': int(leverage),
+            'pnl_pct': float(pct),
+            'pnl_usdt': float(pnl_usdt),
+            'duration_min': int(duration_min),
+            'result': result,
+            'exit_reason': exit_reason,
+            'event_type': signal_type,
+            'strength': float(score),
+            'margin_mode': margin_mode,
+            'sl_price': float(sl_price),
+            'ghost_cleanup': bool(ghost_cleanup),
+            'open_time': float(open_time),
+            'metadata': {'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0},
         })
         _ch_insert('default.trade_history', row)
 

@@ -145,7 +145,16 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     # ── 开仓 ──
     ok = open_position(system_tag, symbol, 'LONG', price, stop_price,
                        qty, margin, leverage, event_type, evt.get('strength', 50),
-                       tg_fn=_tg, expected_move_pct=_event_expected_move(evt))
+                       tg_fn=_tg, expected_move_pct=_event_expected_move(evt),
+                       decision_context={
+                           'signal_type': event_type,
+                           'strength': evt.get('strength', 50),
+                           'price': price,
+                           'ema20_1h': _ema20,
+                           'atr_pct_1h': _atr_pct_val,
+                           'taker_buy_ratio_15m': win_data.get('15m', {}).get('taker_buy_ratio'),
+                           'orderflow_bias_15m': win_data.get('15m', {}).get('orderflow_bias'),
+                       })
     if ok:
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')
     return state

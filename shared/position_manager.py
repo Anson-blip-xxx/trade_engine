@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
 from shared.binance_api import FAPI as _FAPI
+from shared.postgres_client import record_trade_event as _pg_record_event
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -1603,6 +1604,13 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                          trail_active=pos.get('trail', False),
                          algo_sl_id=pos.get('algo_sl_id', 0),
                          position_id=_position_id(symbol, pos), final_close=True)
+            _pg_record_event({
+                'event_id': f"position:{_position_id(symbol, pos)}:flat",
+                'position_id': _position_id(symbol, pos),
+                'event_type': 'EXCHANGE_POSITION_FLAT',
+                'order_id': '', 'fill_id': '', 'price': price, 'qty': close_qty,
+                'realized_pnl': pnl_u, 'payload': {'reason': reason},
+            })
             positions.pop(symbol, None)
             _save(positions)
             return True
@@ -1649,6 +1657,14 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                          trail_active=pos.get('trail', False),
                          algo_sl_id=pos.get('algo_sl_id', 0),
                          position_id=_position_id(symbol, pos), final_close=False)
+            _pg_record_event({
+                'event_id': f"order:{result.get('orderId', '')}:close:{filled_qty}",
+                'position_id': _position_id(symbol, pos),
+                'event_type': 'CLOSE_ORDER_PARTIAL',
+                'order_id': str(result.get('orderId', '')), 'fill_id': '',
+                'price': price, 'qty': filled_qty, 'realized_pnl': 0.0,
+                'payload': result,
+            })
             _pmlog(f'[平仓部分成交] {symbol} qty={filled_qty} 剩余={remaining_qty}')
             return False
         # Some Binance-compatible responses omit executedQty on a filled
@@ -1674,6 +1690,15 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
     else:
         pnl_pct = (price - pos['entry']) / pos['entry'] * 100
         pnl_u   = round((price - pos['entry']) * close_qty, 2)
+
+    _pg_record_event({
+        'event_id': f"order:{result.get('orderId', '')}:close:final",
+        'position_id': _position_id(symbol, pos),
+        'event_type': 'CLOSE_ORDER_FILLED',
+        'order_id': str(result.get('orderId', '')), 'fill_id': '',
+        'price': price, 'qty': close_qty, 'realized_pnl': pnl_u,
+        'payload': result,
+    })
 
     _pmlog(f'[平仓] {symbol} {reason} pnl={pnl_pct:+.1f}% ({pnl_u:+.2f}U)')
 

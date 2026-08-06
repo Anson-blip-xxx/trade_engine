@@ -737,7 +737,8 @@ def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
 def open_position(name: str, symbol: str, side: str, entry_price: float,
                   stop_price: float, qty: float, margin_mode: str,
                   leverage: int, event_type: str, strength: int,
-                  tg_fn: callable = None, expected_move_pct: float = 0) -> bool:
+                  tg_fn: callable = None, expected_move_pct: float = 0,
+                  decision_context: dict | None = None) -> bool:
     """通过 Binance API + PM 开仓"""
     # ── 信号质量过滤 ──
     if strength < 30:
@@ -867,8 +868,8 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
 
         # 先更新缓存（保证原子性，失败则不开单也不发通知）
         try:
-            _update_pos_cache(name, symbol, side, avg_price, filled_qty,
-                              stop_price, leverage, margin_mode, event_type, strength)
+            position_id = _update_pos_cache(name, symbol, side, avg_price, filled_qty,
+                                            stop_price, leverage, margin_mode, event_type, strength)
         except Exception as e:
             _log(name, f'{symbol} 缓存更新失败，取消开单: {e}')
             if result.get('orderId'):
@@ -880,6 +881,21 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
                 except Exception:
                     pass
             return False
+
+        _pg_record_event({
+            'event_id': f"order:{result.get('orderId', '')}:open",
+            'position_id': position_id,
+            'event_type': 'OPEN_ORDER_FILLED',
+            'order_id': str(result.get('orderId', '')),
+            'fill_id': '',
+            'price': avg_price,
+            'qty': filled_qty,
+            'realized_pnl': 0.0,
+            'payload': {
+                'order': result,
+                'decision_context': decision_context or {},
+            },
+        })
 
         # 开仓成功 → 通知
         msg = (f'{name} 开仓 {symbol}\n'

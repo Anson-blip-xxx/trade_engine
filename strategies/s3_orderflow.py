@@ -119,6 +119,8 @@ def fetch_klines(symbol: str, interval: str = '1m', limit: int = 500) -> list:
         'l': float(k[3]),
         'c': float(k[4]),
         'v': float(k[5]),
+        # Binance kline field 9: taker buy base-asset volume.
+        'tbv': float(k[9]),
     } for k in data]
 
 # ════════════════════════════════════════════════════════════
@@ -206,6 +208,7 @@ def compute_window_data(candles: list, window_min: int, symbol: str = None) -> d
     highs   = [c['h'] for c in k_rev]
     lows    = [c['l'] for c in k_rev]
     volumes = [c['v'] for c in k_rev]
+    taker_buy = [c.get('tbv', 0.0) for c in k_rev]
     
     first_close = closes[0]
     last_close  = closes[-1]
@@ -213,6 +216,9 @@ def compute_window_data(candles: list, window_min: int, symbol: str = None) -> d
     
     avg_vol = sum(volumes) / len(volumes) if volumes else 0
     latest_vol = volumes[-1] if volumes else 0
+    total_volume = sum(volumes)
+    taker_buy_volume = sum(taker_buy)
+    taker_sell_volume = max(0.0, total_volume - taker_buy_volume)
     
     # 获取该币的 symbol 用于 EMA 缓存键 - 从 candles 第一根的 __symbol 属性取
     # symbol passed as param
@@ -223,6 +229,11 @@ def compute_window_data(candles: list, window_min: int, symbol: str = None) -> d
         'atr_pct':   round(compute_atr(k_rev) / last_close * 100, 4) if last_close else 0,
         'volume':    round(sum(volumes), 2),
         'vol_ratio': round(latest_vol / avg_vol, 2) if avg_vol > 0 else 1.0,
+        'taker_buy_volume': round(taker_buy_volume, 2),
+        'taker_sell_volume': round(taker_sell_volume, 2),
+        'taker_buy_ratio': round(taker_buy_volume / total_volume, 4) if total_volume > 0 else 0.5,
+        'orderflow_bias': round((taker_buy_volume - taker_sell_volume) / total_volume, 4)
+        if total_volume > 0 else 0.0,
         'high':      round(max(highs), 8),
         'low':       round(min(lows), 8),
         'close':     round(last_close, 8),
