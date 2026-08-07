@@ -18,6 +18,7 @@ from shared.position_manager import monitor_all, close_position, _algo_enqueue, 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
 from shared.redis_store import get as _rget, set as _rset, subscribe as _rsubscribe
+from shared.redis_store import lock_acquire as _lock_acquire, lock_release as _lock_release
 
 # ── Telegram ──
 # 从 binance.env 加载 TG 配置 + API 密钥
@@ -307,6 +308,7 @@ def _update_pos_cache(name: str, symbol: str, side: str,
     if _POS_CACHE is None:
         _POS_CACHE = {}
     now = time.time()
+    position_id = f'{name}:{symbol}:{entry:.12g}:{now:.6f}'
     _POS_CACHE[symbol] = {
         'entry': entry,
         'side': side.upper(),
@@ -325,7 +327,15 @@ def _update_pos_cache(name: str, symbol: str, side: str,
         'algo_sl_id': 0,
         'ts': now,
         'stop': entry,
+        'position_id': position_id,
     }
+    try:
+        meta = _rget('pm:positions') or {}
+        meta[symbol] = dict(_POS_CACHE[symbol])
+        _rset('pm:positions', meta)
+    except Exception:
+        pass
+    return position_id
 
 def _get_positions(name: str) -> dict:
     """从缓存获取指定系统的持仓。"""
@@ -358,7 +368,13 @@ def has_position(name: str, symbol: str) -> bool:
 
 def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
     """PM 监控，返回已平仓列表。持仓由 PM 全权管理。"""
-    closed = monitor_all(system_filter=name)
+    owner = f'{name}:{os.getpid()}'
+    if not _lock_acquire('pm:monitor:writer', owner, ttl=30):
+        return state, []
+    try:
+        closed = monitor_all(system_filter=name)
+    finally:
+        _lock_release('pm:monitor:writer', owner)
     _refresh_positions()
     closed_list = []
     for item in closed:
@@ -375,8 +391,9 @@ def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
         pnl_usdt = (close_price - entry) * qty * side_mult
         msg = f'平仓 {symbol} PnL: {pnl_pct:+.1f}% ({pnl_usdt:+.2f}U) 原因={reason}'
         _log(name, msg)
-        if tg_fn:
-            tg_fn(f'[{name}] {msg}')
+        # trade_recorder sends the single authoritative close notification
+        # with position-level realized PnL. Do not send a second cache-based
+        # notification here, which can disagree after partial closes.
         state.setdefault('cooldowns', {})[symbol] = time.time() + 7200
         if pnl_pct < 0:
             state['cooldowns'][symbol] = time.time() + 14400
@@ -516,6 +533,38 @@ def drawdown_mode() -> str:
     if factor < 1:
         return 'reduced'
     return 'normal'
+
+
+def maybe_replace_recovery_position(name: str, side: str, symbol: str,
+                                    candidate_score: float,
+                                    margin: float = 10) -> bool:
+    """Replace the weakest mature same-side position in recovery mode."""
+    try:
+        from shared.position_score import calc_position_live_score
+        positions = _pm_load()
+        candidates = [
+            (sym, pos) for sym, pos in positions.items()
+            if pos.get('system', '').startswith(name)
+            and pos.get('side', '').upper() == side.upper()
+            and sym != symbol
+        ]
+        if not candidates:
+            return False
+        scored = [(calc_position_live_score(sym, pos), sym, pos) for sym, pos in candidates]
+        weakest_score, weakest_symbol, _ = min(scored, key=lambda item: item[0])
+        if float(candidate_score) < weakest_score + margin:
+            _log(name, f'{symbol} 候选评分 {candidate_score:.0f}，未超过 {weakest_symbol} 当前评分 {weakest_score}，跳过替换')
+            return False
+        if not close_position(weakest_symbol, f'恢复模式候选替换 ({symbol} score={candidate_score:.0f}>{weakest_score})'):
+            _log(name, f'{symbol} 候选替换失败，保留 {weakest_symbol}')
+            return False
+        global _POS_CACHE
+        _POS_CACHE = None
+        _log(name, f'{symbol} 候选评分 {candidate_score:.0f} 替换 {weakest_symbol} score={weakest_score}')
+        return True
+    except Exception as exc:
+        _log(name, f'{symbol} 恢复模式评分替换异常: {exc}')
+        return False
 
 
 def calc_position_qty(name: str, state: dict, symbol: str, price: float,
@@ -882,6 +931,10 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
                     pass
             return False
 
+        order_payload = dict(result)
+        order_payload['exchange_price'] = order_payload.get('price', '0')
+        order_payload['price'] = avg_price
+        order_payload['accounted_qty'] = filled_qty
         _pg_record_event({
             'event_id': f"order:{result.get('orderId', '')}:open",
             'position_id': position_id,
@@ -892,7 +945,7 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
             'qty': filled_qty,
             'realized_pnl': 0.0,
             'payload': {
-                'order': result,
+                'order': order_payload,
                 'decision_context': decision_context or {},
             },
         })

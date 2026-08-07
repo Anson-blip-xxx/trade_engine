@@ -199,3 +199,34 @@ def test_close_notify_dedup_expires(patch_executor, monkeypatch):
     assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG', window_sec=10) is False
     t[0] = 1011.0
     assert se._should_notify_close('S6', 'COTIUSDT', '硬止损', 0.014, 1000, 'LONG', window_sec=10) is True
+
+
+def test_pm_monitor_does_not_send_cache_based_close_message(patch_executor, monkeypatch):
+    """PM 只记录平仓，详细通知由 trade_recorder 单一发送。"""
+    se = patch_executor['se']
+    logs = []
+    sent = []
+    monkeypatch.setattr(se, 'monitor_all', lambda system_filter='': [
+        ('SKYAIUSDT', '手动平仓', 0.10089, 0.0909, 1875.0, 'LONG')
+    ])
+    monkeypatch.setattr(se, '_refresh_positions', lambda: {})
+    monkeypatch.setattr(se, 'save_state', lambda *args: None)
+    monkeypatch.setattr(se, '_log', lambda *args: logs.append(args))
+
+    se.pm_monitor('S6', {'cooldowns': {}}, tg_fn=sent.append)
+
+    assert sent == []
+    assert any('平仓 SKYAIUSDT' in msg for _, msg in logs)
+
+
+def test_recovery_replaces_only_when_candidate_is_stronger(patch_executor, monkeypatch):
+    """恢复模式替换弱仓，不增加总仓位。"""
+    se = patch_executor['se']
+    pos = {'system': 'S6', 'side': 'LONG', 'entry': 1.0,
+           'open_time': time.time() - 3600, 'score': 70}
+    monkeypatch.setattr(se, '_pm_load', lambda: {'WEAKUSDT': pos})
+    monkeypatch.setattr(se, 'close_position', lambda *a, **k: True)
+    monkeypatch.setattr(se, '_log', lambda *a, **k: None)
+    monkeypatch.setattr('shared.position_score.calc_position_live_score', lambda *a, **k: 70)
+
+    assert se.maybe_replace_recovery_position('S6', 'LONG', 'NEWUSDT', 80, margin=10) is True

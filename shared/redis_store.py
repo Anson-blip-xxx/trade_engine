@@ -266,3 +266,15 @@ def lock_renew(key: str, value: str, ttl: int = 45) -> bool:
         return bool(r.eval(lua, 1, key, value, ttl * 1000))
     except Exception:
         return False
+
+
+def lock_release(key: str, value: str) -> bool:
+    """Release a lock only when it still belongs to value."""
+    if not _check_redis():
+        return False
+    try:
+        lua = ("if redis.call('get', KEYS[1]) == ARGV[1] "
+               "then return redis.call('del', KEYS[1]) else return 0 end")
+        return bool(_conn().eval(lua, 1, key, value))
+    except Exception:
+        return False

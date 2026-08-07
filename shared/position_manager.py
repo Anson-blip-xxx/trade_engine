@@ -444,6 +444,7 @@ SYSTEM_CFG = {
             'base_mult': 0.3,          # 基础追踪间距 (×ATR)
             'tighten_pct': 8.0,        # 浮盈≥此值开始收紧
             'tighten_min': 0.5,        # 最紧间距倍率
+            'min_profit_lock_pct': 2.0,
             'breakeven_atr': 1.5,      # 浮盈≥此值×ATR → 保本加固
         },
         'time_stop_min': 240,          # 时间止损（分钟）
@@ -459,6 +460,7 @@ SYSTEM_CFG = {
             'base_mult': 0.3,
             'tighten_pct': 8.0,
             'tighten_min': 0.5,
+            'min_profit_lock_pct': 2.0,
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 300,
@@ -472,6 +474,7 @@ SYSTEM_CFG = {
             'base_mult': 0.3,
             'tighten_pct': 5.0,        # 普通做多浮盈保护更积极
             'tighten_min': 0.3,
+            'min_profit_lock_pct': 2.0,
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
@@ -483,6 +486,7 @@ SYSTEM_CFG = {
             'base_mult': 0.3,
             'tighten_pct': 8.0,        # 泵多收紧更晚
             'tighten_min': 0.5,
+            'min_profit_lock_pct': 2.0,
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
@@ -495,6 +499,7 @@ SYSTEM_CFG = {
             'base_mult': 0.3,
             'tighten_pct': 5.0,
             'tighten_min': 0.3,
+            'min_profit_lock_pct': 2.0,
             'breakeven_atr': 1.5,
         },
         'time_stop_min': 120,
@@ -582,11 +587,12 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float,
             _notify_external_position(sym, bp, 'S6' if bp['side'] == 'LONG' else 'S8')
         elif mp:
             _rset(f'alert:external_position:pending:{sym}', {})
+        system_name = mp.get('system', 'S6' if bp['side'] == 'LONG' else 'S8')
         merged[sym] = {
             'entry': bp['entry'], 'side': bp['side'], 'qty': min(bp['qty'], mp.get('qty', bp['qty'])),
             'leverage': bp.get('leverage', 3),
             'margin': bp.get('margin', mp.get('margin', 'CROSSED')),
-            'system': mp.get('system', 'S6' if bp['side'] == 'LONG' else 'S8'),
+            'system': system_name,
             'open_time': mp.get('open_time', now),
             'event_type': mp.get('event_type', ''),
             'strength': mp.get('strength', 50),
@@ -602,7 +608,7 @@ def _merge_meta(raw: dict[str, dict], meta: dict, now: float,
             'lowest': mp.get('lowest', bp['entry']),
             'position_id': mp.get(
                 'position_id',
-                f"{mp.get('system', 'S6')}:{sym}:{mp.get('open_time', now):.6f}",
+                f"{system_name}:{sym}:{mp.get('open_time', now):.6f}",
             ),
             'trend_reversal_warned': mp.get('trend_reversal_warned', False),
         }
@@ -1439,6 +1445,10 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
         pos['lowest'] = lowest
         sl = round(lowest + effective_atr, 6)
         sl = max(sl, round(ema20_15, 6))
+        if pnl_pct >= tighten_pct:
+            min_lock = float(trail_cfg.get('min_profit_lock_pct', 0))
+            if min_lock > 0:
+                sl = min(sl, round(pos['entry'] * (1 - min_lock / 100), 6))
         if sl < pos['sl'] and sl > price:
             new_sl = sl
     else:
@@ -1446,6 +1456,10 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
         pos['highest'] = highest
         sl = round(highest - effective_atr, 6)
         sl = min(sl, round(ema20_15, 6))
+        if pnl_pct >= tighten_pct:
+            min_lock = float(trail_cfg.get('min_profit_lock_pct', 0))
+            if min_lock > 0:
+                sl = max(sl, round(pos['entry'] * (1 + min_lock / 100), 6))
         if sl > pos['sl'] and sl < price:
             new_sl = sl
 
@@ -1709,7 +1723,9 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
                 'event_type': 'CLOSE_ORDER_PARTIAL',
                 'order_id': str(result.get('orderId', '')), 'fill_id': '',
                 'price': price, 'qty': filled_qty, 'realized_pnl': 0.0,
-                'payload': result,
+                'payload': {**result, 'exchange_price': result.get('price', '0'),
+                            'price': price, 'accounted_qty': filled_qty,
+                            'execution_status': result.get('status', '')},
             })
             _pmlog(f'[平仓部分成交] {symbol} qty={filled_qty} 剩余={remaining_qty}')
             return False
@@ -1737,13 +1753,18 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
         pnl_pct = (price - pos['entry']) / pos['entry'] * 100
         pnl_u   = round((price - pos['entry']) * close_qty, 2)
 
+    close_payload = dict(result)
+    close_payload['exchange_price'] = close_payload.get('price', '0')
+    close_payload['price'] = price
+    close_payload['accounted_qty'] = close_qty
+    close_payload['execution_status'] = close_payload.get('status', '')
     _pg_record_event({
         'event_id': f"order:{result.get('orderId', '')}:close:final",
         'position_id': _position_id(symbol, pos),
         'event_type': 'CLOSE_ORDER_FILLED',
         'order_id': str(result.get('orderId', '')), 'fill_id': '',
         'price': price, 'qty': close_qty, 'realized_pnl': pnl_u,
-        'payload': result,
+        'payload': close_payload,
     })
 
     _pmlog(f'[平仓] {symbol} {reason} pnl={pnl_pct:+.1f}% ({pnl_u:+.2f}U)')

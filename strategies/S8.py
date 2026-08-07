@@ -28,6 +28,7 @@ from shared_executor import (
     market_allows_trading, get_position_count, has_position,
     _event_expected_move, subscribe_s3_notify, wait_scan,
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
+    maybe_replace_recovery_position,
 )
 
 NAME = 'S8'
@@ -77,8 +78,9 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
     # 仓位上限
     pos_count = get_position_count(NAME)
     if drawdown_mode() == 'recovery' and pos_count >= 1:
-        _log(NAME, '回撤恢复模式最多持有 1 个仓位，跳过')
-        return state
+        if not maybe_replace_recovery_position(NAME, 'SHORT', symbol, evt.get('strength', 50)):
+            _log(NAME, '回撤恢复模式最多持有 1 个仓位，跳过')
+            return state
     if pos_count >= MAX_POSITIONS:
         _log(NAME, f'已达仓位上限 {MAX_POSITIONS}/{MAX_POSITIONS}')
         return state
