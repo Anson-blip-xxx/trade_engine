@@ -274,6 +274,16 @@ def test_external_position_alert_has_grace_period(patch_pm, monkeypatch):
     assert pm._rget('alert:external_position:pending:TESTUSDT')['fingerprint'] == 'LONG:1:10'
 
 
+def test_stagnant_profit_rule():
+    """长时间只赚不到 1U 时释放仓位，避免资金费吞掉收益。"""
+    from shared.position_manager import _is_stagnant_profit
+
+    assert _is_stagnant_profit(0.5, 90) is True
+    assert _is_stagnant_profit(1.0, 90) is False
+    assert _is_stagnant_profit(0.5, 89) is False
+    assert _is_stagnant_profit(-0.5, 120) is False
+
+
 def test_merge_meta_preserves_missing_position_for_ghost_cleanup():
     """交易所快照缺币时不能静默删本地仓位，须交给幽灵清理记录。"""
     from shared.position_manager import _merge_meta_preserving_missing

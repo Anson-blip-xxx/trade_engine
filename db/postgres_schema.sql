@@ -46,3 +46,21 @@ CREATE TABLE IF NOT EXISTS trade_events (
 CREATE UNIQUE INDEX IF NOT EXISTS trade_events_fill_idx
     ON trade_events (fill_id)
     WHERE fill_id <> '';
+
+CREATE OR REPLACE VIEW trade_episode_attribution AS
+SELECT
+    t.*,
+    e.payload->'decision_context' AS decision_context,
+    NULLIF(e.payload->'decision_context'->>'raw_strength', '')::double precision AS raw_strength,
+    NULLIF(e.payload->'decision_context'->>'taker_buy_ratio_15m', '')::double precision AS taker_buy_ratio_15m,
+    NULLIF(e.payload->'decision_context'->>'orderflow_bias_15m', '')::double precision AS orderflow_bias_15m,
+    NULLIF(e.payload->'decision_context'->>'atr_pct_1h', '')::double precision AS atr_pct_1h
+FROM trade_episodes t
+LEFT JOIN LATERAL (
+    SELECT payload
+    FROM trade_events
+    WHERE position_id = t.position_id
+      AND event_type = 'OPEN_ORDER_FILLED'
+    ORDER BY occurred_at
+    LIMIT 1
+) e ON TRUE;

@@ -14,6 +14,8 @@ LOG_DIR = TRADE_DIR.parent / 'logs'
 sys.path.insert(0, str(TRADE_DIR))
 from shared.binance_api import FAPI
 from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_start_worker, _load as _pm_load
+from shared.postgres_client import record_trade_event as _pg_record_event
+from strategies.position_models import AtrRiskPositionSizer
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
@@ -227,7 +229,8 @@ def read_s3_events(max_age: int = S3_STALE_S) -> list:
         now = time.time()
         if now - data.get('ts', 0) > max_age:
             return []
-        return data.get('events', [])
+        snapshot_ts = data.get('ts', now)
+        return [dict(event, _snapshot_ts=snapshot_ts) for event in data.get('events', [])]
     except Exception:
         return []
 
@@ -442,7 +445,11 @@ _RISK_PER_TRADE = 0.01       # 单笔止损最大亏损 ≤ 账户 1%（固定�
 
 def score_to_fraction(score: float) -> float:
     """信号评分 → 资金池分配比例（3%~15%）"""
-    return min(_POSITION_MAX_PCT, max(_POSITION_MIN_PCT, score / 100 * _POSITION_MAX_PCT))
+    return AtrRiskPositionSizer(
+        min_allocation=_POSITION_MIN_PCT,
+        max_allocation=_POSITION_MAX_PCT,
+        min_notional=_POSITION_MIN_USDT,
+    ).score_fraction(score)
 
 
 def _get_balance() -> float:
@@ -489,6 +496,8 @@ _DD_PAUSE = 0.15   # 回撤 ≥15% → 暂停开仓
 _DD_RECOVERY_DELAY = 4 * 3600  # 完全暂停后观察 4h，再进入恢复模式
 _DD_RECOVERY_FACTOR = 0.25
 _DD_RECOVERY_MAX_POSITIONS = 1
+_DD_RECOVERY_MAX_LOSS = 0.02  # 恢复模式相对恢复起点最多再亏2%
+_DD_RECOVERY_RETRY_DELAY = 6 * 3600
 
 def _drawdown_status() -> tuple:
     """账户回撤状态：(仓位系数, 当前回撤%)。
@@ -512,7 +521,31 @@ def _drawdown_status() -> tuple:
         paused_at = float(pause.get('ts', 0)) if isinstance(pause, dict) else 0.0
         if paused_at <= 0:
             paused_at = time.time()
-            _rset('account:dd_pause', {'ts': paused_at})
+            _rset('account:dd_pause', {
+                'ts': paused_at, 'base_balance': balance, 'loss_lock': False,
+            })
+        base_balance = float(pause.get('base_balance', balance)) if isinstance(pause, dict) else balance
+        loss_lock = bool(pause.get('loss_lock', False)) if isinstance(pause, dict) else False
+        if isinstance(pause, dict) and not pause.get('base_balance'):
+            pause = dict(pause)
+            pause['base_balance'] = balance
+            pause['loss_lock'] = loss_lock
+            _rset('account:dd_pause', pause)
+        if not loss_lock and balance <= base_balance * (1 - _DD_RECOVERY_MAX_LOSS):
+            lock_now = time.time()
+            _rset('account:dd_pause', {
+                'ts': lock_now, 'base_balance': balance, 'loss_lock': True,
+            })
+            loss_lock = True
+            paused_at = lock_now
+        if loss_lock:
+            lock_ts = float(pause.get('ts', paused_at)) if isinstance(pause, dict) else paused_at
+            if time.time() - lock_ts < _DD_RECOVERY_RETRY_DELAY:
+                return 0.0, dd * 100
+            _rset('account:dd_pause', {
+                'ts': time.time(), 'base_balance': balance, 'loss_lock': False,
+            })
+            return 0.0, dd * 100
         if time.time() - paused_at < _DD_RECOVERY_DELAY:
             return 0.0, dd * 100
         return _DD_RECOVERY_FACTOR, dd * 100
@@ -567,6 +600,78 @@ def maybe_replace_recovery_position(name: str, side: str, symbol: str,
         return False
 
 
+def event_is_stale(event: dict, max_age_sec: int = 120) -> bool:
+    """Reject persistent S3 events after their useful entry window."""
+    since = float(event.get('_snapshot_ts', event.get('ts', event.get('since', time.time()))) or time.time())
+    if since > 10**12:
+        since /= 1000
+    return time.time() - since > max_age_sec
+
+
+def event_age_sec(event: dict) -> float:
+    value = float(event.get('_snapshot_ts', event.get('ts', event.get('since', time.time()))) or time.time())
+    if value > 10**12:
+        value /= 1000
+    return max(0.0, time.time() - value)
+
+
+def price_is_overextended(price: float, ema20: float, atr: float,
+                          side: str, max_atr: float) -> bool:
+    """Reject entries that chase price too far from the 1h mean."""
+    if price <= 0 or ema20 <= 0 or atr <= 0:
+        return False
+    extension = (price - ema20) / atr if side == 'LONG' else (ema20 - price) / atr
+    return extension > max_atr
+
+
+def classify_entry_mode(price: float, ema20: float, rsi: float,
+                        taker_buy_ratio: float | None, side: str) -> str:
+    """Classify a candidate as right-side momentum or confirmed reversal."""
+    if side == 'LONG':
+        if price < ema20 and rsi <= 35 and (taker_buy_ratio is None or taker_buy_ratio >= 0.52):
+            return 'LEFT_REVERSAL'
+        if price >= ema20:
+            return 'RIGHT_MOMENTUM'
+    else:
+        if price > ema20 and rsi >= 65 and (taker_buy_ratio is None or taker_buy_ratio <= 0.48):
+            return 'LEFT_REVERSAL'
+        if price <= ema20:
+            return 'RIGHT_MOMENTUM'
+    return 'UNCONFIRMED'
+
+
+def contract_score(strength: float, event_type: str, atr_pct: float = 0,
+                   extension_atr: float = 0, taker_buy_ratio: float | None = None,
+                   event_age_sec: float = 0, side: str = 'LONG') -> int:
+    """Combine signal quality and entry risk into a 0-100 contract score."""
+    score = float(strength)
+    if taker_buy_ratio is not None:
+        flow_aligned = taker_buy_ratio >= 0.52 if side == 'LONG' else taker_buy_ratio <= 0.48
+        score += 5 if flow_aligned else -5
+    if atr_pct > 4:
+        score -= min(15, (atr_pct - 4) * 3)
+    if extension_atr > 0:
+        score -= min(15, extension_atr * 4)
+    if event_age_sec > 0:
+        score -= min(10, event_age_sec / 30)
+    return max(0, min(100, int(round(score))))
+
+
+def leverage_for_score(event_type: str, score: int, atr_pct: float = 0) -> int:
+    """Choose leverage conservatively from quality and volatility."""
+    base = {
+        'PULSE_UP': 5, 'PULSE_DOWN': 5, 'PANIC_SELL': 5,
+        'TREND_UP': 3, 'TREND_DOWN': 3,
+        'VIOLENT_BULLISH': 3, 'VIOLENT_BEARISH': 3,
+        'PUMP_UP': 2, 'PUMP_DOWN': 2,
+    }.get(event_type, 3)
+    if score < 60:
+        return min(base, 2)
+    if score < 85 or atr_pct >= 4:
+        return min(base, 3)
+    return base
+
+
 def calc_position_qty(name: str, state: dict, symbol: str, price: float,
                       event_type: str, strength: int, leverage: int,
                       atr_pct: float = 0, stop_pct: float = 0) -> float:
@@ -584,19 +689,20 @@ def calc_position_qty(name: str, state: dict, symbol: str, price: float,
     remaining = max(0, pool - used)
     alloc_pct = score_to_fraction(strength)
     position_usdt = remaining * alloc_pct
-
-    # ATR 波动率衰减：高波动币种减仓
+    sizer = AtrRiskPositionSizer(
+        pool_budget=_POOL_BUDGET,
+        min_allocation=_POSITION_MIN_PCT,
+        max_allocation=_POSITION_MAX_PCT,
+        risk_per_trade=_RISK_PER_TRADE,
+        min_notional=_POSITION_MIN_USDT,
+    )
+    modeled_budget = sizer.budget(balance, remaining, strength, leverage, atr_pct, stop_pct)
     if atr_pct > 4:
         atr_factor = max(0.2, 4.0 / atr_pct)
-        position_usdt *= atr_factor
-        _log(name, f'{symbol} ATR={atr_pct:.1f}% 衰减因子={atr_factor:.2f} → ${position_usdt:.0f}')
-
-    # 风险硬约束：止损亏损 = 名义 × stop_pct = margin × leverage × stop_pct ≤ 账户 1%
-    if stop_pct > 0:
-        risk_cap = balance * _RISK_PER_TRADE / (leverage * stop_pct)
-        if position_usdt > risk_cap:
-            _log(name, f'{symbol} 风险约束 ${position_usdt:.0f}→${risk_cap:.0f} (止损{stop_pct:.1%}×{leverage}x≤1%)')
-            position_usdt = risk_cap
+        _log(name, f'{symbol} ATR={atr_pct:.1f}% 衰减因子={atr_factor:.2f} → ${modeled_budget:.0f}')
+    if modeled_budget < position_usdt:
+        _log(name, f'{symbol} 风险模型 ${position_usdt:.0f}→${modeled_budget:.0f} (止损{stop_pct:.1%}×{leverage}x≤1%)')
+    position_usdt = modeled_budget
 
     # 最小名义价值保护
     position_usdt = max(position_usdt, _POSITION_MIN_USDT)
@@ -951,10 +1057,13 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         })
 
         # 开仓成功 → 通知
+        notional_usdt = avg_price * filled_qty
+        margin_usdt = notional_usdt / leverage if leverage else notional_usdt
         msg = (f'{name} 开仓 {symbol}\n'
                f'方向: {side} | 类型: {margin_mode}\n'
                f'入场: {avg_price:.4f} | 数量: {filled_qty:.2f}'
                f'{"(部分)" if filled_qty < qty * 0.95 else ""}\n'
+               f'保证金: {margin_usdt:.2f} USDT | 名义: {notional_usdt:.2f} USDT\n'
                f'止损: {stop_price:.4f}\n'
                f'信号: {event_type}(str={strength})\n'
                f'杠杆: {leverage}x | 费率: {fund_rate:.4%}')

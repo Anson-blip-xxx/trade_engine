@@ -20,6 +20,9 @@ from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
 from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID
 from shared.postgres_client import record_trade_event as _pg_record_event
+from shared.exit_factors import (
+    should_exit_on_1h_reversal, early_loss_momentum_weak, is_stagnant_profit,
+)
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -934,18 +937,19 @@ def _notify_external_position(symbol: str, raw: dict, system: str):
 
 def _should_exit_1h_reversal(pnl: float) -> bool:
     """Only exit on reversal once the position is at least breakeven."""
-    return pnl >= 0
+    return should_exit_on_1h_reversal(pnl)
 
 
 def _early_loss_momentum_weak(klines: list, side: str) -> bool:
     """Check whether the last 15m candles still move against the position."""
-    if not klines or len(klines) < 4:
-        return False
-    closes = [float(row[4]) for row in klines[-4:]]
-    baseline = sum(closes[:3]) / 3
-    if side == 'SHORT':
-        return closes[-1] >= closes[-2] and closes[-1] > baseline
-    return closes[-1] <= closes[-2] and closes[-1] < baseline
+    return early_loss_momentum_weak(klines, side)
+
+
+def _is_stagnant_profit(pnl_usdt: float, hold_min: float,
+                        min_hold_min: float = 90,
+                        max_profit_usdt: float = 1.0) -> bool:
+    """Identify profitable positions that no longer justify capital use."""
+    return is_stagnant_profit(pnl_usdt, hold_min, min_hold_min, max_profit_usdt)
 
 def monitor_all(system_filter: str = '') -> list:
     """
@@ -1072,6 +1076,8 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
     else:
         pnl = (price - entry) / entry * 100
         sl_breached = bool(pos.get('sl')) and pos['sl'] != entry and price <= pos['sl']
+    pnl_usdt = ((entry - price) * pos['qty'] if pos['side'] == 'SHORT'
+                else (price - entry) * pos['qty'])
 
     # 1. 硬止损
     if sl_breached:
@@ -1099,6 +1105,12 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
                 return None
         except Exception as e:
             _pmlog(f'[早期亏损保护异常] {symbol}: {e}')
+
+    if _is_stagnant_profit(pnl_usdt, hold):
+        reason = f'低收益停滞 pnl={pnl_usdt:+.2f}U'
+        if _close(symbol, pos, price, reason, positions):
+            return (reason, price, entry, pos['qty'], pos['side'])
+        return None
 
     # 3. be_done：盈利达标 → 止损移到成本
     be_pct = cfg.get('be_done_threshold', 2.0)

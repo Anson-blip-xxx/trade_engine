@@ -27,7 +27,8 @@ from shared_executor import (
     market_allows_trading, get_position_count, has_position,
     _event_expected_move, subscribe_s3_notify, wait_scan,
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
-    maybe_replace_recovery_position,
+    maybe_replace_recovery_position, event_is_stale, price_is_overextended,
+    contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
 )
 
 NAME = 'S6'
@@ -78,6 +79,10 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     event_type = evt['type']
     system_tag = SYSTEM_TAG.get(event_type, NAME)
 
+    if event_is_stale(evt):
+        _log(NAME, f'{symbol} {event_type} 事件已过期，拒绝追入')
+        return state
+
     # ── 信号冷却检查 ──
     if not is_event_fresh(symbol, event_type, cooldown_s=180):
         _log(NAME, f'{symbol} {event_type} 冷却中，跳过')
@@ -121,8 +126,20 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     # ── 趋势过滤：多头只在价格 > 1h EMA20 时开仓 ──
     _1h = win_data.get('1h', {})
     _ema20 = _1h.get('ema20', 0)
-    if _ema20 > 0 and price < _ema20:
+    _atr_abs = float(_1h.get('atr', 0))
+    _flow = win_data.get('15m', {}).get('taker_buy_ratio')
+    _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
+    _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'LONG')
+    if _entry_mode == 'UNCONFIRMED':
+        _log(NAME, f'{symbol} 左右侧入场均未确认，跳过')
+        return state
+    if _entry_mode == 'RIGHT_MOMENTUM' and _ema20 > 0 and price < _ema20:
         _log(NAME, f'{symbol} 价格 {price:.4f} < 1h EMA20 {_ema20:.4f}，不做多')
+        return state
+
+    max_extension = 1.25 if event_type == 'VIOLENT_BULLISH' else 2.0
+    if _entry_mode == 'RIGHT_MOMENTUM' and price_is_overextended(price, float(_ema20), _atr_abs, 'LONG', max_extension):
+        _log(NAME, f'{symbol} 价格距离1h EMA20超过 {max_extension:.2f} ATR，拒绝追多')
         return state
 
     # ── 波动率过滤：1h ATR% > 6% 跳过（波动太大止损易被扫） ──
@@ -132,7 +149,13 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # ── 计算仓位 ──
-    leverage = LEVERAGE.get(event_type, 3)
+    _atr_pct_val = float(_1h.get('atr_pct', 0))
+    _extension = ((price - float(_ema20)) / _atr_abs
+                  if _ema20 and _atr_abs else 0)
+    _event_age = event_age_sec(evt)
+    _score = contract_score(evt.get('strength', 50), event_type, _atr_pct_val,
+                             _extension, _flow, _event_age, 'LONG')
+    leverage = leverage_for_score(event_type, _score, _atr_pct_val)
     margin = MARGIN_MODE.get(event_type, 'CROSSED')
     stop_pct = STOP_LOSS_PCT.get(event_type, 0.06)
 
@@ -140,17 +163,19 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _atr_pct_val = float(_1h.get('atr_pct', 0))
     stop_pct = bounded_stop_pct(stop_pct, _atr_pct_val, MAX_STOP_LOSS_PCT)
 
-    qty = calc_position_qty(NAME, state, symbol, price, event_type, evt.get('strength', 50), leverage,
+    qty = calc_position_qty(NAME, state, symbol, price, event_type, _score, leverage,
                             atr_pct=_atr_pct_val, stop_pct=stop_pct)
     stop_price = round(price * (1 - stop_pct), 8)
 
     # ── 开仓 ──
     ok = open_position(system_tag, symbol, 'LONG', price, stop_price,
-                       qty, margin, leverage, event_type, evt.get('strength', 50),
+                       qty, margin, leverage, event_type, _score,
                        tg_fn=_tg, expected_move_pct=_event_expected_move(evt),
                        decision_context={
                            'signal_type': event_type,
-                           'strength': evt.get('strength', 50),
+                           'strength': _score,
+                           'raw_strength': evt.get('strength', 50),
+                           'entry_mode': _entry_mode,
                            'price': price,
                            'ema20_1h': _ema20,
                            'atr_pct_1h': _atr_pct_val,

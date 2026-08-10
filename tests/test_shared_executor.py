@@ -72,6 +72,23 @@ def test_drawdown_recovery_mode_after_pause(patch_executor):
     assert se.drawdown_mode() == 'recovery'
 
 
+def test_drawdown_recovery_loss_budget_rehalts(patch_executor):
+    """恢复模式再次亏损 2% 后重新硬暂停，防止连续亏损。"""
+    se = patch_executor['se']
+    patch_executor['set_balance'](3920)
+    se._rset('account:peak', {'bal': 4800, 'ts': time.time()})
+    se._rset('account:dd_pause', {
+        'ts': time.time() - se._DD_RECOVERY_DELAY - 1,
+        'base_balance': 4000,
+        'loss_lock': False,
+    })
+
+    coeff, _ = se._drawdown_status()
+
+    assert coeff == 0.0
+    assert se._rget('account:dd_pause')['loss_lock'] is True
+
+
 def test_drawdown_normal(patch_executor):
     """回撤 <8% → 正常系数 1。"""
     se = patch_executor['se']
@@ -230,3 +247,41 @@ def test_recovery_replaces_only_when_candidate_is_stronger(patch_executor, monke
     monkeypatch.setattr('shared.position_score.calc_position_live_score', lambda *a, **k: 70)
 
     assert se.maybe_replace_recovery_position('S6', 'LONG', 'NEWUSDT', 80, margin=10) is True
+
+
+def test_entry_timing_filters():
+    from strategies.shared_executor import event_is_stale, event_age_sec, price_is_overextended, classify_entry_mode
+
+    assert event_is_stale({'since': time.time() - 121}) is True
+    assert event_is_stale({'since': time.time() - 1000, '_snapshot_ts': time.time()}) is False
+    assert event_age_sec({'since': time.time() - 1000, '_snapshot_ts': time.time()}) < 5
+    assert event_is_stale({'since': time.time() - 60}) is False
+    assert price_is_overextended(115, 100, 5, 'LONG', 2) is True
+    assert price_is_overextended(108, 100, 5, 'LONG', 2) is False
+    assert price_is_overextended(85, 100, 5, 'SHORT', 2) is True
+    assert classify_entry_mode(90, 100, 30, 0.6, 'LONG') == 'LEFT_REVERSAL'
+    assert classify_entry_mode(110, 100, 60, 0.6, 'LONG') == 'RIGHT_MOMENTUM'
+    assert classify_entry_mode(110, 100, 70, 0.4, 'SHORT') == 'LEFT_REVERSAL'
+    assert classify_entry_mode(90, 100, 40, 0.4, 'SHORT') == 'RIGHT_MOMENTUM'
+
+
+def test_contract_score_and_leverage_are_risk_adjusted():
+    from strategies.shared_executor import contract_score, leverage_for_score
+
+    strong = contract_score(99, 'VIOLENT_BULLISH', atr_pct=2,
+                            taker_buy_ratio=0.6, side='LONG')
+    weak = contract_score(99, 'VIOLENT_BULLISH', atr_pct=7,
+                          extension_atr=2, taker_buy_ratio=0.4, side='LONG')
+    assert strong > weak
+    assert leverage_for_score('PULSE_UP', 55, 2) == 2
+    assert leverage_for_score('PULSE_UP', 75, 2) == 3
+    assert leverage_for_score('PULSE_UP', 95, 5) == 3
+
+
+def test_atr_position_model_matches_risk_cap():
+    from strategies.position_models import AtrRiskPositionSizer
+
+    model = AtrRiskPositionSizer()
+    assert model.score_fraction(100) == pytest.approx(0.15)
+    budget = model.budget(4000, 3200, 100, 3, atr_pct=2, stop_pct=0.04)
+    assert budget == pytest.approx(333.333333, rel=1e-5)
