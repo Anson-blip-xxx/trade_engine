@@ -21,7 +21,7 @@ sys.path.insert(0, str(_BASE / 'trading_engine'))
 
 from shared_executor import (
     _log, read_s3_events, read_s3_market_data,
-    is_event_fresh, load_state, save_state,
+    is_event_fresh, release_event_fresh, load_state, save_state,
     reconcile_positions, pm_monitor,
     open_position, calc_position_qty, fapi_get, tg_send,
     market_allows_trading, get_position_count, has_position,
@@ -116,6 +116,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     # ── 获取价格 ──
     ticker = fapi_get(f'/fapi/v1/ticker/price?symbol={symbol}')
     if not ticker or 'price' not in ticker:
+        release_event_fresh(symbol, event_type)
         _log(NAME, f'获取价格失败 {symbol}')
         return state
     price = float(ticker['price'])

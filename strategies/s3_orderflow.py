@@ -26,6 +26,7 @@ _LOG_DIR   = TRADE_DIR.parent / 'logs/s3'
 # Redis
 sys.path.insert(0, str(TRADE_DIR))
 from shared.redis_store import set as _rset, get as _rget, publish as _rpublish
+from shared.binance_api import FAPI as FAPI_URL, FSTREAM as FSTREAM_URL
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -33,8 +34,7 @@ MIN_VOL_24H  = 50_000_000
 FETCH_INTERVAL = 60
 PERSIST_INTERVAL = 300   # 5min 持久化一次缓存
 WINDOWS = [('15m', 15), ('1h', 60), ('4h', 240), ('24h', 1440)]
-FAPI_URL = 'https://fapi.binance.com'
-WS_BIGORDER = 'wss://fstream.binance.com/stream?streams='
+WS_BIGORDER = f'{FSTREAM_URL}/stream?streams='
 _MAX_KLINES = 1500   # 最大保留 K 线数
 
 # ── WS 大单流参数（不变） ──────────────────────────────────
@@ -624,7 +624,7 @@ _lock = threading.Lock()
 def _make_kline_stream_url(symbols: list) -> str:
     """生成 kline_1m 组合流 URL"""
     streams = '/'.join(f'{s.lower()}@kline_1m' for s in symbols)
-    return f'wss://fstream.binance.com/stream?streams={streams}'
+    return f'{FSTREAM_URL}/stream?streams={streams}'
 
 
 def _on_kline_msg(ws, message):

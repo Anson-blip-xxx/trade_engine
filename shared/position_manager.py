@@ -18,6 +18,7 @@ import time, json, threading, hmac, hashlib, os, uuid, requests
 from pathlib import Path
 from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
+from shared.redis_store import lock_acquire as _lock_acquire, lock_release as _lock_release
 from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID
 from shared.postgres_client import record_trade_event as _pg_record_event
 from shared.exit_factors import (
@@ -388,8 +389,8 @@ def _ws_on_message(ws, message):
                         _pmlog(f'[WS平仓] {sym} {side} AlgoSL(入场={prev.get("entry", 0)})')
                         # 先落库（此时 closed 标记未设，不会被 _try_record_ghost_trade 自跳）
                         # 再标记，供 _load/ghost_cleanup 跨进程去重
-                        _try_record_ghost_trade(sym, prev)
-                        _mark_closed(sym)
+                        if _try_record_ghost_trade(sym, prev):
+                            _mark_closed(sym)
                 else:
                     side = 'LONG' if amt > 0 else 'SHORT'
                     _WS_POSITIONS[sym] = {
@@ -539,11 +540,16 @@ if os.environ.get('PM_NO_WS') != '1':
 
 def _try_record_ghost_trade(sym: str, meta: dict):
     """幽灵仓数据落库（不抛异常）。通过文件标记去重，防止双进程重复写"""
+    owner = f'ghost:{os.getpid()}:{uuid.uuid4().hex[:8]}'
+    lock_key = f'pm:ghost_close:{sym}'
+    if not _lock_acquire(lock_key, owner, ttl=60):
+        _pmlog(f'[幽灵跳过] {sym} 其他进程正在处理平仓')
+        return False
     try:
         # 去重：该 symbol 近期已被 _close 处理过则跳过
         if _was_closed_recently(sym):
             _pmlog(f'[幽灵跳过] {sym} 已由 _close 记录，跳过')
-            return
+            return False
 
         _, _, _, _, _, _, _, record_trade = _s6api()
         entry = meta.get('entry', 0)
@@ -559,8 +565,12 @@ def _try_record_ghost_trade(sym: str, meta: dict):
                      sl_price=meta.get('sl', 0),
                      position_id=_position_id(sym, meta), final_close=True,
                      ghost_cleanup=True)
+        return True
     except Exception as e:
         _pmlog(f'[幽灵记录失败] {sym}: {e}')
+        return False
+    finally:
+        _lock_release(lock_key, owner)
 
 _SYSTEM_KEYS = {
     'S6': 'state:s6',
@@ -843,33 +853,45 @@ def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
             # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
             if system_filter and not pos.get('system', '').startswith(system_filter):
                 continue
-            positions.pop(sym, None)
-            entry = pos.get('entry', 0)
-            side = pos.get('side', 'LONG')
-            qty = pos.get('original_qty', pos.get('qty', 0))
-            ghost_price = _light_get_price(sym) or entry
-            _pmlog(f'[幽灵仓] {sym} 交易所已无持仓，清理 (入场={entry} 现价={ghost_price})')
-            record_trade(sym, entry, ghost_price, qty,
-                         pos.get('leverage', 1), pos.get('system', ''),
-                         pos.get('open_time', time.time()),
-                         exit_reason='手动平仓', side=side,
-                         score=pos.get('score', 0),
-                         atr_entry=pos.get('atr', 0),
-                         sl_price=pos.get('sl', 0),
-                         margin_mode=pos.get('margin', ''),
-                          be_done=pos.get('be_done', False),
-                          trail_active=pos.get('trail', False),
-                          algo_sl_id=pos.get('algo_sl_id', 0),
-                          position_id=_position_id(sym, pos), final_close=True,
-                          ghost_cleanup=True)
-            # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
-            _mark_closed(sym)
-            closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
+            owner = f'ghost-cleanup:{os.getpid()}:{uuid.uuid4().hex[:8]}'
+            lock_key = f'pm:ghost_close:{sym}'
+            if not _lock_acquire(lock_key, owner, ttl=60):
+                continue
+            try:
+                _ghost_cleanup_one(sym, pos, positions, record_trade, closed)
+            finally:
+                _lock_release(lock_key, owner)
         if closed:
             _pmlog(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
     except Exception as e:
         _pmlog(f'[幽灵检测异常] {e}')
     return closed
+
+
+def _ghost_cleanup_one(sym: str, pos: dict, positions: dict, record_trade, closed: list):
+    """Remove and record one ghost position while its distributed lock is held."""
+    positions.pop(sym, None)
+    entry = pos.get('entry', 0)
+    side = pos.get('side', 'LONG')
+    qty = pos.get('original_qty', pos.get('qty', 0))
+    ghost_price = _light_get_price(sym) or entry
+    _pmlog(f'[幽灵仓] {sym} 交易所已无持仓，清理 (入场={entry} 现价={ghost_price})')
+    record_trade(sym, entry, ghost_price, qty,
+                 pos.get('leverage', 1), pos.get('system', ''),
+                 pos.get('open_time', time.time()),
+                 exit_reason='手动平仓', side=side,
+                 score=pos.get('score', 0),
+                 atr_entry=pos.get('atr', 0),
+                 sl_price=pos.get('sl', 0),
+                 margin_mode=pos.get('margin', ''),
+                 be_done=pos.get('be_done', False),
+                 trail_active=pos.get('trail', False),
+                 algo_sl_id=pos.get('algo_sl_id', 0),
+                 position_id=_position_id(sym, pos), final_close=True,
+                 ghost_cleanup=True)
+    # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
+    _mark_closed(sym)
+    closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
 
 
 _monitor_heartbeat_ts: float = 0

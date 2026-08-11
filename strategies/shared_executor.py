@@ -260,6 +260,11 @@ def is_event_fresh(symbol: str, event_type: str, cooldown_s: int = 120) -> bool:
     _event_history[key] = now
     return True
 
+
+def release_event_fresh(symbol: str, event_type: str):
+    """Undo event de-duplication when the market data request failed."""
+    _event_history.pop((symbol, event_type), None)
+
 # ── 仓位管理 ──
 _KEY_MAP_OVERRIDE = {
     'S6': 'state:s6',

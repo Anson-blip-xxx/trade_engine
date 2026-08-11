@@ -265,6 +265,14 @@ def test_entry_timing_filters():
     assert classify_entry_mode(90, 100, 40, 0.4, 'SHORT') == 'RIGHT_MOMENTUM'
 
 
+def test_release_event_fresh_allows_retry_after_price_failure():
+    from strategies.shared_executor import is_event_fresh, release_event_fresh
+
+    assert is_event_fresh('FAILUSDT', 'TREND_DOWN', cooldown_s=180) is True
+    release_event_fresh('FAILUSDT', 'TREND_DOWN')
+    assert is_event_fresh('FAILUSDT', 'TREND_DOWN', cooldown_s=180) is True
+
+
 def test_contract_score_and_leverage_are_risk_adjusted():
     from strategies.shared_executor import contract_score, leverage_for_score
 
