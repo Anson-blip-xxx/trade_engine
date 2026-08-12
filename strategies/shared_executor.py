@@ -374,6 +374,23 @@ def has_position(name: str, symbol: str) -> bool:
     except Exception:
         return False
 
+
+def has_any_position(symbol: str) -> bool:
+    """Binance one-way mode: any side blocks a new strategy order."""
+    try:
+        positions = _pm_load()
+        if any(s == symbol and abs(float(p.get('qty', 0))) >= 0.001
+               for s, p in positions.items()):
+            return True
+    except Exception:
+        pass
+    try:
+        rows = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
+        return any(isinstance(p, dict) and abs(float(p.get('positionAmt', 0))) >= 0.001
+                   for p in (rows or []))
+    except Exception:
+        return False
+
 def pm_monitor(name: str, state: dict, tg_fn: callable = None) -> dict:
     """PM 监控，返回已平仓列表。持仓由 PM 全权管理。"""
     owner = f'{name}:{os.getpid()}'
@@ -954,16 +971,16 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
             _log(name, f'跳过 {symbol} LONG：资金费率 {fund_rate:.4%} 对多头不利')
             return False
 
-        # ── 实盘已有仓位检查（防缓存滞后导致重复加仓） ──
+        # ── 实盘已有仓位检查（BOTH 单向模式禁止反向净仓） ──
         try:
             existing = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
             if isinstance(existing, list):
                 for p in existing:
                     amt = float(p.get('positionAmt', 0))
                     existing_side = 'LONG' if amt > 0 else 'SHORT'
-                    if abs(amt) >= 0.001 and existing_side == side:
-                        _log(name, f'{symbol} 交易所已有 {side} 仓位 {abs(amt)}，跳过开仓')
-                        return True
+                    if abs(amt) >= 0.001:
+                        _log(name, f'{symbol} 交易所已有 {existing_side} 仓位 {abs(amt)}，跳过开仓')
+                        return False
         except Exception as e:
             _log(name, f'{symbol} 检查交易所仓位失败: {e}')
 

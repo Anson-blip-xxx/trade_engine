@@ -249,6 +249,15 @@ def test_recovery_replaces_only_when_candidate_is_stronger(patch_executor, monke
     assert se.maybe_replace_recovery_position('S6', 'LONG', 'NEWUSDT', 80, margin=10) is True
 
 
+def test_has_any_position_blocks_cross_strategy_symbol_conflict(patch_executor, monkeypatch):
+    se = patch_executor['se']
+    monkeypatch.setattr(se, '_pm_load', lambda: {
+        'VELVETUSDT': {'qty': 10, 'system': 'S6', 'side': 'LONG'}
+    })
+
+    assert se.has_any_position('VELVETUSDT') is True
+
+
 def test_entry_timing_filters():
     from strategies.shared_executor import event_is_stale, event_age_sec, price_is_overextended, classify_entry_mode
 

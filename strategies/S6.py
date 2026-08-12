@@ -23,7 +23,7 @@ from shared_executor import (
     _log, read_s3_events, read_s3_market_data,
     is_event_fresh, release_event_fresh, load_state, save_state,
     reconcile_positions, pm_monitor,
-    open_position, calc_position_qty, fapi_get, tg_send,
+    open_position, calc_position_qty, fapi_get, tg_send, has_any_position,
     market_allows_trading, get_position_count, has_position,
     _event_expected_move, subscribe_s3_notify, wait_scan,
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
@@ -109,7 +109,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
         return state
 
     # ── 已有仓位检查 ──
-    if has_position(NAME, symbol):
+    if has_any_position(symbol):
         _log(NAME, f'{symbol} 已有持仓，跳过')
         return state
 
