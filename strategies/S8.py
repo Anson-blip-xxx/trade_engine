@@ -30,6 +30,7 @@ from shared_executor import (
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
     maybe_replace_recovery_position, event_is_stale, price_is_overextended,
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
+    pump_down_uptrend_guard,
 )
 
 NAME = 'S8'
@@ -116,6 +117,11 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
     # 获取市场数据（做空趋势过滤）
     market = read_s3_market_data()
     win_data = market.get(symbol, {})
+
+    if event_type == 'PUMP_DOWN' and pump_down_uptrend_guard(
+            price, win_data.get('4h', {}), win_data.get('24h', {})):
+        _log(NAME, f'{symbol} PUMP_DOWN 但高周期仍上行，拒绝逆势追空')
+        return state
 
     # 趋势过滤：做空只在价格 < 1h EMA20 时开仓
     _1h = win_data.get('1h', {})

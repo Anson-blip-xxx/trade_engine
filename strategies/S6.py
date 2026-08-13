@@ -29,6 +29,7 @@ from shared_executor import (
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
     maybe_replace_recovery_position, event_is_stale, price_is_overextended,
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
+    long_trend_takeover_ready,
 )
 
 NAME = 'S6'
@@ -131,21 +132,33 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _flow = win_data.get('15m', {}).get('taker_buy_ratio')
     _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
     _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'LONG')
-    if _entry_mode == 'UNCONFIRMED':
+    takeover = event_type == 'PUMP_UP' or (
+        event_type == 'VIOLENT_BULLISH'
+        and float(win_data.get('4h', {}).get('chg', 0) or 0) > 3
+        and float(win_data.get('24h', {}).get('chg', 0) or 0) > 10
+    )
+    if takeover:
+        if not long_trend_takeover_ready(price, win_data):
+            _log(NAME, f'{symbol} S6B 趋势接管条件未满足，等待回踩/趋势确认')
+            return state
+        _entry_mode = 'S6B_TREND_TAKEOVER'
+        system_tag = 'S6B'
+    elif _entry_mode == 'UNCONFIRMED':
         _log(NAME, f'{symbol} 左右侧入场均未确认，跳过')
         return state
-    if _entry_mode == 'RIGHT_MOMENTUM' and _ema20 > 0 and price < _ema20:
+    if not takeover and _entry_mode == 'RIGHT_MOMENTUM' and _ema20 > 0 and price < _ema20:
         _log(NAME, f'{symbol} 价格 {price:.4f} < 1h EMA20 {_ema20:.4f}，不做多')
         return state
 
     max_extension = 1.25 if event_type == 'VIOLENT_BULLISH' else 2.0
-    if _entry_mode == 'RIGHT_MOMENTUM' and price_is_overextended(price, float(_ema20), _atr_abs, 'LONG', max_extension):
+    if not takeover and _entry_mode == 'RIGHT_MOMENTUM' and price_is_overextended(price, float(_ema20), _atr_abs, 'LONG', max_extension):
         _log(NAME, f'{symbol} 价格距离1h EMA20超过 {max_extension:.2f} ATR，拒绝追多')
         return state
 
     # ── 波动率过滤：1h ATR% > 6% 跳过（波动太大止损易被扫） ──
     _atr_pct = float(_1h.get('atr_pct', 0))
-    if _atr_pct > MAX_ATR_PCT:
+    takeover_atr_max = 12.0 if takeover else MAX_ATR_PCT
+    if _atr_pct > takeover_atr_max:
         _log(NAME, f'{symbol} 1h ATR={_atr_pct:.1f}% > {MAX_ATR_PCT:.0f}%，跳过')
         return state
 
@@ -156,13 +169,13 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _event_age = event_age_sec(evt)
     _score = contract_score(evt.get('strength', 50), event_type, _atr_pct_val,
                              _extension, _flow, _event_age, 'LONG')
-    leverage = leverage_for_score(event_type, _score, _atr_pct_val)
+    leverage = 2 if takeover else leverage_for_score(event_type, _score, _atr_pct_val)
     margin = MARGIN_MODE.get(event_type, 'CROSSED')
-    stop_pct = STOP_LOSS_PCT.get(event_type, 0.06)
+    stop_pct = 0.10 if takeover else STOP_LOSS_PCT.get(event_type, 0.06)
 
     # ATR 自适应止损（ATR × 2，但受止损上限约束）
     _atr_pct_val = float(_1h.get('atr_pct', 0))
-    stop_pct = bounded_stop_pct(stop_pct, _atr_pct_val, MAX_STOP_LOSS_PCT)
+    stop_pct = bounded_stop_pct(stop_pct, _atr_pct_val, 0.12 if takeover else MAX_STOP_LOSS_PCT)
 
     qty = calc_position_qty(NAME, state, symbol, price, event_type, _score, leverage,
                             atr_pct=_atr_pct_val, stop_pct=stop_pct)

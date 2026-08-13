@@ -485,15 +485,16 @@ SYSTEM_CFG = {
         'partial_tp': {5: 0.5},
     },
     'S6B': {
-        'be_done_threshold': 3.0,      # 泵多需要更大空间
+        'be_done_threshold': 5.0,      # 趋势接管给趋势更多空间
         'trail': {
-            'base_mult': 0.3,
-            'tighten_pct': 8.0,        # 泵多收紧更晚
-            'tighten_min': 0.5,
+            'base_mult': 0.6,
+            'tighten_pct': 10.0,
+            'tighten_min': 0.8,
             'min_profit_lock_pct': 2.0,
+            'max_drawdown_pct': 20.0,
             'breakeven_atr': 1.5,
         },
-        'time_stop_min': 120,
+        'time_stop_min': 480,
         'partial_tp': {8: 0.3},
     },
     # 旧 S6 兜底（存量仓位可能还是 system='S6'）
@@ -1479,6 +1480,9 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
         pos['lowest'] = lowest
         sl = round(lowest + effective_atr, 6)
         sl = max(sl, round(ema20_15, 6))
+        max_dd = float(trail_cfg.get('max_drawdown_pct', 0) or 0)
+        if max_dd > 0:
+            sl = min(sl, round(lowest * (1 + max_dd / 100), 6))
         if pnl_pct >= tighten_pct:
             min_lock = float(trail_cfg.get('min_profit_lock_pct', 0))
             if min_lock > 0:
@@ -1490,6 +1494,9 @@ def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positi
         pos['highest'] = highest
         sl = round(highest - effective_atr, 6)
         sl = min(sl, round(ema20_15, 6))
+        max_dd = float(trail_cfg.get('max_drawdown_pct', 0) or 0)
+        if max_dd > 0:
+            sl = max(sl, round(highest * (1 - max_dd / 100), 6))
         if pnl_pct >= tighten_pct:
             min_lock = float(trail_cfg.get('min_profit_lock_pct', 0))
             if min_lock > 0:

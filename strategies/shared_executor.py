@@ -662,6 +662,34 @@ def classify_entry_mode(price: float, ema20: float, rsi: float,
     return 'UNCONFIRMED'
 
 
+def long_trend_takeover_ready(price: float, market: dict) -> bool:
+    """Require higher-timeframe trend plus a pullback and buyer pressure."""
+    w15 = market.get('15m', {})
+    w4h = market.get('4h', {})
+    w24 = market.get('24h', {})
+    ema15 = float(w15.get('ema20', 0) or 0)
+    atr15 = float(w15.get('atr', 0) or 0)
+    ema24 = float(w24.get('ema20', 0) or 0)
+    ema60 = float(w24.get('ema60', 0) or 0)
+    flow = w15.get('taker_buy_ratio')
+    if not all((price > 0, ema15 > 0, ema24 > 0, ema60 > 0)):
+        return False
+    if price <= ema24 or ema24 <= ema60 or float(w4h.get('chg', 0) or 0) <= 0:
+        return False
+    if flow is not None and float(flow) < 0.52:
+        return False
+    distance = abs(price - ema15)
+    return distance <= max(atr15 * 1.5, price * 0.02) if atr15 > 0 else price <= ema15 * 1.02
+
+
+def pump_down_uptrend_guard(price: float, w4h: dict, w24h: dict) -> bool:
+    """Block only PUMP_DOWN shorts while higher-timeframe momentum is up."""
+    ema4h = float(w4h.get('ema20', 0) or 0)
+    chg4h = float(w4h.get('chg', 0) or 0)
+    chg24h = float(w24h.get('chg', 0) or 0)
+    return ema4h > 0 and price > ema4h and chg4h > 0 and chg24h >= 15
+
+
 def contract_score(strength: float, event_type: str, atr_pct: float = 0,
                    extension_atr: float = 0, taker_buy_ratio: float | None = None,
                    event_age_sec: float = 0, side: str = 'LONG') -> int:

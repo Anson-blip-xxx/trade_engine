@@ -259,7 +259,7 @@ def test_has_any_position_blocks_cross_strategy_symbol_conflict(patch_executor, 
 
 
 def test_entry_timing_filters():
-    from strategies.shared_executor import event_is_stale, event_age_sec, price_is_overextended, classify_entry_mode
+    from strategies.shared_executor import event_is_stale, event_age_sec, price_is_overextended, classify_entry_mode, pump_down_uptrend_guard
 
     assert event_is_stale({'since': time.time() - 121}) is True
     assert event_is_stale({'since': time.time() - 1000, '_snapshot_ts': time.time()}) is False
@@ -272,6 +272,9 @@ def test_entry_timing_filters():
     assert classify_entry_mode(110, 100, 60, 0.6, 'LONG') == 'RIGHT_MOMENTUM'
     assert classify_entry_mode(110, 100, 70, 0.4, 'SHORT') == 'LEFT_REVERSAL'
     assert classify_entry_mode(90, 100, 40, 0.4, 'SHORT') == 'RIGHT_MOMENTUM'
+    assert pump_down_uptrend_guard(120, {'ema20': 100, 'chg': 5}, {'chg': 20}) is True
+    assert pump_down_uptrend_guard(90, {'ema20': 100, 'chg': 5}, {'chg': 20}) is False
+    assert pump_down_uptrend_guard(120, {'ema20': 100, 'chg': -5}, {'chg': 20}) is False
 
 
 def test_release_event_fresh_allows_retry_after_price_failure():
@@ -293,6 +296,20 @@ def test_contract_score_and_leverage_are_risk_adjusted():
     assert leverage_for_score('PULSE_UP', 55, 2) == 2
     assert leverage_for_score('PULSE_UP', 75, 2) == 3
     assert leverage_for_score('PULSE_UP', 95, 5) == 3
+
+
+def test_long_trend_takeover_requires_pullback_and_flow():
+    from strategies.shared_executor import long_trend_takeover_ready
+
+    market = {
+        '15m': {'ema20': 100, 'atr': 2, 'taker_buy_ratio': 0.6},
+        '4h': {'chg': 8},
+        '24h': {'ema20': 90, 'ema60': 80, 'chg': 30},
+    }
+    assert long_trend_takeover_ready(101, market) is True
+    assert long_trend_takeover_ready(115, market) is False
+    market['15m']['taker_buy_ratio'] = 0.45
+    assert long_trend_takeover_ready(101, market) is False
 
 
 def test_atr_position_model_matches_risk_cap():
