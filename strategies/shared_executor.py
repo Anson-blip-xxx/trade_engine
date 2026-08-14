@@ -19,6 +19,7 @@ from strategies.position_models import AtrRiskPositionSizer
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
+_LS_RATIO_CACHE: dict[str, tuple[float, float | None]] = {}
 from shared.redis_store import get as _rget, set as _rset, subscribe as _rsubscribe
 from shared.redis_store import lock_acquire as _lock_acquire, lock_release as _lock_release
 
@@ -646,6 +647,29 @@ def price_is_overextended(price: float, ema20: float, atr: float,
     return extension > max_atr
 
 
+def get_short_ratio(symbol: str, period: str = '1h') -> float | None:
+    """Read Binance global short-account ratio; gracefully unavailable on Demo."""
+    cached = _LS_RATIO_CACHE.get(symbol)
+    if cached and time.time() - cached[0] < 300:
+        return cached[1]
+    urls = [FAPI, 'https://fapi.binance.com'] if 'demo-' in FAPI else [FAPI]
+    value = None
+    for base in urls:
+        try:
+            r = requests.get(
+                f'{base}/futures/data/globalLongShortAccountRatio',
+                params={'symbol': symbol, 'period': period, 'limit': 3}, timeout=5,
+            )
+            data = r.json()
+            if isinstance(data, list) and data:
+                value = float(data[-1].get('shortAccount', 0))
+                break
+        except Exception:
+            continue
+    _LS_RATIO_CACHE[symbol] = (time.time(), value)
+    return value
+
+
 def classify_entry_mode(price: float, ema20: float, rsi: float,
                         taker_buy_ratio: float | None, side: str) -> str:
     """Classify a candidate as right-side momentum or confirmed reversal."""
@@ -692,12 +716,18 @@ def pump_down_uptrend_guard(price: float, w4h: dict, w24h: dict) -> bool:
 
 def contract_score(strength: float, event_type: str, atr_pct: float = 0,
                    extension_atr: float = 0, taker_buy_ratio: float | None = None,
-                   event_age_sec: float = 0, side: str = 'LONG') -> int:
+                   event_age_sec: float = 0, side: str = 'LONG',
+                   short_ratio: float | None = None) -> int:
     """Combine signal quality and entry risk into a 0-100 contract score."""
     score = float(strength)
     if taker_buy_ratio is not None:
         flow_aligned = taker_buy_ratio >= 0.52 if side == 'LONG' else taker_buy_ratio <= 0.48
         score += 5 if flow_aligned else -5
+    if short_ratio is not None:
+        if side == 'LONG':
+            score += 8 if short_ratio >= 0.60 else (-5 if short_ratio <= 0.40 else 0)
+        else:
+            score += 5 if short_ratio <= 0.40 else (-8 if short_ratio >= 0.60 else 0)
     if atr_pct > 4:
         score -= min(15, (atr_pct - 4) * 3)
     if extension_atr > 0:

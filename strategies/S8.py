@@ -30,6 +30,7 @@ from shared_executor import (
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
     maybe_replace_recovery_position, event_is_stale, price_is_overextended,
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
+    get_short_ratio,
     pump_down_uptrend_guard,
 )
 
@@ -128,6 +129,7 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
     _ema20 = _1h.get('ema20', 0)
     _atr_abs = float(_1h.get('atr', 0))
     _flow = win_data.get('15m', {}).get('taker_buy_ratio')
+    _short_ratio = get_short_ratio(symbol)
     _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
     _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'SHORT')
     if _entry_mode == 'UNCONFIRMED':
@@ -154,7 +156,7 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
                   if _ema20 and _atr_abs else 0)
     _event_age = event_age_sec(evt)
     _score = contract_score(evt.get('strength', 50), event_type, _atr_pct_val,
-                             _extension, _flow, _event_age, 'SHORT')
+                             _extension, _flow, _event_age, 'SHORT', _short_ratio)
     leverage = leverage_for_score(event_type, _score, _atr_pct_val)
     margin = MARGIN_MODE.get(event_type, 'CROSSED')
     stop_pct = STOP_LOSS_PCT.get(event_type, 0.05)
@@ -179,7 +181,8 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
                            'ema20_1h': _ema20,
                             'atr_pct_1h': _atr_pct_val,
                            'taker_buy_ratio_15m': win_data.get('15m', {}).get('taker_buy_ratio'),
-                           'orderflow_bias_15m': win_data.get('15m', {}).get('orderflow_bias'),
+                            'orderflow_bias_15m': win_data.get('15m', {}).get('orderflow_bias'),
+                           'global_short_ratio_1h': _short_ratio,
                        })
     if ok:
         _log(NAME, f'✅ 开空 {symbol} {margin} {event_type} str={evt.get("strength")}')

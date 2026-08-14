@@ -296,6 +296,8 @@ def test_contract_score_and_leverage_are_risk_adjusted():
     assert leverage_for_score('PULSE_UP', 55, 2) == 2
     assert leverage_for_score('PULSE_UP', 75, 2) == 3
     assert leverage_for_score('PULSE_UP', 95, 5) == 3
+    assert contract_score(80, 'VIOLENT_BULLISH', side='LONG', short_ratio=0.65) > \
+        contract_score(80, 'VIOLENT_BULLISH', side='LONG', short_ratio=0.35)
 
 
 def test_long_trend_takeover_requires_pullback_and_flow():

@@ -29,6 +29,7 @@ from shared_executor import (
     maybe_log_analysis_panel, bounded_stop_pct, drawdown_mode,
     maybe_replace_recovery_position, event_is_stale, price_is_overextended,
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
+    get_short_ratio,
     long_trend_takeover_ready,
 )
 
@@ -130,13 +131,14 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _ema20 = _1h.get('ema20', 0)
     _atr_abs = float(_1h.get('atr', 0))
     _flow = win_data.get('15m', {}).get('taker_buy_ratio')
+    _short_ratio = get_short_ratio(symbol)
     _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
     _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'LONG')
     takeover = event_type == 'PUMP_UP' or (
         event_type == 'VIOLENT_BULLISH'
         and float(win_data.get('4h', {}).get('chg', 0) or 0) > 3
         and float(win_data.get('24h', {}).get('chg', 0) or 0) > 10
-    )
+    ) or bool(evt.get('breakout_confirmed'))
     if takeover:
         if not long_trend_takeover_ready(price, win_data):
             _log(NAME, f'{symbol} S6B 趋势接管条件未满足，等待回踩/趋势确认')
@@ -168,7 +170,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
                   if _ema20 and _atr_abs else 0)
     _event_age = event_age_sec(evt)
     _score = contract_score(evt.get('strength', 50), event_type, _atr_pct_val,
-                             _extension, _flow, _event_age, 'LONG')
+                             _extension, _flow, _event_age, 'LONG', _short_ratio)
     leverage = 2 if takeover else leverage_for_score(event_type, _score, _atr_pct_val)
     margin = MARGIN_MODE.get(event_type, 'CROSSED')
     stop_pct = 0.10 if takeover else STOP_LOSS_PCT.get(event_type, 0.06)
@@ -195,6 +197,7 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
                            'atr_pct_1h': _atr_pct_val,
                            'taker_buy_ratio_15m': win_data.get('15m', {}).get('taker_buy_ratio'),
                            'orderflow_bias_15m': win_data.get('15m', {}).get('orderflow_bias'),
+                           'global_short_ratio_1h': _short_ratio,
                        })
     if ok:
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')

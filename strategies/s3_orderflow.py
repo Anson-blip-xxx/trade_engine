@@ -365,17 +365,33 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
             return False
         return (_price - _4h_ema20) / _4h_ema20 * 100 > _4h_atr_pct * 3
 
+    def _strong_breakout(side: str) -> bool:
+        """Distinguish a supported breakout from a thin late spike."""
+        close_pos = float(w15m.get('close_pos', 50) or 50)
+        flow = w15m.get('taker_buy_ratio')
+        flow_ok = flow is None or (float(flow) >= 0.55 if side == 'LONG' else float(flow) <= 0.45)
+        volume_ok = float(w15m.get('vol_ratio', 0) or 0) >= 1.5
+        trend_change = float(w1h.get('chg', 0) or 0)
+        trend4h = float(w4h.get('chg', 0) or 0)
+        if side == 'LONG':
+            return close_pos >= 65 and flow_ok and volume_ok and trend_change > 0 and trend4h > 0
+        return close_pos <= 35 and flow_ok and volume_ok and trend_change < 0 and trend4h < 0
+
     # ── PULSE_UP ──
     if w15m.get('chg', 0) >= THRESHOLDS['pulse_up']['15m'] or \
        w1h.get('chg', 0) >= THRESHOLDS['pulse_up']['1h']:
         if w15m.get('vol_ratio', 0) >= THRESHOLDS['pulse_up']['vol_ratio']:
-            if not _is_overbought():
+            breakout = _strong_breakout('LONG')
+            if not _is_overbought() or breakout:
                 strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-                events.append({
+                event = {
                     'type': 'PULSE_UP', 'symbol': symbol,
                     'strength': max(20, strength),
                     'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                })
+                }
+                if breakout:
+                    event['breakout_confirmed'] = True
+                events.append(event)
             else:
                 _log(f'[S3] {symbol} PULSE_UP 跳过：已超买')
 
@@ -383,13 +399,17 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
     if w15m.get('chg', 0) <= THRESHOLDS['pulse_down']['15m'] or \
        w1h.get('chg', 0) <= THRESHOLDS['pulse_down']['1h']:
         if w15m.get('vol_ratio', 0) >= THRESHOLDS['pulse_down']['vol_ratio']:
-            if not _is_oversold():
+            breakout = _strong_breakout('SHORT')
+            if not _is_oversold() or breakout:
                 strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-                events.append({
+                event = {
                     'type': 'PULSE_DOWN', 'symbol': symbol,
                     'strength': max(20, strength),
                     'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                })
+                }
+                if breakout:
+                    event['breakout_confirmed'] = True
+                events.append(event)
             else:
                 _log(f'[S3] {symbol} PULSE_DOWN 跳过：已超卖')
 
@@ -458,7 +478,7 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
     # ── TREND_UP ──
     trend_up_1h4h = w1h.get('chg', 0) >= THRESHOLDS['trend_up']['1h'] and \
                     w4h.get('chg', 0) >= THRESHOLDS['trend_up']['4h'] and \
-                    not _is_overbought()
+                    (not _is_overbought() or _strong_breakout('LONG'))
     trend_up_24h  = w24h.get('chg', 0) >= THRESHOLDS['trend_up']['24h'] and \
                     w24h.get('ema20', 0) > w24h.get('ema60', 0)
     if trend_up_1h4h or trend_up_24h:
@@ -472,7 +492,7 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
     # ── TREND_DOWN ──
     trend_down_1h4h = w1h.get('chg', 0) <= THRESHOLDS['trend_down']['1h'] and \
                       w4h.get('chg', 0) <= THRESHOLDS['trend_down']['4h'] and \
-                      not _is_oversold()
+                      (not _is_oversold() or _strong_breakout('SHORT'))
     trend_down_24h  = w24h.get('chg', 0) <= THRESHOLDS['trend_down']['24h'] and \
                       w24h.get('ema20', 0) < w24h.get('ema60', 0)
     if trend_down_1h4h or trend_down_24h:
