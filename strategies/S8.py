@@ -32,6 +32,7 @@ from shared_executor import (
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
     get_short_ratio,
     pump_down_uptrend_guard,
+    short_signal_allows_open,
 )
 
 NAME = 'S8'
@@ -72,6 +73,12 @@ def _tg(msg: str) -> Optional[int]:
 def _open_short(state: dict, evt: dict, market: dict) -> dict:
     symbol = evt['symbol']
     event_type = evt['type']
+    raw_strength = float(evt.get('strength', 0) or 0)
+
+    if not short_signal_allows_open(event_type, raw_strength):
+        _log(NAME, f'{symbol} {event_type} strength={raw_strength:.0f} < '
+                   '60，短空确认不足，跳过')
+        return state
 
     if event_is_stale(evt):
         _log(NAME, f'{symbol} {event_type} 事件已过期，拒绝追入')

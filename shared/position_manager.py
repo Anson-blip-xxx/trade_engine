@@ -455,7 +455,7 @@ SYSTEM_CFG = {
         'time_extend_min': 60,         # 可延期（分钟）
         'extend_rsi_min': 60,          # 延期条件：RSI > 此值
         'extend_funding_min': 0.0005,  # 延期条件：资金费 > 此值
-        'sl_breach_max': -8.0,         # 紧急止损（%）
+        'sl_breach_max': -5.0,         # 紧急止损（%）
         'partial_tp': {5: 0.3},        # 浮盈≥% → 平仓比例
     },
     'S8B': {
@@ -562,7 +562,8 @@ def _try_record_ghost_trade(sym: str, meta: dict):
         ghost_price = _light_get_price(sym) or entry
         record_trade(sym, entry, ghost_price, qty, leverage, system_name, open_time,
                      exit_reason='幽灵仓关闭', side=side,
-                     score=meta.get('score', 0), atr_entry=meta.get('atr', 0),
+                     signal_type=meta.get('event_type', ''),
+                      score=meta.get('score', 0), atr_entry=meta.get('atr', 0),
                      sl_price=meta.get('sl', 0),
                      position_id=_position_id(sym, meta), final_close=True,
                      ghost_cleanup=True)
@@ -881,6 +882,7 @@ def _ghost_cleanup_one(sym: str, pos: dict, positions: dict, record_trade, close
                  pos.get('leverage', 1), pos.get('system', ''),
                  pos.get('open_time', time.time()),
                  exit_reason='手动平仓', side=side,
+                 signal_type=pos.get('event_type', ''),
                  score=pos.get('score', 0),
                  atr_entry=pos.get('atr', 0),
                  sl_price=pos.get('sl', 0),
@@ -1109,16 +1111,16 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
         return None
 
     # 2. 紧急止损（主止损 — Binance 已废弃 STOP_MARKET，全靠轮询）
-    max_loss = cfg.get('sl_breach_max', -8.0)
+    max_loss = cfg.get('sl_breach_max', -5.0)
     if pnl < max_loss:
         reason = f'紧急止损 pnl={pnl:.1f}%'
         if _close(symbol, pos, price, reason, positions):
             return (reason, price, entry, pos['qty'], pos['side'])
         return None
 
-    # Early-loss protection: cut a losing trade after 30 minutes only when
-    # 15m momentum still confirms the adverse direction.
-    if hold >= 30 and pnl <= -2.0:
+    # Keep a short grace period, but do not leave a fast adverse move
+    # unprotected for the original 30-minute window.
+    if hold >= 5 and pnl <= -2.0:
         try:
             k15 = _get_data_cache().get_klines(symbol, '15m', 4)
             if _early_loss_momentum_weak(k15, pos['side']):
@@ -1654,6 +1656,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
         record_trade(symbol, pos['entry'], price, close_qty, pos.get("leverage", 3),
                      pos.get('system', ''), pos['open_time'],
                      exit_reason=reason, side=pos['side'],
+                     signal_type=pos.get('event_type', ''),
                      score=pos.get('score', 0),
                      atr_entry=pos.get('atr', 0),
                      sl_price=pos.get('sl', 0),
@@ -1697,6 +1700,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
             record_trade(symbol, pos['entry'], price, close_qty, pos.get("leverage", 3),
                          pos.get('system', ''), pos['open_time'],
                          exit_reason=reason, side=pos['side'],
+                         signal_type=pos.get('event_type', ''),
                          score=pos.get('score', 0),
                          atr_entry=pos.get('atr', 0),
                          sl_price=pos.get('sl', 0),
@@ -1752,6 +1756,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
             record_trade(symbol, pos['entry'], price, filled_qty, pos.get("leverage", 3),
                          pos.get('system', ''), pos['open_time'],
                          exit_reason=reason, side=pos['side'],
+                         signal_type=pos.get('event_type', ''),
                          score=pos.get('score', 0), atr_entry=pos.get('atr', 0),
                          sl_price=pos.get('sl', 0), margin_mode=pos.get('margin', ''),
                          be_done=pos.get('be_done', False),
@@ -1814,6 +1819,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
     record_trade(symbol, pos['entry'], price, close_qty, pos.get("leverage", 3),
                  pos.get('system', ''), pos['open_time'],
                  exit_reason=reason, side=pos['side'],
+                 signal_type=pos.get('event_type', ''),
                  score=pos.get('score', 0),
                  atr_entry=pos.get('atr', 0),
                  sl_price=pos.get('sl', 0),

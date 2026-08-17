@@ -31,6 +31,8 @@ from shared_executor import (
     contract_score, leverage_for_score, classify_entry_mode, event_age_sec,
     get_short_ratio,
     long_trend_takeover_ready,
+    get_market_state,
+    long_signal_allows_open,
 )
 
 NAME = 'S6'
@@ -80,6 +82,10 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     symbol = evt['symbol']
     event_type = evt['type']
     system_tag = SYSTEM_TAG.get(event_type, NAME)
+
+    if not long_signal_allows_open(event_type, get_market_state()):
+        _log(NAME, f'{symbol} {event_type} 与当前 S0 空头 regime 冲突，跳过')
+        return state
 
     if event_is_stale(evt):
         _log(NAME, f'{symbol} {event_type} 事件已过期，拒绝追入')

@@ -737,6 +737,24 @@ def contract_score(strength: float, event_type: str, atr_pct: float = 0,
     return max(0, min(100, int(round(score))))
 
 
+MIN_CONFIRMED_SHORT_STRENGTH = 60
+CONFIRMED_SHORT_SIGNALS = ('TREND_DOWN', 'VIOLENT_BEARISH', 'PULSE_DOWN')
+
+
+def short_signal_allows_open(event_type: str, raw_strength: float) -> bool:
+    if event_type not in CONFIRMED_SHORT_SIGNALS:
+        return True
+    return float(raw_strength or 0) >= MIN_CONFIRMED_SHORT_STRENGTH
+
+
+def long_signal_allows_open(event_type: str, market_state: dict) -> bool:
+    """Avoid violent long entries while S0 identifies a bearish regime."""
+    if event_type != 'VIOLENT_BULLISH':
+        return True
+    regime = str((market_state or {}).get('regime', '')).lower()
+    return regime not in ('weak_bear', 'risk-off', 'risk_off')
+
+
 def leverage_for_score(event_type: str, score: int, atr_pct: float = 0) -> int:
     """Choose leverage conservatively from quality and volatility."""
     base = {

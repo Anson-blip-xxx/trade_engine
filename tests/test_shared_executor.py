@@ -127,6 +127,23 @@ def test_strength_filter_below_30_blocks_open(patch_executor):
     assert result is False
 
 
+def test_short_signal_strength_gate():
+    from strategies.shared_executor import short_signal_allows_open
+
+    assert short_signal_allows_open('TREND_DOWN', 59) is False
+    assert short_signal_allows_open('TREND_DOWN', 60) is True
+    assert short_signal_allows_open('PANIC_SELL', 30) is True
+
+
+def test_violent_bullish_blocked_in_bearish_regime():
+    from strategies.shared_executor import long_signal_allows_open
+
+    assert long_signal_allows_open('VIOLENT_BULLISH', {'regime': 'risk-off'}) is False
+    assert long_signal_allows_open('VIOLENT_BULLISH', {'regime': 'weak_bear'}) is False
+    assert long_signal_allows_open('VIOLENT_BULLISH', {'regime': 'range'}) is True
+    assert long_signal_allows_open('TREND_UP', {'regime': 'risk-off'}) is True
+
+
 def test_analysis_filter_blocks_open(patch_executor, monkeypatch):
     """分析统计劣化时，开仓在早期直接被拒绝。"""
     se = patch_executor['se']
