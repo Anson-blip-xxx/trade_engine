@@ -457,6 +457,10 @@ SYSTEM_CFG = {
         'extend_funding_min': 0.0005,  # 延期条件：资金费 > 此值
         'sl_breach_max': -5.0,         # 紧急止损（%）
         'partial_tp': {5: 0.3},        # 浮盈≥% → 平仓比例
+        'peak_guard': {                # 峰值回撤保护：防回踩拉升吞掉浮盈
+            'trigger_pct': 4.0,        # 浮盈≥% 后启动
+            'drawdown_pct': 3.0,       # 从峰值回撤≥% → 立即平仓锁利
+        },
     },
     'S8B': {
         'be_done_threshold': 3.0,
@@ -471,6 +475,7 @@ SYSTEM_CFG = {
         'time_stop_fast_min': 150,
         'funding_fast_threshold': -0.00015,
         'partial_tp': {8: 0.3},
+        'peak_guard': {'trigger_pct': 5.0, 'drawdown_pct': 3.5},
     },
     'S6A': {
         'be_done_threshold': 2.5,
@@ -483,9 +488,9 @@ SYSTEM_CFG = {
         },
         'time_stop_min': 120,
         'partial_tp': {5: 0.5},
+        'peak_guard': {'trigger_pct': 4.0, 'drawdown_pct': 3.0},
     },
-    'S6B': {
-        'be_done_threshold': 5.0,      # 趋势接管给趋势更多空间
+    'S6B': {        'be_done_threshold': 5.0,      # 趋势接管给趋势更多空间
         'trail': {
             'base_mult': 0.6,
             'tighten_pct': 10.0,
@@ -496,6 +501,7 @@ SYSTEM_CFG = {
         },
         'time_stop_min': 480,
         'partial_tp': {8: 0.3},
+        'peak_guard': {'trigger_pct': 6.0, 'drawdown_pct': 4.0},
     },
     # 旧 S6 兜底（存量仓位可能还是 system='S6'）
     'S6': {
@@ -511,7 +517,6 @@ SYSTEM_CFG = {
         'partial_tp': {5: 0.3},
     },
 }
-
 
 def _get_funding_rate(symbol: str) -> float:
     """获取当前资金费率，失败返回 0"""
@@ -589,11 +594,19 @@ def _load_meta() -> dict:
         pass
     return {}
 
+def _is_tradable_symbol(symbol: str) -> bool:
+    """Engine trades *USDT futures only. Stale legacy testnet contracts
+    (*USD_PERP) must never enter PM monitoring or alerts."""
+    return bool(symbol) and symbol.endswith('USDT') and '_PERP' not in symbol
+
+
 def _merge_meta(raw: dict[str, dict], meta: dict, now: float,
                 alert_external: bool = False) -> dict:
     """用本地元数据 enrich 原始持仓数据。"""
     merged = {}
     for sym, bp in raw.items():
+        if not _is_tradable_symbol(sym):
+            continue
         if _was_closed_recently(sym):
             _pmlog(f'[闭标记修复] {sym} 实际仍有持仓，清除关闭标记')
             _clear_closed_marker(sym)
@@ -639,7 +652,7 @@ def _merge_meta_preserving_missing(raw: dict[str, dict], meta: dict,
     """
     merged = _merge_meta(raw, dict(meta), now, alert_external=True)
     for symbol, position in meta.items():
-        if symbol not in merged and not _was_closed_recently(symbol):
+        if symbol not in merged and not _was_closed_recently(symbol) and _is_tradable_symbol(symbol):
             merged[symbol] = position
     return merged
 
@@ -1168,6 +1181,13 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
             # 新追踪价位
             _place_trail_sl(symbol, pos, trail_result, positions)
 
+    # 5.5 峰值回撤保护：浮盈达标后实时跟踪极值，防回踩拉升吞掉利润
+    pg_reason = _peak_pullback_check(pos, price, cfg)
+    if pg_reason:
+        if _close(symbol, pos, price, pg_reason, positions):
+            return (pg_reason, price, entry, pos['qty'], pos['side'])
+        return None
+
     # 6. 1h EMA 安全阀：大周期趋势转向 → 强制离场（但免开仓后前60分钟）
     #      浮盈 >=150% 时豁免，完全交给移动止盈
     if hold < 60 or pnl >= 40:
@@ -1377,6 +1397,48 @@ def _calc_trail_base(symbol: str, price: float) -> float:
     pct_base = price * 0.015
 
     return max(atr_15m, atr_1h / 4, pct_base)
+
+
+def _peak_pullback_check(pos: dict, price: float, cfg: dict) -> str | None:
+    """实时峰值回撤保护：浮盈达标后跟踪极值，从峰值回撤超过阈值立即触发平仓。
+
+    与追踪锁利的区别：逐监控周期实时判断，不等 15m 收盘确认，
+    专门防"浮盈到顶后回踩拉升、利润全部吐回"的快速反转。
+
+    一旦武装（浮盈≥trigger_pct）即保持武装，回踩导致 pnl 跌破触发值时
+    保护仍生效（否则从峰值回踩的一瞬间 pnl 会先跌破阈值，保护被解除）。
+
+    返回 None（不动作）或平仓原因字符串。
+    """
+    guard = cfg.get('peak_guard', {}) or {}
+    if not guard:
+        return None
+    trigger_pct = float(guard.get('trigger_pct', 4.0))
+    dd_pct = float(guard.get('drawdown_pct', 3.0))
+    entry = float(pos.get('entry', 0) or 0)
+    if entry <= 0:
+        return None
+    if pos['side'] == 'SHORT':
+        pnl_pct = (entry - price) / entry * 100
+    else:
+        pnl_pct = (price - entry) / entry * 100
+
+    if not pos.get('peak_guard_armed'):
+        if pnl_pct < trigger_pct:
+            return None
+        pos['peak_guard_armed'] = True
+        pos['lowest'] = min(float(pos.get('lowest', price) or price), price)
+        pos['highest'] = max(float(pos.get('highest', price) or price), price)
+
+    if pos['side'] == 'SHORT':
+        pos['lowest'] = min(float(pos.get('lowest', price) or price), price)
+        pullback = (price - pos['lowest']) / pos['lowest'] * 100 if pos['lowest'] > 0 else 0
+    else:
+        pos['highest'] = max(float(pos.get('highest', price) or price), price)
+        pullback = (pos['highest'] - price) / pos['highest'] * 100 if pos['highest'] > 0 else 0
+    if pullback >= dd_pct:
+        return f'峰值回撤保护 pnl={pnl_pct:.1f}% 回撤{pullback:.1f}%'
+    return None
 
 
 def _calc_trail_sl(symbol: str, pos: dict, price: float, trail_cfg: dict, positions: dict):

@@ -259,6 +259,35 @@ def test_early_loss_momentum_weak():
     assert _early_loss_momentum_weak(up, 'LONG') is False
 
 
+def test_peak_pullback_guard_triggers_on_retrace():
+    """SHORT 浮盈达标后从峰值回踩 3% → 立即触发峰值回撤保护。"""
+    from shared.position_manager import _peak_pullback_check
+
+    cfg = {'peak_guard': {'trigger_pct': 4.0, 'drawdown_pct': 3.0}}
+    pos = {'entry': 1.0, 'side': 'SHORT', 'qty': 10.0}
+    # 未达触发阈值：不平
+    assert _peak_pullback_check(pos, 0.975, cfg) is None
+    # 达标（+4%）且跟踪极值
+    assert _peak_pullback_check(pos, 0.96, cfg) is None   # pnl=4%，回撤0
+    assert pos['lowest'] == 0.96
+    # 从极值回踩 +3.1% → 触发
+    reason = _peak_pullback_check(pos, 0.99, cfg)
+    assert reason and '峰值回撤保护' in reason
+
+
+def test_peak_pullback_guard_long_mirror():
+    """LONG 从峰值回跌触发；未达阈值不动作。"""
+    from shared.position_manager import _peak_pullback_check
+
+    cfg = {'peak_guard': {'trigger_pct': 4.0, 'drawdown_pct': 3.0}}
+    pos = {'entry': 1.0, 'side': 'LONG', 'qty': 10.0}
+    assert _peak_pullback_check(pos, 1.03, cfg) is None   # pnl=3% < 4%
+    assert _peak_pullback_check(pos, 1.06, cfg) is None   # 峰值 1.06
+    assert pos['highest'] == 1.06
+    reason = _peak_pullback_check(pos, 1.025, cfg)        # 回跌 3.3%
+    assert reason and '峰值回撤保护' in reason
+
+
 def test_external_position_alert_has_grace_period(patch_pm, monkeypatch):
     """开仓写入 PM 元数据前的短暂竞态不能立即报警。"""
     pm = patch_pm['pm']
@@ -287,7 +316,6 @@ def test_stagnant_profit_rule():
 def test_merge_meta_preserves_missing_position_for_ghost_cleanup():
     """交易所快照缺币时不能静默删本地仓位，须交给幽灵清理记录。"""
     from shared.position_manager import _merge_meta_preserving_missing
-
     now = time.time()
     meta = {
         'KOMAUSDT': {
@@ -299,3 +327,22 @@ def test_merge_meta_preserves_missing_position_for_ghost_cleanup():
     merged = _merge_meta_preserving_missing({}, meta, now)
 
     assert merged['KOMAUSDT'] == meta['KOMAUSDT']
+
+
+def test_merge_meta_skips_legacy_perp_symbols():
+    """遗留 *USD_PERP 合约不进 PM 监控/告警，也不从本地元数据补回。"""
+    from shared.position_manager import _merge_meta_preserving_missing
+    now = time.time()
+    raw = {
+        'LTCUSD_PERP': {'entry': 55.0, 'qty': 26.0, 'side': 'LONG'},
+        'BTCUSDT': {'entry': 100.0, 'qty': 1.0, 'side': 'LONG'},
+    }
+    meta = {
+        'LTCUSD_PERP': {'entry': 55.0, 'qty': 26.0, 'side': 'LONG',
+                        'system': 'S6', 'open_time': now},
+    }
+
+    merged = _merge_meta_preserving_missing(raw, meta, now)
+
+    assert 'LTCUSD_PERP' not in merged
+    assert merged['BTCUSDT']['entry'] == 100.0
