@@ -21,7 +21,7 @@ _BASE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_BASE / 'trading_engine'))
 
 from shared_executor import (
-    _log, read_s3_events, read_s3_market_data,
+    _log, read_all_signals, read_s3_market_data,
     is_event_fresh, release_event_fresh, load_state, save_state,
     reconcile_positions, pm_monitor,
     open_position, calc_position_qty, fapi_get, tg_send, has_any_position,
@@ -206,7 +206,7 @@ def main():
 
     while True:
         try:
-            events = read_s3_events()
+            events = read_all_signals()
             market = read_s3_market_data()
 
             state, closed = pm_monitor(NAME, state, tg_fn=_tg)

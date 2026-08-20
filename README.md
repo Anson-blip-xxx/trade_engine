@@ -132,6 +132,23 @@ Closed trades record their opening `signal_type` from PM position metadata, so s
 | **S0** | Macro market state machine | regime: bull_trend / weak_bull / range / weak_bear / risk-off |
 | **PM** | Unified position lifecycle manager | Stop loss, trailing, peak guard, time stop, algo orders |
 
+## TradingView Signal Source (tv_bridge)
+
+TradingView Pine strategies can feed signals into the engine without touching execution or risk management. `services/tv_bridge.py` receives TV alert webhooks, validates and normalizes them into the internal event vocabulary, and publishes to Redis — S6/S8 then apply the full gate chain and PM manages the position as usual.
+
+```
+Pine strategy ──alert(freq_once_per_bar_close)──► POST /webhook (tv_bridge :8001)
+    secret 校验 → 信号映射 TV_SIGNAL_MAP → 标的规范化(*USDT)
+    → 5min 幂等去重 → event:tv 快照 → notify 唤醒 S6/S8
+```
+
+- **Signal names**: `TREND_UP_LONG / PULSE_UP_LONG / VIOLENT_LONG / PUMP_LONG` (long), `TREND_DOWN_SHORT / PULSE_DOWN_SHORT / VIOLENT_SHORT / PANIC_SELL_SHORT / PUMP_SHORT` (short). They map onto the S3 event vocabulary so existing gates (short strength ≥ 60, regime gating, EMA20 trend filter, ATR over-extension, cooldowns) apply automatically.
+- **Payload**: `{"secret":"...","signal":"TREND_UP_LONG","symbol":"{{ticker}}","price":{{close}},"strength":70}` — see `docs/pine_webhook_template.pine` for a ready-to-use Pine template.
+- **Config**: `TV_WEBHOOK_SECRET` in `config/binance.env` (fail-closed: without it all signals are rejected). Source selection via `SIGNAL_SOURCE` env (`s3` / `tv` / `both`, default `both`).
+- **Safety**: TV only signals, never orders — entry price, stops, and exits are always decided by the engine (PM polls live prices). Duplicate alerts within 5 minutes are deduped per (signal, symbol).
+
+Service: `sudo systemctl status trade-tv` (port 8001, `GET /healthz`).
+
 ## Configuration
 
 `config/binance.env`:

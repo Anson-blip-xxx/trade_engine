@@ -1,0 +1,57 @@
+// ============================================================================
+// TradingView Pine 模板 — 接入 trading_engine 的 tv_bridge
+// ============================================================================
+//
+// 用法：
+//   1. 把本策略贴到 TradingView Pine Editor（v5），保存并加载到图表
+//      （图表周期建议 15m / 1h，与引擎内部周期对齐）
+//   2. 创建 Alert:
+//        Condition: 本策略
+//        Options:   Once Per Bar Close（必须，防止重复触发）
+//        Webhook URL: http://<你的服务器IP>:8001/webhook
+//        Message: 用下方 ALERT_MESSAGE 常量的内容
+//   3. {{ticker}}/{{close}} 会自动替换为当前标的与收盘价
+//
+// 信号规范（tv_bridge 只认这些名字）：
+//   多头: TREND_UP_LONG / PULSE_UP_LONG / VIOLENT_LONG / PUMP_LONG
+//   空头: TREND_DOWN_SHORT / PULSE_DOWN_SHORT / VIOLENT_SHORT /
+//         PANIC_SELL_SHORT / PUMP_SHORT
+//
+// 信号进入引擎后自动经过全部闸门（强度门槛 / regime 门控 / EMA20 趋势
+// 过滤 / ATR 追高保护 / 冷却），开仓后由 PM 统一风控（止损/峰值锁利/追踪）。
+// strength 字段 0~99：建议用条件强度（如 RSI 距离/ATR 幅度）动态给分。
+// ============================================================================
+
+//@version=5
+strategy("Engine Bridge Template", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=0)
+
+// ── 示例算法：EMA20/EMA60 金叉死叉 + ADX 过滤（按需替换成任意算法）──
+fastLen = input.int(20, "Fast EMA")
+slowLen = input.int(60, "Slow EMA")
+adxLen  = input.int(14, "ADX")
+
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+longCond  = ta.crossover(emaFast, emaSlow) and adxVal > 20
+shortCond = ta.crossunder(emaFast, emaSlow) and adxVal > 20
+
+// 动态强度示例：ADX 越强分越高（0~99）
+strengthVal = math.min(99, math.max(30, math.round(adxVal * 2)))
+
+// ── Alert 消息模板（创建 Alert 时复制进 Message 框）──
+// 把 YOUR_SECRET 替换为 config/binance.env 里的 TV_WEBHOOK_SECRET
+alertMsg = '{"secret":"YOUR_SECRET","signal":"TREND_UP_LONG","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + '}'
+alertMsgShort = '{"secret":"YOUR_SECRET","signal":"TREND_DOWN_SHORT","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + '}'
+
+if longCond
+    strategy.entry("Long", strategy.long)
+    alert(alertMsg, alert.freq_once_per_bar_close)
+
+if shortCond
+    strategy.entry("Short", strategy.short)
+    alert(alertMsgShort, alert.freq_once_per_bar_close)
+
+plot(emaFast, "EMA Fast", color=color.new(color.orange, 0))
+plot(emaSlow, "EMA Slow", color=color.new(color.blue, 0))

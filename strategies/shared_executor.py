@@ -235,6 +235,41 @@ def read_s3_events(max_age: int = S3_STALE_S) -> list:
     except Exception:
         return []
 
+
+def read_tv_signals(max_age: int = S3_STALE_S) -> list:
+    """读取 tv_bridge 写入的事件快照（结构与 event:s3 同构）。
+
+    事件由 services/tv_bridge.py 接收 TradingView webhook 后写入，
+    每条自带 ts（写入时刻），新鲜期独立于快照 ts 判断。
+    """
+    try:
+        data = _rget('event:tv')
+        if not data:
+            return []
+        now = time.time()
+        events = data.get('events', []) or []
+        fresh = [dict(e, _snapshot_ts=float(e.get('ts', 0) or 0))
+                 for e in events
+                 if now - float(e.get('ts', 0) or 0) <= max_age]
+        return fresh
+    except Exception:
+        return []
+
+
+def read_all_signals() -> list:
+    """按 SIGNAL_SOURCE 合并信号源: s3 | tv | both（默认 both）。
+
+    TV 信号与 S3 事件共用内部事件词表（type/symbol/strength），
+    下游闸门（强度门槛、regime 门控、趋势过滤、冷却）对两者一视同仁。
+    """
+    source = (os.environ.get('SIGNAL_SOURCE') or 'both').strip().lower()
+    events = []
+    if source in ('s3', 'both'):
+        events.extend(read_s3_events())
+    if source in ('tv', 'both'):
+        events.extend(read_tv_signals())
+    return events
+
 def read_s3_market_data(max_age: int = 120) -> dict:
     """读取 s3 市场数据, 返回各币窗口数据"""
     try:
