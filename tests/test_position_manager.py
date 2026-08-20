@@ -260,32 +260,39 @@ def test_early_loss_momentum_weak():
 
 
 def test_peak_pullback_guard_triggers_on_retrace():
-    """SHORT 浮盈达标后从峰值回踩 3% → 立即触发峰值回撤保护。"""
+    """SHORT 浮盈达标后实时上移锁利止损，从峰值回踩超阈值则立即平仓。"""
     from shared.position_manager import _peak_pullback_check
 
-    cfg = {'peak_guard': {'trigger_pct': 4.0, 'drawdown_pct': 3.0}}
+    cfg = {'peak_guard': {'trigger_pct': 3.0, 'drawdown_pct': 2.0}}
     pos = {'entry': 1.0, 'side': 'SHORT', 'qty': 10.0}
     # 未达触发阈值：不平
     assert _peak_pullback_check(pos, 0.975, cfg) is None
-    # 达标（+4%）且跟踪极值
-    assert _peak_pullback_check(pos, 0.96, cfg) is None   # pnl=4%，回撤0
+    # 达标（+4%）→ 武装，返回应上移的锁利止损价（极值×1.02）
+    sl = _peak_pullback_check(pos, 0.96, cfg)
+    assert sl is not None and not isinstance(sl, str)
     assert pos['lowest'] == 0.96
-    # 从极值回踩 +3.1% → 触发
-    reason = _peak_pullback_check(pos, 0.99, cfg)
-    assert reason and '峰值回撤保护' in reason
+    assert sl == pytest.approx(0.9792)
+    # 极值下移 → 止损跟随下移（更紧）
+    sl2 = _peak_pullback_check(pos, 0.95, cfg)
+    assert sl2 == pytest.approx(0.969)
+    # 从极值回踩 +2.1% → 触发直接平仓
+    reason = _peak_pullback_check(pos, 0.97, cfg)
+    assert isinstance(reason, str) and '峰值回撤保护' in reason
 
 
 def test_peak_pullback_guard_long_mirror():
     """LONG 从峰值回跌触发；未达阈值不动作。"""
     from shared.position_manager import _peak_pullback_check
 
-    cfg = {'peak_guard': {'trigger_pct': 4.0, 'drawdown_pct': 3.0}}
+    cfg = {'peak_guard': {'trigger_pct': 3.0, 'drawdown_pct': 2.0}}
     pos = {'entry': 1.0, 'side': 'LONG', 'qty': 10.0}
-    assert _peak_pullback_check(pos, 1.03, cfg) is None   # pnl=3% < 4%
-    assert _peak_pullback_check(pos, 1.06, cfg) is None   # 峰值 1.06
+    assert _peak_pullback_check(pos, 1.02, cfg) is None   # pnl=2% < 3%
+    sl = _peak_pullback_check(pos, 1.06, cfg)             # pnl=6% → 武装
+    assert not isinstance(sl, str) and sl is not None
     assert pos['highest'] == 1.06
-    reason = _peak_pullback_check(pos, 1.025, cfg)        # 回跌 3.3%
-    assert reason and '峰值回撤保护' in reason
+    assert sl == pytest.approx(1.0388)                    # 极值×0.98
+    reason = _peak_pullback_check(pos, 1.025, cfg)        # 回跌 3.3% > 2%
+    assert isinstance(reason, str) and '峰值回撤保护' in reason
 
 
 def test_external_position_alert_has_grace_period(patch_pm, monkeypatch):

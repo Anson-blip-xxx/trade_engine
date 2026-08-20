@@ -1,6 +1,6 @@
 # Trading Engine
 
-Automated Binance Futures trading system with event-driven strategies, unified position management, and multi-layered risk controls.
+Automated Binance Futures trading system with event-driven strategies, unified position management, and multi-layered risk controls (signal quality gates → account-level breakers → real-time profit locks).
 
 ## Architecture
 
@@ -13,123 +13,162 @@ graph TB
     end
 
     subgraph Brain["🧠 事件引擎"]
-        S3[S3 Market Brain<br/>s3_orderflow.py] -->|Redis| EVENTS[s3_events.json]
-        S3 -->|Redis| MARKET[s3_market_data.json]
-        S3 -->|Redis| SIGNALS[s3_signals.json]
+        S3[S3 Market Brain<br/>s3_orderflow.py] -->|Redis| EVENTS[s3_events]
+        S3 -->|Redis| MARKET[s3_market_data]
     end
 
     subgraph Strategies["🎯 策略执行器"]
-        EVENTS --> S6[S6 Long Executor<br/>strategies/S6.py]
+        EVENTS --> S6[S6 Long Executor<br/>strategies/S6.py<br/>S6A + S6B 趋势接管]
         EVENTS --> S8[S8 Short Executor<br/>strategies/S8.py]
         MARKET --> S6
         MARKET --> S8
-        S6 --> SHARED[shared_executor.py]
+        S6 --> SHARED[shared_executor.py<br/>开仓过滤链 + 仓位模型]
         S8 --> SHARED
     end
 
     subgraph Risk["🛡️ 风控层"]
-        S0[S0 Market Guard<br/>s0_market_guard.py] -->|market_state.json| S6
-        S0 -->|market_state.json| S8
-        PM[Position Manager<br/>position_manager.py] -->|Redis| S6
+        S0[S0 Market Guard<br/>regime 5档] -->|market:s0| S6
+        S0 -->|market:s0| S8
+        SHARED -->|回撤熔断<br/>8%减半/15%暂停| BINANCE
+        PM[Position Manager<br/>position_manager.py<br/>统一生命周期管理] -->|Redis| S6
         PM -->|Redis| S8
-        PM -->|Algo Order Queue<br/>11s rate limit| BINANCE
+        PM -->|Algo Order Queue<br/>11s rate limit| BINANCE[Binance FAPI]
     end
 
     subgraph Storage["💾 存储"]
-        REDIS[(Redis)]
-        CH[(ClickHouse)]
-        PROM[Prometheus :8000]
+        REDIS[(Redis<br/>持仓/状态/冷却)]
+        PG[(PostgreSQL<br/>trade_episodes 交易台账)]
+        CH[(ClickHouse<br/>trade_history / trade_analysis)]
     end
 
     SHARED --> PM
+    PM -->|trades| PG
     PM -->|trades| CH
     S0 -->|state snapshots| CH
-    S6 -->|equity| CH
-    S8 -->|equity| CH
-    MONITOR[metrics_collector.py] -->|health| PROM
+    MONITOR[metrics_collector.py] -->|health| PROM[Prometheus :8000]
     MONITOR -->|alerts| TG[Telegram]
 ```
 
-## Data Flow
+## Entry Pipeline
+
+Every S3 event passes through a fixed gate chain before an order is placed. Any gate can reject the signal:
 
 ```
-S3 Market Brain (WebSocket 1m klines)
+S3 Event (symbol, type, strength)
   │
-  ├── detect_events() → PULSE_UP/DOWN, TREND_UP/DOWN, PANIC_SELL, ...
+  ├─ S8 (Short)                              ├─ S6 (Long)
+  │   ├─ 事件过期 / 180s 重复冷却              │   ├─ 事件过期 / 180s 重复冷却
+  │   ├─ 短空强度门槛: TREND_DOWN /           │   ├─ VIOLENT_BULLISH 在
+  │   │  VIOLENT_BEARISH / PULSE_DOWN        │   │  weak_bear / risk-off
+  │   │  要求 raw_strength ≥ 60               │   │  regime 下拒绝
+  │   └─ PUMP_DOWN 高周期逆势保护             │   └─ S6B 趋势接管需回踩确认
   │
-  ├── Redis Publish ──► S6 (Long) / S8 (Short)
-  │                       │
-  │                       ├── read_s3_events()
-  │                       ├── read_s3_market_data()
-  │                       ├── calc_position_qty()
-  │                       └── open_position() → PM
+  ├─ 共同过滤（S6/S8）
+  │   ├─ 左右侧入场分类 (LEFT_REVERSAL / RIGHT_MOMENTUM / UNCONFIRMED)
+  │   ├─ 趋势过滤: 价格 vs 1h EMA20（顺大势才入场）
+  │   ├─ 追高/追空保护: 距 EMA20 超过 1.25~2.0 ATR 拒绝
+  │   ├─ 波动率过滤: 1h ATR% > 6% 跳过
+  │   └─ 仓位上限 / 冷却期 / 已有持仓检查
   │
-  ├── Redis Publish ──► Position Manager
-  │                       │
-  │                       ├── Hard Stop Loss
-  │                       ├── ATR Trailing Stop
-  │                       ├── Breakeven (be_done)
-  │                       ├── Time Stop / Extend
-  │                       ├── Funding Rate Guard
-  │                       └── Ghost Position Cleanup
-  │
-  └── S0 Market Guard (30s cycle)
-                          │
-                          ├── BTC Trend (4h EMA20/60)
-                          ├── Market Breadth (top 50)
-                          ├── Altcoin Sync
-                          ├── Shock Score
-                          └── Regime: bull/weak_bull/range/weak_bear/risk-off
+  └─ open_position()（shared_executor.py）
+      ├─ strength ≥ 30 基础门槛
+      ├─ 历史分析过滤: 同 (symbol, event_type, system) 14天滚动
+      │   胜率/质量/T60复盘劣化 → 拒单或降权
+      ├─ R:R 预判: 预期延续幅度 / 止损距离 ≥ 1.0
+      ├─ 账户回撤熔断（见下）
+      ├─ 4h 内平仓过的标的不重开
+      ├─ 全局暂停开关 (strategies/config/PAUSE_OPEN)
+      └─ 仓位模型: 余额×80% 池化 → 评分分配(3~15%) →
+          ATR 衰减 → 单笔止损 ≤ 账户 1% 硬约束
 ```
+
+## Position Lifecycle (PM)
+
+All open positions are managed by `position_manager.py` on every monitor cycle. Checks run in order:
+
+| # | Check | Parameters (S8A) |
+|---|-------|------------------|
+| 0 | Symbol filter — only `*USDT` contracts are managed (legacy `*_PERP` never enter monitoring/alerts) | — |
+| 1 | Funding rate guard — force close on extreme funding | ±0.5% |
+| 2 | Hard stop loss (exchange algo SL breach) | entry ±3.5~8%, ATR-adaptive |
+| 3 | Emergency stop (polled fallback) | pnl < -5% |
+| 4 | Early-loss protection — cut after grace period when 15m momentum still adverse | hold ≥ 5min, pnl ≤ -2% |
+| 5 | Stagnant profit release | 90min, < 1U |
+| 6 | Breakeven (`be_done`) — SL to entry | +2% |
+| 7 | Partial take-profit (layered) | {5%: 30%} |
+| 8 | ATR trailing stop — chandelier anchored on extremes, 15m close confirmation, pump ×1.5 spacing, EMA20 safety valve | 0.3×ATR |
+| 9 | **Peak pullback guard** — once profit ≥ trigger, tracks the extreme every cycle and ratchets a locked-profit SL onto the exchange in real time (no 15m wait); closes immediately if pullback from peak ≥ threshold | trigger +3%, pullback 2% |
+| 10 | 1h EMA safety valve — trend reversal exit (skipped for first 60min / pnl ≥ 40%) | EMA9 vs EMA20 ×2% |
+| 11 | Time stop with extension logic (RSI + funding) | 240min |
+
+Per-system overrides live in `SYSTEM_CFG` (`position_manager.py`): S8A / S8B / S6A / S6B / S6, e.g. S6B (trend takeover) gets wider stops, longer time stop, and a looser peak guard (+5% / 3%).
+
+## Account Risk Controls
+
+- **Drawdown breaker** (`shared_executor.py`) — equity peak tracked in Redis:
+  - drawdown ≥ 8% → position size ×0.5
+  - drawdown ≥ 15% → halt opens 4h, then recovery mode (size ×0.25, max 1 position); a further -2% locks again for 6h
+- **Per-trade risk cap** — stop distance × leverage ≤ 1% of account balance
+- **Pool budget** — max 80% of balance in the position pool, max 15% of pool per position
+- **Algo SL queue** — exchange conditional orders updated through a background queue with 11s spacing and 60s/0.2% change throttling
+
+## Data & Telemetry
+
+| Store | Tables | Role |
+|-------|--------|------|
+| Redis | `pm:positions`, `market:s0`, `state:s6/s8`, `account:peak` | Live state, cooldowns, breakers |
+| PostgreSQL | `trade_episodes`, `trade_events` (+ `trade_episode_attribution` view) | Transactional ledger; every open/close fill carries `decision_context` (signal_type, entry_mode, raw_strength, orderflow …) |
+| ClickHouse | `trade_history`, `trade_analysis` (T0/T15/T60), `s0 snapshots` | Analytics: MFE/MAE, exit efficiency, quality score, post-close replay |
+
+Closed trades record their opening `signal_type` from PM position metadata, so signal-level attribution and the rolling analysis filter work end-to-end.
 
 ## Systems
 
 | System | Role | Signals |
 |--------|------|---------|
-| **S3** | Market Brain — event detection engine | PULSE_UP/DOWN, TREND_UP/DOWN, PANIC_SELL, VIOLENT_MOVE, FAILED_BREAKOUT |
-| **S6** | Long executor | Consumes LONG events, opens long positions |
-| **S8** | Short executor | Consumes SHORT events, opens short positions |
-| **S0** | Macro market state machine | Controls per-system trading permissions |
-| **PM** | Unified position lifecycle manager | Stop loss, trailing, time stop, algo orders |
-
-## Event Types
-
-| Event | Description |
-|-------|-------------|
-| `PULSE_UP / PULSE_DOWN` | Short-term momentum burst (5x isolated) |
-| `TREND_UP / TREND_DOWN` | Sustained trend (3x crossed) |
-| `PANIC_SELL` | Panic selling detected (5x isolated short) |
-| `VIOLENT_MOVE` | Extreme volatility event |
-| `FAILED_BREAKOUT` | Failed breakout reversal signal |
-| `HIGH_VOL / LOW_VOL` | Volume anomaly detection |
-
-## Position Manager Features
-
-- **Hard Stop Loss** — Fixed percentage stop on entry
-- **Breakeven (be_done)** — Moves SL to entry price when profit target hit
-- **ATR Trailing Stop** — Professional trailing with pump detection, multi-period ATR, EMA20 safety valve
-- **Time Stop** — Auto-close after max hold time with extension logic
-- **Funding Rate Guard** — Closes positions when funding rates turn unfavorable
-- **Algo Order Queue** — Background thread with 11s spacing for rate-limited conditional orders
-- **Ghost Cleanup** — Detects and records positions that exist in local state but not on exchange
-
-## Tech Stack
-
-- **Language:** Python 3.11+
-- **Data:** Redis (primary), JSON files (fallback)
-- **Analytics:** ClickHouse (trade history, market snapshots, equity tracking)
-- **Monitoring:** Prometheus (`:8000/metrics`) + Telegram alerts
-- **Exchange:** Binance Futures API (FAPI)
+| **S3** | Market Brain — event detection engine | PULSE_UP/DOWN, TREND_UP/DOWN, PANIC_SELL, VIOLENT_BULLISH/BEARISH, PUMP_UP/DOWN, FAILED_BREAKOUT |
+| **S6** | Long executor — S6A (pulse/trend/violent longs) + S6B (pump trend takeover) | LONG events |
+| **S8** | Short executor | SHORT events, strength-gated |
+| **S0** | Macro market state machine | regime: bull_trend / weak_bull / range / weak_bear / risk-off |
+| **PM** | Unified position lifecycle manager | Stop loss, trailing, peak guard, time stop, algo orders |
 
 ## Configuration
 
-Edit `config/binance.env`:
+`config/binance.env`:
 
 ```env
 BINANCE_API_KEY=your_key
 BINANCE_API_SECRET=your_secret
-TG_BOT_TOKEN=your_telegram_bot_token
-TG_CHAT_ID=your_chat_id
+BINANCE_TESTNET=false
+TG_NOTIFY_TOKEN=your_telegram_bot_token
+TG_NOTIFY_CHAT_ID=your_chat_id
+
+CLICKHOUSE_HOST=localhost
+CLICKHOUSE_PORT=8123
+CLICKHOUSE_USER=admin
+CLICKHOUSE_PASSWORD=
+```
+
+PostgreSQL ledger (optional but recommended) — set `POSTGRES_DSN` in the environment (e.g. via the systemd unit) and initialize once:
+
+```bash
+POSTGRES_DSN="postgresql:///trading_engine?host=/var/run/postgresql" \
+  python3 scripts/init_postgres.py
+```
+
+## Deployment
+
+Services run under systemd with `Restart=always`, logging to `logs/<system>/`:
+
+```bash
+sudo systemctl start trade-s0 trade-s3 trade-s6 trade-s8
+sudo systemctl status trade-s6
+
+# After code changes
+sudo systemctl restart trade-s3 trade-s6 trade-s8
+
+# Tail logs
+tail -f logs/s8/current.log logs/position_manager/$(date +%Y%m%d).log
 ```
 
 ### Sandbox Mode
@@ -147,28 +186,15 @@ python3 -c "import scripts.sandbox as sb; print(sb.summary())"
 
 When sandbox mode is active, all order and position API calls are intercepted by `scripts/sandbox.py`, using real-time prices from Binance public endpoints for simulated P&L calculations.
 
-## Quick Start
+## Testing
 
 ```bash
-# Install dependencies
-pip install redis requests websocket-client prometheus-client python-dotenv
-
-# Start Redis & ClickHouse
-sudo systemctl start redis-server
-sudo clickhouse start
-
-# Run S3 Market Brain
-python3 strategies/s3_orderflow.py
-
-# Run S6 Long Executor
-python3 strategies/S6.py
-
-# Run S8 Short Executor
-python3 strategies/S8.py
-
-# Run S0 Market Guard
-python3 services/s0/s0_market_guard.py
-
-# Start monitoring
-python3 monitoring/metrics_collector.py
+pytest -q          # unit + regression tests (risk caps, gates, guards, ledger)
 ```
+
+## Tech Stack
+
+- **Language:** Python 3.11+
+- **Data:** Redis (live state), PostgreSQL (transactional ledger), ClickHouse (analytics)
+- **Monitoring:** Prometheus (`:8000/metrics`) + Telegram alerts
+- **Exchange:** Binance Futures API (FAPI, testnet supported via `BINANCE_TESTNET=true`)
