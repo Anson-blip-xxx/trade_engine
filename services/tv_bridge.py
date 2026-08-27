@@ -123,19 +123,63 @@ def validate_and_normalize(payload: dict, now: float = None):
     }
     if price > 0:
         event['price'] = price
+
+    # ── 订单流特征（TV 用真实行情计算，demo 测试网拿不到，故从 webhook 透传）──
+    taker = payload.get('taker_buy_ratio')
+    if taker is not None:
+        try:
+            taker = float(taker)
+            if 0 <= taker <= 1:
+                event['taker_buy_ratio'] = round(taker, 4)
+        except (TypeError, ValueError):
+            pass
+    obias = payload.get('orderflow_bias')
+    if obias is not None:
+        try:
+            obias = float(obias)
+            if -1 <= obias <= 1:
+                event['orderflow_bias'] = round(obias, 4)
+        except (TypeError, ValueError):
+            pass
+
     comment = str(payload.get('comment', '') or '').strip()
     if comment:
         event['comment'] = comment[:120]
     return event, None
 
 
+def _symbol_pool() -> set:
+    """读取引擎当前监控的币池（S3 每 60s 按 24h 成交额刷新的 top 60）。
+
+    这是「动态对齐」而非硬编码白名单：币池随币安高量币变化自动更新，
+    TV 覆盖不到的币不强求——只要在币池里才转发，否则自然忽略。
+    """
+    try:
+        md = _rget('market:s3_data') or {}
+        return {str(s).upper() for s in (md.get('symbols') or {}).keys()}
+    except Exception:
+        return set()
+
+
+def _require_in_pool() -> bool:
+    return (os.environ.get('TV_REQUIRE_IN_POOL') or '1').strip().lower() not in ('0', 'false', 'no')
+
+
 def process_alert(payload: dict, now: float = None) -> tuple[bool, str]:
-    """处理一条 alert：校验 → 去重 → 写快照 → 唤醒执行器。"""
+    """处理一条 alert：校验 → 币池对齐 → 去重 → 写快照 → 唤醒执行器。"""
     now = now or time.time()
     event, reason = validate_and_normalize(payload, now)
     if event is None:
         _tvlog(f'[拒绝] {reason}')
         return False, reason
+
+    # ── 动态币池对齐：只在引擎当前监控的高量币池里才转发 ──
+    if _require_in_pool():
+        pool = _symbol_pool()
+        if pool and event['symbol'] not in pool:
+            reason = f"{event['symbol']} 不在当前高量币池（{len(pool)} 币）"
+            _tvlog(f'[忽略] {reason}')
+            return False, reason
 
     dedup_key = f"{event['tv_signal']}:{event['symbol']}"
 

@@ -33,6 +33,7 @@ from shared_executor import (
     long_trend_takeover_ready,
     get_market_state,
     long_signal_allows_open,
+    resolve_event_flow, resolve_event_orderflow_bias,
 )
 
 NAME = 'S6'
@@ -136,7 +137,8 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _1h = win_data.get('1h', {})
     _ema20 = _1h.get('ema20', 0)
     _atr_abs = float(_1h.get('atr', 0))
-    _flow = win_data.get('15m', {}).get('taker_buy_ratio')
+    _flow = resolve_event_flow(evt, win_data)
+    _of_bias = resolve_event_orderflow_bias(evt, win_data)
     _short_ratio = get_short_ratio(symbol)
     _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
     _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'LONG')
@@ -201,9 +203,9 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
                            'price': price,
                            'ema20_1h': _ema20,
                            'atr_pct_1h': _atr_pct_val,
-                           'taker_buy_ratio_15m': win_data.get('15m', {}).get('taker_buy_ratio'),
-                           'orderflow_bias_15m': win_data.get('15m', {}).get('orderflow_bias'),
-                           'global_short_ratio_1h': _short_ratio,
+                            'taker_buy_ratio_15m': _flow,
+                            'orderflow_bias_15m': _of_bias,
+                            'global_short_ratio_1h': _short_ratio,
                        })
     if ok:
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')

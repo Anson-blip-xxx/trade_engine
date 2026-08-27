@@ -20,6 +20,10 @@
 // 信号进入引擎后自动经过全部闸门（强度门槛 / regime 门控 / EMA20 趋势
 // 过滤 / ATR 追高保护 / 冷却），开仓后由 PM 统一风控（止损/峰值锁利/追踪）。
 // strength 字段 0~99：建议用条件强度（如 RSI 距离/ATR 幅度）动态给分。
+//
+// 订单流确认：做多要求 taker_buy_ratio >= 0.55，做空 <= 0.45，在源头拦截
+// 「动量方向与主动买卖方向不一致」的坏单（demo 测试网拿不到真实 taker，
+// 故该值由本策略用真实行情估算后随 webhook 传入引擎）。
 // ============================================================================
 
 //@version=5
@@ -34,16 +38,30 @@ emaFast = ta.ema(close, fastLen)
 emaSlow = ta.ema(close, slowLen)
 [diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
 
-longCond  = ta.crossover(emaFast, emaSlow) and adxVal > 20
-shortCond = ta.crossunder(emaFast, emaSlow) and adxVal > 20
+// ── 订单流特征（TV 用真实行情计算，demo 测试网拿不到真实 taker 数据）──
+// 用「收盘价在 K 线高低区间的相对位置」估算主动买/卖占比
+// taker_buy_ratio ∈ [0,1]，越接近 1 说明本根 K 线买方主导
+sellVol = volume * (high - close) / (high - low)
+buyVol  = volume - sellVol
+takerRatio = high == low ? 0.5 : buyVol / volume
+// orderflow_bias ∈ [-1,1]：+1 全买 -1 全卖
+ofBias = high == low ? 0.0 : (buyVol - sellVol) / volume
+
+// ── 订单流确认门槛（坏单在源头拦截：动量方向与主动买卖方向不一致就不发信号）──
+// 做多要求本根 K 线买方主导，做空要求卖方主导
+flowLongMin  = input.float(0.55, "多头最小 taker_buy_ratio", minval=0.5, maxval=0.9, step=0.01)
+flowShortMax = input.float(0.45, "空头最大 taker_buy_ratio", minval=0.1, maxval=0.5, step=0.01)
+
+longCond  = ta.crossover(emaFast, emaSlow) and adxVal > 20 and takerRatio >= flowLongMin
+shortCond = ta.crossunder(emaFast, emaSlow) and adxVal > 20 and takerRatio <= flowShortMax
 
 // 动态强度示例：ADX 越强分越高（0~99）
 strengthVal = math.min(99, math.max(30, math.round(adxVal * 2)))
 
 // ── Alert 消息模板（创建 Alert 时复制进 Message 框）──
 // 把 YOUR_SECRET 替换为 config/binance.env 里的 TV_WEBHOOK_SECRET
-alertMsg = '{"secret":"YOUR_SECRET","signal":"TREND_UP_LONG","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + '}'
-alertMsgShort = '{"secret":"YOUR_SECRET","signal":"TREND_DOWN_SHORT","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + '}'
+alertMsg = '{"secret":"YOUR_SECRET","signal":"TREND_UP_LONG","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + ',"taker_buy_ratio":' + str.tostring(takerRatio) + ',"orderflow_bias":' + str.tostring(ofBias) + '}'
+alertMsgShort = '{"secret":"YOUR_SECRET","signal":"TREND_DOWN_SHORT","symbol":"{{ticker}}","price":{{close}},"strength":' + str.tostring(strengthVal) + ',"taker_buy_ratio":' + str.tostring(takerRatio) + ',"orderflow_bias":' + str.tostring(ofBias) + '}'
 
 if longCond
     strategy.entry("Long", strategy.long)

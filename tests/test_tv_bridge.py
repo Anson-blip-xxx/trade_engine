@@ -78,6 +78,22 @@ def test_strength_clamped(bridge):
     assert ev['strength'] == 99
 
 
+def test_flow_fields_forwarded(bridge):
+    ok, _ = tv.process_alert(_payload(taker_buy_ratio=0.62, orderflow_bias=0.18))
+    assert ok is True
+    ev = bridge['store'][tv.TV_EVENT_KEY]['events'][0]
+    assert ev['taker_buy_ratio'] == 0.62
+    assert ev['orderflow_bias'] == 0.18
+
+
+def test_flow_fields_out_of_range_dropped(bridge):
+    ok, _ = tv.process_alert(_payload(taker_buy_ratio=1.5, orderflow_bias=2.0))
+    assert ok is True
+    ev = bridge['store'][tv.TV_EVENT_KEY]['events'][0]
+    assert 'taker_buy_ratio' not in ev
+    assert 'orderflow_bias' not in ev
+
+
 def test_dedup_window(bridge):
     now = time.time()
     assert tv.process_alert(_payload(), now=now)[0] is True
@@ -116,3 +132,38 @@ def test_read_tv_signals_and_merge(monkeypatch, bridge):
 
     monkeypatch.setenv('SIGNAL_SOURCE', 's3')
     assert {e['symbol'] for e in se.read_all_signals()} == {'AAVEUSDT'}
+
+
+def test_resolve_event_flow_prefers_event():
+    from strategies.shared_executor import resolve_event_flow, resolve_event_orderflow_bias
+
+    market = {'15m': {'taker_buy_ratio': 0.0, 'orderflow_bias': -1.0}}
+    # 事件自带真实 flow → 用事件
+    assert resolve_event_flow({'taker_buy_ratio': 0.65}, market) == 0.65
+    # 事件没有 / 为 0 → 回退 market
+    assert resolve_event_flow({}, market) == 0.0
+    assert resolve_event_flow({'taker_buy_ratio': 0}, market) == 0.0
+    # orderflow_bias 同理
+    assert resolve_event_orderflow_bias({'orderflow_bias': 0.3}, market) == 0.3
+    assert resolve_event_orderflow_bias({}, market) == -1.0
+
+
+def test_symbol_pool_gate_forwards_only_in_pool(bridge):
+    bridge['store']['market:s3_data'] = {'symbols': {'BTCUSDT': {}, 'ETHUSDT': {}}}
+    # 在池内 → 转发
+    assert tv.process_alert(_payload(symbol='BTCUSDT'))[0] is True
+    # 不在池内 → 忽略
+    ok, msg = tv.process_alert(_payload(symbol='AIOUSDT'))
+    assert ok is False and '币池' in msg
+
+
+def test_symbol_pool_empty_is_lenient(bridge):
+    # 币池为空（S3 刚启动/不可用）→ 不阻断，交给执行器处理
+    assert 'market:s3_data' not in bridge['store']
+    assert tv.process_alert(_payload(symbol='SOMECOINUSDT'))[0] is True
+
+
+def test_symbol_pool_can_be_disabled(monkeypatch, bridge):
+    monkeypatch.setenv('TV_REQUIRE_IN_POOL', '0')
+    bridge['store']['market:s3_data'] = {'symbols': {'BTCUSDT': {}}}
+    assert tv.process_alert(_payload(symbol='AIOUSDT'))[0] is True

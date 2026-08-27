@@ -705,6 +705,33 @@ def get_short_ratio(symbol: str, period: str = '1h') -> float | None:
     return value
 
 
+def resolve_event_flow(evt: dict, market_win: dict) -> float | None:
+    """优先用事件自带的 taker_buy_ratio（TV 真实行情透传），否则回退 S3 市场快照。
+
+    demo 测试网的 S3 快照里该字段退化为 0，TV webhook 补上真实值后，
+    classify_entry_mode / contract_score 的 flow 确认才会真正生效。
+    """
+    v = evt.get('taker_buy_ratio')
+    if v is not None:
+        try:
+            fv = float(v)
+            if fv > 0:
+                return fv
+        except (TypeError, ValueError):
+            pass
+    return market_win.get('15m', {}).get('taker_buy_ratio')
+
+
+def resolve_event_orderflow_bias(evt: dict, market_win: dict) -> float | None:
+    v = evt.get('orderflow_bias')
+    if v is not None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
+    return market_win.get('15m', {}).get('orderflow_bias')
+
+
 def classify_entry_mode(price: float, ema20: float, rsi: float,
                         taker_buy_ratio: float | None, side: str) -> str:
     """Classify a candidate as right-side momentum or confirmed reversal."""
