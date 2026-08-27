@@ -29,6 +29,14 @@ def _dsn() -> str:
     return (os.environ.get('POSTGRES_DSN') or _config_value('POSTGRES_DSN')).strip()
 
 
+def _data_env() -> str:
+    try:
+        from shared.binance_api import get_env
+        return get_env()
+    except Exception:
+        return 'demo'
+
+
 def enabled() -> bool:
     flag = os.environ.get('POSTGRES_ENABLED') or _config_value('POSTGRES_ENABLED') or '1'
     return bool(_dsn()) and flag.lower() not in ('0', 'false', 'no')
@@ -62,13 +70,13 @@ def upsert_trade_episode(data: dict) -> bool:
         position_id, symbol, system_name, side, entry_price, exit_price,
         qty, leverage, pnl_pct, pnl_usdt, duration_min, result, exit_reason,
         event_type, strength, margin_mode, sl_price, ghost_cleanup,
-        opened_at, closed_at, metadata
+        opened_at, closed_at, metadata, env
     ) VALUES (
         %(position_id)s, %(symbol)s, %(system_name)s, %(side)s, %(entry_price)s,
         %(exit_price)s, %(qty)s, %(leverage)s, %(pnl_pct)s, %(pnl_usdt)s,
         %(duration_min)s, %(result)s, %(exit_reason)s, %(event_type)s,
         %(strength)s, %(margin_mode)s, %(sl_price)s, %(ghost_cleanup)s,
-        to_timestamp(%(open_time)s), now(), %(metadata)s::jsonb
+        to_timestamp(%(open_time)s), now(), %(metadata)s::jsonb, %(env)s
     )
     ON CONFLICT (position_id) DO UPDATE SET
         exit_price = EXCLUDED.exit_price,
@@ -80,10 +88,12 @@ def upsert_trade_episode(data: dict) -> bool:
         exit_reason = EXCLUDED.exit_reason,
         ghost_cleanup = EXCLUDED.ghost_cleanup,
         closed_at = EXCLUDED.closed_at,
-        metadata = EXCLUDED.metadata
+        metadata = EXCLUDED.metadata,
+        env = EXCLUDED.env
     """
     params = dict(data)
     params['metadata'] = json.dumps(params.get('metadata', {}), default=str)
+    params['env'] = params.get('env') or _data_env()
     try:
         with _connection() as conn:
             with conn.cursor() as cur:
@@ -100,15 +110,16 @@ def record_trade_event(data: dict) -> bool:
     sql = """
     INSERT INTO trade_events (
         event_id, position_id, event_type, order_id, fill_id, price, qty,
-        realized_pnl, occurred_at, payload
+        realized_pnl, occurred_at, payload, env
     ) VALUES (
         %(event_id)s, %(position_id)s, %(event_type)s, %(order_id)s,
-        %(fill_id)s, %(price)s, %(qty)s, %(realized_pnl)s, now(), %(payload)s::jsonb
+        %(fill_id)s, %(price)s, %(qty)s, %(realized_pnl)s, now(), %(payload)s::jsonb, %(env)s
     )
     ON CONFLICT (event_id) DO NOTHING
     """
     params = dict(data)
     params['payload'] = json.dumps(params.get('payload', {}), default=str)
+    params['env'] = params.get('env') or _data_env()
     try:
         with _connection() as conn:
             with conn.cursor() as cur:

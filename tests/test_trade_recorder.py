@@ -63,3 +63,28 @@ def test_record_trade_ignores_zero_quantity():
         tr.record_trade('COTIUSDT', 1.0, 0.9, 0, 3, 'S6', time.time(), '硬止损')
 
     ins.assert_not_called()
+
+
+def test_record_trade_tags_env_demo():
+    """落库记录必须带 env 标签，demo 环境写 'demo'。"""
+    import json
+    from shared import trade_recorder as tr
+
+    rows = []
+    pg_upserts = []
+    with patch('shared.trade_recorder._is_duplicate_record', return_value=False), \
+         patch('shared.trade_recorder.fapi_get', return_value=[]), \
+         patch('shared.trade_recorder._ch_insert') as ins, \
+         patch('shared.trade_recorder._ch_query', return_value=[[0, 0, 0, 0, 0]]), \
+         patch('shared.trade_recorder.get_cycle_pnl', return_value=0.0), \
+         patch('shared.trade_recorder.enqueue_closed_trade') as enq, \
+         patch('shared.trade_recorder.requests.post') as post:
+        post.return_value.json.return_value = {'result': {'message_id': 1}}
+        tr.record_trade('BTCUSDT', 100.0, 101.0, 1.0, 3, 'S6',
+                        time.time() - 120, 'take_profit',
+                        signal_type='TREND_UP', side='LONG', score=50)
+
+    ch_row = json.loads(ins.call_args_list[0][0][1])
+    assert ch_row['env'] == 'demo'
+    enq_payload = enq.call_args_list[0][0][0]
+    assert enq_payload['env'] == 'demo'

@@ -232,6 +232,11 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
 
     try:
         sl_pct_v = round((sl_price - entry) / entry * 100, 2) if entry > 0 and sl_price > 0 else 0.0
+        try:
+            from shared.binance_api import get_env as _get_data_env
+            _env = _get_data_env()
+        except Exception:
+            _env = 'demo'
         row = json.dumps({
             'symbol': symbol,
             'system_name': source,
@@ -263,6 +268,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0,
             'ghost_cleanup': 1 if ghost_cleanup else 0,
             'position_id': str(position_id),
+            'env': _env,
         })
         _pg_upsert_trade({
             'position_id': str(position_id),
@@ -285,6 +291,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'ghost_cleanup': bool(ghost_cleanup),
             'open_time': float(open_time),
             'metadata': {'algo_sl_id': int(algo_sl_id) if algo_sl_id else 0},
+            'env': _env,
         })
         _ch_insert('default.trade_history', row)
 
@@ -308,6 +315,7 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
             'btc_trend': _btc_trend,
             'sl_price': sl_price,
             'open_time': open_time,
+            'env': _env,
         })
     except Exception:
         pass

@@ -30,6 +30,11 @@ _IS_TESTNET = CFG.get('BINANCE_TESTNET', '').lower() == 'true'
 FAPI = 'https://demo-fapi.binance.com' if _IS_TESTNET else 'https://fapi.binance.com'
 FSTREAM = 'wss://demo-fstream.binance.com' if _IS_TESTNET else 'wss://fstream.binance.com'
 
+
+def get_env() -> str:
+    """数据环境标签：demo / prod。所有落库数据据此区分，避免混写。"""
+    return 'demo' if _IS_TESTNET else 'prod'
+
 # Testnet 模式使用独立的 API Key
 if _IS_TESTNET:
     _TN_KEY = CFG.get('BINANCE_TESTNET_API_KEY', '')

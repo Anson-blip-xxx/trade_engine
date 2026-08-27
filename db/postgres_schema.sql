@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS trade_episodes (
     ghost_cleanup BOOLEAN NOT NULL DEFAULT FALSE,
     opened_at TIMESTAMPTZ NOT NULL,
     closed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    env TEXT NOT NULL DEFAULT 'demo'
 );
 
 CREATE INDEX IF NOT EXISTS trade_episodes_closed_at_idx
@@ -40,7 +41,8 @@ CREATE TABLE IF NOT EXISTS trade_events (
     qty DOUBLE PRECISION NOT NULL DEFAULT 0,
     realized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    env TEXT NOT NULL DEFAULT 'demo'
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS trade_events_fill_idx

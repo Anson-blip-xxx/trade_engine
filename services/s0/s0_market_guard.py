@@ -185,6 +185,17 @@ def sample_shock_score() -> int:
     return min(score, 10)
 
 
+def sample_sentiment() -> dict:
+    """读取 sentiment_bridge 采集的情绪数据（恐慌贪婪 + 资金费率聚合）。"""
+    try:
+        data = _rget('market:sentiment')
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
 def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
                   breadth, breadth_ratio):
     risk_off = (
@@ -225,6 +236,12 @@ def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
         regime_score = 0
         trend_strength = 50
 
+    # ── 情绪风险叠加（sentiment_bridge 提供：恐慌贪婪 + 资金费率聚合）──
+    sent = sample_sentiment()
+    sentiment_risk = bool(sent.get('sentiment_risk', False))
+    if sentiment_risk:
+        regime_score = max(-7, regime_score - 1)  # 情绪过热 → 软性收紧 regime 评分
+
     # ── 各系统运行许可 ──────────────────────────────────────────────────
     s6_allowed = not risk_off or btc_trend == 'bull'
     s7_allowed = regime in ('range', 'weak_bull')  # 网格只在震荡和弱多运行
@@ -246,6 +263,12 @@ def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
         "s6_allowed":    s6_allowed,
         "s7_allowed":    s7_allowed,
         "s8_allowed":    s8_allowed,
+        # v1.2 情绪叠加字段
+        "fng":           sent.get('fng', 50),
+        "fng_label":     sent.get('fng_label', ''),
+        "avg_funding":   sent.get('avg_funding', 0.0),
+        "sentiment_risk": sentiment_risk,
+        "sentiment_bias": sent.get('bias', 'neutral'),
     }
 
     # 采样山寨联动（每30s太频繁，每30分钟采样一次）

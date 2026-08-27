@@ -68,6 +68,7 @@ def _ensure_table():
           post_close_return_pct Float64,
           post_close_label String,
           analysis_version String,
+          env String DEFAULT 'demo',
           created_at DateTime DEFAULT now()
         )
         ENGINE = MergeTree
@@ -78,6 +79,7 @@ def _ensure_table():
     cli.command("ALTER TABLE default.trade_analysis ADD COLUMN IF NOT EXISTS phase_delay_min Int32 DEFAULT 0")
     cli.command("ALTER TABLE default.trade_analysis ADD COLUMN IF NOT EXISTS post_close_return_pct Float64 DEFAULT 0")
     cli.command("ALTER TABLE default.trade_analysis ADD COLUMN IF NOT EXISTS post_close_label String DEFAULT ''")
+    cli.command("ALTER TABLE default.trade_analysis ADD COLUMN IF NOT EXISTS env String DEFAULT 'demo'")
     _TABLE_READY = True
 
 
@@ -202,11 +204,12 @@ def analyze_closed_trade(*,
                          score: float,
                          market_state: str,
                          btc_trend: str,
-                         sl_price: float,
-                         open_time: float,
-                         close_ts: float = 0.0,
-                         phase: str = 'T0',
-                         phase_delay_min: int = 0):
+                          sl_price: float,
+                          open_time: float,
+                          close_ts: float = 0.0,
+                          phase: str = 'T0',
+                          phase_delay_min: int = 0,
+                          env: str = 'demo'):
     _ensure_table()
 
     payload = {
@@ -275,6 +278,7 @@ def analyze_closed_trade(*,
         'post_close_return_pct': round(post_close_return_pct, 4),
         'post_close_label': post_close_label,
         'analysis_version': _ANALYSIS_VERSION,
+        'env': env,
     })
     _ch_insert(_ANALYSIS_TABLE, row)
 
@@ -309,7 +313,7 @@ def _replay_loop():
             rows = _ch_query(
                 "SELECT symbol, system_name, side, entry, exit_price, qty, leverage, pct, pnl_usdt, "
                 "duration_min, result, exit_reason, event_type, strength, market_state, btc_trend, sl_price, "
-                "toUnixTimestamp(trade_time) "
+                "toUnixTimestamp(trade_time), env "
                 "FROM default.trade_history "
                 "WHERE trade_time >= now() - INTERVAL 2 HOUR "
                 "ORDER BY trade_time DESC LIMIT 300"
@@ -341,6 +345,7 @@ def _replay_loop():
                     'sl_price': float(r[16] or 0),
                     'open_time': 0.0,
                     'close_ts': close_ts,
+                    'env': str(r[18]) if len(r) > 18 else 'demo',
                 }
                 for phase, mins in (('T15', 15), ('T60', 60)):
                     if now >= close_ts + mins * 60:
@@ -385,6 +390,7 @@ def _sql_escape(v: str) -> str:
 def get_rollup_stats(symbol: str = '', event_type: str = '', system_name: str = '', lookback_days: int = 7) -> dict:
     """读取滚动分析统计（默认最近 7 天，T0 + 延迟复盘）。
 
+    只统计当前数据环境（demo/prod），避免 demo 与生产数据互相污染。
     返回结构可直接用于策略过滤与仓位替换打分。
     """
     try:
@@ -392,8 +398,14 @@ def get_rollup_stats(symbol: str = '', event_type: str = '', system_name: str = 
     except Exception:
         pass
 
+    try:
+        from shared.binance_api import get_env
+        cur_env = get_env()
+    except Exception:
+        cur_env = 'demo'
+
     days = max(1, min(int(lookback_days or 7), 30))
-    conds = [f"trade_time >= now() - INTERVAL {days} DAY"]
+    conds = [f"trade_time >= now() - INTERVAL {days} DAY", f"env='{_sql_escape(cur_env)}'"]
     if symbol:
         conds.append(f"symbol='{_sql_escape(symbol)}'")
     if event_type:
