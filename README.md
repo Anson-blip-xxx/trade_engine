@@ -27,7 +27,8 @@ graph TB
     end
 
     subgraph Risk["🛡️ 风控层"]
-        S0[S0 Market Guard<br/>regime 5档] -->|market:s0| S6
+        SENT[Sentiment Bridge<br/>恐慌贪婪 + 资金费率聚合] -->|market:sentiment| S0
+        S0[S0 Market Guard<br/>regime 5档 + 情绪风险叠加] -->|market:s0| S6
         S0 -->|market:s0| S8
         SHARED -->|回撤熔断<br/>8%减半/15%暂停| BINANCE
         PM[Position Manager<br/>position_manager.py<br/>统一生命周期管理] -->|Redis| S6
@@ -116,7 +117,7 @@ Per-system overrides live in `SYSTEM_CFG` (`position_manager.py`): S8A / S8B / S
 
 | Store | Tables | Role |
 |-------|--------|------|
-| Redis | `pm:positions`, `market:s0`, `state:s6/s8`, `account:peak` | Live state, cooldowns, breakers |
+| Redis | `pm:positions`, `market:s0`, `market:sentiment`, `state:s6/s8`, `account:peak` | Live state, cooldowns, breakers, sentiment |
 | PostgreSQL | `trade_episodes`, `trade_events` (+ `trade_episode_attribution` view) | Transactional ledger; every open/close fill carries `decision_context` (signal_type, entry_mode, raw_strength, orderflow …) |
 | ClickHouse | `trade_history`, `trade_analysis` (T0/T15/T60), `s0 snapshots` | Analytics: MFE/MAE, exit efficiency, quality score, post-close replay |
 
@@ -129,8 +130,18 @@ Closed trades record their opening `signal_type` from PM position metadata, so s
 | **S3** | Market Brain — event detection engine | PULSE_UP/DOWN, TREND_UP/DOWN, PANIC_SELL, VIOLENT_BULLISH/BEARISH, PUMP_UP/DOWN, FAILED_BREAKOUT |
 | **S6** | Long executor — S6A (pulse/trend/violent longs) + S6B (pump trend takeover) | LONG events |
 | **S8** | Short executor | SHORT events, strength-gated |
-| **S0** | Macro market state machine | regime: bull_trend / weak_bull / range / weak_bear / risk-off |
+| **S0** | Macro market state machine + sentiment risk overlay | regime: bull_trend / weak_bull / range / weak_bear / risk-off |
 | **PM** | Unified position lifecycle manager | Stop loss, trailing, peak guard, time stop, algo orders |
+| **Sentiment** | `services/sentiment_bridge.py` — fear & greed + funding aggregation | `market:sentiment` → S0 risk overlay |
+
+## Sentiment Overlay
+
+A free, market-wide sentiment feed layers extra risk signal on top of S0's regime machine (`services/sentiment_bridge.py`):
+
+- **Fear & Greed index** (alternative.me) — market temperature; extreme greed (≥80) or fear (≤15) flags risk.
+- **Aggregate funding rate** — volume-weighted mean of `lastFundingRate` across Binance USDT perps (fetched from the real public endpoint, unaffected by demo/prod switch); strong positive/negative funding = crowded longs/shorts.
+
+S0 folds this into `market:s0` as `fng`, `avg_funding`, `sentiment_risk`, `sentiment_bias`. When `sentiment_risk` is true, `regime_score` is softened by 1. Data lives in Redis `market:sentiment` (refreshed every 5 min, fail-safe).
 
 ## TradingView Signal Source (tv_bridge)
 
@@ -148,6 +159,12 @@ Pine strategy ──alert(freq_once_per_bar_close)──► POST /webhook (tv_br
 - **Safety**: TV only signals, never orders — entry price, stops, and exits are always decided by the engine (PM polls live prices). Duplicate alerts within 5 minutes are deduped per (signal, symbol).
 
 Service: `sudo systemctl status trade-tv` (port 8001, `GET /healthz`).
+
+> **Note (current status):** TradingView webhook alerts on custom Pine strategies require a paid TV plan (Essential+). The bridge is fully implemented and tested, but until a plan is enabled it stays dormant — the engine runs entirely on S3 signals. On the Basic plan, TradingView can still be used for research (Pine strategy tester), then proven algorithms are ported back into S3/S6/S8.
+
+## Data Environment (`env` tag)
+
+Every trade/event/analysis row carries an `env` column (`demo` / `prod`) derived from `BINANCE_TESTNET` via `shared/binance_api.get_env()`. All analytics and the adaptive filter are scoped by environment, so testnet and production data never mix — switching to production only requires `BINANCE_TESTNET=false` (plus a real API key).
 
 ## Configuration
 
@@ -178,7 +195,11 @@ POSTGRES_DSN="postgresql:///trading_engine?host=/var/run/postgresql" \
 Services run under systemd with `Restart=always`, logging to `logs/<system>/`:
 
 ```bash
+# Core (always required)
 sudo systemctl start trade-s0 trade-s3 trade-s6 trade-s8
+# Optional bridges
+sudo systemctl start trade-sentiment trade-tv
+
 sudo systemctl status trade-s6
 
 # After code changes
@@ -187,6 +208,14 @@ sudo systemctl restart trade-s3 trade-s6 trade-s8
 # Tail logs
 tail -f logs/s8/current.log logs/position_manager/$(date +%Y%m%d).log
 ```
+
+| Service | Role | Required |
+|---------|------|----------|
+| `trade-s3` | Market brain — event detection + market data | yes |
+| `trade-s6` / `trade-s8` | Long / short executors | yes |
+| `trade-s0` | Regime machine + sentiment overlay | yes |
+| `trade-sentiment` | Fear & greed + funding aggregation | optional (S0 risk overlay) |
+| `trade-tv` | TradingView webhook bridge | optional (needs paid TV plan) |
 
 ### Sandbox Mode
 
