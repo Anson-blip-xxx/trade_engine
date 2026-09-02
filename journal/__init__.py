@@ -20,6 +20,7 @@
     text = to_json(journal)      # 确定性 JSON
     again = from_json(text)      # 回读，与原对象相等
 """
+from journal.builder import DecisionJournalBuilder, signal_source_from_event
 from journal.models import (
     ACTIONS,
     JOURNAL_VERSION,
@@ -41,6 +42,14 @@ from journal.models import (
     utc_now_iso,
     validate_journal,
 )
+from journal.recorder import (
+    JournalRecorder,
+    MemoryJournalRecorder,
+    NullJournalRecorder,
+    get_default_recorder,
+    safe_record,
+    set_default_recorder,
+)
 from journal.schema import DECISION_JOURNAL_SCHEMA, DECISION_JOURNAL_SCHEMA_VERSION
 from journal.serializer import from_dict, from_json, to_dict, to_json
 
@@ -53,11 +62,15 @@ __all__ = [
     "SIDES",
     "DecisionAction",
     "DecisionJournal",
+    "DecisionJournalBuilder",
     "DecisionResult",
     "GateResult",
+    "JournalRecorder",
     "JournalValidationError",
     "MarketSnapshot",
+    "MemoryJournalRecorder",
     "Metadata",
+    "NullJournalRecorder",
     "RegimeSnapshot",
     "RiskSnapshot",
     "Side",
@@ -65,7 +78,11 @@ __all__ = [
     "StrategySnapshot",
     "from_dict",
     "from_json",
+    "get_default_recorder",
     "new_journal_id",
+    "safe_record",
+    "set_default_recorder",
+    "signal_source_from_event",
     "to_dict",
     "to_json",
     "utc_now_iso",

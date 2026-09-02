@@ -35,6 +35,8 @@ from shared_executor import (
     long_signal_allows_open,
     resolve_event_flow, resolve_event_orderflow_bias,
 )
+from journal.builder import DecisionJournalBuilder, signal_source_from_event
+from journal.recorder import get_default_recorder, safe_record
 
 NAME = 'S6'
 SCAN_INTERVAL = 10   # 每 10s 检查一次事件
@@ -78,55 +80,109 @@ LONG_SIGNALS = ('PULSE_UP', 'TREND_UP', 'VIOLENT_BULLISH', 'PUMP_UP')
 def _tg(msg: str) -> Optional[int]:
     return tg_send(f'<b>{NAME}</b> {msg}')
 
+def _journal_finish(jb, *, action: str, accepted: bool = False,
+                    reason: str | None = None,
+                    final_score: Optional[float] = None) -> None:
+    """旁路记录 Decision Journal；任何异常 fail-open，绝不影响交易决策。"""
+    try:
+        safe_record(get_default_recorder(), jb, action=action, accepted=accepted,
+                    reason=reason, final_score=final_score,
+                    on_error=lambda msg: _log(NAME, msg))
+    except Exception:
+        pass  # 双保险：safe_record 内部已吞异常
+
 def _open_long(state: dict, evt: dict, market: dict) -> dict:
     """根据 S3 事件开做多仓位"""
     symbol = evt['symbol']
     event_type = evt['type']
     system_tag = SYSTEM_TAG.get(event_type, NAME)
 
-    if not long_signal_allows_open(event_type, get_market_state()):
+    # ── Decision Journal 旁路（观察者，不参与决策） ──
+    jb = DecisionJournalBuilder(
+        signal_source=signal_source_from_event(evt),
+        signal_type=event_type,
+        symbol=symbol,
+        side='LONG',
+        strength=evt.get('strength'),
+        event_id=evt.get('event_id'),
+        raw=evt,
+        strategy=NAME,
+        process=NAME,
+        pid=os.getpid(),
+    )
+
+    _ms = get_market_state()
+    jb.set_regime(regime=_ms.get('regime'), source='S0', timestamp=_ms.get('timestamp'))
+    _regime_ok = long_signal_allows_open(event_type, _ms)
+    jb.gate('regime', _regime_ok, value=_ms.get('regime'))
+    if not _regime_ok:
         _log(NAME, f'{symbol} {event_type} 与当前 S0 空头 regime 冲突，跳过')
+        _journal_finish(jb, action='REJECT', reason='regime_conflict')
         return state
 
-    if event_is_stale(evt):
+    _stale = event_is_stale(evt)
+    jb.gate('fresh', not _stale, value=not _stale)
+    if _stale:
         _log(NAME, f'{symbol} {event_type} 事件已过期，拒绝追入')
+        _journal_finish(jb, action='REJECT', reason='event_stale')
         return state
 
     # ── 信号冷却检查 ──
-    if not is_event_fresh(symbol, event_type, cooldown_s=180):
+    _sig_fresh = is_event_fresh(symbol, event_type, cooldown_s=180)
+    jb.gate('signal_cooldown', _sig_fresh, value=_sig_fresh)
+    if not _sig_fresh:
         _log(NAME, f'{symbol} {event_type} 冷却中，跳过')
+        _journal_finish(jb, action='REJECT', reason='signal_cooldown')
         return state
 
     # ── 仓位上限 ──
     pos_count = get_position_count(NAME)
     if drawdown_mode() == 'recovery' and pos_count >= 1:
-        if not maybe_replace_recovery_position(NAME, 'LONG', symbol, evt.get('strength', 50)):
+        _replace_ok = maybe_replace_recovery_position(NAME, 'LONG', symbol, evt.get('strength', 50))
+        jb.gate('recovery_replace', _replace_ok, value=pos_count)
+        if not _replace_ok:
             _log(NAME, f'回撤恢复模式最多持有 1 个仓位，跳过 {symbol}')
+            _journal_finish(jb, action='REJECT', reason='recovery_position_limit')
             return state
-    if pos_count >= MAX_POSITIONS:
+    _limit_ok = pos_count < MAX_POSITIONS
+    jb.gate('position_limit', _limit_ok, value=pos_count, threshold=MAX_POSITIONS)
+    if not _limit_ok:
         _log(NAME, f'已达仓位上限 {MAX_POSITIONS}/{MAX_POSITIONS}，跳过 {symbol}')
+        _journal_finish(jb, action='REJECT', reason='position_limit')
         return state
 
     # ── 冷却期检查 ──
     cooldowns = state.get('cooldowns', {})
-    if symbol in cooldowns and time.time() < cooldowns[symbol]:
+    _sym_cd = symbol in cooldowns and time.time() < cooldowns[symbol]
+    jb.gate('symbol_cooldown', not _sym_cd, value=bool(_sym_cd))
+    if _sym_cd:
         _log(NAME, f'{symbol} 在冷却期中，跳过')
+        _journal_finish(jb, action='REJECT', reason='symbol_cooldown')
         return state
 
     # ── 市场状态 ──
-    if not market_allows_trading(NAME, 'LONG'):
+    _mkt_ok = market_allows_trading(NAME, 'LONG')
+    jb.gate('market_allowed', _mkt_ok, value=_mkt_ok)
+    if not _mkt_ok:
+        _journal_finish(jb, action='REJECT', reason='market_disallowed')
         return state
 
     # ── 已有仓位检查 ──
-    if has_any_position(symbol):
+    _has_pos = has_any_position(symbol)
+    jb.gate('existing_position', not _has_pos, value=_has_pos)
+    if _has_pos:
         _log(NAME, f'{symbol} 已有持仓，跳过')
+        _journal_finish(jb, action='REJECT', reason='existing_position')
         return state
 
     # ── 获取价格 ──
     ticker = fapi_get(f'/fapi/v1/ticker/price?symbol={symbol}')
-    if not ticker or 'price' not in ticker:
+    _price_ok = bool(ticker and 'price' in ticker)
+    jb.gate('price', _price_ok, value=float(ticker['price']) if _price_ok else None)
+    if not _price_ok:
         release_event_fresh(symbol, event_type)
         _log(NAME, f'获取价格失败 {symbol}')
+        _journal_finish(jb, action='REJECT', reason='price_unavailable')
         return state
     price = float(ticker['price'])
 
@@ -141,6 +197,10 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     _of_bias = resolve_event_orderflow_bias(evt, win_data)
     _short_ratio = get_short_ratio(symbol)
     _rsi15 = float(win_data.get('15m', {}).get('rsi', 50))
+
+    jb.set_market(symbol=symbol, price=price, ema20=_ema20 or None,
+                  atr=_atr_abs or None, rsi=_rsi15, taker_buy_ratio=_flow)
+
     _entry_mode = classify_entry_mode(price, float(_ema20), _rsi15, _flow, 'LONG')
     takeover = event_type == 'PUMP_UP' or (
         event_type == 'VIOLENT_BULLISH'
@@ -148,28 +208,48 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
         and float(win_data.get('24h', {}).get('chg', 0) or 0) > 10
     ) or bool(evt.get('breakout_confirmed'))
     if takeover:
-        if not long_trend_takeover_ready(price, win_data):
+        _takeover_ok = long_trend_takeover_ready(price, win_data)
+        jb.gate('takeover', _takeover_ok, value=_takeover_ok)
+        if not _takeover_ok:
             _log(NAME, f'{symbol} S6B 趋势接管条件未满足，等待回踩/趋势确认')
+            _journal_finish(jb, action='REJECT', reason='takeover_not_ready')
             return state
         _entry_mode = 'S6B_TREND_TAKEOVER'
         system_tag = 'S6B'
     elif _entry_mode == 'UNCONFIRMED':
+        jb.gate('entry_mode', False, value=_entry_mode, reason='unconfirmed')
         _log(NAME, f'{symbol} 左右侧入场均未确认，跳过')
+        _journal_finish(jb, action='REJECT', reason='entry_mode_unconfirmed')
         return state
-    if not takeover and _entry_mode == 'RIGHT_MOMENTUM' and _ema20 > 0 and price < _ema20:
+    jb.gate('entry_mode', True, value=_entry_mode)
+    jb.set_entry_mode(_entry_mode)
+
+    _trend_fail = (not takeover and _entry_mode == 'RIGHT_MOMENTUM'
+                   and _ema20 > 0 and price < _ema20)
+    jb.gate('trend', not _trend_fail, value=price,
+            threshold=_ema20 if (_entry_mode == 'RIGHT_MOMENTUM' and _ema20 > 0) else None)
+    if _trend_fail:
         _log(NAME, f'{symbol} 价格 {price:.4f} < 1h EMA20 {_ema20:.4f}，不做多')
+        _journal_finish(jb, action='REJECT', reason='trend_filter')
         return state
 
     max_extension = 1.25 if event_type == 'VIOLENT_BULLISH' else 2.0
-    if not takeover and _entry_mode == 'RIGHT_MOMENTUM' and price_is_overextended(price, float(_ema20), _atr_abs, 'LONG', max_extension):
+    _ext_fail = (not takeover and _entry_mode == 'RIGHT_MOMENTUM'
+                 and price_is_overextended(price, float(_ema20), _atr_abs, 'LONG', max_extension))
+    jb.gate('extension', not _ext_fail, threshold=max_extension)
+    if _ext_fail:
         _log(NAME, f'{symbol} 价格距离1h EMA20超过 {max_extension:.2f} ATR，拒绝追多')
+        _journal_finish(jb, action='REJECT', reason='overextended')
         return state
 
     # ── 波动率过滤：1h ATR% > 6% 跳过（波动太大止损易被扫） ──
     _atr_pct = float(_1h.get('atr_pct', 0))
     takeover_atr_max = 12.0 if takeover else MAX_ATR_PCT
-    if _atr_pct > takeover_atr_max:
+    _atr_ok = _atr_pct <= takeover_atr_max
+    jb.gate('atr', _atr_ok, value=_atr_pct, threshold=takeover_atr_max)
+    if not _atr_ok:
         _log(NAME, f'{symbol} 1h ATR={_atr_pct:.1f}% > {MAX_ATR_PCT:.0f}%，跳过')
+        _journal_finish(jb, action='REJECT', reason='atr_exceeded')
         return state
 
     # ── 计算仓位 ──
@@ -191,6 +271,10 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
                             atr_pct=_atr_pct_val, stop_pct=stop_pct)
     stop_price = round(price * (1 - stop_pct), 8)
 
+    # ── Risk 输出记录（只记录现有结果，不重算） ──
+    jb.set_strategy_score(_score)
+    jb.set_risk(position_size=qty, leverage=leverage, stop_pct=stop_pct)
+
     # ── 开仓 ──
     ok = open_position(system_tag, symbol, 'LONG', price, stop_price,
                        qty, margin, leverage, event_type, _score,
@@ -207,6 +291,9 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
                             'orderflow_bias_15m': _of_bias,
                             'global_short_ratio_1h': _short_ratio,
                        })
+    _journal_finish(jb, action='OPEN', accepted=bool(ok),
+                    reason=None if ok else 'open_position_rejected',
+                    final_score=_score)
     if ok:
         _log(NAME, f'✅ 开多 {symbol} {margin} {event_type} str={evt.get("strength")}')
     return state
