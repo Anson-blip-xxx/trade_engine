@@ -35,8 +35,9 @@ from shared_executor import (
     long_signal_allows_open,
     resolve_event_flow, resolve_event_orderflow_bias,
 )
-from journal.builder import DecisionJournalBuilder, signal_source_from_event
+from journal.builder import DecisionJournalBuilder
 from journal.recorder import get_default_recorder, safe_record
+from signals.adapters import s6_signal, to_journal_builder_kwargs
 
 NAME = 'S6'
 SCAN_INTERVAL = 10   # 每 10s 检查一次事件
@@ -97,16 +98,10 @@ def _open_long(state: dict, evt: dict, market: dict) -> dict:
     event_type = evt['type']
     system_tag = SYSTEM_TAG.get(event_type, NAME)
 
-    # ── Decision Journal 旁路（观察者，不参与决策） ──
+    # ── Unified Signal（Adapter 产出）+ Decision Journal 旁路（观察者） ──
+    signal = s6_signal(evt)
     jb = DecisionJournalBuilder(
-        signal_source=signal_source_from_event(evt),
-        signal_type=event_type,
-        symbol=symbol,
-        side='LONG',
-        strength=evt.get('strength'),
-        event_id=evt.get('event_id'),
-        raw=evt,
-        strategy=NAME,
+        **to_journal_builder_kwargs(signal),
         process=NAME,
         pid=os.getpid(),
     )

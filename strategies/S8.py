@@ -36,7 +36,8 @@ from shared_executor import (
     resolve_event_flow, resolve_event_orderflow_bias,
     MIN_CONFIRMED_SHORT_STRENGTH,
 )
-from journal.builder import DecisionJournalBuilder, signal_source_from_event
+from journal.builder import DecisionJournalBuilder
+from signals.adapters import s8_signal, to_journal_builder_kwargs
 from journal.recorder import get_default_recorder, safe_record
 
 NAME = 'S8'
@@ -90,16 +91,10 @@ def _open_short(state: dict, evt: dict, market: dict) -> dict:
     event_type = evt['type']
     raw_strength = float(evt.get('strength', 0) or 0)
 
-    # ── Decision Journal 旁路（观察者，不参与决策） ──
+    # ── Unified Signal（Adapter 产出）+ Decision Journal 旁路（观察者） ──
+    signal = s8_signal(evt)
     jb = DecisionJournalBuilder(
-        signal_source=signal_source_from_event(evt),
-        signal_type=event_type,
-        symbol=symbol,
-        side='SHORT',
-        strength=evt.get('strength'),
-        event_id=evt.get('event_id'),
-        raw=evt,
-        strategy=NAME,
+        **to_journal_builder_kwargs(signal),
         process=NAME,
         pid=os.getpid(),
     )
