@@ -35,7 +35,7 @@ from shared_executor import (
     long_signal_allows_open,
     resolve_event_flow, resolve_event_orderflow_bias,
 )
-from journal.builder import DecisionJournalBuilder
+from journal.builder import DecisionJournalBuilder, signal_source_from_event
 from journal.recorder import get_default_recorder, safe_record
 from signals.adapters import s6_signal, to_journal_builder_kwargs
 
@@ -92,19 +92,38 @@ def _journal_finish(jb, *, action: str, accepted: bool = False,
     except Exception:
         pass  # 双保险：safe_record 内部已吞异常
 
+def _journal_kwargs(evt: dict, symbol: str, event_type: str) -> dict:
+    """Journal kwargs：Unified Signal 优先；Signal 异常 → fail-open 回退直连 evt。
+
+    保证 Journal 旁路永不影响交易决策（P1-02 原则），且 Signal 失败时
+    Journal 仍能经 P1-02 直连路径产出（观察不丢失）。
+    """
+    try:
+        return to_journal_builder_kwargs(s6_signal(evt))
+    except Exception as exc:
+        _log(NAME, f'Decision Signal 构造失败(fail-open 回退直连): '
+                   f'{type(exc).__name__}: {exc}')
+        return {
+            'signal_source': signal_source_from_event(evt),
+            'signal_type': event_type,
+            'symbol': symbol,
+            'side': 'LONG',
+            'strength': evt.get('strength'),
+            'event_id': evt.get('event_id'),
+            'raw': evt,
+            'strategy': NAME,
+        }
+
+
 def _open_long(state: dict, evt: dict, market: dict) -> dict:
     """根据 S3 事件开做多仓位"""
     symbol = evt['symbol']
     event_type = evt['type']
     system_tag = SYSTEM_TAG.get(event_type, NAME)
 
-    # ── Unified Signal（Adapter 产出）+ Decision Journal 旁路（观察者） ──
-    signal = s6_signal(evt)
-    jb = DecisionJournalBuilder(
-        **to_journal_builder_kwargs(signal),
-        process=NAME,
-        pid=os.getpid(),
-    )
+    # ── Unified Signal + Decision Journal 旁路（观察者；Signal 失败 fail-open 回退） ──
+    jb = DecisionJournalBuilder(**_journal_kwargs(evt, symbol, event_type),
+                                process=NAME, pid=os.getpid())
 
     _ms = get_market_state()
     jb.set_regime(regime=_ms.get('regime'), source='S0', timestamp=_ms.get('timestamp'))

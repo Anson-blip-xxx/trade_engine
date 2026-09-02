@@ -304,3 +304,92 @@ def test_s6_s8_do_not_use_serializer_or_conditional_journal():
         assert 'serializer' not in src, f'{path.name} 不应直接依赖 serializer'
         assert 'to_json' not in src and 'from_dict' not in src
         assert 'if jb' not in src and 'if journal' not in src
+
+
+# ═══════════════ Signal fail-open 回退（P2 修复） ═══════════════
+
+# realistic 形态：ts 字段损坏，但 read_tv_signals 注入的 _snapshot_ts 合法
+BAD_TS_TV_LONG = dict(EVT_LONG, source='tv', ts='xxx-invalid-ts',
+                      _snapshot_ts=1788302380.0)
+GOOD_TS_TV_LONG = dict(EVT_LONG, source='tv', ts=1788000000)
+
+
+def test_s6_invalid_ts_falls_back_decision_unchanged(monkeypatch):
+    """TV 事件带非法 ts：Signal 构造失败 → 决策路径完全不受影响。"""
+    calls_bad = _patch_common(monkeypatch, S6)
+    _patch_recorder(monkeypatch, S6, MemoryJournalRecorder())
+    ret = S6._open_long(dict(STATE), dict(BAD_TS_TV_LONG), MARKET_LONG)
+    assert ret is not None
+    assert len(calls_bad['open']) == 1                 # 决策照常执行
+
+    calls_good = _patch_common(monkeypatch, S6)
+    _patch_recorder(monkeypatch, S6, MemoryJournalRecorder())
+    S6._open_long(dict(STATE), dict(GOOD_TS_TV_LONG), MARKET_LONG)
+    assert calls_bad['open'] == calls_good['open']     # 决策逐字段一致
+
+
+def test_s6_invalid_ts_journal_produced_via_fallback(monkeypatch):
+    """Signal 失败 → Journal 经 P1-02 直连路径仍产出（观察不丢失）。"""
+    mem = MemoryJournalRecorder()
+    _patch_common(monkeypatch, S6)
+    _patch_recorder(monkeypatch, S6, mem)
+    S6._open_long(dict(STATE), dict(BAD_TS_TV_LONG), MARKET_LONG)
+
+    assert len(mem) == 1
+    j = mem.records[0]
+    assert j.signal.source == 'TRADINGVIEW'            # 回退路径仍归一 source
+    assert j.signal.signal_type == 'TREND_UP'
+    assert j.signal.side == 'LONG'
+    assert j.signal.signal_timestamp is None           # 非法 ts 不进 Journal
+    assert j.signal.raw['ts'] == 'xxx-invalid-ts'      # 原始事件如实保留
+    assert validate_journal(j) == []
+
+
+def test_s6_valid_ts_journal_has_timestamp(monkeypatch):
+    """合法 ts 走 Signal 路径 → signal_timestamp 有值（对照）。"""
+    mem = MemoryJournalRecorder()
+    _patch_common(monkeypatch, S6)
+    _patch_recorder(monkeypatch, S6, mem)
+    S6._open_long(dict(STATE), dict(GOOD_TS_TV_LONG), MARKET_LONG)
+    j = mem.records[0]
+    assert j.signal.signal_timestamp == '2026-08-29T10:40:00.000Z'
+
+
+def test_s8_invalid_ts_falls_back_decision_unchanged(monkeypatch):
+    """S8 同样：Signal 失败 → 决策不变 + Journal 回退产出。"""
+    bad = dict(EVT_SHORT, source='tv', ts='xxx-invalid-ts',
+               _snapshot_ts=1788302380.0)
+    good = dict(EVT_SHORT, source='tv', ts=1788000000)
+
+    calls_bad = _patch_common(monkeypatch, S8, market=MARKET_SHORT)
+    mem_bad = MemoryJournalRecorder()
+    _patch_recorder(monkeypatch, S8, mem_bad)
+    ret = S8._open_short(dict(STATE), dict(bad), MARKET_SHORT)
+    assert ret is not None
+    assert len(calls_bad['open']) == 1
+
+    calls_good = _patch_common(monkeypatch, S8, market=MARKET_SHORT)
+    mem_good = MemoryJournalRecorder()
+    _patch_recorder(monkeypatch, S8, mem_good)
+    S8._open_short(dict(STATE), dict(good), MARKET_SHORT)
+    assert calls_bad['open'] == calls_good['open']
+
+    assert len(mem_bad) == 1
+    j = mem_bad.records[0]
+    assert j.signal.source == 'TRADINGVIEW'
+    assert j.signal.signal_timestamp is None
+    assert validate_journal(j) == []
+
+
+def test_s6_broken_signal_factory_never_escapes(monkeypatch):
+    """极端：Signal 工厂自身抛非预期异常 → 仍 fail-open，决策不变。"""
+    calls = _patch_common(monkeypatch, S6)
+    _patch_recorder(monkeypatch, S6, MemoryJournalRecorder())
+
+    def _boom(evt):
+        raise RuntimeError('unexpected adapter bug')
+    monkeypatch.setattr(S6, 's6_signal', _boom)
+    ret = S6._open_long(dict(STATE), dict(EVT_LONG), MARKET_LONG)
+
+    assert ret is not None
+    assert len(calls['open']) == 1                     # 决策照常

@@ -131,3 +131,9 @@ def test_tv_signal_timestamp_flows_to_journal():
     jb = DecisionJournalBuilder(**to_journal_builder_kwargs(s))
     j = jb.build(action='OPEN', accepted=True)
     assert j.signal.signal_timestamp == '2026-08-29T10:40:00.000Z'
+
+
+def test_adapter_strict_on_invalid_ts():
+    """Adapter 契约：非法输入严格抛错；fail-open 由集成边界（S6/S8）负责。"""
+    with pytest.raises(SignalValidationError):
+        s6_signal(dict(S3_EVT, ts='xxx-invalid-ts'))

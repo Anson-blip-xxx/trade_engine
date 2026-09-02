@@ -36,7 +36,7 @@ from shared_executor import (
     resolve_event_flow, resolve_event_orderflow_bias,
     MIN_CONFIRMED_SHORT_STRENGTH,
 )
-from journal.builder import DecisionJournalBuilder
+from journal.builder import DecisionJournalBuilder, signal_source_from_event
 from signals.adapters import s8_signal, to_journal_builder_kwargs
 from journal.recorder import get_default_recorder, safe_record
 
@@ -86,18 +86,33 @@ def _journal_finish(jb, *, action: str, accepted: bool = False,
     except Exception:
         pass  # 双保险：safe_record 内部已吞异常
 
+def _journal_kwargs(evt: dict, symbol: str, event_type: str) -> dict:
+    """Journal kwargs：Unified Signal 优先；Signal 异常 → fail-open 回退直连 evt。"""
+    try:
+        return to_journal_builder_kwargs(s8_signal(evt))
+    except Exception as exc:
+        _log(NAME, f'Decision Signal 构造失败(fail-open 回退直连): '
+                   f'{type(exc).__name__}: {exc}')
+        return {
+            'signal_source': signal_source_from_event(evt),
+            'signal_type': event_type,
+            'symbol': symbol,
+            'side': 'SHORT',
+            'strength': evt.get('strength'),
+            'event_id': evt.get('event_id'),
+            'raw': evt,
+            'strategy': NAME,
+        }
+
+
 def _open_short(state: dict, evt: dict, market: dict) -> dict:
     symbol = evt['symbol']
     event_type = evt['type']
     raw_strength = float(evt.get('strength', 0) or 0)
 
-    # ── Unified Signal（Adapter 产出）+ Decision Journal 旁路（观察者） ──
-    signal = s8_signal(evt)
-    jb = DecisionJournalBuilder(
-        **to_journal_builder_kwargs(signal),
-        process=NAME,
-        pid=os.getpid(),
-    )
+    # ── Unified Signal + Decision Journal 旁路（观察者；Signal 失败 fail-open 回退） ──
+    jb = DecisionJournalBuilder(**_journal_kwargs(evt, symbol, event_type),
+                                process=NAME, pid=os.getpid())
 
     _strength_ok = short_signal_allows_open(event_type, raw_strength)
     jb.gate('strength', _strength_ok, value=raw_strength,
