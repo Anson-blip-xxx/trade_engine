@@ -28,7 +28,15 @@ from decision.core import (
     resolve_event_orderflow_bias,
     short_signal_allows_open,
 )
-from strategies.position_models import AtrRiskPositionSizer
+from risk.core import (
+    AtrRiskPositionSizer,
+    bounded_stop_pct,
+    leverage_for_score,
+    score_to_fraction,
+)
+from risk.service import calc_position_qty as _risk_calc_qty
+from risk.service import drawdown_status as _risk_dd_status
+from risk.service import drawdown_mode as _risk_dd_mode
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
@@ -113,11 +121,7 @@ def _get_min_notional(symbol: str) -> float:
     return 5.0  # 默认最小 5 USDT
 
 
-def bounded_stop_pct(base_stop_pct: float, atr_pct: float,
-                     max_stop_pct: float = 0.08) -> float:
-    """Apply ATR expansion without allowing an unbounded stop distance."""
-    stop_pct = max(float(base_stop_pct), float(atr_pct) * 2 / 100) if atr_pct > 0 else float(base_stop_pct)
-    return min(stop_pct, max_stop_pct)
+# bounded_stop_pct → risk/core.py re-export（顶部 import）
 
 # ── 沙盘模式 ──
 _SANDBOX_ACTIVE = None
@@ -514,13 +518,7 @@ _POSITION_MIN_USDT = 10      # 单仓最低 USDT 名义价值
 _RISK_PER_TRADE = 0.01       # 单笔止损最大亏损 ≤ 账户 1%（固定风险比例法）
 
 
-def score_to_fraction(score: float) -> float:
-    """信号评分 → 资金池分配比例（3%~15%）"""
-    return AtrRiskPositionSizer(
-        min_allocation=_POSITION_MIN_PCT,
-        max_allocation=_POSITION_MAX_PCT,
-        min_notional=_POSITION_MIN_USDT,
-    ).score_fraction(score)
+# score_to_fraction → risk/core.py re-export（顶部 import）
 
 
 def _get_balance() -> float:
@@ -571,72 +569,21 @@ _DD_RECOVERY_MAX_LOSS = 0.02  # 恢复模式相对恢复起点最多再亏2%
 _DD_RECOVERY_RETRY_DELAY = 6 * 3600
 
 def _drawdown_status() -> tuple:
-    """账户回撤状态：(仓位系数, 当前回撤%)。
+    """Risk Service wrapper（Phase 3-04）。"""
+    return _risk_dd_status(
+        get_balance=_get_balance, redis_get=_rget, redis_set=_rset,
+        time_fn=time.time,
+    )
 
-    回撤达到 15% 后先暂停 4h，随后进入 25% 仓位的恢复模式，避免
-    熔断永久阻断系统；回撤恢复到 15% 以下时退出恢复状态。
-    """
-    balance = _get_balance()
-    if balance <= 0:
-        return 1.0, 0.0
-    peak = _rget('account:peak')
-    if not peak or float(peak.get('bal', 0)) < balance:
-        _rset('account:peak', {'bal': balance, 'ts': time.time()})
-        return 1.0, 0.0
-    peak_bal = float(peak.get('bal', 0))
-    if peak_bal <= 0:
-        return 1.0, 0.0
-    dd = (peak_bal - balance) / peak_bal
-    if dd >= _DD_PAUSE:
-        pause = _rget('account:dd_pause') or {}
-        paused_at = float(pause.get('ts', 0)) if isinstance(pause, dict) else 0.0
-        if paused_at <= 0:
-            paused_at = time.time()
-            _rset('account:dd_pause', {
-                'ts': paused_at, 'base_balance': balance, 'loss_lock': False,
-            })
-        base_balance = float(pause.get('base_balance', balance)) if isinstance(pause, dict) else balance
-        loss_lock = bool(pause.get('loss_lock', False)) if isinstance(pause, dict) else False
-        if isinstance(pause, dict) and not pause.get('base_balance'):
-            pause = dict(pause)
-            pause['base_balance'] = balance
-            pause['loss_lock'] = loss_lock
-            _rset('account:dd_pause', pause)
-        if not loss_lock and balance <= base_balance * (1 - _DD_RECOVERY_MAX_LOSS):
-            lock_now = time.time()
-            _rset('account:dd_pause', {
-                'ts': lock_now, 'base_balance': balance, 'loss_lock': True,
-            })
-            loss_lock = True
-            paused_at = lock_now
-        if loss_lock:
-            lock_ts = float(pause.get('ts', paused_at)) if isinstance(pause, dict) else paused_at
-            if time.time() - lock_ts < _DD_RECOVERY_RETRY_DELAY:
-                return 0.0, dd * 100
-            _rset('account:dd_pause', {
-                'ts': time.time(), 'base_balance': balance, 'loss_lock': False,
-            })
-            return 0.0, dd * 100
-        if time.time() - paused_at < _DD_RECOVERY_DELAY:
-            return 0.0, dd * 100
-        return _DD_RECOVERY_FACTOR, dd * 100
-    if _rget('account:dd_pause'):
-        _rset('account:dd_pause', {})
-    if dd >= _DD_HALF:
-        return 0.5, dd * 100
-    return 1.0, dd * 100
+
 
 
 def drawdown_mode() -> str:
-    """Return normal, reduced, recovery, or halt for strategy gating."""
+    """Risk Service wrapper（Phase 3-04）。"""
     factor, _ = _drawdown_status()
-    if factor <= 0:
-        return 'halt'
-    if factor <= _DD_RECOVERY_FACTOR:
-        return 'recovery'
-    if factor < 1:
-        return 'reduced'
-    return 'normal'
+    return _risk_dd_mode(factor)
+
+
 
 
 def maybe_replace_recovery_position(name: str, side: str, symbol: str,
@@ -717,59 +664,21 @@ def get_short_ratio(symbol: str, period: str = '1h') -> float | None:
 # MIN_CONFIRMED_SHORT_STRENGTH / CONFIRMED_SHORT_SIGNALS
 
 
-def leverage_for_score(event_type: str, score: int, atr_pct: float = 0) -> int:
-    """Choose leverage conservatively from quality and volatility."""
-    base = {
-        'PULSE_UP': 5, 'PULSE_DOWN': 5, 'PANIC_SELL': 5,
-        'TREND_UP': 3, 'TREND_DOWN': 3,
-        'VIOLENT_BULLISH': 3, 'VIOLENT_BEARISH': 3,
-        'PUMP_UP': 2, 'PUMP_DOWN': 2,
-    }.get(event_type, 3)
-    if score < 60:
-        return min(base, 2)
-    if score < 85 or atr_pct >= 4:
-        return min(base, 3)
-    return base
+# leverage_for_score → risk/core.py re-export（顶部 import）
 
 
 def calc_position_qty(name: str, state: dict, symbol: str, price: float,
                       event_type: str, strength: int, leverage: int,
                       atr_pct: float = 0, stop_pct: float = 0) -> float:
-    """动态仓位计算：
-       1. 取账户余额 × 80% = 资金池
-       2. 减去已有持仓占用 = 可用池
-       3. 信号评分 → 分配比例（3%~15%）
-       4. ATR 高波动衰减：ATR% 越大仓位越小（ATR 4% 为基准，ATR 8% 减半）
-       5. 风险硬约束：止损亏损 ≤ 账户 1%（固定风险比例法）
-       6. qty = 分配额 / price * leverage
-    """
-    balance = _get_balance()
-    pool = balance * _POOL_BUDGET
-    used = _calc_used_margin(state)
-    remaining = max(0, pool - used)
-    alloc_pct = score_to_fraction(strength)
-    position_usdt = remaining * alloc_pct
-    sizer = AtrRiskPositionSizer(
-        pool_budget=_POOL_BUDGET,
-        min_allocation=_POSITION_MIN_PCT,
-        max_allocation=_POSITION_MAX_PCT,
-        risk_per_trade=_RISK_PER_TRADE,
-        min_notional=_POSITION_MIN_USDT,
+    """Risk Service wrapper（Phase 3-04）。"""
+    return _risk_calc_qty(
+        get_balance=_get_balance, get_used_margin=_calc_used_margin,
+        log_fn=_log, name=name, state=state, symbol=symbol, price=price,
+        event_type=event_type, strength=strength, leverage=leverage,
+        atr_pct=atr_pct, stop_pct=stop_pct,
     )
-    modeled_budget = sizer.budget(balance, remaining, strength, leverage, atr_pct, stop_pct)
-    if atr_pct > 4:
-        atr_factor = max(0.2, 4.0 / atr_pct)
-        _log(name, f'{symbol} ATR={atr_pct:.1f}% 衰减因子={atr_factor:.2f} → ${modeled_budget:.0f}')
-    if modeled_budget < position_usdt:
-        _log(name, f'{symbol} 风险模型 ${position_usdt:.0f}→${modeled_budget:.0f} (止损{stop_pct:.1%}×{leverage}x≤1%)')
-    position_usdt = modeled_budget
 
-    # 最小名义价值保护
-    position_usdt = max(position_usdt, _POSITION_MIN_USDT)
 
-    qty = position_usdt / price * leverage
-    _log(name, f'{symbol} 余额={balance:.0f} 池={pool:.0f} 已用={used:.0f} 可用={remaining:.0f} 分配={alloc_pct:.0%} → ${position_usdt:.0f}')
-    return qty
 
 
 # ── R:R 预判 ────────────────────────────────────────────────────────────
