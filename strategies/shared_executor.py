@@ -37,6 +37,7 @@ from risk.core import (
 from risk.service import calc_position_qty as _risk_calc_qty
 from risk.service import drawdown_status as _risk_dd_status
 from risk.service import drawdown_mode as _risk_dd_mode
+from execution import core as _exec_core
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
@@ -138,10 +139,10 @@ def _sandbox_check():
     return _SANDBOX_ACTIVE
 
 def _sandbox_post(path: str, params: dict) -> Optional[dict]:
-    """拦截 fapi_post，对 ORDER 操作转向沙盘"""
+    """拦截 fapi_post，对 ORDER 操作转向沙盘（path 判定在 Execution Core）"""
     if not _sandbox_check():
         return None
-    if 'order' not in path.lower():
+    if not _exec_core.is_order_path(path):
         return None
     try:
         from scripts.sandbox import mock_post_order
@@ -938,29 +939,26 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         else:
             fapi_post('/fapi/v1/marginType', {'symbol': symbol, 'marginType': 'CROSSED'})
 
-        # 开仓（使用 RESULT 模式直接获取成交结果）
+        # 开仓（使用 RESULT 模式直接获取成交结果；params 由 Execution Core 构造）
         qty = _round_qty(symbol, qty)
-        order_side = 'SELL' if side == 'SHORT' else 'BUY'
-        result = fapi_post('/fapi/v1/order', {
-            'symbol': symbol,
-            'side': order_side,
-            'type': 'MARKET',
-            'quantity': qty,
-            'newOrderRespType': 'RESULT',
-        })
+        result = fapi_post('/fapi/v1/order',
+                           _exec_core.se_open_intent(symbol, side, qty).to_params())
         if not result or result.get('code'):
             _log(name, f'开仓失败 {symbol}: {result}')
             return False
 
-        # 解析成交结果
-        status = result.get('status', 'NEW')
-        filled_qty = abs(float(result.get('executedQty', 0)))
-        cum_qty = abs(float(result.get('cumQty', filled_qty)))
-        avg_price_str = result.get('avgPrice', '0')
-        avg_price = float(avg_price_str) if avg_price_str and float(avg_price_str) > 0 else entry_price
+        # 解析成交结果（Execution Core：字段/fallback/异常语义与原实现逐行一致）
+        parsed = _exec_core.parse_execution_result(result, entry_price)
+        status = parsed.status
+        filled_qty = parsed.filled_qty
+        cum_qty = parsed.cum_qty
+        avg_price = parsed.avg_price
+
+        # 分支分类（Execution Core：顺序/阈值与原 if 链一致）
+        fill_outcome = _exec_core.classify_open_fill(status, filled_qty, cum_qty, qty)
 
         # 未成交：MARKET 单未成交 → 取消并返回失败（低流动币种，避免虚假开仓循环）
-        if status == 'NEW' and filled_qty == 0:
+        if fill_outcome is _exec_core.OpenFillOutcome.UNFILLED_NEW:
             _log(name, f'{symbol} MARKET 未成交 (orderId={result["orderId"]})，取消订单')
             if result.get('orderId'):
                 fapi_post('/fapi/v1/cancelOrder', {
@@ -970,7 +968,7 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
             return False
 
         # 成交量为 0 且不是挂单中 → 失败
-        if filled_qty < 0.01 and cum_qty < 0.01:
+        if fill_outcome is _exec_core.OpenFillOutcome.ZERO_FILL:
             _log(name, f'{symbol} 开仓成交量为 0 (status={status}), 无法确认开仓')
             # 取消空订单
             if status == 'NEW' and result.get('orderId'):
@@ -981,7 +979,7 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
             return False
 
         # 部分成交：记录但接受
-        if filled_qty < qty * 0.5:
+        if fill_outcome is _exec_core.OpenFillOutcome.PARTIAL_BELOW_HALF:
             _log(name, f'{symbol} 部分成交 {filled_qty}/{qty} (status={status})')
             # 取消剩余部分
             if result.get('orderId'):
@@ -1056,18 +1054,12 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         return False
 
 def _round_qty(symbol: str, qty: float) -> float:
-    """按交易所精度舍入数量"""
+    """按交易所精度舍入数量（纯核在 execution.core；exchangeInfo IO 留在此处）"""
     try:
         info = fapi_get('/fapi/v1/exchangeInfo')
-        if isinstance(info, dict):
-            for s in info.get('symbols', []):
-                if s['symbol'] == symbol:
-                    for f in s['filters']:
-                        if f['filterType'] == 'LOT_SIZE':
-                            step = float(f['stepSize'])
-                            step_str = str(step).rstrip('0')
-                            decimals = len(step_str.split('.')[1]) if '.' in step_str else 0
-                            return round(qty - (qty % step), decimals)
+        rounded = _exec_core.round_qty_from_exchange_info(info, symbol, qty)
+        if rounded is not None:
+            return rounded
     except Exception:
         pass
     return qty

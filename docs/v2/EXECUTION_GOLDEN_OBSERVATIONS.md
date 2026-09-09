@@ -1,14 +1,17 @@
 # Execution Golden Observations (P4-01)
 
-> Characterization doc for Execution layer behavior, frozen by `tests/execution/` (60 tests).
+> Characterization doc for Execution layer behavior, frozen by `tests/execution/` (185 tests).
 > Scope: `strategies/shared_executor.py::open_position`, `shared/position_manager.py::open_position/_close/_partial_close`,
 > algo SL queue, `_round_qty`, sandbox interception. **Zero production changes in P4-01.**
+> P4-02: pure logic extracted to `execution/core.py` with zero behavior change
+> (see `docs/v2/EXECUTION_CORE.md`); all observations below remain OBSERVED, not fixed.
 
 Test files:
 - `tests/execution/test_open_execution.py` (24) — open path + no-retry freeze
 - `tests/execution/test_close_execution.py` (12) — close / partial close + full call sequences
 - `tests/execution/test_algo_sl.py` (10) — algo SL queue + place (real impl)
 - `tests/execution/test_round_sandbox.py` (14) — rounding + sandbox (incl. real interception)
+- `tests/execution/test_execution_core.py` (125) — P4-02 core characterization + parity
 
 Isolation principle: all IO (Binance API / Redis / PG / TG / algo worker thread) is mocked;
 the functions under test run real implementations. Real-network tests fake only the lowest
