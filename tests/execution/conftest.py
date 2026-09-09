@@ -10,6 +10,8 @@ import pytest
 
 from journal.recorder import MemoryJournalRecorder
 
+from shared import position_manager as pm
+
 
 @pytest.fixture
 def exec_env(monkeypatch, fake_redis):
@@ -89,6 +91,81 @@ def exec_env(monkeypatch, fake_redis):
 
     return {'se': se, 'calls': calls, 'ctrl': ctrl, 'redis': fake_redis}
 
+
+
+@pytest.fixture
+def close_env(monkeypatch, fake_redis):
+    """PM._close / _partial_close 执行环境。"""
+    calls = {'post': [], 'get': [], 'record': [], 'pg': [], 'cancel_algo': []}
+    risk_responses = [[{'symbol': 'AUSDT', 'positionAmt': '-10', 'entryPrice': '2.0'}]]
+    risk_reads = {'n': 0}
+
+    monkeypatch.setattr(pm, '_rget', fake_redis.get)
+    monkeypatch.setattr(pm, '_rset', fake_redis.set)
+    monkeypatch.setattr('shared.redis_store.delete', fake_redis.delete)
+    monkeypatch.setattr(pm, '_pmlog', lambda *a, **k: None)
+    monkeypatch.setattr(pm, '_pg_record_event', lambda event: calls['pg'].append(event))
+    monkeypatch.setattr(pm, '_cancel_all_algo', lambda sym: calls['cancel_algo'].append(sym))
+
+    def fapi_get(path, params=None):
+        calls['get'].append(path)
+        if 'positionRisk' in path:
+            risk_reads['n'] += 1
+            if risk_reads['n'] <= len(risk_responses):
+                return risk_responses[risk_reads['n'] - 1]
+            return []
+        return None
+
+    def fapi_post(path, params=None):
+        calls['post'].append({'path': path, 'params': params})
+        if 'order' in path:
+            qty = params.get('quantity', 0) if isinstance(params, dict) else 0
+            return {'orderId': 1, 'status': 'FILLED', 'executedQty': str(qty)}
+        return {}
+
+    def record_trade(*a, **kw):
+        calls['record'].append({'args': a, 'kwargs': kw})
+
+    def make_s6api():
+        return (fapi_get, fapi_post, lambda *a, **k: {},
+                lambda sym: 2.0, lambda sym: (6, 6),
+                lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0, record_trade)
+
+    monkeypatch.setattr(pm, '_s6api', make_s6api)
+    monkeypatch.setattr(pm, '_light_fapi_get', fapi_get)
+    monkeypatch.setattr(pm, '_light_fapi_post', fapi_post)
+
+    override = {'order_result': None}
+
+    def set_order_result(result):
+        override['order_result'] = result
+
+    def fapi_post_wrapped(path, params=None):
+        r = fapi_post(path, params)
+        if 'order' in path and override['order_result'] is not None:
+            return override['order_result']
+        return r
+    monkeypatch.setattr(pm, '_light_fapi_post', fapi_post_wrapped)
+
+    def make_s6api_wrapped():
+        return (fapi_get, fapi_post_wrapped, lambda *a, **k: {},
+                lambda sym: 2.0, lambda sym: (6, 6),
+                lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0, record_trade)
+    monkeypatch.setattr(pm, '_s6api', make_s6api_wrapped)
+
+    def set_risk_responses(responses):
+        risk_responses.clear()
+        risk_responses.extend(responses)
+        risk_reads['n'] = 0
+
+    def set_sandbox(active):
+        monkeypatch.setattr(pm, '_sandbox_active', lambda: active)
+
+    set_sandbox(False)
+    return {'pm': pm, 'redis': fake_redis, 'calls': calls,
+            'set_risk_responses': set_risk_responses, 'set_sandbox': set_sandbox,
+            'set_order_result': set_order_result,
+            'fapi_get': fapi_get, 'fapi_post': fapi_post_wrapped}
 
 def make_open_kwargs(**kw):
     """open_position 标准调用参数。"""

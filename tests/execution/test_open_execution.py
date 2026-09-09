@@ -263,3 +263,70 @@ def test_no_tg_when_no_tg_fn(exec_env):
     se = exec_env['se']
     se.open_position(**make_open_kwargs(tg_fn=None))
     assert exec_env['calls']['tg'] == []
+
+
+# ── No-retry（真实代码：order 失败不重试，单次尝试）────────────────────
+
+def test_open_order_failure_no_retry(exec_env):
+    """order 被拒 → 恰好 1 次 order 调用（无 retry），False，无 PM/PG/TG/Algo。"""
+    se = exec_env['se']
+    exec_env['ctrl']['order_result'] = {'code': -2019, 'msg': 'Margin is insufficient.'}
+    tg_calls = []
+    r = se.open_position(**make_open_kwargs(tg_fn=tg_calls.append))
+    assert r is False
+    orders = order_posts(exec_env['calls'])
+    assert len(orders) == 1                    # 单次尝试，无重试
+    assert orders[0]['params']['quantity'] == 100.0
+    assert exec_env['redis'].get('pm:positions') is None   # PM 不注册
+    assert exec_env['calls']['pg'] == []                   # PG 不记录
+    assert tg_calls == []                                  # TG 不发送
+    assert exec_env['calls']['algo'] == []                 # Algo 不入队
+
+
+def test_open_order_none_response_no_retry(exec_env, monkeypatch):
+    """order 返回 None → 恰好 1 次 order 调用，False，无 PM。"""
+    se = exec_env['se']
+    base_post = se.fapi_post   # exec_env 已注入的可控 fapi_post
+
+    def _none_for_order(path, params=None):
+        if 'order' in path:
+            exec_env['calls']['post'].append({'path': path, 'params': params})
+            return None
+        return base_post(path, params)
+    monkeypatch.setattr(se, 'fapi_post', _none_for_order)
+    r = se.open_position(**make_open_kwargs())
+    assert r is False
+    orders = order_posts(exec_env['calls'])
+    assert len(orders) == 1
+    assert orders[0]['params'] == {'symbol': 'TESTUSDT', 'side': 'BUY',
+                                   'type': 'MARKET', 'quantity': 100.0,
+                                   'newOrderRespType': 'RESULT'}
+    assert exec_env['redis'].get('pm:positions') is None
+    assert exec_env['calls']['pg'] == []
+
+
+def test_pm_open_order_exception_no_retry(close_env, monkeypatch):
+    """pm.open_position：order 异常 → 单次尝试（无 retry），False，不写 pm:positions。"""
+    pm = close_env['pm']
+
+    def make_boom_s6api():
+        def fapi_post(path, params=None):
+            close_env['calls']['post'].append({'path': path, 'params': params})
+            if 'order' in path:
+                raise RuntimeError('network timeout')
+            return {}
+        return (lambda p, q=None: [], fapi_post, lambda *a, **k: {},
+                lambda sym: 2.0, lambda sym: (6, 6),
+                lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0,
+                lambda *a, **kw: None)
+    monkeypatch.setattr(pm, '_s6api', make_boom_s6api)
+
+    r = pm.open_position('AUSDT', 'SHORT', 2.0, 10.0, 3, 2.2)
+    assert r is False
+    orders = [p for p in close_env['calls']['post'] if 'order' in p['path']]
+    assert len(orders) == 1
+    # pm 开仓单参数冻结（含 positionSide=BOTH，与 se 不同）
+    assert orders[0]['params'] == {'symbol': 'AUSDT', 'side': 'SELL',
+                                   'type': 'MARKET', 'quantity': 10.0,
+                                   'positionSide': 'BOTH'}
+    assert close_env['redis'].get('pm:positions') is None

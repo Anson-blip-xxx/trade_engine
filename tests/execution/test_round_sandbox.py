@@ -1,4 +1,6 @@
 """Golden：_round_qty + Sandbox 拦截行为。"""
+import json
+
 import pytest
 
 from strategies import shared_executor as se
@@ -103,3 +105,112 @@ class TestSandboxPM:
         assert len(record_calls) == 1
         # 沙盘路径无 order POST
         # pnl = (2.0 - 1.9) * 10 = 1.00（SHORT 正确方向）
+
+
+# ── 真实 Sandbox interception（不 mock fapi_post / _sandbox_post）──────
+
+class TestRealSandboxInterception:
+    """验证 shared_executor 当前真实 fapi_post sandbox 拦截。
+
+    方法：只 fake 最底层 requests.post / requests.get（真实网络请求），
+    被测的 fapi_post / _sandbox_post / scripts.sandbox.mock_post_order 全走真实实现。
+    """
+
+    @pytest.fixture
+    def net_spy(self, monkeypatch, tmp_path):
+        import requests
+        from scripts import sandbox as sb
+
+        calls = {'post': [], 'get': []}
+
+        def fake_post(url, params=None, headers=None, timeout=None):
+            calls['post'].append({'url': url, 'params': dict(params or {}),
+                                  'headers': dict(headers or {})})
+            return type('Resp', (), {
+                'status_code': 200, 'json': staticmethod(lambda: {'net': 'ok'})})()
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            calls['get'].append({'url': url})
+            return type('Resp', (), {
+                'status_code': 200, 'json': staticmethod(lambda: {'net': 'ok'})})()
+
+        monkeypatch.setattr(requests, 'post', fake_post)
+        monkeypatch.setattr(requests, 'get', fake_get)
+        # 沙盘状态文件 → tmp（不触碰真实 sandbox_state.json）
+        monkeypatch.setattr(sb, 'STATE_FILE', tmp_path / 'sandbox_state.json')
+        # 喂价避免真实行情（urllib ticker）
+        monkeypatch.setattr(sb, '_PRICE_CACHE', {})
+        sb.seed_price('TESTUSDT', 100.0)
+        # mock orderId 重置为可预测
+        monkeypatch.setattr(sb, '_mock_order_id', 10000000)
+        return {'calls': calls, 'sb': sb, 'state_file': tmp_path / 'sandbox_state.json'}
+
+    def _sandbox_on(self, monkeypatch):
+        """开沙盘：se 开关 + scripts.sandbox 环境变量（两者独立检查）。"""
+        monkeypatch.setattr(se, '_sandbox_check', lambda: True)
+        monkeypatch.setenv('SANDBOX', '1')
+
+    def test_sandbox_on_order_intercepted(self, net_spy, monkeypatch):
+        """Sandbox ON + /fapi/v1/order → 真实拦截，返回 mock 成交，零网络请求。"""
+        self._sandbox_on(monkeypatch)
+        r = se.fapi_post('/fapi/v1/order', {
+            'symbol': 'TESTUSDT', 'side': 'BUY', 'type': 'MARKET', 'quantity': 10.0})
+        # 沙盘 mock 成交结果（mock_post_order 真实实现产生）
+        assert r['status'] == 'FILLED'
+        assert r['executedQty'] == '10.0'
+        assert r['avgPrice'] == '100.0'   # 来自 seed_price，非真实行情
+        assert r['orderId'] == 10000001   # _mock_order_id(重置 10000000) + 1
+        # 未触达网络层
+        assert net_spy['calls']['post'] == []
+        assert net_spy['calls']['get'] == []
+        # 沙盘状态已写入（tmp 状态文件）
+        state = json.loads(net_spy['state_file'].read_text())
+        assert len(state['positions']) == 1
+        assert state['positions'][0]['symbol'] == 'TESTUSDT'
+        assert state['positions'][0]['positionAmt'] == 10.0
+
+    def test_sandbox_on_algo_order_intercepted(self, net_spy, monkeypatch):
+        """Sandbox ON + /fapi/v1/algoOrder（path 含 'order'）→ 同样被拦截。"""
+        self._sandbox_on(monkeypatch)
+        r = se.fapi_post('/fapi/v1/algoOrder', {
+            'symbol': 'TESTUSDT', 'side': 'SELL', 'algoType': 'CONDITIONAL',
+            'type': 'STOP_MARKET', 'triggerPrice': 95.0, 'quantity': 10.0,
+            'reduceOnly': 'true'})
+        assert r['algoId'] == 10000001
+        assert r['status'] == 'NEW'
+        assert net_spy['calls']['post'] == []   # 未触网
+        state = json.loads(net_spy['state_file'].read_text())
+        assert len(state['algo_orders']) == 1
+        assert state['algo_orders'][0]['triggerPrice'] == 95.0
+        assert state['algo_orders'][0]['reduceOnly'] is True
+
+    def test_sandbox_on_non_order_passthrough(self, net_spy, monkeypatch):
+        """Sandbox ON + 非 order 路径（leverage）→ 不拦截，走真实网络层（已 fake）。"""
+        self._sandbox_on(monkeypatch)
+        r = se.fapi_post('/fapi/v1/leverage', {'symbol': 'TESTUSDT', 'leverage': 3})
+        assert r == {'net': 'ok'}
+        assert len(net_spy['calls']['post']) == 1
+        sent = net_spy['calls']['post'][0]
+        assert sent['url'].endswith('/fapi/v1/leverage')
+        assert sent['headers']['X-MBX-APIKEY'] == se._API_KEY
+        # 真实路径附加签名参数
+        assert 'timestamp' in sent['params']
+        assert 'signature' in sent['params']
+
+    def test_sandbox_off_network_path(self, net_spy, monkeypatch):
+        """Sandbox OFF → 正常网络层（已 fake），附加 timestamp/signature；
+        且入参 dict 被原地附加签名（副作用冻结）。"""
+        monkeypatch.setattr(se, '_sandbox_check', lambda: False)
+        params = {'symbol': 'TESTUSDT', 'side': 'BUY', 'type': 'MARKET',
+                  'quantity': 10.0}
+        r = se.fapi_post('/fapi/v1/order', params)
+        assert r == {'net': 'ok'}
+        assert len(net_spy['calls']['post']) == 1
+        sent = net_spy['calls']['post'][0]
+        assert sent['url'].endswith('/fapi/v1/order')
+        assert sent['params']['symbol'] == 'TESTUSDT'
+        assert 'timestamp' in sent['params']
+        assert 'signature' in sent['params']
+        # 副作用：调用方传入的 dict 被原地修改
+        assert 'signature' in params
+        assert 'timestamp' in params

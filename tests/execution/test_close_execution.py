@@ -1,83 +1,7 @@
 """Golden：PM._close / PM._partial_close Execution 行为。"""
 import time
 
-import pytest
-
 from shared import position_manager as pm
-
-
-@pytest.fixture
-def close_env(monkeypatch, fake_redis):
-    """PM._close / _partial_close 执行环境。"""
-    calls = {'post': [], 'get': [], 'record': [], 'pg': [], 'cancel_algo': []}
-    risk_responses = [[{'symbol': 'AUSDT', 'positionAmt': '-10', 'entryPrice': '2.0'}]]
-    risk_reads = {'n': 0}
-
-    monkeypatch.setattr(pm, '_rget', fake_redis.get)
-    monkeypatch.setattr(pm, '_rset', fake_redis.set)
-    monkeypatch.setattr('shared.redis_store.delete', fake_redis.delete)
-    monkeypatch.setattr(pm, '_pmlog', lambda *a, **k: None)
-    monkeypatch.setattr(pm, '_pg_record_event', lambda event: calls['pg'].append(event))
-    monkeypatch.setattr(pm, '_cancel_all_algo', lambda sym: calls['cancel_algo'].append(sym))
-
-    def fapi_get(path, params=None):
-        calls['get'].append(path)
-        if 'positionRisk' in path:
-            risk_reads['n'] += 1
-            if risk_reads['n'] <= len(risk_responses):
-                return risk_responses[risk_reads['n'] - 1]
-            return []
-        return None
-
-    def fapi_post(path, params=None):
-        calls['post'].append({'path': path, 'params': params})
-        if 'order' in path:
-            qty = params.get('quantity', 0) if isinstance(params, dict) else 0
-            return {'orderId': 1, 'status': 'FILLED', 'executedQty': str(qty)}
-        return {}
-
-    def record_trade(*a, **kw):
-        calls['record'].append({'args': a, 'kwargs': kw})
-
-    def make_s6api():
-        return (fapi_get, fapi_post, lambda *a, **k: {},
-                lambda sym: 2.0, lambda sym: (6, 6),
-                lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0, record_trade)
-
-    monkeypatch.setattr(pm, '_s6api', make_s6api)
-    monkeypatch.setattr(pm, '_light_fapi_get', fapi_get)
-    monkeypatch.setattr(pm, '_light_fapi_post', fapi_post)
-
-    override = {'order_result': None}
-
-    def set_order_result(result):
-        override['order_result'] = result
-
-    def fapi_post_wrapped(path, params=None):
-        r = fapi_post(path, params)
-        if 'order' in path and override['order_result'] is not None:
-            return override['order_result']
-        return r
-    monkeypatch.setattr(pm, '_light_fapi_post', fapi_post_wrapped)
-
-    def make_s6api_wrapped():
-        return (fapi_get, fapi_post_wrapped, lambda *a, **k: {},
-                lambda sym: 2.0, lambda sym: (6, 6),
-                lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0, record_trade)
-    monkeypatch.setattr(pm, '_s6api', make_s6api_wrapped)
-
-    def set_risk_responses(responses):
-        risk_responses.clear()
-        risk_responses.extend(responses)
-        risk_reads['n'] = 0
-
-    def set_sandbox(active):
-        monkeypatch.setattr(pm, '_sandbox_active', lambda: active)
-
-    set_sandbox(False)
-    return {'pm': pm, 'redis': fake_redis, 'calls': calls,
-            'set_risk_responses': set_risk_responses, 'set_sandbox': set_sandbox,
-            'set_order_result': set_order_result}
 
 
 def _pos(**kw):
@@ -165,24 +89,88 @@ class TestCloseExecution:
         rec = close_env['calls']['record'][0]
         assert rec['kwargs']['final_close'] is False
 
-    def test_close_call_sequence(self, close_env, monkeypatch):
-        """调用顺序冻结：mark → positionRisk → order → positionRisk → record → PG → cancel → save。"""
+    def _make_spies(self, close_env, monkeypatch, events):
+        """对 _close 全部关键协作点做 spy，按真实发生顺序记录。"""
+        pm = close_env['pm']
+        raw_get = close_env['fapi_get']
+        raw_post = close_env['fapi_post']
+        risk_n = {'n': 0}
+
+        def spy_get(path, params=None):
+            r = raw_get(path, params)
+            if 'positionRisk' in path:
+                risk_n['n'] += 1
+                events.append(f'positionRisk#{risk_n["n"]}')
+            return r
+
+        def spy_post(path, params=None):
+            r = raw_post(path, params)
+            if 'order' in path:
+                events.append(('order', dict(params)))
+            return r
+
+        def spy_record(*a, **kw):
+            events.append(('record_trade', kw.get('final_close')))
+
+        def spy_pg(event):
+            events.append(('pg_record', event['event_type']))
+
+        monkeypatch.setattr(pm, '_s6api', lambda: (
+            spy_get, spy_post, lambda *a, **k: {},
+            lambda sym: 2.0, lambda sym: (6, 6),
+            lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0, spy_record))
+        monkeypatch.setattr(pm, '_pg_record_event', spy_pg)
+        monkeypatch.setattr(pm, '_cancel_all_algo', lambda sym: events.append('cancel_algo'))
+        monkeypatch.setattr(pm, '_mark_closed', lambda sym: events.append('mark_closed'))
+        monkeypatch.setattr(pm, '_save', lambda positions: events.append('save'))
+
+    def test_close_full_call_sequence(self, close_env, monkeypatch):
+        """完整成交平仓调用顺序（spy 捕获真实顺序）：
+        mark → positionRisk#1 → order → positionRisk#2 → cancel_algo
+        → pg_record(CLOSE_ORDER_FILLED) → record_trade(final=True) → save"""
         pos = _pos()
         positions = {'AUSDT': pos}
         close_env['set_risk_responses']([
             [{'symbol': 'AUSDT', 'positionAmt': '-10', 'entryPrice': '2.0'}], []])
+        events = []
+        self._make_spies(close_env, monkeypatch, events)
 
-        seq = []
-        monkeypatch.setattr(close_env['pm'], '_mark_closed',
-                            lambda s: (seq.append('mark'),
-                                       pm._rset(f'closed:{s}', {'ts': time.time()})))
+        r = close_env['pm']._close('AUSDT', pos, 1.9, '硬止损', positions)
+        assert r is True
+        assert events == [
+            'mark_closed',
+            'positionRisk#1',
+            ('order', {'symbol': 'AUSDT', 'side': 'BUY', 'type': 'MARKET',
+                       'quantity': 10.0, 'positionSide': 'BOTH',
+                       'reduceOnly': 'true'}),
+            'positionRisk#2',
+            'cancel_algo',
+            ('pg_record', 'CLOSE_ORDER_FILLED'),
+            ('record_trade', True),
+            'save',
+        ]
 
-        close_env['pm']._close('AUSDT', pos, 1.9, '手动平仓', positions)
-        # 验证关键顺序存在
-        assert seq[0] == 'mark'
-        pg_types = [e['event_type'] for e in close_env['calls']['pg']]
-        assert 'CLOSE_ORDER_FILLED' in pg_types
-        assert close_env['calls']['cancel_algo'] == ['AUSDT']
+    def test_close_flat_path_call_sequence(self, close_env, monkeypatch):
+        """交易所已平仓分支顺序（与 full-close 分支不同）：
+        mark → positionRisk#1 → cancel_algo → record_trade(final=True)
+        → pg_record(EXCHANGE_POSITION_FLAT) → save
+        差异：无 order / 无 positionRisk#2；record_trade 在 pg_record 之前。"""
+        pos = _pos()
+        positions = {'AUSDT': pos}
+        close_env['set_risk_responses']([[]])   # 首次查仓即空
+        events = []
+        self._make_spies(close_env, monkeypatch, events)
+
+        r = close_env['pm']._close('AUSDT', pos, 1.9, '硬止损', positions)
+        assert r is True
+        assert events == [
+            'mark_closed',
+            'positionRisk#1',
+            'cancel_algo',
+            ('record_trade', True),
+            ('pg_record', 'EXCHANGE_POSITION_FLAT'),
+            'save',
+        ]
 
 
 # ── Partial Close Execution ─────────────────────────────────────────────
