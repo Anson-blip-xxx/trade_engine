@@ -270,14 +270,23 @@ class AlgoPort(Protocol):
 `_update_pos_cache → PG → TG → algo` 的调用顺序、异常语义（含 MARKET 未成交 log 的
 `result["orderId"]` KeyError 路径）、返回值 True/False 全部留在 se，逐字不变。
 
-### 5.4 P4-03 分步实施（每步跑全量 ≥775）
+### 5.4 P4-03 分步实施（每步跑全量守恒）
 
-| Step | 内容 | 风险控制 |
-|------|------|----------|
-| 01 | 建 `execution/service.py`：端口协议 + `open_market`，se.open_position 的 EXEC 段（935-993）改为调用 service（语句级等价改写） | 60 Golden + 125 core 全绿 |
-| 02 | `close_market` / `partial_close_market` 设计对齐（**不改 PM**；仅供未来；先以 parity 测试锁定 service vs PM 行为） | 不动 PM，纯新增+测试 |
-| 03 | `place_algo_sl` service 化（PM 的 `_algo_place_sl_inner` 保持现址；service 版本供 open 路径复用或 Phase 7） | 同上 |
-| 04 | SymbolMetaPort 收口：`_round_qty/_get_min_notional/_get_funding_rate` 保留 compat 名，内部走 service | 吞错语义逐字保留（→5.0/→0/raw qty） |
+| Step | 内容 | 状态 |
+|------|------|------|
+| 01-A | 骨架：`execution/service.py`（`ExecutionService.execute_order(intent)` 最小 API）+ `execution/ports/binance.py`（`BinancePort`，仅 `place_order`）+ `execution/adapters/binance.py`（`SharedExecutorBinanceAdapter`，se.fapi_post 以 callable 注入，不 import strategies）；40 个 contract/characterization tests。**se/PM 零修改** | ✅ 本阶段 |
+| 01-B | `open_market` 编排：se.open_position 的 EXEC 段（935-993）改为经 service（语句级等价改写），`_update_pos_cache → PG → TG → algo` 留在调用方 | 待做 |
+| 02 | `close_market` / `partial_close_market` 设计对齐（**不改 PM**；先以 parity 测试锁定 service vs PM 行为） | 待做 |
+| 03 | `place_algo_sl` service 化（PM 的 `_algo_place_sl_inner` 保持现址；service 版本供 open 路径复用或 Phase 7） | 待做 |
+| 04 | SymbolMetaPort 收口：`_round_qty/_get_min_notional/_get_funding_rate` 保留 compat 名，内部走 service | 待做 |
+
+> P4-03-01-A 实施记录（2eeebab 之后）：
+> - 新增 `execution/service.py` / `execution/ports/binance.py` / `execution/adapters/binance.py`
+> - `OrderExecution` 结果模型：`intent`（原对象）/ `raw`（原样响应）/ `rejected`
+>   （core.is_rejected 原始 truthy 值，N7）；成交解析（需 entry_price）留给 orchestration
+> - Port 仅 `place_order`（不为未来预建方法）；Adapter 不做 try/except，
+>   异常/None 语义 = 注入 callable 原样（se 路径 → None，无 retry）
+> - sandbox 未接入 service（拦截留在 se.fapi_post 内，注入后自动生效，E-OBS-11a）
 
 ---
 
