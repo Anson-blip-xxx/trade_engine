@@ -38,6 +38,8 @@ from risk.service import calc_position_qty as _risk_calc_qty
 from risk.service import drawdown_status as _risk_dd_status
 from risk.service import drawdown_mode as _risk_dd_mode
 from execution import core as _exec_core
+from execution import service as _exec_service
+from execution.adapters import binance as _exec_binance
 
 # 周期内持仓缓存，避免 pm_monitor + get_position_count 重复调用 _pm_load
 _POS_CACHE: dict[str, dict] | None = None
@@ -859,6 +861,19 @@ def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
 
 
 # ── 开仓工具 ──
+def _execution_service() -> '_exec_service.ExecutionService':
+    """open 路径 ExecutionService 工厂（P4-03-01-B 接线）。
+
+    每次 open_position 调用时以**当前模块级 fapi_post** 构建 adapter（晚绑定）：
+    - 保留 monkeypatch 语义（测试替换 se.fapi_post 即替换底层实现）
+    - 保留 sandbox 拦截语义（E-OBS-11a：拦截在 fapi_post 内，随注入生效）
+    - 异常/None 语义 = se.fapi_post 原样（异常→None，无 retry）
+    不持全局实例，无新增可变状态。
+    """
+    return _exec_service.ExecutionService(
+        binance=_exec_binance.SharedExecutorBinanceAdapter(fapi_post))
+
+
 def open_position(name: str, symbol: str, side: str, entry_price: float,
                   stop_price: float, qty: float, margin_mode: str,
                   leverage: int, event_type: str, strength: int,
@@ -939,10 +954,13 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         else:
             fapi_post('/fapi/v1/marginType', {'symbol': symbol, 'marginType': 'CROSSED'})
 
-        # 开仓（使用 RESULT 模式直接获取成交结果；params 由 Execution Core 构造）
+        # 开仓（使用 RESULT 模式直接获取成交结果）
+        # P4-03-01-B：订单执行经 ExecutionService → Binance Port（intent 由 Core 构造）；
+        # 参数/时序/异常语义与原直连 fapi_post 逐字等价（E-OBS-1a/2/11a 冻结）。
         qty = _round_qty(symbol, qty)
-        result = fapi_post('/fapi/v1/order',
-                           _exec_core.se_open_intent(symbol, side, qty).to_params())
+        intent = _exec_core.se_open_intent(symbol, side, qty)
+        outcome = _execution_service().execute_order(intent)
+        result = outcome.raw
         if not result or result.get('code'):
             _log(name, f'开仓失败 {symbol}: {result}')
             return False

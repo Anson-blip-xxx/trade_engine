@@ -275,7 +275,18 @@ class AlgoPort(Protocol):
 | Step | 内容 | 状态 |
 |------|------|------|
 | 01-A | 骨架：`execution/service.py`（`ExecutionService.execute_order(intent)` 最小 API）+ `execution/ports/binance.py`（`BinancePort`，仅 `place_order`）+ `execution/adapters/binance.py`（`SharedExecutorBinanceAdapter`，se.fapi_post 以 callable 注入，不 import strategies）；40 个 contract/characterization tests。**se/PM 零修改** | ✅ 本阶段 |
-| 01-B | `open_market` 编排：se.open_position 的 EXEC 段（935-993）改为经 service（语句级等价改写），`_update_pos_cache → PG → TG → algo` 留在调用方 | 待做 |
+| 01-B | `open_market` 编排：se.open_position 的 EXEC 段（935-993）改为经 service（语句级等价改写），`_update_pos_cache → PG → TG → algo` 留在调用方 | ✅ 本阶段（最小接线版） |
+
+> P4-03-01-B 实施记录（03802e3 之后）：
+> - **未建** `open_market`（避免提前编排）：采用最小接线——se 新增 `_execution_service()`
+>   工厂（每次调用以**当前模块级 fapi_post** 晚绑定构建 adapter，保留 monkeypatch/sandbox/
+>   异常→None 语义，无全局状态）；open_position 的订单提交 3 行改为
+>   `intent → execute_order → outcome.raw`，rejection 检查/解析/分类/分支体/PM/PG/TG/Algo
+>   逐字不动
+> - 13 个集成测试（`test_open_service_integration.py`）冻结：路由经 service、intent 与
+>   core 生成一致、SE 参数（RESULT/无 positionSide/reduceOnly）、成功续走 PM/PG/TG/Algo、
+>   拒绝/None/异常失败、PM 失败 cancel、G9 先于 service 且 service 后无新增 duplicate
+>   check、fill 60%/30% 分类
 | 02 | `close_market` / `partial_close_market` 设计对齐（**不改 PM**；先以 parity 测试锁定 service vs PM 行为） | 待做 |
 | 03 | `place_algo_sl` service 化（PM 的 `_algo_place_sl_inner` 保持现址；service 版本供 open 路径复用或 Phase 7） | 待做 |
 | 04 | SymbolMetaPort 收口：`_round_qty/_get_min_notional/_get_funding_rate` 保留 compat 名，内部走 service | 待做 |
