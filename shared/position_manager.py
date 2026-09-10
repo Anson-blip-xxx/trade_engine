@@ -24,6 +24,9 @@ from shared.postgres_client import record_trade_event as _pg_record_event
 from shared.exit_factors import (
     should_exit_on_1h_reversal, early_loss_momentum_weak, is_stagnant_profit,
 )
+from execution import core as _exec_core
+from execution import service as _exec_service
+from execution.adapters import binance as _exec_binance
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -1638,6 +1641,20 @@ def _place_trail_sl(symbol: str, pos: dict, trail_sl: float, positions: dict):
 #  平仓
 # ═══════════════════════════════════════════════════════════════════════
 
+def _execution_service() -> '_exec_service.ExecutionService':
+    """close/partial 路径 ExecutionService 工厂（P4-03-01-C 接线）。
+
+    每次调用以**当前 _s6api() 返回的 fapi_post** 构建 adapter（晚绑定）：
+    - 保留 _s6api 双实现错误语义（binance_api 上抛 / _light 返回 None，N2）
+    - 沙盘仍由 _close 的 _sandbox_active() 前置判断（不在 service 内，不统一）
+    - Adapter 无 try/except：异常语义 = 注入的 fapi_post 原样（无 retry）
+    不持全局实例，无新增可变状态。
+    """
+    _, fapi_post, _, _, _, _, _, _ = _s6api()
+    return _exec_service.ExecutionService(
+        binance=_exec_binance.SharedExecutorBinanceAdapter(fapi_post))
+
+
 def close_position(symbol: str, reason: str) -> bool:
     """外部调用平仓"""
     positions = _load()
@@ -1681,13 +1698,13 @@ def _clear_closed_marker(symbol: str):
 def _partial_close(symbol: str, pos: dict, price: float, close_qty: float,
                    tp_pct: float, positions: dict):
     """分层止盈：市价平掉 close_qty 数量，保留剩余仓位"""
-    _, fapi_post, _, _, _, _, _, _ = _s6api()
-    close_side = 'BUY' if pos['side'] == 'SHORT' else 'SELL'
+    # P4-03-01-C：订单执行经 ExecutionService → Binance Port
+    #（intent 由 Core 构造：SHORT→BUY / 其余→SELL，无 reduceOnly——E-OBS-5 冻结）；
+    # close_qty 原样传递（含负数反转行为 E-OBS-7，不做 clamp）；
+    # 参数/异常语义与原直连 fapi_post 逐字等价。
     try:
-        r = fapi_post('/fapi/v1/order', {
-            'symbol': symbol, 'side': close_side, 'type': 'MARKET',
-            'quantity': close_qty, 'positionSide': 'BOTH',
-        })
+        r = _execution_service().execute_order(
+            _exec_core.partial_close_intent(symbol, pos['side'], close_qty)).raw
         if not isinstance(r, dict) or r.get('code') is not None:
             _pmlog(f'[分层止盈失败] {symbol} qty={close_qty}: 交易所拒绝 {r}')
             return
@@ -1743,7 +1760,7 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
         return True
 
     # ═══ 实盘模式 ═══
-    fapi_get, fapi_post, _, _, _, _, _, record_trade = _s6api()
+    fapi_get, _, _, _, _, _, _, record_trade = _s6api()
 
     try:
         real_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
@@ -1795,11 +1812,11 @@ def _close(symbol: str, pos: dict, price: float, reason: str, positions: dict, *
 
         requested_close_qty = _round_qty(symbol, abs(float(real_pos['positionAmt'])))
         close_qty = requested_close_qty
-        close_side = 'BUY' if pos['side'] == 'SHORT' else 'SELL'
-        result = fapi_post('/fapi/v1/order', {
-            'symbol': symbol, 'side': close_side, 'type': 'MARKET',
-            'quantity': close_qty, 'positionSide': 'BOTH', 'reduceOnly': 'true',
-        })
+        # P4-03-01-C：订单执行经 ExecutionService → Binance Port
+        #（intent 由 Core 构造：SHORT→BUY / 其余→SELL，MARKET + BOTH + reduceOnly='true'
+        # ——E-OBS-5 冻结）；参数/时序/异常语义与原直连 fapi_post 逐字等价。
+        result = _execution_service().execute_order(
+            _exec_core.close_intent(symbol, pos['side'], close_qty)).raw
         if isinstance(result, dict) and result.get('code'):
             _log_close_error(symbol, result.get('msg', result), interval=60)
             # 不要在市价单失败前删除原止损单，避免仓位裸奔。

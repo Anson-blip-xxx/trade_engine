@@ -287,7 +287,22 @@ class AlgoPort(Protocol):
 >   core 生成一致、SE 参数（RESULT/无 positionSide/reduceOnly）、成功续走 PM/PG/TG/Algo、
 >   拒绝/None/异常失败、PM 失败 cancel、G9 先于 service 且 service 后无新增 duplicate
 >   check、fill 60%/30% 分类
-| 02 | `close_market` / `partial_close_market` 设计对齐（**不改 PM**；先以 parity 测试锁定 service vs PM 行为） | 待做 |
+
+> P4-03-01-C 实施记录（5a68ce2 之后）：
+> - **PM 最小接线（依据 §20-27 允许条件）**：close/partial 的 Binance 订单提交只存在于
+>   `PM._close`（L1799）/ `PM._partial_close`（L1687），无其他边界可接入 service——
+>   因此修改 PM 两处提交行（各 1 处）+ 新增 `PM._execution_service()` 工厂
+>   （晚绑定 `_s6api()` 的 fapi_post：保留双实现错误语义 N2 / 沙盘前置判断 / 异常原样）。
+>   orchestration（marker-first、沙盘门、positionRisk×2、remaining 判定、record/pg/save
+>   顺序）**零改动**
+> - intent 复用 core：`close_intent`（SHORT→BUY，BOTH，reduceOnly='true'）/
+>   `partial_close_intent`（无 reduceOnly，E-OBS-5）；close_qty 原样传递（负数不 clamp，
+>   E-OBS-7）
+> - 18 个集成测试（`test_close_service_integration.py`）：20 项要求全覆盖
+>   （路由/intent 相等/LONG→SELL/SHORT→BUY/参数逐字/负 qty 原样/异常/拒绝/already-flat
+>   port 零调用/PM 后续流程/含 port 事件的全时序冻结）
+> - se 零改动；PM.open_position（legacy，无生产调用方）未迁移（E-OBS-9 保持）
+| 02 | `close_market` / `partial_close_market` 设计对齐（**不改 PM**；先以 parity 测试锁定 service vs PM 行为） | ✅ 以 01-C 最小接线形式完成（见下注） |
 | 03 | `place_algo_sl` service 化（PM 的 `_algo_place_sl_inner` 保持现址；service 版本供 open 路径复用或 Phase 7） | 待做 |
 | 04 | SymbolMetaPort 收口：`_round_qty/_get_min_notional/_get_funding_rate` 保留 compat 名，内部走 service | 待做 |
 
