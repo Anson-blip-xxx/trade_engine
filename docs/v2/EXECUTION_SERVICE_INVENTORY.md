@@ -368,3 +368,12 @@ E-OBS-11a 拦截仅按 path 含 'order'。
 > - `REDIS_BOUNDARY_INVENTORY.md`：全量 key 分类 A-G、真值模型
 >   （exchange=真相 / pm:positions=本地元数据层+_POS_CACHE=进程缓存）、
 >   boundary 范围单 key；新观察 PMB-4/5
+> P4-03-01-D3 实施记录（faf95f6 之后）：
+> - `execution/ports/ledger.py`：`PositionLedgerPort`（两个 seam 逐字镜像：
+>   record_trade_event / upsert_trade_episode；不发明业务接口）
+> - `execution/adapters/postgres_ledger.py`：`PostgresLedgerAdapter`
+>   （callable 注入；不上抛/包装异常；transaction 语义全属 helper）
+> - **NO-WIRING**（§九条件全命中：写入分散 7 处、trade_recorder 强耦合、
+>   吞错 fire-and-forget）；no-wiring 状态有测试冻结
+> - `LEDGER_BOUNDARY_INVENTORY.md`：十问十答、A-E 分类、Open/Partial/Full
+>   Close 真实写入链、PnL producer/persistence/consumer 盘点；新观察 PMB-6/7

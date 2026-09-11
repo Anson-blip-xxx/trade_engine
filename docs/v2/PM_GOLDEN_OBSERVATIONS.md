@@ -177,3 +177,30 @@ PositionStatePort/后续 boundary 不得为 closed marker 引入真实 TTL；
 ### Migration constraint:
 Phase 7 统一双写方前不得把 `_load_meta`/`_update_pos_cache` 改走
 不同实现；接线顺序必须 save → load → RMW 逐个 pilot。
+
+## PMB-6 · partial close 不产生任何台账记录
+
+### Current behavior:
+`PM._partial_close` 的成功路径：Binance order → qty 更新 + Redis save，仅此而已。
+无 `_pg_record_event`（trade_events）、无 `record_trade`（trade_episodes）、
+无 TG、无 algo cancel；PnL 仅存在于 `_pmlog` 日志行。
+### Why it matters:
+事件级台账（trade_events）缺少 PARTIAL 独立事件，episode 级 PnL 依赖
+final_close 时 trade_recorder 的 Redis partial 合并兜底；台账分析
+（trade_analyzer/report_performance）对逐段止盈不可见。
+### Migration constraint:
+D3 依法不补录；若 Phase 7 决定补 ledger 事件，属行为变更需显式决策，
+且不得改变现有 record/pg 顺序（E-OBS-6a）。
+
+## PMB-7 · 同一平仓存在两套 PnL 口径（事件级 vs episode 级）
+
+### Current behavior:
+`CLOSE_ORDER_FILLED` 事件 `realized_pnl` = PM._close 即时公式
+（(entry-price)*qty，core.position_pnl 同值）；随后 `record_trade` 产出
+trade_episodes 的 `pnl_usdt` = Binance/REALIZED_PNL income 对账（非零时覆盖）
++ Redis partial 分段合并值。同一次平仓两个 PG 写携带不同 PnL 数字成为合法状态。
+### Why it matters:
+台账消费方（report/analysis）两处读值不同；事件级与 episode 级无法互检。
+### Migration constraint:
+PnL 计算不进 PositionLedgerPort（persist already-produced data only）；
+口径统一属行为变更，Phase 7 显式决策。
