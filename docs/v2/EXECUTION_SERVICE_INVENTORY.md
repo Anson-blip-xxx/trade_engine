@@ -355,3 +355,16 @@ E-OBS-11a 拦截仅按 path 含 'order'。
 - [x] Production code 零改动（git diff 仅本文件）
 - [x] Golden behaviors 全部保持 OBSERVED 状态
 - [x] Open/Close 调用链从当前代码重新核实（非沿用 P4-00）
+
+> P4-03-01-D2 实施记录（617f2b3 之后）：
+> - `execution/ports/position_state.py`：`PositionStatePort`（load_positions /
+>   save_positions，契约 = `PM._load_meta`/`PM._save` 行为逐字镜像）
+> - `execution/adapters/position_state.py`：`RedisPositionStateAdapter`
+>   （注入式 redis_get/redis_set；key 'pm:positions' 逐字冻结；异常镜像；
+>   无 TTL；不创建 client）
+> - **pilot wiring：仅 `PM._save`**（写路径）——9 条安全条件可证 + 24 个
+>   测试（contract/parity/异常语义/pilot 冻结/依赖隔离）；`_load_meta` 与
+>   `se._update_pos_cache` 未接（有 No-wiring 冻结测试）
+> - `REDIS_BOUNDARY_INVENTORY.md`：全量 key 分类 A-G、真值模型
+>   （exchange=真相 / pm:positions=本地元数据层+_POS_CACHE=进程缓存）、
+>   boundary 范围单 key；新观察 PMB-4/5

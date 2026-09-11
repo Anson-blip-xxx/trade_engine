@@ -27,6 +27,7 @@ from shared.exit_factors import (
 from execution import core as _exec_core
 from execution import service as _exec_service
 from execution.adapters import binance as _exec_binance
+from execution.adapters import position_state as _exec_pos_state
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -715,12 +716,21 @@ def _load() -> dict:
     return merged
 
 
+def _position_state() -> '_exec_pos_state.RedisPositionStateAdapter':
+    """Position State factory (P4-03-01-D2 pilot wiring, only _save path goes through boundary).
+
+    Injects the current module-level _rget/_rset each time via late binding (preserving monkeypatch
+    test semantics); the rest of the key/value/TTL/exception semantics are mirrored inside the
+    adapter (passed through verbatim from PM._save / _load_meta). Redis access for other keys
+    (closed marker/locks/alerts) does not go through this boundary.
+    """
+    return _exec_pos_state.RedisPositionStateAdapter(_rget, _rset)
+
+
 def _save(positions: dict):
-    """写入 pm:positions 单一数据源。"""
-    try:
-        _rset('pm:positions', positions)
-    except Exception:
-        pass
+    """Writes the pm:positions single source of truth (via PositionStatePort boundary,
+    P4-03-01-D2 pilot: provable mechanical equivalence)."""
+    _position_state().save_positions(positions)
 
 
 def _round_qty(symbol: str, qty: float) -> float:

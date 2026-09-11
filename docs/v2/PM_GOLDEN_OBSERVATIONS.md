@@ -150,3 +150,30 @@ D1 只为 open 路径定义了 `PositionManagerPort`；close 侧无既有 seam �
 ### Migration constraint:
 Phase 7 拆解 `_close` 时先把 result-handling 段显式化为 PM 内部函数，
 再决定是否暴露 port；本阶段禁止预建接口。
+
+## PMB-4 · `closed:{symbol}` 无 Redis TTL，"4h"由 ts 比较实现
+
+### Current behavior:
+`_mark_closed` 写 `{'ts': time.time()}` **不带 TTL**（`redis_store.set` 无
+expire 参数）；"4h"窗口语义在 `_was_closed_recently` 中以
+`time.time() - ts < 4*3600` 实现。标记若未被 `_clear_closed_marker` 清除
+（复开仓位场景），key 将**永久留存**并持续参与窗口判断。
+### Why it matters:
+代码注释"Redis + 4h TTL"与实现不符（无 TTL）；Phase 7 若把窗口改为真 TTL，
+失败恢复语义会变化（4h 后旧标记复活失效 vs 永存）。
+### Migration constraint:
+PositionStatePort/后续 boundary 不得为 closed marker 引入真实 TTL；
+窗口语义必须以 ts 比较实现。
+
+## PMB-5 · Position State 接线 pilot 已落地于 `_save`，读路径与 RMW 未接
+
+### Current behavior:
+`PM._save` 经 `PositionStatePort`（`RedisPositionStateAdapter`，镜像
+`_load_meta/_save` 语义，注入 `_rget/_rset` 晚绑定）；`PM._load_meta` 与
+`se._update_pos_cache`（读-合并-写）仍直连 `_rget/_rset`。
+### Why it matters:
+双写方（PMB-1）中只有一个写路径穿 boundary；读路径与 RMW 保持现状才能
+保证三层加载与 duplicate check 行为零变化。
+### Migration constraint:
+Phase 7 统一双写方前不得把 `_load_meta`/`_update_pos_cache` 改走
+不同实现；接线顺序必须 save → load → RMW 逐个 pilot。
