@@ -108,3 +108,45 @@
 - **Potential concern**: Redis 故障期间持仓变更可能只存在于内存/丢失，
   且无任何告警。
 - **Future phase**: Phase 7（fail-open 保留，但应加告警）。
+
+---
+
+## PMB-1 · open 路径的"PM 更新"实现位于 shared_executor，且 pm:positions 双写方并存
+
+### Current behavior:
+open 路径的 position 登记由 `shared_executor._update_pos_cache` 完成（写
+`_POS_CACHE` + **直写** `pm:positions`），不在 PM 模块内。`pm:positions` 因此有
+两个写方：se 直写与 `PM._save`。Redis 异常在两处均被内部静默吞掉。
+### Why it matters:
+open 路径的 PM 注册失败的 cancel 分支（E-OBS-1）只有当 `_update_pos_cache`
+在 Redis try 块**之外**抛异常时才可达（如 `entry:.12g` 格式化失败）；Redis 故障
+会被吞掉，open 继续按成功处理。
+### Migration constraint:
+PositionManagerPort 的 wiring 必须以 `_update_pos_cache` 为唯一实现锚点；
+Phase 7 统一双写方前不得改变 `pm:positions` 写入结构或吞错语义。
+
+## PMB-2 · `_POS_CACHE` 写直通是端口实现契约的一部分
+
+### Current behavior:
+`_update_pos_cache` 除写 Redis 外还同步更新进程内 `_POS_CACHE[symbol]`，
+供 `get_position_count`/`has_position` 快路径使用；`_POS_CACHE` 是模块级
+可变全局。
+### Why it matters:
+未来若把注册移入 PM adapter 而丢失缓存写直通，防重复开仓读路径
+（se `_get_positions`）会读到滞后状态，改变 duplicate check 行为。
+### Migration constraint:
+Port 实现必须保持"缓存+Redis"双写语义（或显式决策放弃），否则触发
+E-OBS-2 相关测试回归。
+
+## PMB-3 · close/partial 的 execution result 处理无跨模块缝
+
+### Current behavior:
+close 结果处理（`has_remaining_position`/`accounted_close_qty`/`pos['qty']`
+更新/pop/save/final_close 标志）全部内联在 `PM._close`/`_partial_close` 内；
+不存在类似 open 路径 `_update_pos_cache` 的跨模块 seam。
+### Why it matters:
+D1 只为 open 路径定义了 `PositionManagerPort`；close 侧无既有 seam 可契约化，
+强行发明 "on_close_result" 接口属于接口虚构而非边界提取。
+### Migration constraint:
+Phase 7 拆解 `_close` 时先把 result-handling 段显式化为 PM 内部函数，
+再决定是否暴露 port；本阶段禁止预建接口。
