@@ -204,3 +204,32 @@ trade_episodes 的 `pnl_usdt` = Binance/REALIZED_PNL income 对账（非零时�
 ### Migration constraint:
 PnL 计算不进 PositionLedgerPort（persist already-produced data only）；
 口径统一属行为变更，Phase 7 显式决策。
+
+## PMB-8 · Algo cancel 覆盖矩阵（按平仓分支）
+
+### Current behavior:
+cancel 调用仅出现在四处场景：① full close 成交后（order 成功 → record前）；
+② exchange-already-flat 分支（record 前）；③ `_algo_place_sl_inner` 换单前清理；
+④ be_done/trail 换单。**订单被交易所拒绝（rejected）分支不 cancel**（注释明确：
+避免删除原止损单导致仓位裸奔）；partial close 分支不 cancel；ghost/WS 清理路径不 cancel。
+### Why it matters:
+rejected 保留旧 SL 是保护性设计；partial/ghost 不 cancel 可能残留条件单——
+均为当前有意/现状行为，改动任何一处都会改变保护窗口语义。
+### Migration constraint:
+Phase 7 拆解时 cancel 时机必须逐分支冻结（P4-01 spy 序列测试已是契约）；
+不得为"统一"在各分支补 cancel。
+
+## PMB-9 · `_algo_cancel` 在 `_s6api` 兜底模式下发 GET 而非 DELETE
+
+### Current behavior:
+`_s6api` 兜底元组第 3 槽（fapi_delete 槽位）实为 `_light_fapi_get`。
+因此 `_algo_cancel(algo_id)` 在兜底模式下对 `/fapi/v1/algoOrder` 发出 **GET**
+请求（应为 DELETE），取消静默失败（light 版吞错、返回 dict/None），旧条件单
+可能残留；be_done/trail 换单时旧单残留 + 新单入队 = 多余条件单。
+当 binance_api 可导入时第 3 槽为真 DELETE（行为正确）。
+### Why it matters:
+同一函数两种模式语义实质不同（N2 家族的新实例）；兜底模式下 be_done/trail
+的"取消旧单"维度失效。
+### Migration constraint:
+D4 契约 `cancel_algo_id` 逐字镜像该行为（不改）；修复需把 light 槽位换成
+真 DELETE 实现——属行为变更，Phase 7 显式决策。

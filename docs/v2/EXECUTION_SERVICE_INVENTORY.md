@@ -377,3 +377,12 @@ E-OBS-11a 拦截仅按 path 含 'order'。
 >   吞错 fire-and-forget）；no-wiring 状态有测试冻结
 > - `LEDGER_BOUNDARY_INVENTORY.md`：十问十答、A-E 分类、Open/Partial/Full
 >   Close 真实写入链、PnL producer/persistence/consumer 盘点；新观察 PMB-6/7
+> P4-03-01-D4 实施记录（1636a6e 之后）：
+> - `execution/ports/protection.py`：`ProtectionPort`（5 个真实 seam 逐字镜像：
+>   enqueue/start_worker/place/cancel_id/cancel_all；无线程所有权）
+> - `execution/ports/notification.py`：`NotificationPort`（notify_external_position /
+>   log_close_error，含状态机原样冻结）
+> - `execution/adapters/protection.py` / `notification.py`：注入式零逻辑委托
+> - **NO-WIRING**（seam 各带业务/状态，塞入 adapter 即复制业务判断）
+> - `PROTECTION_MONITORING_INVENTORY.md`：A-F 分类 + Algo SL 完整链
+>   （11s 窗口/无 retry/先 cancel 后下单）+ 监控/幽灵/协调查分；新观察 PMB-8/9

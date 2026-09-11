@@ -4,8 +4,10 @@ from execution.adapters.pm import PositionManagerAdapter, UpdatePosCache
 from execution.adapters.position_state import (RedisPositionStateAdapter,
                                                PM_POSITIONS_KEY)
 from execution.adapters.postgres_ledger import PostgresLedgerAdapter
+from execution.adapters.protection import ProtectionAdapter
+from execution.adapters.notification import NotificationAdapter
 
 __all__ = ['FapiPost', 'SharedExecutorBinanceAdapter',
            'PositionManagerAdapter', 'UpdatePosCache',
            'RedisPositionStateAdapter', 'PM_POSITIONS_KEY',
-           'PostgresLedgerAdapter']
+           'PostgresLedgerAdapter', 'ProtectionAdapter', 'NotificationAdapter']
