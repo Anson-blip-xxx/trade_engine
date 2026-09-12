@@ -29,6 +29,7 @@ from shared.redis_store import set as _rset, get as _rget, publish as _rpublish
 from shared.binance_api import FAPI as FAPI_URL, FSTREAM as FSTREAM_URL
 from s3 import core as s3_core
 from s3 import state as s3_state
+from s3 import detector as s3_detector
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -43,18 +44,8 @@ _MAX_KLINES = 1500   # 最大保留 K 线数
 BIG_ORDER_MIN_USDT = 50_000
 WS_SYMBOLS = ['btcusdt']
 
-# ── 事件阈值 ────────────────────────────────────────────────
-THRESHOLDS = {
-    'pulse_up':      {'15m': 5.0, '1h': 8.0, 'vol_ratio': 1.5},
-    'pulse_down':    {'15m': -5.0, '1h': -8.0, 'vol_ratio': 1.5},
-    'panic_sell':    {'15m': -4.0, 'vol_ratio': 2.0},
-    'trend_up':      {'1h': 1.0, '4h': 2.0, '24h': 5.0},
-    'trend_down':    {'1h': -1.0, '4h': -2.0, '24h': -5.0},
-    'high_vol':      {'vol_ratio': 2.0},
-    'low_vol':       {'vol_ratio': 0.3},
-    'pump_up':       {'15m': 8.0, '1h': 12.0, 'vol_ratio': 2.0},
-    'pump_down':     {'15m': -8.0, '1h': -12.0, 'vol_ratio': 2.0},
-}
+# ── 事件阈值（P5-04：原型迁移 s3.detector；此处 re-export 同一 dict 对象） ──
+THRESHOLDS = s3_detector.THRESHOLDS
 
 # ── Event 冷却 ──────────────────────────────────────────────
 EVENT_COOLDOWN = 30       # 同(sym+type)最短间隔
@@ -295,202 +286,16 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
     """
     基于多窗口数据检测市场事件
     返回纯市场事实列表，不含多空倾向
+
+    （P5-04：判断主体委托 s3.detector.detect_candidate_events；
+    FAILED_BREAKOUT 状态机仍为本模块 `_detect_failed_breakout`——
+    state_store/time_fn 使用 legacy 默认，行为 SUSPENDED 零变化。）
     """
-    events = []
-    w15m = windows.get('15m', {})
-    w1h  = windows.get('1h', {})
-    w4h  = windows.get('4h', {})
-    w24h = windows.get('24h', {})
-    # ── 超买超卖检查（用于方向信号过滤：价格偏离 EMA20 太远时不产生趋势信号） ──
-    _price = float(w15m.get('close', 0) or 0)
-    _4h_ema20 = float(w4h.get('ema20', 0) or 0)
-    _4h_atr_pct = float(w4h.get('atr_pct', 0) or 0)
-
-    def _is_oversold() -> bool:
-        """价格比 4h EMA20 低超过 3×ATR = 已超卖，不产生做空信号"""
-        if _price <= 0 or _4h_ema20 <= 0 or _4h_atr_pct <= 0:
-            return False
-        return (_4h_ema20 - _price) / _4h_ema20 * 100 > _4h_atr_pct * 3
-
-    def _is_overbought() -> bool:
-        """价格比 4h EMA20 高超过 3×ATR = 已超买，不产生做多信号"""
-        if _price <= 0 or _4h_ema20 <= 0 or _4h_atr_pct <= 0:
-            return False
-        return (_price - _4h_ema20) / _4h_ema20 * 100 > _4h_atr_pct * 3
-
-    def _strong_breakout(side: str) -> bool:
-        """Distinguish a supported breakout from a thin late spike."""
-        close_pos = float(w15m.get('close_pos', 50) or 50)
-        flow = w15m.get('taker_buy_ratio')
-        flow_ok = flow is None or (float(flow) >= 0.55 if side == 'LONG' else float(flow) <= 0.45)
-        volume_ok = float(w15m.get('vol_ratio', 0) or 0) >= 1.5
-        trend_change = float(w1h.get('chg', 0) or 0)
-        trend4h = float(w4h.get('chg', 0) or 0)
-        if side == 'LONG':
-            return close_pos >= 65 and flow_ok and volume_ok and trend_change > 0 and trend4h > 0
-        return close_pos <= 35 and flow_ok and volume_ok and trend_change < 0 and trend4h < 0
-
-    # ── PULSE_UP ──
-    if w15m.get('chg', 0) >= THRESHOLDS['pulse_up']['15m'] or \
-       w1h.get('chg', 0) >= THRESHOLDS['pulse_up']['1h']:
-        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pulse_up']['vol_ratio']:
-            breakout = _strong_breakout('LONG')
-            if not _is_overbought() or breakout:
-                strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-                event = {
-                    'type': 'PULSE_UP', 'symbol': symbol,
-                    'strength': max(20, strength),
-                    'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                }
-                if breakout:
-                    event['breakout_confirmed'] = True
-                events.append(event)
-            else:
-                _log(f'[S3] {symbol} PULSE_UP 跳过：已超买')
-
-    # ── PULSE_DOWN ──
-    if w15m.get('chg', 0) <= THRESHOLDS['pulse_down']['15m'] or \
-       w1h.get('chg', 0) <= THRESHOLDS['pulse_down']['1h']:
-        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pulse_down']['vol_ratio']:
-            breakout = _strong_breakout('SHORT')
-            if not _is_oversold() or breakout:
-                strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-                event = {
-                    'type': 'PULSE_DOWN', 'symbol': symbol,
-                    'strength': max(20, strength),
-                    'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                }
-                if breakout:
-                    event['breakout_confirmed'] = True
-                events.append(event)
-            else:
-                _log(f'[S3] {symbol} PULSE_DOWN 跳过：已超卖')
-
-    # ── PANIC_SELL ──
-    if w15m.get('chg', 0) <= THRESHOLDS['panic_sell']['15m'] and \
-       w15m.get('vol_ratio', 0) >= THRESHOLDS['panic_sell']['vol_ratio']:
-        if not _is_oversold():
-            strength = min(99, int(abs(w15m.get('chg', 0)) * 12))
-            events.append({
-                'type': 'PANIC_SELL', 'symbol': symbol,
-                'strength': max(30, strength),
-                'chg_15m': w15m.get('chg'), 'vol_ratio': w15m.get('vol_ratio'),
-            })
-        else:
-            _log(f'[S3] {symbol} PANIC_SELL 跳过：已超卖')
-
-    # ── VIOLENT_MOVE（极端波动检测） ──
-    # 捕获 pump-and-dump 等窗口内剧烈波动但收盘 chg 不反映的情况
-    # 如果 1h 波动 > 15% 或 4h 波动 > 25%，总有异常
-    _1h_vol = float(w1h.get('volatility', 0) or 0)
-    _4h_vol = float(w4h.get('volatility', 0) or 0)
-    _viol_threshold = 15  # 1h 波动 15%+ 算极端
-    if _1h_vol >= _viol_threshold or _4h_vol >= _viol_threshold * 1.6:
-        # 判断方向：收盘在区间上半段 = 偏多，下半段 = 偏空
-        _high = float(max(w1h.get('high', 0) or 0, w4h.get('high', 0) or 0))
-        _low = float(min(w1h.get('low', 0) or 0, w4h.get('low', 0) or 0))
-        _mid = (_high + _low) / 2
-        if _mid > 0 and _price > 0:
-            _is_bull = _price > _mid  # 收盘在上半段 = 买方强势
-            _dir = 'BULLISH' if _is_bull else 'BEARISH'
-            _strength = min(99, int(max(_1h_vol, _4h_vol) * 3))
-            events.append({
-                'type': f'VIOLENT_{_dir}',
-                'symbol': symbol,
-                'strength': max(30, _strength),
-                'vol_1h': round(_1h_vol, 1),
-                'vol_4h': round(_4h_vol, 1),
-                'close_pos': round((_price - _low) / (_high - _low) * 100, 1) if _high != _low else 50,
-            })
-            _log(f'[S3] {symbol} VIOLENT_{_dir} 波动 {_1h_vol:.0f}%/4h={_4h_vol:.0f}%')
-
-    # ── PUMP_UP（极端拉盘：高涨幅 + 放量） ──
-    if w15m.get('chg', 0) >= THRESHOLDS['pump_up']['15m'] or \
-       w1h.get('chg', 0) >= THRESHOLDS['pump_up']['1h']:
-        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pump_up']['vol_ratio']:
-            strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-            events.append({
-                'type': 'PUMP_UP', 'symbol': symbol,
-                'strength': max(30, strength),
-                'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                'vol_ratio': w15m.get('vol_ratio'),
-            })
-
-    # ── PUMP_DOWN（极端砸盘：高跌幅 + 放量） ──
-    if w15m.get('chg', 0) <= THRESHOLDS['pump_down']['15m'] or \
-       w1h.get('chg', 0) <= THRESHOLDS['pump_down']['1h']:
-        if w15m.get('vol_ratio', 0) >= THRESHOLDS['pump_down']['vol_ratio']:
-            strength = min(99, int(abs(w15m.get('chg', 0)) * 8 + abs(w1h.get('chg', 0)) * 4))
-            events.append({
-                'type': 'PUMP_DOWN', 'symbol': symbol,
-                'strength': max(30, strength),
-                'chg_15m': w15m.get('chg'), 'chg_1h': w1h.get('chg'),
-                'vol_ratio': w15m.get('vol_ratio'),
-            })
-
-    # ── TREND_UP ──
-    trend_up_1h4h = w1h.get('chg', 0) >= THRESHOLDS['trend_up']['1h'] and \
-                    w4h.get('chg', 0) >= THRESHOLDS['trend_up']['4h'] and \
-                    (not _is_overbought() or _strong_breakout('LONG'))
-    trend_up_24h  = w24h.get('chg', 0) >= THRESHOLDS['trend_up']['24h'] and \
-                    w24h.get('ema20', 0) > w24h.get('ema60', 0)
-    if trend_up_1h4h or trend_up_24h:
-        strength = int(w1h.get('chg', 0) * 10 + w4h.get('chg', 0) * 5)
-        events.append({
-            'type': 'TREND_UP', 'symbol': symbol,
-            'strength': max(15, min(99, strength)),
-            'chg_1h': w1h.get('chg'), 'chg_4h': w4h.get('chg'),
-        })
-
-    # ── TREND_DOWN ──
-    trend_down_1h4h = w1h.get('chg', 0) <= THRESHOLDS['trend_down']['1h'] and \
-                      w4h.get('chg', 0) <= THRESHOLDS['trend_down']['4h'] and \
-                      (not _is_oversold() or _strong_breakout('SHORT'))
-    trend_down_24h  = w24h.get('chg', 0) <= THRESHOLDS['trend_down']['24h'] and \
-                      w24h.get('ema20', 0) < w24h.get('ema60', 0)
-    if trend_down_1h4h or trend_down_24h:
-        strength = int(abs(w1h.get('chg', 0)) * 10 + abs(w4h.get('chg', 0)) * 5)
-        events.append({
-            'type': 'TREND_DOWN', 'symbol': symbol,
-            'strength': max(15, min(99, strength)),
-            'chg_1h': w1h.get('chg'), 'chg_4h': w4h.get('chg'),
-        })
-
-    # ── HIGH_VOL ──
-    if w15m.get('vol_ratio', 0) >= THRESHOLDS['high_vol']['vol_ratio']:
-        events.append({
-            'type': 'HIGH_VOL', 'symbol': symbol,
-            'strength': min(99, int(w15m.get('vol_ratio', 0) * 15)),
-            'vol_ratio': w15m.get('vol_ratio'),
-        })
-
-    # ── LOW_VOL ──
-    if w15m.get('vol_ratio', 0) <= THRESHOLDS['low_vol']['vol_ratio'] and \
-       w15m.get('vol_ratio', 0) > 0:
-        events.append({
-            'type': 'LOW_VOL', 'symbol': symbol,
-            'strength': max(10, min(99, int((1 - w15m.get('vol_ratio', 0)) * 20))),
-            'vol_ratio': w15m.get('vol_ratio'),
-        })
-
-    # ── ATR_EXPAND ──
-    if windows.get('15m', {}).get('atr_pct', 0) > \
-       windows.get('1h', {}).get('atr_pct', 0) * 2 and \
-       w15m.get('atr_pct', 0) > 0.5:
-        events.append({
-            'type': 'ATR_EXPAND', 'symbol': symbol,
-            'strength': min(99, int(w15m.get('atr_pct', 0) * 30)),
-            'atr_15m': w15m.get('atr_pct'), 'atr_1h': windows.get('1h', {}).get('atr_pct'),
-        })
-
-    # ── FAILED_BREAKOUT (stateful peak tracking) ──
-    # 用 _failed_breakout_state 追踪每个币的突破状态
-    raw_15m = windows_raw.get('15m', [])
-    raw_4h  = windows_raw.get('4h', [])
-    if len(raw_4h) >= 2 and len(raw_15m) >= 3:
-        _detect_failed_breakout(symbol, raw_4h, raw_15m, events)
-
-    return events
+    return s3_detector.detect_candidate_events(
+        symbol, windows, windows_raw,
+        log_fn=_log,
+        breakout_runner=_detect_failed_breakout,
+    )
 
 
 # ── FAILED_BREAKOUT Stateful Detection ──

@@ -47,3 +47,9 @@ OBS-10 持久化静默 —— 详见 PM_GOLDEN_OBSERVATIONS.md，锁定 tests/po
 - Close full/flat 全序；rejected 无 cancel；exception 清 marker；remaining 分支选择
 - Partial：PG/ledger/mark/Algo 零写入 + 负 qty 原样
 - Protection：payload/写回/失败无写回/cancel 异常不阻断/enqueue 失败开仓继续 True
+
+## S3 Detector Extract（P5-04 新增）
+
+锁定测试全部在 tests/s3/（P5-01..04）；S3-1..8 详见
+S3_GOLDEN_OBSERVATIONS.md / S3_STATE_BOUNDARY.md；S3-9 为 detection 段
+aliasing/skip 日志顺序事实 —— 见 S3_INVENTORY/PHASE4 index 尾部。

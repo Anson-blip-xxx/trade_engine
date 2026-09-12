@@ -36,3 +36,21 @@
 **Observed**: HIGH_VOL 最低强度并非 0——阈值 `vol_ratio>=2` 使 `int(2.0*15)=30` 成为实际下限；`LOW_VOL` 同道（>=0.3 且 >0 区间内 min=10）。"0 强度可达"在当前阈值下不可达。
 **锁定测试**: `test_detect_events.py::TestVolRegime::test_high_vol_boundary_strength`
 **Migration constraint**: P5-02 拆 Score/Classifier 时按此修正设计假设。
+
+### S3-9 — 事件家族覆盖/顺序为"源码序"非强度序
+**Observed**: `detect_events` 内部按源码 if 链顺序 append（PULSE_UP→…→ATR_EXPAND→FAILED_BREAKOUT）；
+同参数命中多事件时该顺序固定；**strength 排序仅发生在 Redis 写层**
+（`compute_and_detect` 内 `all_events.sort(key=lambda x: -x['strength'])`）。
+**锁定测试**: `test_detect_events.py::TestOrderingAndCompound::test_detection_order_frozen`
++ `test_detector_core.py::TestScenarioParityMatrix::test_c_multiple_events`
+**Migration constraint**: detector/重构必须保持源码序；P5-05 IO 抽 Publisher 时
+排序位置不可变。
+
+### S3-10 — VIOLENT 方向由 `close vs mid` 判定，与 close_pos 字段无关
+**Observed**: `_strong_breakout` 需要的 `close_pos` 从未写入（S3-3），
+而 VIOLENT 分支自行用 (w1h/w4h 的 high/low 与 w15m close) 计算 `_is_bull` —
+**该段不依赖 close_pos**，方向机制是独立的（independent — 事实澄清，
+VIOLENT_BULLISH/BEARISH 在真实链路下**可达**，与 S3-3 不相关）。
+**锁定测试**: `test_detector_core.py::TestScenarioParityMatrix::test_f_violent`
+**Migration constraint**: 拆/读代码时不得把 S3-3 的"不可达"结论错误缩放到
+VIOLENT 段——那是独立判断路径。
