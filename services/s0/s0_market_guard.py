@@ -14,6 +14,7 @@ sys.path.insert(0, str(_BASE / 'services/s0'))
 sys.path.insert(0, str(_BASE))
 from shared.redis_store import get as _rget, set as _rset
 from shared.binance_api import FAPI
+from s0 import core as s0_core
 
 load_dotenv(_BASE / 'config/binance.env')
 API_KEY    = os.getenv("BINANCE_API_KEY")
@@ -198,92 +199,35 @@ def sample_sentiment() -> dict:
 
 def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
                   breadth, breadth_ratio):
-    risk_off = (
-        (btc_below_ema60 and atr_expanding) or
-        amp > 0.04 or
-        breadth_ratio < 0.30
-    )
-    if risk_off:
-        market_state = "risk-off"
-    elif btc_trend == "bull" and breadth == "strong":
-        market_state = "trend"
-    else:
-        market_state = "range"
-
-    # ── 统一regime（S7 5档 + S6趋势强度） ──────────────────────────────
-    regime = "range"
-    regime_score = 0
-    trend_strength = 50
-
-    if risk_off:
-        regime = "risk-off"
-        regime_score = -7
-        trend_strength = 0
-    elif btc_trend == "bull" and breadth == "strong":
-        regime = "bull_trend"
-        regime_score = 5
-        trend_strength = 85
-    elif btc_trend == "bull" and breadth != "weak":
-        regime = "weak_bull"
-        regime_score = 3
-        trend_strength = 65
-    elif btc_trend == "bear" or breadth_ratio < 0.35:
-        regime = "weak_bear"
-        regime_score = -3
-        trend_strength = 25
-    else:
-        regime = "range"
-        regime_score = 0
-        trend_strength = 50
-
-    # ── 情绪风险叠加（sentiment_bridge 提供：恐慌贪婪 + 资金费率聚合）──
+    """compute_state（P6-02）：分类主体委托 s0.core.classify_regime；
+    sentiment/alts_sync/shock_score 的 wall-clock 采样与 IO 留在壳内，
+    core 只消费已 gate 值（S0-3 保持：off-window 字段恒 0；version/timestamp
+    由本函数注入——S0-1 fail-open / S0-9 三写语义零变化）。"""
+    now_int = int(time.time())
+    # ── sentiment 读取（IO，留壳） ──
     sent = sample_sentiment()
-    sentiment_risk = bool(sent.get('sentiment_risk', False))
-    if sentiment_risk:
-        regime_score = max(-7, regime_score - 1)  # 情绪过热 → 软性收紧 regime 评分
 
-    # ── 各系统运行许可 ──────────────────────────────────────────────────
-    s6_allowed = not risk_off or btc_trend == 'bull'
-    s7_allowed = regime in ('range', 'weak_bull')  # 网格只在震荡和弱多运行
-    s8_allowed = not risk_off and regime != 'bull_trend'  # 空头不能在强多头开
+    # ── wall-clock 门（S0-3 Gate 保留在同处 orchestration shell） ──
+    alts_sync_val = 0.0
+    shock_val = 0
+    if t_gate := int(time.time()) % 1800 < 30:
+        sync, _f, _t2 = sample_alts_sync()
+        alts_sync_val = sync
+    if int(time.time()) % 60 < 30:
+        shock_val = sample_shock_score()
 
+    core = s0_core.classify_regime(
+        btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
+        breadth, breadth_ratio,
+        alts_sync_val=alts_sync_val, shock_val=shock_val,
+        sentiment=sent,
+    )
+    # 字段序保持：version/timestamp 在最前（原 dict 字面量序）
     new_state = {
         "version":       VERSION,
-        "timestamp":     int(time.time()),
-        "market_state":  market_state,
-        "btc_trend":     btc_trend,
-        "breadth":       breadth,
-        "breadth_ratio": round(breadth_ratio, 3),
-        "volatility":    volatility,
-        "risk_off":      risk_off,
-        # v1.1 新增字段
-        "regime":        regime,
-        "regime_score":  regime_score,
-        "trend_strength": trend_strength,
-        "s6_allowed":    s6_allowed,
-        "s7_allowed":    s7_allowed,
-        "s8_allowed":    s8_allowed,
-        # v1.2 情绪叠加字段
-        "fng":           sent.get('fng', 50),
-        "fng_label":     sent.get('fng_label', ''),
-        "avg_funding":   sent.get('avg_funding', 0.0),
-        "sentiment_risk": sentiment_risk,
-        "sentiment_bias": sent.get('bias', 'neutral'),
+        "timestamp":     now_int,
+        **core,
     }
-
-    # 采样山寨联动（每30s太频繁，每30分钟采样一次）
-    if int(time.time()) % 1800 < 30:
-        sync, following, total = sample_alts_sync()
-        new_state["alts_sync"] = sync
-    else:
-        new_state["alts_sync"] = 0.0
-
-    # 冲击分（每60秒更新）
-    if int(time.time()) % 60 < 30:
-        new_state["shock_score"] = sample_shock_score()
-    else:
-        new_state["shock_score"] = 0
-
     return new_state
 
 
