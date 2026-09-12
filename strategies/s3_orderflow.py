@@ -30,6 +30,8 @@ from shared.binance_api import FAPI as FAPI_URL, FSTREAM as FSTREAM_URL
 from s3 import core as s3_core
 from s3 import state as s3_state
 from s3 import detector as s3_detector
+from s3 import ports as s3_ports
+from s3 import ports as s3_ports
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -700,28 +702,10 @@ def compute_and_detect(symbols: list):
         _symbol_windows = all_windows
         _symbol_windows_raw = all_windows_raw
     
-        # ── 输出：Redis 优先，JSON 做调试快照 ──
-        if all_events:
-            all_events.sort(key=lambda x: -x['strength'])
-            evt_data = {'ts': now, 'events': all_events}
-            
-            try:
-                _rset('event:s3', evt_data)
-                _rpublish('s3:event:notify')
-            except Exception:
-                pass
-        else:
-            try:
-                _rset('event:s3', {'ts': now, 'events': []})
-            except Exception:
-                pass
-        
-        # market_data
-        market_data = {'ts': now, 'symbols': all_windows}
-        try:
-            _rset('market:s3_data', market_data)
-        except Exception:
-            pass
+        # ── 输出：Redis 优先，JSON 做调试快照（经 Publisher Port，P5-05） ──
+        _pub = s3_ports.S3RedisPublisher(_rset, _rpublish)
+        _pub.write_event_snapshot(all_events, now)
+        _pub.write_market_snapshot(all_windows, now)
 
 
 # ════════════════════════════════════════════════════════════
