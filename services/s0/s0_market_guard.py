@@ -18,6 +18,27 @@ from s0 import core as s0_core
 from s0 import ports as s0_ports
 from s0 import adapters as s0_adapters
 
+
+def _s0_market_data():
+    """P6-04 晚绑定 factory：每次调用解析当前 `_rget`/`fapi_get`（保留
+    monkeypatch seam）；输入侧 Port 由 callable 注入。"""
+    return s0_adapters.S0RedisMarketAdapter(_rget, fapi_get)
+
+
+def _s0_breadth_pool():
+    """P6-04 晚绑定 state factory：包装 legacy `_breadth_symbols_cache`
+    /`_breadth_symbols_ts`（dict-get/get/put 语义；重启用-backed 新 fixture）。"""
+    return s0_adapters.BreadthPoolMemoryState(
+        backing_get=lambda: (_breadth_symbols_cache, _breadth_symbols_ts),
+        backing_put=_set_breadth_pool,
+    )
+
+
+def _set_breadth_pool(symbols, ts):
+    global _breadth_symbols_cache, _breadth_symbols_ts
+    _breadth_symbols_cache = symbols
+    _breadth_symbols_ts = ts
+
 load_dotenv(_BASE / 'config/binance.env')
 API_KEY    = os.getenv("BINANCE_API_KEY")
 API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -42,10 +63,12 @@ EXCLUDE = {"BTCUSDT", "USDCUSDT", "BUSDUSDT", "TUSDUSDT", "USDTUSDT", "FDUSDUSDT
 
 def get_breadth_symbols() -> list:
     global _breadth_symbols_cache, _breadth_symbols_ts
-    if _breadth_symbols_cache and time.time() - _breadth_symbols_ts < 6 * 3600:
+    _pool = _s0_breadth_pool()
+    _symbols, _ts = _pool.get()
+    if _symbols and time.time() - _breadth_symbols_ts < 6 * 3600:
         return _breadth_symbols_cache
     try:
-        tickers = fapi_get("/fapi/v1/ticker/24hr")
+        tickers = _s0_market_data().fetch_ticker_24h()
         ranked = sorted(
             [t for t in tickers if t["symbol"].endswith("USDT") and t["symbol"] not in EXCLUDE],
             key=lambda t: float(t["quoteVolume"]), reverse=True
@@ -65,15 +88,8 @@ def fapi_get(path, params=None):
 
 
 def _s3_window(symbol, tf):
-    """从 s3 的 market:s3_data 读取指定币种时间窗"""
-    try:
-        data = _rget('market:s3_data')
-        if data and 'symbols' in data:
-            sym_data = data['symbols'].get(symbol, {})
-            return sym_data.get(tf, {})
-    except Exception:
-        pass
-    return {}
+    """从 s3 的 market:s3_data 读取指定币种时间窗（P6-04：经 Input Port）"""
+    return _s0_market_data().read_s3_window(symbol, tf)
 
 
 def _s3_win(w, key, default=0):
@@ -189,14 +205,9 @@ def sample_shock_score() -> int:
 
 
 def sample_sentiment() -> dict:
-    """读取 sentiment_bridge 采集的情绪数据（恐慌贪婪 + 资金费率聚合）。"""
-    try:
-        data = _rget('market:sentiment')
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-    return {}
+    """读取 sentiment_bridge 采集的情绪数据（恐慌贪婪 + 资金费率聚合）
+    （P6-04：经 Input Port；缺 key/畸形 → {}）。"""
+    return _s0_market_data().read_sentiment()
 
 
 def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
