@@ -28,6 +28,7 @@ sys.path.insert(0, str(TRADE_DIR))
 from shared.redis_store import set as _rset, get as _rget, publish as _rpublish
 from shared.binance_api import FAPI as FAPI_URL, FSTREAM as FSTREAM_URL
 from s3 import core as s3_core
+from s3 import state as s3_state
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -196,7 +197,8 @@ _event_states: dict = {}
 def _get_event_key(evt: dict) -> str:
     return f"{evt.get('symbol', '')}_{evt.get('type', '')}"
 
-def _update_event_state(evt: dict, now: float) -> Optional[dict]:
+def _update_event_state(evt: dict, now: float,
+                        state_store=None) -> Optional[dict]:
     """
     管理 Event 生命周期，返回更新后的 event（或 None 表示无需发送）
     
@@ -205,14 +207,18 @@ def _update_event_state(evt: dict, now: float) -> Optional[dict]:
       - 持续存在且 strength 变化大: UPDATE
       - 持续存在但 strength 变化小: 冷却跳过
       - 之前有但现在没有: END（由 _end_expired_events 处理）
+    
+    state_store: 可注入状态边界（s3.state.EventStateStore 同 duck-type dict）；
+    默认 None → 使用 legacy 模块级 `_event_states`（零行为变化，P5-03 pilot 1）。
     """
+    store = _event_states if state_store is None else state_store
     key = _get_event_key(evt)
     strength = evt.get('strength', 0)
-    prev = _event_states.get(key)
+    prev = store.get(key)
     
     if not prev:
         # 全新事件 → ACTIVE
-        _event_states[key] = {
+        store[key] = {
             'state': 'ACTIVE',
             'strength': strength,
             'ts': now,
@@ -232,7 +238,7 @@ def _update_event_state(evt: dict, now: float) -> Optional[dict]:
     
     # 需要更新
     state = 'UPDATE' if prev['state'] in ('ACTIVE', 'UPDATE') else 'ACTIVE'
-    _event_states[key] = {
+    store[key] = {
         'state': state,
         'strength': strength,
         'ts': now,
@@ -242,14 +248,20 @@ def _update_event_state(evt: dict, now: float) -> Optional[dict]:
     evt['since'] = prev.get('ts', now)
     return evt
 
-def _end_expired_events(all_symbols: list, now: float) -> list:
+def _end_expired_events(all_symbols: list, now: float,
+                        state_store=None) -> list:
     """
     检查哪些活跃 Event 过期了（超过 EVENT_MAX_AGE 未更新），
     返回 END 事件列表
+    
+    state_store：可注入（P5-03）；默认 legacy `_event_states`；
+    迭代序/删除时机（先收集后删除）/value 引用突变（state['state']='END'）
+    全部保持一致。
     """
+    store = _event_states if state_store is None else state_store
     ended = []
     expired = []
-    for key, state in _event_states.items():
+    for key, state in store.items():
         s = state.get('state', '')
         if s not in ('ACTIVE', 'UPDATE'):
             continue  # 非活跃事件跳过（已 END 或未知）
@@ -272,7 +284,7 @@ def _end_expired_events(all_symbols: list, now: float) -> list:
                 state['state'] = 'END'
             expired.append(key)
     for k in expired:
-        del _event_states[k]
+        del store[k]
     return ended
 
 # ════════════════════════════════════════════════════════════
@@ -486,10 +498,18 @@ def detect_events(symbol: str, windows: dict, windows_raw: dict) -> list:
 # 状态: {symbol: {state, last_high, last_low, breakout_high, breakout_low, ts}}
 _fb_state: dict = {}
 
-def _detect_failed_breakout(symbol: str, raw_4h: list, raw_15m: list, events: list):
-    """基于状态追踪的失败突破检测"""
-    now = time.time()
-    state = _fb_state.get(symbol, {'state': 'IDLE', 'last_high': 0, 'last_low': 0})
+def _detect_failed_breakout(symbol: str, raw_4h: list, raw_15m: list,
+                            events: list, state_store=None,
+                            time_fn=None):
+    """基于状态追踪的失败突破检测
+    
+    state_store：可注入（s3.state.BreakoutStateStore 同 duck-type dict），
+    默认 legacy `_fb_state`；time_fn 默认 time.time（不改变时间语义）。
+    触发条件/S3-3（真实窗口无 close_pos）不修——P5-03 只显式化状态。
+    """
+    now = time.time() if time_fn is None else time_fn()
+    store = _fb_state if state_store is None else state_store
+    state = store.get(symbol, {'state': 'IDLE', 'last_high': 0, 'last_low': 0})
     
     prev_4h_candles = raw_4h[1:]  # 前4h（排除最新）
     if not prev_4h_candles:
@@ -563,7 +583,7 @@ def _detect_failed_breakout(symbol: str, raw_4h: list, raw_15m: list, events: li
         if now - state.get('ts', now) > 27000:
             state['state'] = 'IDLE'
     
-    _fb_state[symbol] = state
+    store[symbol] = state
 
 
 # ════════════════════════════════════════════════════════════
