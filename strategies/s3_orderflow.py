@@ -27,6 +27,7 @@ _LOG_DIR   = TRADE_DIR.parent / 'logs/s3'
 sys.path.insert(0, str(TRADE_DIR))
 from shared.redis_store import set as _rset, get as _rget, publish as _rpublish
 from shared.binance_api import FAPI as FAPI_URL, FSTREAM as FSTREAM_URL
+from s3 import core as s3_core
 
 # ── 参数 ────────────────────────────────────────────────────
 TOP_N        = 60
@@ -131,7 +132,7 @@ def fetch_klines(symbol: str, interval: str = '1m', limit: int = 500) -> list:
 _ema_cache: dict = {}
 
 def compute_ema(values: list, period: int, symbol: str = None) -> float:
-    """指数移动平均（支持增量更新）"""
+    """指数移动平均（支持增量更新）——纯内核在 s3.core（P5-02 委托）"""
     if not values:
         return 0
     
@@ -145,15 +146,8 @@ def compute_ema(values: list, period: int, symbol: str = None) -> float:
         _ema_cache[symbol][period] = new_ema
         return new_ema
     
-    # 首次计算（全量）
-    if len(values) < period:
-        result = values[-1] if values else 0
-    else:
-        k = 2 / (period + 1)
-        ema = sum(values[:period]) / period
-        for v in values[period:]:
-            ema = v * k + ema * (1 - k)
-        result = ema
+    # 首次计算（全量）→ 委托纯内核（数值逐字等价，P5-02）
+    result = s3_core.ema(values, period)
     
     # 缓存
     if symbol:
@@ -164,38 +158,19 @@ def compute_ema(values: list, period: int, symbol: str = None) -> float:
     return result
 
 def compute_rsi(prices: list, period: int = 14) -> float:
-    """RSI 计算"""
-    if len(prices) < period + 1:
-        return 50.0
-    gains, losses = 0.0, 0.0
-    for i in range(len(prices) - period, len(prices)):
-        chg = prices[i] - prices[i-1]
-        if chg > 0:
-            gains += chg
-        else:
-            losses -= chg
-    if losses == 0:
-        return 100.0
-    rs = gains / losses
-    return 100 - (100 / (1 + rs))
+    """RSI 计算——委托 s3.core（P5-02，数值逐字等价）"""
+    return s3_core.rsi(prices, period)
 
 def compute_atr(candles: list, period: int = 14) -> float:
-    """ATR（平均真实波幅）— candles 已经确保是最新→最旧"""
-    if len(candles) < 2:
-        return 0
-    trs = []
-    for i in range(1, min(len(candles), period + 1)):
-        hl = candles[i]['h'] - candles[i]['l']
-        hc = abs(candles[i]['h'] - candles[i-1]['c'])
-        lc = abs(candles[i]['l'] - candles[i-1]['c'])
-        trs.append(max(hl, hc, lc))
-    return sum(trs) / len(trs) if trs else 0
+    """ATR（平均真实波幅）— 委托 s3.core（P5-02，数值逐字等价）"""
+    return s3_core.atr(candles, period)
 
 def compute_window_data(candles: list, window_min: int, symbol: str = None) -> dict:
     """
     计算单个滚动窗口数据
     candles: 最新→最旧, 取前 window_min 根
     返回 dict 包含所有预计算指标
+    （纯段委托 s3.core.build_window_features；EMA 缓存调用序 20→60 原样，P5-02）
     """
     k = candles[:window_min]
     if not k:
@@ -204,45 +179,11 @@ def compute_window_data(candles: list, window_min: int, symbol: str = None) -> d
     # 反转：从最旧→最新（指标计算需要这个方向）
     k_rev = list(reversed(k))
     
-    closes  = [c['c'] for c in k_rev]
-    highs   = [c['h'] for c in k_rev]
-    lows    = [c['l'] for c in k_rev]
-    volumes = [c['v'] for c in k_rev]
-    taker_buy = [c.get('tbv', 0.0) for c in k_rev]
+    # EMA 仍走原 compute_ema（缓存路径保持）；调用序 20→60 与原实现一致
+    ema20 = compute_ema([c['c'] for c in k_rev], 20, symbol)
+    ema60 = compute_ema([c['c'] for c in k_rev], 60, symbol)
     
-    first_close = closes[0]
-    last_close  = closes[-1]
-    chg_pct = ((last_close - first_close) / first_close * 100) if first_close else 0
-    
-    avg_vol = sum(volumes) / len(volumes) if volumes else 0
-    latest_vol = volumes[-1] if volumes else 0
-    total_volume = sum(volumes)
-    taker_buy_volume = sum(taker_buy)
-    taker_sell_volume = max(0.0, total_volume - taker_buy_volume)
-    
-    # 获取该币的 symbol 用于 EMA 缓存键 - 从 candles 第一根的 __symbol 属性取
-    # symbol passed as param
-    
-    return {
-        'chg':       round(chg_pct, 2),
-        'atr':       round(compute_atr(k_rev), 6),
-        'atr_pct':   round(compute_atr(k_rev) / last_close * 100, 4) if last_close else 0,
-        'volume':    round(sum(volumes), 2),
-        'vol_ratio': round(latest_vol / avg_vol, 2) if avg_vol > 0 else 1.0,
-        'taker_buy_volume': round(taker_buy_volume, 2),
-        'taker_sell_volume': round(taker_sell_volume, 2),
-        'taker_buy_ratio': round(taker_buy_volume / total_volume, 4) if total_volume > 0 else 0.5,
-        'orderflow_bias': round((taker_buy_volume - taker_sell_volume) / total_volume, 4)
-        if total_volume > 0 else 0.0,
-        'high':      round(max(highs), 8),
-        'low':       round(min(lows), 8),
-        'close':     round(last_close, 8),
-        'rsi':       round(compute_rsi(closes), 2),
-        'ema20':     round(compute_ema(closes, 20, symbol), 6),
-        'ema60':     round(compute_ema(closes, 60, symbol), 6),
-        'volatility': round((max(highs) - min(lows)) / last_close * 100, 4) if last_close else 0,
-        'drawdown':  round((min(lows) - max(highs)) / max(highs) * 100, 4) if max(highs) else 0,
-    }
+    return s3_core.build_window_features(k_rev, ema20, ema60)
 
 # ════════════════════════════════════════════════════════════
 #  Event 管理
