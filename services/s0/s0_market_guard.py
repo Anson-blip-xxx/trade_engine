@@ -15,6 +15,8 @@ sys.path.insert(0, str(_BASE))
 from shared.redis_store import get as _rget, set as _rset
 from shared.binance_api import FAPI
 from s0 import core as s0_core
+from s0 import ports as s0_ports
+from s0 import adapters as s0_adapters
 
 load_dotenv(_BASE / 'config/binance.env')
 API_KEY    = os.getenv("BINANCE_API_KEY")
@@ -231,29 +233,23 @@ def compute_state(btc_trend, volatility, amp, btc_below_ema60, atr_expanding,
     return new_state
 
 
+def _s0_publisher():
+    """P6-03 晚绑定 factory：每次 write_state 解析当前模块态
+    （`_rset` / `STATE_FILE` / shared.clickhouse_client.insert 均可在调用时被
+    monkeypatch —— 测试语义保持；S0-9 三写失败语义经 adapter 逐字镜像）。"""
+    from shared.clickhouse_client import insert as _ch_insert  # call-time 解析
+    return s0_adapters.S0PublisherAdapter(
+        redis_set=_rset,
+        file_write=lambda state: s0_adapters.S0PublisherAdapter.atomic_file_write(
+            state_file_path=str(STATE_FILE), state=state),
+        ch_insert=_ch_insert,
+        on_ch_error=lambda e: log.warning(f"CH write error: {e}"),
+    )
+
+
 def write_state(state):
-    try:
-        _rset('market:s0', state)
-    except Exception:
-        pass
-    tmp = str(STATE_FILE) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f)
-    os.replace(tmp, str(STATE_FILE))
-    # 同步写入 ClickHouse
-    try:
-        from shared.clickhouse_client import insert as _ch_insert
-        row = json.dumps({
-            'market_state':  state['market_state'],
-            'btc_trend':     state['btc_trend'],
-            'breadth':       state['breadth'],
-            'breadth_ratio': state['breadth_ratio'],
-            'volatility':    state['volatility'],
-            'risk_off':      1 if state['risk_off'] else 0,
-        })
-        _ch_insert('default.market_state_log', row)
-    except Exception as e:
-        log.warning(f"CH write error: {e}")
+    """S0 三写链（P6-03：delegate publisher）；public 签名/异常语义不变。"""
+    return _s0_publisher().publish_state(state)
 
 
 def main():
