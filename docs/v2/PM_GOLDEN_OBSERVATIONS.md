@@ -233,3 +233,21 @@ Phase 7 拆解时 cancel 时机必须逐分支冻结（P4-01 spy 序列测试已
 ### Migration constraint:
 D4 契约 `cancel_algo_id` 逐字镜像该行为（不改）；修复需把 light 槽位换成
 真 DELETE 实现——属行为变更，Phase 7 显式决策。
+
+## PMB-12 · record_trade 内嵌 income 对账量（P7-03A 冻结）
+
+### Observed:
+`record_trade` 内嵌 Binance `/fapi/v1/income`（`REALIZED_PNL` 类型）覆盖
+公式 PnL——非零 income 以百分比反算到 `pnl_pct=income/notional*100`。
+API 失败/空/畸形 → 吞错 → 公式值。**同一平仓事件产生两套 pnl 口径**
+（事件级=pm 公式；episode 级=income 对账+partial 加权合并）。
+### Migration constraint:
+P7-03B LedgerService 必须保留双口径并证明 income/公式在 fail/zero/malformed
+三种状态下与 legacy 完全一致；不得统一口径。
+
+## PMB-13 · partial close 无 PG/CH ledger 全链缺失
+### Observed:
+`final_close=False` 时 record_trade 只积累 Redis partial key；不写
+trade_episodes、不写 trade_history。partial close 分支本身也不发 PG 事件。
+### Migration constraint:
+PMB-6 扩展（ledger 链全段缺失）；P7-03B 不得"顺手补全"。
