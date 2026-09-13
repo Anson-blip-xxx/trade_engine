@@ -99,9 +99,9 @@ def ch_rows(s0_env):
 
 # ── 数据生成 helpers ─────────────────────────────────────────────────
 
-def sym_row(sym, close, ema20=100.0, chg=1.0, volatility=0.0,
+def sym_row(sym, close, ema20=100.0, ema60=95.0, chg=1.0, volatility=0.0,
             high=None, low=None):
-    return {'close': close, 'ema20': ema20, 'chg': chg,
+    return {'close': close, 'ema20': ema20, 'ema60': ema60, 'chg': chg,
             'volatility': volatility,
             'high': high if high is not None else close * 1.01,
             'low': low if low is not None else close * 0.99}
