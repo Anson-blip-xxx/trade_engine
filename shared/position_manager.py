@@ -28,6 +28,7 @@ from execution import core as _exec_core
 from execution import service as _exec_service
 from execution.adapters import binance as _exec_binance
 from execution.adapters import position_state as _exec_pos_state
+from position_state import service as ps_service
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -590,14 +591,8 @@ _SYSTEM_KEYS = {
 }
 
 def _load_meta() -> dict:
-    """从 pm:positions 读取本地元数据。"""
-    try:
-        local_pos = _rget('pm:positions')
-        if isinstance(local_pos, dict):
-            return {s: p for s, p in local_pos.items() if isinstance(p, dict)}
-    except Exception:
-        pass
-    return {}
+    """从 pm:positions 读取本地元数据（P7-02：经 StateService）。"""
+    return _state_service().load_meta()
 
 def _is_tradable_symbol(symbol: str) -> bool:
     """Engine trades *USDT futures only. Stale legacy testnet contracts
@@ -666,25 +661,54 @@ def _load() -> dict:
     三层加载持仓：
       一层 WS 实时流 → 二层 REST 轮询 → 三层本地元数据
     沙盘模式：跳过 WS/REST，仅用本地。
+    （P7-02：状态 assembly 委托 PositionStateService；merge/REST 解析经
+    callable 注入，顺序/异常吞错逐字保持。）
     """
-    now = time.time()
-
-    if _sandbox_active():
+    def merge_and_save(raw, now):
         meta = _load_meta()
-        return {s: p for s, p in meta.items() if not _was_closed_recently(s)}
+        merged = _merge_meta_preserving_missing(raw, meta, now)
+        _save(merged)
+        return merged
 
-    # ── 一层：WS 实时流 ──
-    ws_fresh = _WS_LAST_UPDATE > 0 and now - _WS_LAST_UPDATE < 30
-    if ws_fresh:
-        with _WS_LOCK:
-            ws_positions = dict(_WS_POSITIONS)
-        if ws_positions:
-            meta = _load_meta()
-            merged = _merge_meta_preserving_missing(ws_positions, meta, now)
+    def meta_filtered():
+        meta = _load_meta()
+        merged = {s: p for s, p in meta.items() if not _was_closed_recently(s)}
+        if merged:
             _save(merged)
-            return merged
+        return merged
 
-    # ── 二层：REST 轮询 ──
+    def ws_snapshot():
+        with _WS_LOCK:
+            return (_WS_LAST_UPDATE, dict(_WS_POSITIONS))
+
+    return _state_service().load_assembly(
+        ws_snapshot_fn=ws_snapshot,
+        rest_positions_fn=_rest_positions_snapshot,
+        merge_and_save_fn=merge_and_save,
+        meta_filtered_fn=meta_filtered,
+    )
+
+
+def _state_service() -> 'ps_service.PositionStateService':
+    """P7-02 晚绑定 factory：每次 `_load`/marker 调用解析当前模块态
+    （`_rget/_rset/_WS_*/shared.redis_store.delete` 均可在调用时被替换——
+    monkeypatch seam 保留；OBS-5 经 direct delete callable 保持）。"""
+    from shared.redis_store import delete as _direct_delete
+
+    def _direct_marker_delete(key):
+        _direct_delete(key)
+
+    return ps_service.PositionStateService(
+        state_port=_position_state(),
+        marker_set=_rset,
+        marker_get=_rget,
+        marker_delete=_direct_marker_delete,
+        sandbox_check=_sandbox_active,
+    )
+
+
+def _rest_positions_snapshot() -> dict:
+    """REST 轮询解析（P7-02 从 `_load` 抽出为 helper；解析/异常吞错逐字）。"""
     rest_positions: dict[str, dict] = {}
     try:
         real_r = _light_fapi_get('/fapi/v2/positionRisk')
@@ -701,19 +725,7 @@ def _load() -> dict:
                 }
     except Exception:
         pass
-
-    if rest_positions:
-        meta = _load_meta()
-        merged = _merge_meta_preserving_missing(rest_positions, meta, now)
-        _save(merged)
-        return merged
-
-    # ── 三层：本地元数据 ──
-    meta = _load_meta()
-    merged = {s: p for s, p in meta.items() if not _was_closed_recently(s)}
-    if merged:
-        _save(merged)
-    return merged
+    return rest_positions
 
 
 def _position_state() -> '_exec_pos_state.RedisPositionStateAdapter':
@@ -1678,29 +1690,28 @@ def close_position(symbol: str, reason: str) -> bool:
 
 
 def _mark_closed(symbol: str):
-    """跨进程标记：该 symbol 已被 _close 处理过（Redis + 4h TTL），幽灵忽略"""
+    """跨进程标记：该 symbol 已被 _close 处理过（Redis；4h 由 ts 比较实现，
+    非 TTL——PMB-4 冻结）（P7-02：经 StateService，失败吞错语义不变）"""
     try:
-        _rset(f'closed:{symbol}', {'ts': time.time()})
+        _state_service().mark_closed(symbol)
     except Exception:
         pass
 
 
 def _was_closed_recently(symbol: str, within_hours: int = 4) -> bool:
-    """检查 symbol 近期是否被 _close 处理过（Redis 原子性，跨进程共享）"""
+    """检查 symbol 近期是否被 _close 处理过（Redis 原子性，跨进程共享）
+    （P7-02：经 StateService；ts 比较窗口语义不变）"""
     try:
-        data = _rget(f'closed:{symbol}')
-        if data and 'ts' in data:
-            return time.time() - data['ts'] < within_hours * 3600
+        return _state_service().was_closed_recently(symbol, within_hours)
     except Exception:
-        pass
-    return False
+        return False
 
 
 def _clear_closed_marker(symbol: str):
-    """清除关闭标记（仓位重新打开后调用）"""
+    """清除关闭标记（仓位重新打开后调用）
+    （P7-02：OBS-5 直连 delete seam 经注入 callable 保留；失败吞错不变）"""
     try:
-        from shared.redis_store import delete as _rdelete
-        _rdelete(f'closed:{symbol}')
+        _state_service().clear_closed(symbol)
     except Exception:
         pass
 

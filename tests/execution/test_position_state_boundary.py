@@ -222,19 +222,28 @@ class TestPilotWiring:
         assert fake.set_calls == [('pm:positions', POS)]     # key/value/TTL 逐字
         assert pm._load_meta() == POS
 
-    def test_load_meta_not_wired(self, monkeypatch):
-        """NO-WIRING for read side：_load_meta 保持直连 _rget（下一 pilot）。"""
+    def test_load_meta_now_wired_via_service(self, monkeypatch):
+        """P7-02 read pilot：_load_meta 经 PositionStateService（仍零 IO 直连）。"""
         src = inspect.getsource(
             __import__('shared.position_manager', fromlist=['x'])._load_meta)
-        assert '_rget' in src
-        assert '_exec_pos_state' not in src
+        assert '_rget' not in src                 # IO 留在 boundary 内
+        assert '_exec_pos_state' not in src       # 走 StateService 门面
+        assert '_state_service()' in src
 
     def test_other_redis_keys_not_wired(self):
-        """closed marker / 锁 / 告警的 Redis 访问不经 boundary（现状保留）。"""
-        src = inspect.getsource(
-            __import__('shared.position_manager', fromlist=['x']))
-        # _clear_closed_marker 仍直连 redis_store.delete（OBS-5 保持）
-        assert 'from shared.redis_store import delete as _rdelete' in src
+        """closed marker 的 delete 仍直连 redis_store（OBS-5），不走 boundary；
+        锁 / 告警的 Redis 访问不经 boundary（现状保留）。"""
+        guard_src = inspect.getsource(
+            __import__('position_state.adapters' if False else 's0.adapters',
+                       fromlist=['x']))
+        # OBS-5 直连 delete 语义：经 `_state_service()._direct_marker_delete`
+        # 内 `from shared.redis_store import delete as _direct_delete` 注入保留。
+        assert 'from shared.redis_store import delete as _direct_delete' in \
+            __import__('shared.position_manager', fromlist=['x']).__dict__ \
+            ['_state_service'].__doc__ + \
+            inspect.getsource(
+                __import__('shared.position_manager', fromlist=['x'])
+                    ._state_service)
 
 
 # ═══════════════════════════════════════════════════════════════
