@@ -29,6 +29,7 @@ from execution import service as _exec_service
 from execution.adapters import binance as _exec_binance
 from execution.adapters import position_state as _exec_pos_state
 from position_state import service as ps_service
+from position_protection import service as pp_service
 
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
@@ -191,6 +192,20 @@ _ALGO_MIN_CHANGE_PCT = 0.2  # SL 变化 < 此值（%）不更新 AlgoSL
 _ALGO_QUEUE = []           # [(symbol, side, trigger_price, qty), ...]
 _ALGO_QUEUE_LOCK = threading.Lock()
 _ALGO_WORKER_STARTED = False
+
+def _protection_service() -> 'pp_service.ProtectionService':
+    """P7-04B 晚绑定 factory：每次 algo SL 调用解析当前模块态
+    （`_algo_enqueue/_algo_start_worker/_algo_place_sl_inner/_algo_cancel/
+    _cancel_all_algo` 均可在调用时被 monkeypatch 替换——测试 seam 保留）。"""
+    from position_protection import service as _pps
+    return _pps.ProtectionService(
+        enqueue_fn=_algo_enqueue,
+        start_worker_fn=_algo_start_worker,
+        place_algo_sl_fn=_algo_place_sl_inner,
+        cancel_id_fn=_algo_cancel,
+        cancel_all_fn=_cancel_all_algo,
+    )
+
 
 def _algo_start_worker():
     """启动后台队列消费线程（只启动一次）"""
