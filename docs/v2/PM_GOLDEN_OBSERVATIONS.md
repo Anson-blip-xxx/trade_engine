@@ -322,3 +322,44 @@ record→mark 顺序保持。
 命中后即使未平仓也 `return None`——当轮时间止损不再评估（下一轮才可能平）。
 ### Migration constraint:
 P7-05B 保留链序（勿把 return None 改为 fall-through）。
+
+## PMB-23 · _ghost_cleanup_one 先 pop 后 record + 全环同生死（P7-06A 冻结）
+### Observed:
+- lock 内先 `positions.pop(sym)` 再 `record_trade`；record raise 时本地仓已
+  移除、无记账、无 marker —— 记账窗口存在空洞。
+- 且 `_ghost_cleanup` 的外层 try 包住整个 for 环 —— 任一 cleanup_one 异常
+  即中止**后继所有仓**（非 per-symbol isolation；与 monitor 主循环语义不同）。
+  finally 保证已有锁释放。
+### Migration constraint:
+P7-06B 逐字保留（顺序/try 粒度/中止行为）；如需变更作 action ticket。
+
+## PMB-24 · reconcile_all 幽灵清理是静默第二通道（P7-06A 冻结）
+### Observed:
+- reconcile 的 local-only 处理：pop + 日志 + ghost 列表 —— **不 record、
+  不 mark、不加锁**，与 `_ghost_cleanup` 的记账通道并行存在（同一方向
+  两套语义）。
+- 交易所解析无 tradable 过滤（`*USD_PERP` 可出现）——与
+  `_merge_meta/_is_tradable_symbol` 过滤不对称。
+- 终局一次 `_save(positions)`；无 double save。
+### Migration constraint:
+P7-06B 独立保持两条通道；不"顺手"统一。
+
+## PMB-25 · _RECENTLY_GHOSTED 无生产 producer（P7-06A 冻结）
+### Observed:
+全代码搜索确认：`_RECENTLY_GHOSTED` 仅在 monitor_all 消费（pop/extend），
+无任何生产 append 调用 —— dead queue（历史遗留）。当前值为空列表，
+队列消费逻辑不可达。
+### Migration constraint:
+P7-06B 保留消费段（结构与顺序冻结），不得"删除死代码"；
+重启即清空（进程内 object；P7-06B 保进程 local 语义）。
+
+## PMB-26 · 闭标记自愈 + 告警吞错不对称（P7-06A 冻结）
+### Observed:
+- `_merge_meta(alert_external=True)`：交易所仍有仓 → marker 被自动清除
+  ('[闭标记修复]') —— recently-closed dedup 窗口因此被重开（S0-9 家族边界）。
+- external-position 通知：TG `requests.post` 失败吞错；**PG
+  `_pg_record_event` 不在 try 内** —— PG 失败会向 merge 链传播。
+- 24h seen key 与 30s pending key 均为 per-symbol Redis 键（非 RACE 安全，
+  检查-写非原子 —— 双进程可能重复告警）。
+### Migration constraint:
+P7-06B 保留（含非原子 dedup）；原子化 = action ticket，非顺手行为。
