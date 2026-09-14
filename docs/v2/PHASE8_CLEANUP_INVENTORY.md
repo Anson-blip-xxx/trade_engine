@@ -39,7 +39,7 @@ monitoring ──gcl──▶ reconcile（info ghost 也经 it 注入）；recon
 | # | Item | 现状 | 建议动作 | 依赖面 / 断点 |
 |---|---|---|---|---|
 | C1 | `_light_fapi_*`/`_light_get_price` 与 ExecutionService 双轨 IO | PM 仍持 legacy 直连 | 收敛到 execution Port 或封装为共享 helper（行为逐字镜像） | PM 内私有调用（无外部 import） |
-| C2 | `_ensure_apikey/_API_KEY/_API_SECRET` 内联惰性 apikey 逻辑 | PM 保留段 | 迁 shared/binance_api | 仅 `_ws_listen_key` 使用 |
+| C2 | `_ensure_apikey/_API_KEY/_API_SECRET` 内联惰性 apikey 逻辑 | **P8-04 完成**：GREEN parse 机械迁 `position_market/auth.py`（load_api_keys/build_api_header/has_credentials）；`is None` call-time 懒加载 + globals 缓存语义 == HEAD；YELLOW hmac/signature/timestamp/recvWindow 留原位（Red，不迁） | **position_market/auth.py** | C1 `_light_fapi_*` 0 diff（未迁） |
 | C3 | 37/41/22 注入位大构造器（lifecycle/monitoring/ledger） | 全 kw 参数 | 分组结构体（StateSeams/IOSeams 等）——**纯重构** | 需全 parity 套件绿 |
 | C4 | `_load_meta` / `_save` / `_state_service` / `_position_state` 4 段重复 factory 胶水 | 各自晚绑定 | 合并成一个 state 胶水 helper | `_load` chain + marker |
 | C5 | `_get_funding_rate` 残留 requests 直连（fapi premiumIndex，失败→0） | PM inline | 抽 shared/market_data helper | monitoring `fund` seam 引用 |

@@ -39,6 +39,7 @@ from position_reconcile import service as _rc_service
 
 from position_lifecycle import service as _lc_service
 from position_market import funding as _funding_helper
+from position_market import auth as _auth_helper
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
 
@@ -62,26 +63,15 @@ except ImportError:
 _API_KEY = None
 _API_SECRET = None
 def _ensure_apikey():
+    """Lazy/env 读取（P8-04：parse 机械迁 position_market.auth；
+    `is None` call-time 懒加载判别 + globals 缓存语义 == HEAD）。"""
     global _API_KEY, _API_SECRET
     if _API_KEY is None:
-        env_path = _BASE / 'config/binance.env'
-        if env_path.exists():
-            is_testnet = False
-            for line in env_path.read_text().splitlines():
-                line = line.strip()
-                if '=' in line and not line.startswith('#'):
-                    k, v = line.split('=', 1)
-                    k = k.strip()
-                    if k == 'BINANCE_TESTNET':
-                        is_testnet = v.strip().lower() == 'true'
-                    elif k == 'BINANCE_API_KEY' and not is_testnet:
-                        _API_KEY = v.strip()
-                    elif k in ('BINANCE_SECRET_KEY', 'BINANCE_API_SECRET') and not is_testnet:
-                        _API_SECRET = v.strip()
-                    elif k == 'BINANCE_TESTNET_API_KEY' and is_testnet:
-                        _API_KEY = v.strip()
-                    elif k == 'BINANCE_TESTNET_API_SECRET' and is_testnet:
-                        _API_SECRET = v.strip()
+        api_key, secret = _auth_helper.load_api_keys(_BASE / 'config/binance.env')
+        if api_key is not None:
+            _API_KEY = api_key
+        if secret is not None:
+            _API_SECRET = secret
 
 def _light_fapi_post(path: str, params: dict) -> dict | None:
     """简易 fapi_post（仅用于 AlgoSL 下单，不依赖 s6_auto_trader）"""
