@@ -115,3 +115,26 @@ def patch_executor(monkeypatch, fake_redis):
 
     set_balance(4000)
     return {'se': se, 'set_balance': set_balance}
+
+
+# ═══════════════════════════════════════════════════════════════
+# HOTFIX 2026-09-14 — 测试侧效应静音（生产群 TG 轰炸根因）
+#
+# 现象：Telegram『✅/❌ 平仓 DOGEUSDT …』数小时连续推送几千条。
+# 根因：record_trade → PositionLedgerService.settle → tg_fn=_send_and_pin，
+#      `_send_and_pin` 内部惰性 `import requests`，绕过模块级
+#      `monkeypatch.setattr(tr, 'requests')` — P7-03A 起全部 ledger
+#      golden 每 pytest 真实调用 Telegram API。
+# 次要：泄漏的 algo-worker 后台线程用真实 `_light_fapi_post` 下过
+#      testnet AlgoSL（log 中 `[AlgoSL成功] TUSDT id=...`）。
+# 修复：tests-only autouse 静音 —— 测试期间 `_send_and_pin` /
+#      `_algo_place_sl_inner` 置 noop（生产零改动；各测试自己的
+#      per-test 后置 monkeypatch 优先级兼容）。
+# ═══════════════════════════════════════════════════════════════
+
+
+@pytest.fixture(autouse=True)
+def _silence_external_sideeffects(monkeypatch):
+    from shared import trade_recorder as _tr
+    # TG 通知静音（`import requests` 绕过模块级 seam → 函数级 stub）
+    monkeypatch.setattr(_tr, '_send_and_pin', lambda *a, **k: None)
