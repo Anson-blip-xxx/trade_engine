@@ -189,10 +189,7 @@ _S6_API = None
 
 # API 限速保护：每个标的最近一次修改止损的时间戳
 _last_api_call = {}  # {symbol: timestamp}
-_API_COOLDOWN = 3    # 同标的API调用最小间隔（秒）
 _last_algo_update = {}  # {symbol: timestamp} AlgoSL 更新节流
-_ALGO_UPDATE_INTERVAL = 60  # AlgoSL 最少间隔（秒）
-_ALGO_MIN_CHANGE_PCT = 0.2  # SL 变化 < 此值（%）不更新 AlgoSL
 
 # Algo Order API 限速：队列消费，后台线程以 11s 间隔依次处理
 _ALGO_QUEUE = []           # [(symbol, side, trigger_price, qty), ...]
@@ -369,8 +366,8 @@ _WS_STOP = False
 
 # WS 领导选举：Redis 原子锁，只允许一个进程持有用户数据流连接，
 # 避免 s6/s8 双进程共用同一 listenKey 互相踢线。
-_WS_LEASE_KEY = 'ws:leader'
-_WS_LEASE_TTL = 45
+# P8-01：_WS_LEASE_KEY/_WS_LEASE_TTL 静态值迁 position_config
+# （见 L411 import；原位 alias 由 import 供给，seam 不变）
 _WS_INSTANCE = f'{os.getpid()}-{uuid.uuid4().hex[:8]}'
 
 def _ws_am_leader() -> bool:
@@ -410,83 +407,11 @@ def _ws_connect_loop():
     _monitoring_service().ws_connect_loop()
 
 # ── 系统级参数 ──────────────────────────────────────────────────────────
-SYSTEM_CFG = {
-    'S8A': {
-        'be_done_threshold': 2.0,      # 浮盈≥% 触发止损移到成本
-        'trail': {
-            'base_mult': 0.3,          # 基础追踪间距 (×ATR)
-            'tighten_pct': 8.0,        # 浮盈≥此值开始收紧
-            'tighten_min': 0.5,        # 最紧间距倍率
-            'min_profit_lock_pct': 2.0,
-            'breakeven_atr': 1.5,      # 浮盈≥此值×ATR → 保本加固
-        },
-        'time_stop_min': 240,          # 时间止损（分钟）
-        'time_extend_min': 60,         # 可延期（分钟）
-        'extend_rsi_min': 60,          # 延期条件：RSI > 此值
-        'extend_funding_min': 0.0005,  # 延期条件：资金费 > 此值
-        'sl_breach_max': -5.0,         # 紧急止损（%）
-        'partial_tp': {5: 0.3},        # 浮盈≥% → 平仓比例
-        'peak_guard': {                # 峰值回撤保护：防回踩拉升吞掉浮盈
-            'trigger_pct': 3.0,        # 浮盈≥% 后启动，实时上移锁利止损
-            'drawdown_pct': 2.0,       # 从峰值回撤≥% → 立即平仓锁利
-        },
-    },
-    'S8B': {
-        'be_done_threshold': 3.0,
-        'trail': {
-            'base_mult': 0.3,
-            'tighten_pct': 8.0,
-            'tighten_min': 0.5,
-            'min_profit_lock_pct': 2.0,
-            'breakeven_atr': 1.5,
-        },
-        'time_stop_min': 300,
-        'time_stop_fast_min': 150,
-        'funding_fast_threshold': -0.00015,
-        'partial_tp': {8: 0.3},
-        'peak_guard': {'trigger_pct': 3.5, 'drawdown_pct': 2.5},
-    },
-    'S6A': {
-        'be_done_threshold': 2.5,
-        'trail': {
-            'base_mult': 0.3,
-            'tighten_pct': 5.0,        # 普通做多浮盈保护更积极
-            'tighten_min': 0.3,
-            'min_profit_lock_pct': 2.0,
-            'breakeven_atr': 1.5,
-        },
-        'time_stop_min': 120,
-        'partial_tp': {5: 0.5},
-        'peak_guard': {'trigger_pct': 3.0, 'drawdown_pct': 2.0},
-    },
-    'S6B': {        'be_done_threshold': 5.0,      # 趋势接管给趋势更多空间
-        'trail': {
-            'base_mult': 0.6,
-            'tighten_pct': 10.0,
-            'tighten_min': 0.8,
-            'min_profit_lock_pct': 2.0,
-            'max_drawdown_pct': 20.0,
-            'breakeven_atr': 1.5,
-        },
-        'time_stop_min': 480,
-        'partial_tp': {8: 0.3},
-        'peak_guard': {'trigger_pct': 5.0, 'drawdown_pct': 3.0},
-    },
-    # 旧 S6 兜底（存量仓位可能还是 system='S6'）
-    'S6': {
-        'be_done_threshold': 2.5,
-        'trail': {
-            'base_mult': 0.3,
-            'tighten_pct': 5.0,
-            'tighten_min': 0.3,
-            'min_profit_lock_pct': 2.0,
-            'breakeven_atr': 1.5,
-        },
-        'time_stop_min': 120,
-        'partial_tp': {5: 0.3},
-        'peak_guard': {'trigger_pct': 3.0, 'drawdown_pct': 2.0},
-    },
-}
+# P8-01：SYSTEM_CFG 迁 position_config/constants.py（literal relocation）
+from position_config.constants import (SYSTEM_CFG,
+    _SYSTEM_KEYS, _WS_LEASE_KEY, _WS_LEASE_TTL,
+    _API_COOLDOWN, _ALGO_UPDATE_INTERVAL,
+    _ALGO_MIN_CHANGE_PCT)
 
 def _get_funding_rate(symbol: str) -> float:
     """获取当前资金费率，失败返回 0"""
@@ -519,10 +444,6 @@ def _try_record_ghost_trade(sym: str, meta: dict):
     lock 内二次去重序经 P7-06A golden 冻结）。"""
     return _reconcile_service().try_record_ghost_trade(sym, meta)
 
-_SYSTEM_KEYS = {
-    'S6': 'state:s6',
-    'S8': 'state:s8',
-}
 
 def _load_meta() -> dict:
     """从 pm:positions 读取本地元数据（P7-02：经 StateService）。"""
