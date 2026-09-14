@@ -29,8 +29,10 @@ from execution import service as _exec_service
 from execution.adapters import binance as _exec_binance
 from execution.adapters import position_state as _exec_pos_state
 from position_state import service as ps_service
+
 from position_protection import service as pp_service
 
+from position_monitoring import service as _mon_svc
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
 
@@ -368,18 +370,9 @@ _WS_LEASE_TTL = 45
 _WS_INSTANCE = f'{os.getpid()}-{uuid.uuid4().hex[:8]}'
 
 def _ws_am_leader() -> bool:
-    """尝试成为 WS 领导者：抢锁成功或仍持有锁则返回 True。"""
-    try:
-        from shared.redis_store import lock_owner, lock_acquire, lock_renew
-        owner = lock_owner(_WS_LEASE_KEY)
-        if owner == _WS_INSTANCE:
-            lock_renew(_WS_LEASE_KEY, _WS_INSTANCE, _WS_LEASE_TTL)
-            return True
-        if owner is None:
-            return lock_acquire(_WS_LEASE_KEY, _WS_INSTANCE, _WS_LEASE_TTL)
-        return False
-    except Exception:
-        return True  # 兜底：锁服务异常时允许连接，避免完全失去实时监控
+    """（P7-05B：交换到 PositionMonitoringService — thin delegation，
+    fail-open 语义经 P7-05A golden 冻结。）"""
+    return _monitoring_service().am_leader()
 
 def _ws_url() -> str:
     u = _FAPI.replace('https://', 'wss://')
@@ -393,37 +386,9 @@ def _ws_listen_key() -> str:
     return r.json().get('listenKey', '')
 
 def _ws_on_message(ws, message):
-    global _WS_LAST_UPDATE
-    try:
-        data = json.loads(message)
-        if data.get('e') != 'ACCOUNT_UPDATE':
-            return
-        with _WS_LOCK:
-            for p in data['a']['P']:
-                sym = p['s']
-                amt = float(p['pa'])
-                if abs(amt) < 0.001:
-                    prev = _WS_POSITIONS.pop(sym, None)
-                    if prev and not _was_closed_recently(sym):
-                        side = prev.get('side', 'LONG')
-                        _pmlog(f'[WS平仓] {sym} {side} AlgoSL(入场={prev.get("entry", 0)})')
-                        # 先落库（此时 closed 标记未设，不会被 _try_record_ghost_trade 自跳）
-                        # 再标记，供 _load/ghost_cleanup 跨进程去重
-                        if _try_record_ghost_trade(sym, prev):
-                            _mark_closed(sym)
-                else:
-                    side = 'LONG' if amt > 0 else 'SHORT'
-                    _WS_POSITIONS[sym] = {
-                        'entry': float(p['ep']), 'side': side, 'qty': abs(amt),
-                        'leverage': int(p.get('lev', 3)),
-                        'margin': p.get('mt', 'cross').upper(),
-                        'system': '?', 'open_time': time.time(),
-                        'sl': 0, 'be_done': False,
-                    }
-            _WS_LAST_UPDATE = time.time()
-
-    except Exception as e:
-        _pmlog(f'[WS消息异常] {e}')
+    """（P7-05B：交换到 PositionMonitoringService — thin delegation，
+    schema/平仓顺序经 P7-05A golden 冻结。）"""
+    _monitoring_service().ws_on_message(ws, message)
 
 def _ws_on_open(ws):
     _pmlog('[WS已连接] 开始接收实时仓位')
@@ -435,30 +400,10 @@ def _ws_on_close(ws, close_status_code, close_msg):
     _pmlog(f'[WS断开] code={close_status_code} msg={close_msg} 5s后重连')
 
 def _ws_connect_loop():
-    while not _WS_STOP:
-        if not _ws_am_leader():
-            time.sleep(5)
-            continue
-        try:
-            import websocket
-            import requests as _req
-            key = _ws_listen_key()
-            if not key:
-                time.sleep(5)
-                continue
-            url = f'{_ws_url()}/ws/{key}'
-            _pmlog(f'[WS连接] 用户数据流 {url}')
-            ws = websocket.WebSocketApp(
-                url,
-                on_open=_ws_on_open,
-                on_message=_ws_on_message,
-                on_error=_ws_on_error,
-                on_close=_ws_on_close,
-            )
-            ws.run_forever(ping_interval=30, ping_timeout=10)
-        except Exception as e:
-            _pmlog(f'[WS重连] {e}')
-        time.sleep(5)
+    """（P7-05B：指定交换到 PositionMonitoringService — thin delegation，
+    cadence/leader 语义经 P7-05A golden 冻结；线程 spawn 仍由本入口触发
+    （L562 `_WS_THREAD`），避免双 owner。）"""
+    _monitoring_service().ws_connect_loop()
 
 # ── 系统级参数 ──────────────────────────────────────────────────────────
 SYSTEM_CFG = {
@@ -1030,268 +975,52 @@ def _is_stagnant_profit(pnl_usdt: float, hold_min: float,
     """Identify profitable positions that no longer justify capital use."""
     return is_stagnant_profit(pnl_usdt, hold_min, min_hold_min, max_profit_usdt)
 
+def _monitoring_service():
+    """P7-05B 晚绑定 factory：每次调用解析当前模块态，注入 Monitoring
+    Service（monkeypatch seam 保留；runtime backing 单一 = 模块全局。"""
+    return _mon_svc.PositionMonitoringService(
+        now=time.time, log=_pmlog, load=_load, save=_save,
+        m1=_monitor_one, gcl=_ghost_cleanup, gq=_RECENTLY_GHOSTED,
+        summ=log_position_summary,
+        s6=_s6api,
+        ghb=lambda: globals()['_monitor_heartbeat_ts'],
+        shb=lambda v: globals().__setitem__('_monitor_heartbeat_ts', v),
+        cfg=_get_cfg, fund=_get_funding_rate,
+        cls=_close,
+        dc=_get_data_cache, elm=_early_loss_momentum_weak,
+        stag=_is_stagnant_profit, g1h=_should_exit_1h_reversal,
+        us=_update_stop_loss, pc=_partial_close, rq=_round_qty,
+        pp=_peak_pullback_check, cts=_calc_trail_sl, pt=_place_trail_sl,
+        wsl=_WS_LOCK, wsp=_WS_POSITIONS,
+        swlu=lambda v: globals().__setitem__('_WS_LAST_UPDATE', v),
+        wst=lambda: globals()['_WS_STOP'],
+        ldr=lambda: _ws_am_leader(),
+        wcr=_was_closed_recently,
+        trgt=_try_record_ghost_trade,
+        mc=_mark_closed,
+        lkey=_WS_LEASE_KEY, lttl=_WS_LEASE_TTL, inst=_WS_INSTANCE,
+        lkfn=_ws_listen_key, wsf=_ws_url,
+        oofn=lambda: _ws_on_open, oe=lambda: _ws_on_error,
+        oc=lambda: _ws_on_close,
+    )
+
+
 def monitor_all(system_filter: str = '') -> list:
     """
-    统一监控所有持仓。
-    返回 [(symbol, reason, close_price), ...]
-
-    Step 0: Ghost 检测 — 比对 Binance 实际持仓，清理幽灵仓
-    Step 1-N: 硬止损 → be_done → 追踪锁利 → 时间止损
+    统一监控所有持仓（P7-05B：指定交换到 PositionMonitoringService — thin
+    delegation；11 步出场链/节流/ghost 序/ref 语义经 P7-05A golden 冻结）。
 
     system_filter: 如 'S6' 则只处理该系统的持仓（防止双进程重复推送）
     """
-    global _monitor_heartbeat_ts
-    positions = _load()
-    if not positions:
-        now = time.time()
-        if now - _monitor_heartbeat_ts > 60:
-            _monitor_heartbeat_ts = now
-            _pmlog('[监控心跳] 无持仓')
-        return []
-    now = time.time()
-    if now - _monitor_heartbeat_ts > 60:
-        _monitor_heartbeat_ts = now
-        _, _, _, get_price, _, _, _, _ = _s6api()
-        parts = []
-        for s, p in list(positions.items())[:8]:
-            entry = p.get('entry')
-            side_mark = p.get('side', '?')[:1]
-            if entry:
-                try:
-                    cur = get_price(s)
-                    if cur:
-                        pnl = (entry - cur) / entry * 100 if p.get('side') == 'SHORT' else (cur - entry) / entry * 100
-                        parts.append(f'{s}({side_mark} {pnl:+.1f}%)')
-                    else:
-                        parts.append(f'{s}({side_mark})')
-                except Exception:
-                    parts.append(f'{s}({side_mark})')
-            else:
-                parts.append(f'{s}({side_mark})')
-        _pmlog(f'[监控心跳] {", ".join(parts)}' if parts else '[监控心跳] 无持仓')
-    # Step 0: Ghost 清理 — 对比交易所实盘，已平但 PM 未知的仓位
-    ghost_closed = _ghost_cleanup(positions, system_filter)
-    # 过滤系统
-    if system_filter:
-        all_positions = positions
-        positions = {s: p for s, p in positions.items() if p.get('system', '').startswith(system_filter)}
-    else:
-        all_positions = positions
-    closed = list(ghost_closed)
-    if positions:
-        for symbol in list(positions.keys()):
-            try:
-                r = _monitor_one(symbol, positions[symbol], all_positions)
-                if r:
-                    closed.append((symbol, *r))
-            except Exception as e:
-                _pmlog(f'[监控异常] {symbol}: {e}')
-    # 消费本轮幽灵仓（AlgoSL 平仓），只消费属于本系统的
-    closed_syms = {c[0] for c in closed}
-    remaining = []
-    while _RECENTLY_GHOSTED:
-        g = _RECENTLY_GHOSTED.pop(0)
-        g_sym = g[0]
-        g_side = g[5] if len(g) >= 6 else None
-        if g_sym in closed_syms:
-            continue  # ghost_cleanup 已经处理过了，跳过重复
-        if not system_filter or not g_side:
-            closed.append(g)
-            closed_syms.add(g_sym)
-        elif system_filter == 'S6' and g_side == 'LONG':
-            closed.append(g)
-            closed_syms.add(g_sym)
-        elif system_filter == 'S8' and g_side == 'SHORT':
-            closed.append(g)
-            closed_syms.add(g_sym)
-        else:
-            remaining.append(g)
-    _RECENTLY_GHOSTED.extend(remaining)
-    _save(all_positions)
+    return _monitoring_service().monitor_all(system_filter)
 
-    # 持仓快照日志
-    if closed:
-        log_position_summary()
-
-    return closed
 
 
 def _monitor_one(symbol: str, pos: dict, positions: dict):
-    """单币种：硬止损 → be_done → 追踪锁利 → 时间止损"""
-    fapi_get, fapi_post, fapi_delete, get_price, _, _, _, _ = _s6api()
-    price  = get_price(symbol)
-    entry  = pos['entry']
-    atr    = pos.get('atr', 0)
-    hold   = (time.time() - pos['open_time']) / 60
-    cfg    = _get_cfg(pos)
-
-    # 资金费率检查（费率高时主动平仓，避免持续烧钱）
-    fund_rate = _get_funding_rate(symbol)
-    if pos['side'] == 'SHORT' and fund_rate < -0.005:
-        _pmlog(f'[费率警告] {symbol} SHORT 资金费率 {fund_rate:.4%} <-0.5% 强制平仓')
-        reason = f'资金费率过高 {fund_rate:.4%}'
-        if _close(symbol, pos, price, reason, positions):
-            return (reason, price, entry, pos['qty'], pos['side'])
-        return None
-    if pos['side'] == 'LONG' and fund_rate > 0.005:
-        _pmlog(f'[费率警告] {symbol} LONG 资金费率 {fund_rate:.4%} >0.5% 强制平仓')
-        reason = f'资金费率过高 {fund_rate:.4%}'
-        if _close(symbol, pos, price, reason, positions):
-            return (reason, price, entry, pos['qty'], pos['side'])
-        return None
-    # 警告级别（仅通知一次）
-    warn_tag = 'fund_warned'
-    if not pos.get(warn_tag):
-        if pos['side'] == 'SHORT' and fund_rate < -0.002:
-            pos[warn_tag] = True
-            _pmlog(f'[费率警告] {symbol} SHORT 资金费率 {fund_rate:.4%} (>=0.2%，注意费率成本)')
-        elif pos['side'] == 'LONG' and fund_rate > 0.002:
-            pos[warn_tag] = True
-            _pmlog(f'[费率警告] {symbol} LONG 资金费率 {fund_rate:.4%} (>=0.2%，注意费率成本)')
-
-    if pos['side'] == 'SHORT':
-        pnl = (entry - price) / entry * 100
-        sl_breached = bool(pos.get('sl')) and pos['sl'] != entry and price >= pos['sl']
-    else:
-        pnl = (price - entry) / entry * 100
-        sl_breached = bool(pos.get('sl')) and pos['sl'] != entry and price <= pos['sl']
-    pnl_usdt = ((entry - price) * pos['qty'] if pos['side'] == 'SHORT'
-                else (price - entry) * pos['qty'])
-
-    # 1. 硬止损
-    if sl_breached:
-        if _close(symbol, pos, price, '硬止损', positions):
-            return ('硬止损', price, entry, pos['qty'], pos['side'])
-        return None
-
-    # 2. 紧急止损（主止损 — Binance 已废弃 STOP_MARKET，全靠轮询）
-    max_loss = cfg.get('sl_breach_max', -5.0)
-    if pnl < max_loss:
-        reason = f'紧急止损 pnl={pnl:.1f}%'
-        if _close(symbol, pos, price, reason, positions):
-            return (reason, price, entry, pos['qty'], pos['side'])
-        return None
-
-    # Keep a short grace period, but do not leave a fast adverse move
-    # unprotected for the original 30-minute window.
-    if hold >= 5 and pnl <= -2.0:
-        try:
-            k15 = _get_data_cache().get_klines(symbol, '15m', 4)
-            if _early_loss_momentum_weak(k15, pos['side']):
-                reason = f'早期亏损保护 pnl={pnl:.1f}%'
-                if _close(symbol, pos, price, reason, positions):
-                    return (reason, price, entry, pos['qty'], pos['side'])
-                return None
-        except Exception as e:
-            _pmlog(f'[早期亏损保护异常] {symbol}: {e}')
-
-    if _is_stagnant_profit(pnl_usdt, hold):
-        reason = f'低收益停滞 pnl={pnl_usdt:+.2f}U'
-        if _close(symbol, pos, price, reason, positions):
-            return (reason, price, entry, pos['qty'], pos['side'])
-        return None
-
-    # 3. be_done：盈利达标 → 止损移到成本
-    be_pct = cfg.get('be_done_threshold', 2.0)
-    if not pos.get('be_done') and pnl >= be_pct:
-        _update_stop_loss(symbol, pos, price, entry)
-
-    # 4. 分层止盈：浮盈达到阈值时平掉部分仓位
-    partial_tp = cfg.get('partial_tp', {})
-    if partial_tp and pnl > 0:
-        # 按阈值升序检查（低→高），避免低阈值被高阈值覆盖
-        for tp_pct in sorted(partial_tp.keys()):
-            if tp_pct <= pnl and tp_pct not in pos.get('tp_done', []):
-                close_ratio = partial_tp[tp_pct]
-                close_qty = _round_qty(symbol, pos['qty'] * close_ratio)
-                if close_qty > 0 and pos['qty'] > close_qty:
-                    pos['tp_done'] = pos.get('tp_done', []) + [tp_pct]
-                    _partial_close(symbol, pos, price, close_qty, tp_pct, positions)
-                break  # 每次只触发一层
-
-    # 5. 追踪锁利
-    if pos.get('be_done') and pnl >= be_pct:
-        trail_cfg = cfg.get('trail', {'base_mult': 0.3})
-        trail_result = _calc_trail_sl(symbol, pos, price, trail_cfg, positions)
-        if trail_result == 'exit':
-            # 等待区确认：2根连续收>EMA20 → 趋势反转离场
-            if _close(symbol, pos, price, '趋势反转（2次收>EMA20）', positions):
-                return ('趋势反转', price, entry, pos['qty'], pos['side'])
-            return None
-        elif trail_result is not None:
-            # 新追踪价位
-            _place_trail_sl(symbol, pos, trail_result, positions)
-
-    # 5.5 峰值回撤保护：浮盈达标后实时上移锁利止损到交易所，防回踩拉升
-    pg_result = _peak_pullback_check(pos, price, cfg)
-    if isinstance(pg_result, str):
-        if _close(symbol, pos, price, pg_result, positions):
-            return (pg_result, price, entry, pos['qty'], pos['side'])
-        return None
-    elif pg_result is not None:
-        _place_trail_sl(symbol, pos, pg_result, positions)
-
-    # 6. 1h EMA 安全阀：大周期趋势转向 → 强制离场（但免开仓后前60分钟）
-    #      浮盈 >=150% 时豁免，完全交给移动止盈
-    if hold < 60 or pnl >= 40:
-        pass  # 新开仓60分钟内不介入 / 大盈利仓只靠移动止盈
-    else:
-        try:
-            k1h = _get_data_cache().get_klines(symbol, '1h', 22)
-            if k1h and len(k1h) >= 21:
-                c1h = [float(x[4]) for x in k1h[-21:]]
-                ema9_1h = sum(c1h[-9:]) / 9
-                ema20_1h = sum(c1h[-20:]) / 20
-                if pos['side'] == 'SHORT' and ema9_1h > ema20_1h * 1.02:
-                    if _should_exit_1h_reversal(pnl):
-                        if _close(symbol, pos, price, '1h趋势反转', positions):
-                            return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
-                    elif not pos.get('trend_reversal_warned'):
-                        pos['trend_reversal_warned'] = True
-                        _pmlog(f'[1h反转观察] {symbol} 当前亏损 {pnl:+.1f}%，暂不平仓，交给止损/时间止损处理')
-                    return None
-                elif pos['side'] != 'SHORT' and ema9_1h < ema20_1h * 0.98:
-                    if _should_exit_1h_reversal(pnl):
-                        if _close(symbol, pos, price, '1h趋势反转', positions):
-                            return ('1h趋势反转', price, entry, pos['qty'], pos['side'])
-                    elif not pos.get('trend_reversal_warned'):
-                        pos['trend_reversal_warned'] = True
-                        _pmlog(f'[1h反转观察] {symbol} 当前亏损 {pnl:+.1f}%，暂不平仓，交给止损/时间止损处理')
-                    return None
-        except Exception:
-            pass
-
-    # 7. 时间止损
-    ts_min = cfg.get('time_stop_min', 240)
-    if hold > ts_min:
-        if pnl < 0:
-            # 浮亏 — 检查是否可延期
-            if not pos.get('time_extended'):
-                _, _, _, _, _, get_oi_and_funding, get_rsi, _ = _s6api()
-                try:
-                    rsi = get_rsi(symbol)
-                    _, _, funding = get_oi_and_funding(symbol)
-                    ext_r = cfg.get('extend_rsi_min', 60)
-                    ext_f = cfg.get('extend_funding_min', 0.0005)
-                    if rsi > ext_r and (funding or 0) > ext_f:
-                        pos['time_extended'] = True
-                        pos['extend_deadline'] = time.time() + cfg.get('time_extend_min', 60) * 60
-                        _pmlog(f'[时间延期] {symbol} RSI={rsi:.0f} 再观察1h')
-                        return None
-                except Exception:
-                    pass
-                if time.time() < pos.get('extend_deadline', 0):
-                    return None
-            if _close(symbol, pos, price, '时间止损', positions):
-                return ('时间止损', price, entry, pos['qty'], pos['side'])
-            return None
-        elif pnl < be_pct:
-            # 微盈/不亏 — 提前释放
-            if _close(symbol, pos, price, '时间止损', positions):
-                return ('时间止损', price, entry, pos['qty'], pos['side'])
-            return None
-
-    return None
+    """单币种：硬止损 → be_done → 追踪锁利 → 时间止损
+    （P7-05B：指定交换到 PositionMonitoringService — thin delegation，
+    11 步出场链经 P7-05A golden 冻结）。"""
+    return _monitoring_service().monitor_one(symbol, pos, positions)
 
 
 # ═══════════════════════════════════════════════════════════════════════

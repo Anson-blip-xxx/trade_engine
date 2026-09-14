@@ -103,32 +103,11 @@ class TestConnectLoopGate:
         pm_base._WS_STOP_LOCAL = False
         import types
         t = threading.Thread(
-            target=lambda: run_loop_once(ws_env['pm']))
+            target=lambda: ws_env['pm']._ws_connect_loop(), daemon=True)
         t.start()
         t.join(timeout=3)
         assert fired == []                # 非领导者 → 一次都不连
-
-
-def run_loop_once(pm):
-    while not pm._WS_STOP:
-        if not pm._ws_am_leader():
-            time.sleep(5)
-            continue
-        import websocket
-        import requests as _req
-        key = pm._ws_listen_key()
-        if not key:
-            time.sleep(5)
-            continue
-        url = f'{pm._ws_url()}/ws/{key}'
-        ws = websocket.WebSocketApp(
-            url,
-            on_open=pm._ws_on_open,
-            on_message=pm._ws_on_message,
-            on_error=pm._ws_on_error,
-            on_close=pm._ws_on_close,
-        )
-        ws.run_forever(ping_interval=30, ping_timeout=10)
+        pm._WS_STOP = False
 
 
 class TestConnectLoopLeader:

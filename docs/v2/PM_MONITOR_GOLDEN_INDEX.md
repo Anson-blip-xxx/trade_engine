@@ -71,3 +71,43 @@ closed 非空 → log_position_summary()
 Monitoring/WS 职责拆为独立 service 时：**上述编排顺序、节流全局、ghost 队列
 消费规则、出场链步序、return 语义必须逐字保留**；任何"顺手修复"须作为
 action ticket 显式决策（P7-00 规则）。
+
+---
+
+# P7-05B · Monitoring Service Extraction Closure
+
+> commit：`refactor(v2): extract PositionManager monitoring service`
+
+## Ownership 迁移
+
+| 职责 | Before（PM God Module） | After（P7-05B） |
+|---|---|---|
+| monitor_all 编排 | inline body | `position_monitoring/service.py monitor_all()`（逐字迁移） |
+| _monitor_one 11 步链 | inline body | `service.monitor_one()`（逐字迁移，含 PMB-18/22） |
+| WS on_message 逻辑 | inline body | `service.ws_on_message()`（backing 共享 pm 全局） |
+| ws:leader lease 逻辑 | inline body | `service.am_leader()`（fail-open 保持） |
+| connect loop cadence | inline body | `service.ws_connect_loop()`（线程 spawn 仍为 pm 入口） |
+| heartbeat/ghost 队列 backing | pm 模块全局 | **不变**（单 backing；service 经注入引用同一对象） |
+
+## Service API（注入契约，晚绑定 via `pm._monitoring_service()`）
+
+`PositionMonitoringService(now, load, save, m1, gcl, gq, summ, s6, log, ghb, shb, cfg, fund, cls, dc, elm, stag, gate, us, pc, rq, pp, cts, pt, wsl, wsp, swlu, wst, wcr, trgt, mc, lkey, lttl, inst, lkfn, wsf, oofn, oe, oc)`
+
+依赖方向：**零反向 import**（PM/SE/position_state/ledger/protection/execution 均不出现于 service import 语句——AST seal 测试锁定）。
+
+## Legacy wrappers（PM 保留）
+
+- `monitor_all(system_filter)` → thin delegate
+- `_monitor_one(symbol, pos, positions)` → thin delegate
+- `_ws_on_message / _ws_am_leader / _ws_connect_loop` → thin delegates
+
+## 未迁移（P7-06 计划内）
+
+- `_ghost_cleanup` / `_try_record_ghost_trade` / `reconcile_all` 实现 —— 仅注入调用（`gcl`）
+- `_close` 生命周期 —— 仅 `cls` 注入
+- external-position notify/adoption helper 实现
+
+## 新增测试
+
+- `test_monitor_service_architecture.py`（9）：反向 import seal / clean import / runtime 单 owner / legacy delegate parity
+- `test_monitor_service_parity.py`（6）：legacy chain vs direct service chain 同时跑，exit reason 逐字一致
