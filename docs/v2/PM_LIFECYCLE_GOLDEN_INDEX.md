@@ -121,3 +121,42 @@ marker-first、save 与 REC/PG 的相对序）必须逐位不变**；
 return contract 逐路径不变；上游调用面
 （monitor `_close` / `close_position` / WS / SE 全部 legacy wrapper
 保持签名）。
+
+---
+
+# P7-07B · Lifecycle Service Extraction Closure
+
+> commit：`refactor(v2): extract PositionManager lifecycle service`
+
+## Ownership 迁移
+
+| 职责 | Before | After |
+|---|---|---|
+| `open_position` 全链 | PM inline | `position_lifecycle/service.py open_position`（逐字；OBS-3/PMB-30 序不变） |
+| `close_position` / `_close` 全链 | PM inline | service（逐字；marker-first/PMB-27/save 序 PMB-28 不变） |
+| `_partial_close` | PM inline | service（逐字；无 reduceOnly/负数增仓/0 ledger 不变） |
+| `_set_cooldown` | PM noop | **不动**（仍为 pm noop，PMB-29） |
+| `_log_close_error`(60s 节流) | PM inline | service（backing 仍为 pm `_CLOSE_ERROR_LOG_TS` 单 backing） |
+| `_execution_service`/`_exec_core` intents | PM 内联引用 | 经注入 `exec_fn/ci/pi`（晚绑定 seam 保留） |
+| `_close` 上游 seam | `close_position → _close` | service `close_position → close_fn`（注入 pm `_close` wrapper，patch 兼容） |
+
+## Service API（注入契约，晚绑定 via `pm._lifecycle_service()`）
+
+`PositionLifecycleService(log, now, load, save, wcr, mc, clr, s6, sandbox, wkr, enq, acx, cxa, pg, rq, posid, exec_fn, close_fn, ci, pi, lce)`
+
+## Legacy wrappers（PM 保留 thin delegate）
+
+`open_position` / `close_position` / `_close` / `_partial_close`
+
+## PM 收缩
+
+PM：1722（P7-05B 前）→ **1296**（本轮 -165）；LifecycleService 383 行。
+
+## 新增测试
+
+- `test_lifecycle_service_architecture.py`（8）：AST seal / clean import /
+  4 wrapper delegate parity / close_position→close_fn seam
+- `test_lifecycle_service_parity.py`（4）：open/close/partial 双路径一致
+  （结果 + qty 变异 + return）；E-OBS-7 负数增仓 parity
+- guard 目标调整（tests/execution）：`_close` pg/cancel 直调 hash 目标
+  随 ownership 迁移（语义不变）

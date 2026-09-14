@@ -292,9 +292,11 @@ class TestNoWiring:
         assert '_algo_enqueue(' in src
 
     def test_pm_close_cancels_directly(self):
+        # P7-07B：目标随 ownership 迁移到 PositionLifecycleService
+        from position_lifecycle import service as lc
         src = inspect.getsource(
-            __import__('shared.position_manager', fromlist=['x'])._close)
-        assert '_cancel_all_algo(' in src
+            lc.PositionLifecycleService.close)
+        assert 'self.cxa(' in src          # cancel 经注入（= _cancel_all_algo）
 
     def test_service_unaware_of_protection(self):
         src = inspect.getsource(__import__('execution.service', fromlist=['x']))

@@ -341,9 +341,13 @@ class TestNoWiring:
         assert '_pg_record_event(' in src                # OPEN_ORDER_FILLED 直调
 
     def test_pm_close_still_calls_pg_directly(self):
+        # P7-07B：_close 逻辑迁入 PositionLifecycleService（thin delegate）；
+        # guard 目标随之迁移（CLOSE/FLAT 分支直调语义不变）
         from shared import position_manager as pm
-        src = inspect.getsource(pm._close)
-        assert '_pg_record_event(' in src                # CLOSE/FLAT 分支直调
+        from position_lifecycle import service as lc
+        src = inspect.getsource(lc.PositionLifecycleService.close)
+        assert 'self.pg(' in src                    # CLOSE/FLAT 分支直调（注入 = pg）
+        assert 'thin delegation' in inspect.getsource(pm._close)
 
     def test_service_not_consumes_ledger_port(self):
         """ExecutionService 不感知 ledger port（现状冻结）。"""
