@@ -38,6 +38,7 @@ from position_monitoring import service as _mon_svc
 from position_reconcile import service as _rc_service
 
 from position_lifecycle import service as _lc_service
+from position_market import funding as _funding_helper
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
 
@@ -414,14 +415,16 @@ from position_config.constants import (SYSTEM_CFG,
     _API_COOLDOWN, _ALGO_UPDATE_INTERVAL,
     _ALGO_MIN_CHANGE_PCT)
 
+def _funding_fetch_fn(symbol):
+    """P8-03：transport 留 PM（C1 不迁）——注入式 fetch callable。"""
+    return requests.get(f'{_FAPI}/fapi/v1/premiumIndex?symbol={symbol}',
+                        timeout=5)
+
+
 def _get_funding_rate(symbol: str) -> float:
-    """获取当前资金费率，失败返回 0"""
-    try:
-        r = requests.get(f'{_FAPI}/fapi/v1/premiumIndex?symbol={symbol}',
-                         timeout=5)
-        return float(r.json().get('lastFundingRate', 0))
-    except Exception:
-        return 0.0
+    """获取当前资金费率，失败返回 0（P8-03：thin helper delegation；
+    endpoint/params/parsing/failure→0 逐字；调用次数不变）。"""
+    return _funding_helper.read_funding_rate(symbol, _funding_fetch_fn)
 
 
 def _pmlog(msg: str):
