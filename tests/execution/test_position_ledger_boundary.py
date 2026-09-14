@@ -346,7 +346,7 @@ class TestNoWiring:
         from shared import position_manager as pm
         from position_lifecycle import service as lc
         src = inspect.getsource(lc.PositionLifecycleService.close)
-        assert 'self.pg(' in src                    # CLOSE/FLAT 分支直调（注入 = pg）
+        assert 'self.action.pg(' in src             # CLOSE/FLAT 分支直调（注入 = pg）
         assert 'thin delegation' in inspect.getsource(pm._close)
 
     def test_service_not_consumes_ledger_port(self):

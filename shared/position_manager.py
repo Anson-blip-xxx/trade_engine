@@ -36,6 +36,7 @@ from position_protection import service as pp_service
 from position_monitoring import service as _mon_svc
 
 from position_reconcile import service as _rc_service
+from position_reconcile import deps as _rc_deps
 
 from position_lifecycle import service as _lc_service
 from position_lifecycle import deps as _lc_deps
@@ -677,21 +678,26 @@ def open_position(
 # ═══════════════════════════════════════════════════════════════════════
 
 def _reconcile_service():
-    """P7-06B 晚绑定 factory：每次调用解析当前模块态，注入 Reconcile
-    Service（monkeypatch seam 保留；无 runtime backing 迁移——
-    `_RECENTLY_GHOSTED` 等仅消费仍经 monitoring。"""
+    """P7-06B 晚绑定 factory（P8-05B2：factory-time 构建新鲜 5 bundle
+    → 新 ReconcileService；monkeypatch seam 保留；无 runtime backing
+    迁移——`_RECENTLY_GHOSTED` 等仅消费仍经 monitoring）。"""
     return _rc_service.PositionReconcileService(
-        lgt=_pmlog, now=time.time, load=_load, save=_save,
-        sandbox=_sandbox_active,
-        exf=_light_fapi_get, gpx=_light_get_price,
-        lacq=_lock_acquire, lrel=_lock_release,
-        wcr=_was_closed_recently, mc=_mark_closed,
-        s6=_s6api, posid=_position_id,
-        rdget=_rget, rdset=_rset, rqst=requests,
-        tgt=_TG_TOKEN, tgc=_TG_CHAT_ID,
-        pg=_pg_record_event,
-        sk=lambda: _SYSTEM_KEYS,
-        pid=os.getpid, uid=lambda: uuid.uuid4().hex[:8],
+        runtime=_rc_deps.ReconcileRuntimeDeps(lgt=_pmlog, now=time.time),
+        state=_rc_deps.ReconcileStateDeps(
+            load=_load, save=_save,
+            wcr=_was_closed_recently, mc=_mark_closed,
+            posid=_position_id, rq=_round_qty),
+        coordination=_rc_deps.ReconcileCoordinationDeps(
+            lacq=_lock_acquire, lrel=_lock_release,
+            rdget=_rget, rdset=_rset,
+            pid=os.getpid, uid=lambda: uuid.uuid4().hex[:8]),
+        notification=_rc_deps.ReconcileNotificationDeps(
+            pg=_pg_record_event, tgt=_TG_TOKEN, tgc=_TG_CHAT_ID,
+            rqst=requests),
+        action=_rc_deps.ReconcileActionDeps(
+            exf=_light_fapi_get, gpx=_light_get_price,
+            s6=_s6api, sandbox=_sandbox_active,
+            sk=_SYSTEM_KEYS),
     )
 
 

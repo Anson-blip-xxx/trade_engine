@@ -296,7 +296,7 @@ class TestNoWiring:
         from position_lifecycle import service as lc
         src = inspect.getsource(
             lc.PositionLifecycleService.close)
-        assert 'self.cxa(' in src          # cancel 经注入（= _cancel_all_algo）
+        assert 'self.protection.cxa(' in src          # cancel 经注入
 
     def test_service_unaware_of_protection(self):
         src = inspect.getsource(__import__('execution.service', fromlist=['x']))

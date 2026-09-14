@@ -41,26 +41,92 @@ class PositionReconcileService:
         sk(SYSTEM_KEYS dict) / pid / uid
     """
 
-    def __init__(self, **injected) -> None:
-        for key, value in injected.items():
-            setattr(self, key, value)
+    def __init__(self, *, runtime, state, coordination, notification,
+                 action) -> None:
+        self.runtime = runtime
+        self.state = state
+        self.coordination = coordination
+        self.notification = notification
+        self.action = action
 
     # ═════════════════════════════════════════════════════════════════
     #  通道 A：ghost_cleanup（P7-06A 冻结逐字；PMB-23 保持）
-    # ═════════════════════════════════════════════════════════════════
+    # ══════════════════    # ── P8-05B2 兼容 attrs（observable contract 保留） ──────────────────
+    @property
+    def load(self): return self.state.load
+
+    @property
+    def save(self): return self.state.save
+
+    @property
+    def wcr(self): return self.state.wcr
+
+    @property
+    def sk(self): return self.action.sk
+
+    @property
+    def lacq(self): return self.coordination.lacq
+
+    @property
+    def lrel(self): return self.coordination.lrel
+
+    @property
+    def rdget(self): return self.coordination.rdget
+
+    @property
+    def rdset(self): return self.coordination.rdset
+
+    @property
+    def pid(self): return self.coordination.pid
+
+    @property
+    def uid(self): return self.coordination.uid
+
+    @property
+    def pg(self): return self.notification.pg
+
+    @property
+    def tgt(self): return self.notification.tgt
+
+    @property
+    def tgc(self): return self.notification.tgc
+
+    @property
+    def rqst(self): return self.notification.rqst
+
+    @property
+    def exf(self): return self.action.exf
+
+    @property
+    def gpx(self): return self.action.gpx
+
+    @property
+    def s6(self): return self.action.s6
+
+    @property
+    def mc(self): return self.state.mc
+
+    @property
+    def clr(self): return self.state.clr
+
+    @property
+    def posid(self): return self.state.posid
+
+    @property
+    def rq(self): return self.state.rq
 
     def ghost_cleanup(self, positions: dict, system_filter: str = '') -> list:
         """幽灵仓清理：对比 Binance positionRisk，清除并记录 trade。
         沙盘模式跳过（行为逐字冻结）。"""
-        if self.sandbox():
+        if self.action.sandbox():
             return []
         closed = []
         try:
-            _, _, _, _, _, _, _, record_trade = self.s6()
+            _, _, _, _, _, _, _, record_trade = self.action.s6()
         except Exception:
             record_trade = lambda *a, **kw: None
         try:
-            real_r = self.exf('/fapi/v2/positionRisk')
+            real_r = self.action.exf('/fapi/v2/positionRisk')
             if not isinstance(real_r, list):
                 return closed
             real_syms = set()
@@ -75,26 +141,26 @@ class PositionReconcileService:
                 if not pos:
                     continue
                 # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
-                if self.wcr(sym):
+                if self.state.wcr(sym):
                     positions.pop(sym, None)
                     continue
                 # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
                 if system_filter and not pos.get('system', '') \
                         .startswith(system_filter):
                     continue
-                owner = f'ghost-cleanup:{self.pid()}:{self.uid()}'
+                owner = f'ghost-cleanup:{self.coordination.pid()}:{self.coordination.uid()}'
                 lock_key = f'pm:ghost_close:{sym}'
-                if not self.lacq(lock_key, owner, ttl=60):
+                if not self.coordination.lacq(lock_key, owner, ttl=60):
                     continue
                 try:
                     self.ghost_cleanup_one(sym, pos, positions,
                                            record_trade, closed)
                 finally:
-                    self.lrel(lock_key, owner)
+                    self.coordination.lrel(lock_key, owner)
             if closed:
-                self.lgt(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
+                self.runtime.lgt(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
         except Exception as e:
-            self.lgt(f'[幽灵检测异常] {e}')
+            self.runtime.lgt(f'[幽灵检测异常] {e}')
         return closed
 
     def ghost_cleanup_one(self, sym: str, pos: dict, positions: dict,
@@ -105,12 +171,12 @@ class PositionReconcileService:
         entry = pos.get('entry', 0)
         side = pos.get('side', 'LONG')
         qty = pos.get('original_qty', pos.get('qty', 0))
-        ghost_price = self.gpx(sym) or entry
-        self.lgt(f'[幽灵仓] {sym} 交易所已无持仓，清理 '
+        ghost_price = self.action.gpx(sym) or entry
+        self.runtime.lgt(f'[幽灵仓] {sym} 交易所已无持仓，清理 '
                  f'(入场={entry} 现价={ghost_price})')
         record_trade(sym, entry, ghost_price, qty,
                      pos.get('leverage', 1), pos.get('system', ''),
-                     pos.get('open_time', self.now()),
+                     pos.get('open_time', self.runtime.now()),
                      exit_reason='手动平仓', side=side,
                      signal_type=pos.get('event_type', ''),
                      score=pos.get('score', 0),
@@ -120,10 +186,10 @@ class PositionReconcileService:
                      be_done=pos.get('be_done', False),
                      trail_active=pos.get('trail', False),
                      algo_sl_id=pos.get('algo_sl_id', 0),
-                     position_id=self.posid(sym, pos), final_close=True,
+                     position_id=self.state.posid(sym, pos), final_close=True,
                      ghost_cleanup=True)
         # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
-        self.mc(sym)
+        self.state.mc(sym)
         closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
 
     # ═════════════════════════════════════════════════════════════════
@@ -132,25 +198,25 @@ class PositionReconcileService:
 
     def try_record_ghost_trade(self, sym: str, meta: dict):
         """幽灵仓数据落库（不抛异常）。通过文件标记去重，防止双进程重复写"""
-        owner = f'ghost:{self.pid()}:{self.uid()}'
+        owner = f'ghost:{self.coordination.pid()}:{self.coordination.uid()}'
         lock_key = f'pm:ghost_close:{sym}'
-        if not self.lacq(lock_key, owner, ttl=60):
-            self.lgt(f'[幽灵跳过] {sym} 其他进程正在处理平仓')
+        if not self.coordination.lacq(lock_key, owner, ttl=60):
+            self.runtime.lgt(f'[幽灵跳过] {sym} 其他进程正在处理平仓')
             return False
         try:
             # 去重：该 symbol 近期已被 _close 处理过则跳过
-            if self.wcr(sym):
-                self.lgt(f'[幽灵跳过] {sym} 已由 _close 记录，跳过')
+            if self.state.wcr(sym):
+                self.runtime.lgt(f'[幽灵跳过] {sym} 已由 _close 记录，跳过')
                 return False
 
-            _, _, _, _, _, _, _, record_trade = self.s6()
+            _, _, _, _, _, _, _, record_trade = self.action.s6()
             entry = meta.get('entry', 0)
             side = meta.get('side', 'LONG')
             qty = meta.get('original_qty', meta.get('qty', 0))
             leverage = meta.get('leverage', 3)
             system_name = meta.get('system', '')
-            open_time = meta.get('open_time', self.now())
-            ghost_price = self.gpx(sym) or entry
+            open_time = meta.get('open_time', self.runtime.now())
+            ghost_price = self.action.gpx(sym) or entry
             record_trade(sym, entry, ghost_price, qty, leverage,
                          system_name, open_time,
                          exit_reason='幽灵仓关闭', side=side,
@@ -158,14 +224,14 @@ class PositionReconcileService:
                          score=meta.get('score', 0),
                          atr_entry=meta.get('atr', 0),
                          sl_price=meta.get('sl', 0),
-                         position_id=self.posid(sym, meta),
+                         position_id=self.state.posid(sym, meta),
                          final_close=True, ghost_cleanup=True)
             return True
         except Exception as e:
-            self.lgt(f'[幽灵记录失败] {sym}: {e}')
+            self.runtime.lgt(f'[幽灵记录失败] {sym}: {e}')
             return False
         finally:
-            self.lrel(lock_key, owner)
+            self.coordination.lrel(lock_key, owner)
 
     # ═════════════════════════════════════════════════════════════════
     #  通道 B：reconcile_all（silent —— 无 record/mark/lock，PMB-24）
@@ -178,8 +244,8 @@ class PositionReconcileService:
         - Binance有但PM无 → 告警日志（missing 列表；无 runtime adoption）
         返回 (ghost_cleaned, missing_tracked)。
         """
-        fapi_get, _, _, _, _, _, _, _ = self.s6()
-        positions = self.load()
+        fapi_get, _, _, _, _, _, _, _ = self.action.s6()
+        positions = self.state.load()
         ghost = []
         missing = []
 
@@ -188,7 +254,7 @@ class PositionReconcileService:
             real_r = fapi_get('/fapi/v2/positionRisk')
             # API错误（限速/banned）时不执行对账——宁漏不错
             if not isinstance(real_r, list):
-                self.lgt(f'[对账跳过] Binance API返回异常: '
+                self.runtime.lgt(f'[对账跳过] Binance API返回异常: '
                          f'{type(real_r).__name__}')
                 return [], []
             real_positions = {}
@@ -201,13 +267,13 @@ class PositionReconcileService:
                             'side': 'SHORT' if amt < 0 else 'LONG',
                         }
         except Exception as e:
-            self.lgt(f'[对账失败] Binance API: {e}')
+            self.runtime.lgt(f'[对账失败] Binance API: {e}')
             return [], []
 
         # PM有但Binance无
         for sym in list(positions.keys()):
             if sym not in real_positions:
-                self.lgt(f'[对账] 幽灵仓清除: {sym} '
+                self.runtime.lgt(f'[对账] 幽灵仓清除: {sym} '
                          f'entry={positions[sym].get("entry")}'
                          '（state有但交易所无）')
                 positions.pop(sym, None)
@@ -216,11 +282,11 @@ class PositionReconcileService:
         # Binance有但PM无
         for sym, info in real_positions.items():
             if sym not in positions:
-                self.lgt(f'[对账] 漏记仓: {sym} {info["side"]} '
+                self.runtime.lgt(f'[对账] 漏记仓: {sym} {info["side"]} '
                          f'持仓{info["amt"]}（交易所已有但PM未跟踪）')
                 missing.append(sym)
 
-        self.save(positions)
+        self.state.save(positions)
         return ghost, missing
 
     # ═════════════════════════════════════════════════════════════════
@@ -238,34 +304,34 @@ class PositionReconcileService:
         fingerprint = f'{side}:{entry:.12g}:{qty:.12g}'
         key = f'alert:external_position:{symbol}'
         pending_key = f'alert:external_position:pending:{symbol}'
-        pending = self.rdget(pending_key) or {}
+        pending = self.coordination.rdget(pending_key) or {}
         if pending.get('fingerprint') != fingerprint:
-            self.rdset(pending_key,
-                       {'fingerprint': fingerprint, 'ts': self.now()})
+            self.coordination.rdset(pending_key,
+                       {'fingerprint': fingerprint, 'ts': self.runtime.now()})
             return
-        if self.now() - float(pending.get('ts', 0)) < grace_sec:
+        if self.runtime.now() - float(pending.get('ts', 0)) < grace_sec:
             return
-        seen = self.rdget(key) or {}
+        seen = self.coordination.rdget(key) or {}
         if seen.get('fingerprint') == fingerprint and \
-                self.now() - float(seen.get('ts', 0)) < 86400:
+                self.runtime.now() - float(seen.get('ts', 0)) < 86400:
             return
-        self.rdset(key, {'fingerprint': fingerprint, 'ts': self.now()})
-        self.rdset(pending_key, {})
+        self.coordination.rdset(key, {'fingerprint': fingerprint, 'ts': self.runtime.now()})
+        self.coordination.rdset(pending_key, {})
         msg = (f'⚠️ 外部/漏记仓位 {symbol}\n'
                f'方向: {side} | 入场: {entry:.8g} | 数量: {qty:.8g}\n'
                f'已纳入 {system} PM 监控，请核对开仓来源。')
-        self.lgt(f'[外部仓位] {symbol} {side} entry={entry} qty={qty} '
+        self.runtime.lgt(f'[外部仓位] {symbol} {side} entry={entry} qty={qty} '
                  '未找到本地开仓事件')
         try:
-            if self.tgt and self.tgc:
-                self.rqst.post(
-                    f'https://api.telegram.org/bot{self.tgt}/sendMessage',
-                    json={'chat_id': self.tgc, 'text': msg}, timeout=5,
+            if self.notification.tgt and self.notification.tgc:
+                self.notification.rqst.post(
+                    f'https://api.telegram.org/bot{self.notification.tgt}/sendMessage',
+                    json={'chat_id': self.notification.tgc, 'text': msg}, timeout=5,
                 )
         except Exception:
             pass
         # PG 失败不吞（PMB-26：会向 merge 链传播）
-        self.pg({
+        self.notification.pg({
             'event_id': f'external:{symbol}:{fingerprint}',
             'position_id': f'external:{symbol}:{fingerprint}',
             'event_type': 'EXTERNAL_POSITION_DETECTED',
@@ -279,11 +345,11 @@ class PositionReconcileService:
 
     def migrate_existing_positions(self):
         """迁移各系统现存持仓到 PM（启动时调用一次）。"""
-        positions = self.load()
+        positions = self.state.load()
         changed = False
-        for system, key in self.sk().items():
+        for system, key in self.action.sk.items():
             try:
-                state = self.rdget(key)
+                state = self.coordination.rdget(key)
                 if not state:
                     continue
                 for sym, pos in state.get('positions', {}).items():
@@ -295,10 +361,10 @@ class PositionReconcileService:
                             pos['original_qty'] = pos.get('qty', 0)
                         positions[sym] = pos
                         changed = True
-                        self.lgt(f'[迁移] {system} {sym} '
+                        self.runtime.lgt(f'[迁移] {system} {sym} '
                                  f'入场{pos.get("entry")} 已纳入PM管理')
             except Exception as e:
-                self.lgt(f'[迁移失败] {system}: {e}')
+                self.runtime.lgt(f'[迁移失败] {system}: {e}')
         if changed:
-            self.save(positions)
+            self.state.save(positions)
         return positions
