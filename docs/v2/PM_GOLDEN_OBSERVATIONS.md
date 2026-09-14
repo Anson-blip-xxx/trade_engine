@@ -251,3 +251,19 @@ P7-03B LedgerService 必须保留双口径并证明 income/公式在 fail/zero/m
 trade_episodes、不写 trade_history。partial close 分支本身也不发 PG 事件。
 ### Migration constraint:
 PMB-6 扩展（ledger 链全段缺失）；P7-03B 不得"顺手补全"。
+
+## PMB-14 · `_algo_place_sl_inner` 内嵌 exchangeInfo（原始 Binance REST）
+### Observed:
+`_algo_place_sl_inner` 第一段落就直接使用 `requests.get`（非 shared.binance_api）
+获取 `/fapi/v1/exchangeInfo` —— LOT_SIZE stepSize 和 PRICE_FILTER tickSize 用来
+rounding qty / stopPrice。放入 ProtectionService 时必须经 callable 注入或保留
+inline（除非作为 action ticket）。
+### Migration constraint:
+hidden IO；P7-04B 期间经 callable 注入但不更换 Binance client。
+
+## PMB-15 · Protection `cancel_all_algo` 字杠杆（仅 status ∈ {NEW, WORKING, TRIGGERED}）
+### Observed:
+`_cancel_all_algo` 只活跃的 algoId ∈ (NEW/WORKING/TRIGGERED) — 其他（EXPIRED/FINISHED）
+**跳过不触发 DELETE**。
+### Migration constraint:
+P7-04B 保留过滤逻辑（不改 status set）。
