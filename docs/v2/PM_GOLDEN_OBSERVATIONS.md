@@ -363,3 +363,38 @@ P7-06B 保留消费段（结构与顺序冻结），不得"删除死代码"；
   检查-写非原子 —— 双进程可能重复告警）。
 ### Migration constraint:
 P7-06B 保留（含非原子 dedup）；原子化 = action ticket，非顺手行为。
+
+## PMB-27 · 部分成交/无成交 close 保留 marker（P7-07A 冻结）
+### Observed:
+`_close` 进入即 `_mark_closed`（marker-first）；当市价单执行成功但
+positionRisk 仍有余仓（含 reported_filled < 0.001 的无成交分支）时，
+局部路径 `return False` 且 **不调用 `_clear_closed_marker`** —— marker
+继续存在。下轮 `_close(force=False)` 将被 recent-guard skip，
+实际由后续 `reconcile` 或 `monitor` 的其它路径恢复。
+### Migration constraint:
+P7-07B 保留（不"修成"成功后 marker / 失败即 clear 的理想策略）。
+
+## PMB-28 · save 与 REC/PG 相对序不对称（P7-07A 冻结）
+### Observed:
+- full-close 成功路径：cancel → PG → record → pop → **save 末位**
+- 部分成交 close 路径：qty 回写 → **save 在 record/PG 之前**
+- `_partial_close`：qty 更新 → save（独立于 ledger —— 本无 ledger）
+### Migration constraint:
+三条序不得统一；逐字迁移。
+
+## PMB-29 · `_set_cooldown` 为 noop（P7-07A 冻结）
+### Observed:
+`def _set_cooldown(...): pass` —— 平仓冷却由策略主循环负责，PM 层声明
+"写入会导致并发覆盖" 而不写。
+### Migration constraint:
+保留 noop 语义（勿激活）。
+
+## PMB-30 · AlgoSL enqueue 在 dup check 之前（P7-07A 冻结）
+### Observed:
+`open_position`：order 发出：先 `_algo_start_worker()` +
+`_algo_enqueue(sl)`（条件单入队），**然后** `_load()` 做 dup check。
+duplicate 开仓（PM 已有同 symbol）→ 订单已上交易所 + 条件单已入队，
+但 PM state 不变 —— **孤立止损单**（挂算法流接管也可能无人 wildlife）。
+### Migration constraint:
+dup-check 不得前移（ideal-behavior rewrite 禁止）；
+如需修改作 action ticket。
