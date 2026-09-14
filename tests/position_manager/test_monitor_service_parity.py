@@ -12,6 +12,37 @@ import time as time_mod
 import pytest
 
 from shared import position_manager as pm
+
+import position_monitoring.deps as _deps
+
+
+def _md_svc(*, log=None, now=None, load=None, save=None, m1=None,
+            gcl=None, gq=None, summ=None, s6=None, ghb=None, shb=None,
+            cfg=None, fund=None, cls=None, dc=None, elm=None, stag=None,
+            gate=None, us=None, pc=None, rq=None, pp=None, cts=None,
+            pt=None, wst=None, wcr=None, mc=None, lkey='ws:leader',
+            lttl=45, inst='x-1', lkfn=None, wsf=None):
+    return mon.PositionMonitoringService(
+        runtime=_deps.MonitoringRuntimeDeps(
+            log=log, now=now, summ=summ, ghb=ghb, shb=shb),
+        state=_deps.MonitoringStateDeps(
+            load=load, save=save, wcr=wcr, mc=mc, gq=gq, trgt=trgt),
+        market=_deps.MonitoringMarketDeps(
+            s6=s6, dc=dc, cfg=cfg, fund=fund, us=us, pc=pc, rq=rq),
+        action=_deps.MonitoringActionDeps(
+            cls=cls, gcl=gcl, elm=elm, stag=stag, cts=cts, pt=pt,
+            pp=pp, g1h=gate),
+        ws=_deps.MonitoringWsDeps(
+            wsp=None, wsl=None, swlu=lambda v: None, wst=wst, m1=m1,
+            lkey=lkey, lttl=lttl, inst=inst, ldr=lambda: False,
+            lkfn=lkfn, wsf=wsf, oofn=lambda: None,
+            oe=lambda *a: None, oc=lambda *a: None),
+    )
+
+
+def trgt_placeholder(*a, **k):
+    return True
+
 from position_monitoring import service as mon
 
 CFG = {'sl_breach_max': -5.0, 'be_done_threshold': 2.0,
@@ -65,24 +96,30 @@ def _run_both(monkeypatch, *, price=100.0, cfg=None, funding=0.0,
         cs.append((symbol, price_, reason))
         return True
 
-    svc = mon.PositionMonitoringService(
-        now=time_mod.time, log=lambda *a, **k: None,
-        load=lambda: {}, save=lambda p: None, m1=lambda *a: None,
-        gcl=lambda *a, **k: [], gq=[], summ=lambda: None,
-        s6=lambda: (None, None, None, lambda s: price, None,
-                    lambda s: (0, 0, 0.001), lambda s: 70.0, None),
-        ghb=lambda: 0.0, shb=lambda v: None,
-        cfg=lambda p: cfg, fund=lambda s, **kw: funding,
-        cls=sclose, dc=lambda: _DC(k1h=k1h),
-        elm=lambda k, s: elm, stag=lambda *a, **k: stag,
-        gate=lambda pnl: pnl >= 0, us=lambda *a, **k: None,
-        pc=lambda *a, **k: None, rq=lambda s, q: round(q, 6),
-        pp=lambda *a, **k: None, cts=lambda *a, **k: trail,
-        pt=lambda *a, **k: None, wst=lambda: False,
-        wcr=lambda s: False, trgt=lambda *a, **k: True,
-        mc=lambda s: None, lkey='ws:leader', lttl=45, inst='x-1',
-        lkfn=lambda: '', wsf=lambda: '' if False else '')
-
+    svc = mon.PositionMonitoringService(        runtime=_deps.MonitoringRuntimeDeps(
+            log=lambda *a, **k: None, now=time_mod.time,
+            summ=lambda: None, ghb=lambda: 0.0, shb=lambda v: None),
+        state=_deps.MonitoringStateDeps(
+            load=lambda: {}, save=lambda p: None, wcr=lambda s: False,
+            mc=lambda s: None, gq=[], trgt=lambda *a, **k: True),
+        market=_deps.MonitoringMarketDeps(
+            s6=lambda: (None, None, None, lambda s: price, None,
+                        lambda s: (0, 0, 0.001),
+                        lambda s: 70.0, None),
+            dc=lambda: _DC(k1h=k1h), cfg=lambda p: cfg,
+            fund=lambda s, **kw: funding, us=lambda *a, **k: None,
+            pc=lambda *a, **k: None, rq=lambda s, q: round(q, 6)),
+        action=_deps.MonitoringActionDeps(
+            cls=sclose, gcl=lambda *a, **k: [], elm=lambda k, s: elm,
+            stag=lambda *a, **k: stag, cts=lambda *a, **k: trail,
+            pt=lambda *a, **k: None, pp=lambda *a, **k: None,
+            g1h=lambda pnl: pnl >= 0),
+        ws=_deps.MonitoringWsDeps(
+            wsp=None, wsl=None, swlu=lambda v: None, wst=lambda: False,
+            m1=lambda *a: None, lkey='ws:leader', lttl=45, inst='x-1',
+            ldr=lambda: False, lkfn=lambda: '', wsf=lambda: '',
+            oofn=lambda: None, oe=lambda *a: None,
+            oc=lambda *a: None))
     pos_over = pos_over or {}
     r1 = pm._monitor_one('TUSDT', _pos(**pos_over), {'TUSDT': {}})
     r2 = svc.monitor_one('TUSDT', _pos(**pos_over), {'TUSDT': {}})
@@ -145,22 +182,31 @@ class TestExitPriorityParity:
             return True
 
         svc = mon.PositionMonitoringService(
-            now=time_mod.time, log=lambda *a, **k: None,
-            load=lambda: {}, save=lambda p: None, m1=lambda *a: None,
-            gcl=lambda *a, **k: [], gq=[], summ=lambda: None,
-            s6=lambda: (None, None, None, lambda s: 97.0, None,
-                        lambda s: (0, 0, 0.001), lambda s: 70.0, None),
-            ghb=lambda: 0.0, shb=lambda v: None,
-            cfg=lambda p: dict(CFG), fund=lambda s, **kw: 0.0,
-            cls=sclose, dc=lambda: _DC(k1h=None),
-            elm=lambda k, s: False, stag=lambda *a, **k: False,
-            gate=lambda pnl: pnl >= 0, us=lambda *a, **k: None,
-            pc=lambda *a, **k: None, rq=lambda s, q: round(q, 6),
-            pp=lambda *a, **k: None, cts=lambda *a, **k: 'exit',
-            pt=lambda *a, **k: None, wst=lambda: False,
-            wcr=lambda s: False, trgt=lambda *a, **k: True,
-            mc=lambda s: None, lkey='ws:leader', lttl=45, inst='x-1',
-            lkfn=lambda: '', wsf=lambda: '')
+            runtime=_deps.MonitoringRuntimeDeps(
+                log=lambda *a, **k: None, now=time_mod.time,
+                summ=lambda: None, ghb=lambda: 0.0, shb=lambda v: None),
+            state=_deps.MonitoringStateDeps(
+                load=lambda: {}, save=lambda p: None,
+                wcr=lambda s: False, mc=lambda s: None, gq=[],
+                trgt=lambda *a, **k: True),
+            market=_deps.MonitoringMarketDeps(
+                s6=lambda: (None, None, None, lambda s: 97.0, None,
+                            lambda s: (0, 0, 0.001),
+                            lambda s: 70.0, None),
+                dc=lambda: _DC(k1h=None), cfg=lambda p: dict(CFG),
+                fund=lambda s, **kw: 0.0, us=lambda *a, **k: None,
+                pc=lambda *a, **k: None, rq=lambda s, q: round(q, 6)),
+            action=_deps.MonitoringActionDeps(
+                cls=sclose, gcl=lambda *a, **k: [], elm=lambda k, s: False,
+                stag=lambda *a, **k: False, cts=lambda *a, **k: 'exit',
+                pt=lambda *a, **k: None, pp=lambda *a, **k: None,
+                g1h=lambda pnl: pnl >= 0),
+            ws=_deps.MonitoringWsDeps(
+                wsp=None, wsl=None, swlu=lambda v: None, wst=lambda: False,
+                m1=lambda *a: None, lkey='ws:leader', lttl=45, inst='x-1',
+                ldr=lambda: False, lkfn=lambda: '', wsf=lambda: '',
+                oofn=lambda: None, oe=lambda *a: None,
+                oc=lambda *a: None))
 
         r1 = pm._monitor_one('TUSDT', _pos(be_done=True), {'TUSDT': {}})
         r2 = svc.monitor_one('TUSDT', _pos(be_done=True), {'TUSDT': {}})

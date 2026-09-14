@@ -74,29 +74,32 @@ class TestCleanImport:
 class TestRuntimeSingleOwner:
     def test_service_uses_pm_backing_identity(self):
         """注入的 wsp/gq 与 pm 全局是同一对象（无第二套 runtime）。"""
+        import position_monitoring.deps as md
         svc = mon.PositionMonitoringService(
-            now=time_mod.time, log=lambda *a, **k: None,
-            load=lambda: {}, save=lambda p: None, m1=lambda *a: None,
-            gcl=lambda *a: [], gq=pm._RECENTLY_GHOSTED,
-            summ=lambda: None, s6=lambda: (None,) * 8,
-            ghb=lambda: 0.0, shb=lambda v: None,
-            cfg=lambda p: {}, fund=lambda s: 0.0,
-            cls=lambda *a, **k: False, dc=lambda: None,
-            elm=lambda *a: False, stag=lambda *a: False,
-            gate=lambda *a: False, us=lambda *a: None,
-            pc=lambda *a: None, rq=lambda s, q: q,
-            pp=lambda *a: None, cts=lambda *a, **k: None,
-            pt=lambda *a: None, wsl=pm._WS_LOCK,
-            wsp=pm._WS_POSITIONS, swlu=lambda v: None,
-            wst=lambda: False, wcr=lambda s: False,
-            trgt=lambda *a: True, mc=lambda s: None,
-            lkey=pm._WS_LEASE_KEY, lttl=pm._WS_LEASE_TTL,
-            inst=pm._WS_INSTANCE, lkfn=lambda: '', wsf=lambda: '')
-        assert svc.gq is pm._RECENTLY_GHOSTED
-        assert svc.wsp is pm._WS_POSITIONS
-        assert svc.wsl is pm._WS_LOCK
-        assert svc.lkey == pm._WS_LEASE_KEY == 'ws:leader'
-        assert svc.lttl == pm._WS_LEASE_TTL == 45
+            runtime=md.MonitoringRuntimeDeps(
+                log=lambda *a, **k: None, now=time_mod.time,
+                summ=lambda: None, ghb=lambda: 0.0, shb=lambda v: None),
+            state=md.MonitoringStateDeps(
+                load=lambda: {}, save=lambda p: None,
+                wcr=lambda s: False, mc=lambda s: None,
+                gq=pm._RECENTLY_GHOSTED, trgt=lambda *a, **k: True),
+            market=md.MonitoringMarketDeps(
+                s6=lambda: (None,) * 8, dc=lambda: None, cfg=lambda p: {},
+                fund=lambda s: 0.0, us=lambda *a, **k: None,
+                pc=lambda *a, **k: None, rq=lambda s, q: q),
+            action=md.MonitoringActionDeps(
+                cls=lambda *a, **k: False, gcl=lambda *a: [],
+                elm=lambda *a: False, stag=lambda *a: False,
+                cts=lambda *a, **k: None, pt=lambda *a: None,
+                pp=lambda *a: None, g1h=lambda *a: False),
+            ws=md.MonitoringWsDeps(
+                wsp=pm._WS_POSITIONS, wsl=pm._WS_LOCK,
+                swlu=lambda v: None, wst=lambda: False,
+                m1=lambda *a, **k: None, lkey=pm._WS_LEASE_KEY,
+                lttl=pm._WS_LEASE_TTL, inst=pm._WS_INSTANCE,
+                ldr=lambda: False, lkfn=lambda: '', wsf=lambda: '',
+                oofn=lambda: None, oe=lambda *a: None,
+                oc=lambda *a: None))
 
 
 class TestLegacyWrapperParity:

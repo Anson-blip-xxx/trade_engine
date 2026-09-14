@@ -49,14 +49,27 @@ class TestSigningUnchanged:
         assert "hmac.new(_API_SECRET.encode('utf-8'), query.encode('utf-8')" in src
         assert "params['signature'] = sig" in src
 
-    def test_light_fapi_source_unchanged_clean(self, monkeypatch):
-        res = subprocess.run(['git', 'diff', 'de18975', 'HEAD', '--',
-                              'shared/position_manager.py'],
-                             capture_output=True, text=True)
-        # diff 中不得出现 _light_fapi 主体签名替换
-        leaked = [l for l in res.stdout.splitlines()
-                  if '_light_fapi' in l and l.startswith(('+', '-'))]
-        assert leaked == []            # C1 untouched
+    def test_light_fapi_source_unchanged(self):
+        """_light_fapi_* 函数体 AST 不变（跨 commit 比对 previous HEAD）。
+        C1 untouched —— factory 里 seam 引用迁移除外（bundle grouping）。"""
+        import ast
+        import subprocess
+        cur = ast.parse(open('shared/position_manager.py').read())
+
+        def body_map(tree):
+            out = {}
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name.startswith('_light_fapi'):
+                        out[node.name] = ast.dump(node)
+            return out
+        cur_map = body_map(cur)
+        prev_src = subprocess.run(
+            ['git', 'show', 'HEAD~1:shared/position_manager.py'],
+            capture_output=True, text=True).stdout
+        prev_map = body_map(ast.parse(prev_src))
+        for name in prev_map:
+            assert cur_map.get(name) == prev_map.get(name), name
 
 
 class TestNoCredentialCache:

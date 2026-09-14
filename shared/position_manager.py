@@ -34,6 +34,7 @@ from position_state.service import parse_position_risk as _ext_pos_parse
 from position_protection import service as pp_service
 
 from position_monitoring import service as _mon_svc
+from position_monitoring import deps as _mon_deps
 
 from position_reconcile import service as _rc_service
 from position_reconcile import deps as _rc_deps
@@ -758,32 +759,37 @@ def _is_stagnant_profit(pnl_usdt: float, hold_min: float,
     return is_stagnant_profit(pnl_usdt, hold_min, min_hold_min, max_profit_usdt)
 
 def _monitoring_service():
-    """P7-05B 晚绑定 factory：每次调用解析当前模块态，注入 Monitoring
-    Service（monkeypatch seam 保留；runtime backing 单一 = 模块全局。"""
+    """P7-05B 晚绑定 factory（P8-05B3：factory-time 构建新鲜 5 bundle
+    → 新 MonitoringService；monkeypatch seam 保留；runtime backing
+    (_WS_POSITIONS/_WS_LOCK/_RECENTLY_GHOSTED/worker flag/heartbeat) 均为
+    PM 单 backing identity）。"""
     return _mon_svc.PositionMonitoringService(
-        now=time.time, log=_pmlog, load=_load, save=_save,
-        m1=_monitor_one, gcl=_ghost_cleanup, gq=_RECENTLY_GHOSTED,
-        summ=log_position_summary,
-        s6=_s6api,
-        ghb=lambda: globals()['_monitor_heartbeat_ts'],
-        shb=lambda v: globals().__setitem__('_monitor_heartbeat_ts', v),
-        cfg=_get_cfg, fund=_get_funding_rate,
-        cls=_close,
-        dc=_get_data_cache, elm=_early_loss_momentum_weak,
-        stag=_is_stagnant_profit, g1h=_should_exit_1h_reversal,
-        us=_update_stop_loss, pc=_partial_close, rq=_round_qty,
-        pp=_peak_pullback_check, cts=_calc_trail_sl, pt=_place_trail_sl,
-        wsl=_WS_LOCK, wsp=_WS_POSITIONS,
-        swlu=lambda v: globals().__setitem__('_WS_LAST_UPDATE', v),
-        wst=lambda: globals()['_WS_STOP'],
-        ldr=lambda: _ws_am_leader(),
-        wcr=_was_closed_recently,
-        trgt=_try_record_ghost_trade,
-        mc=_mark_closed,
-        lkey=_WS_LEASE_KEY, lttl=_WS_LEASE_TTL, inst=_WS_INSTANCE,
-        lkfn=_ws_listen_key, wsf=_ws_url,
-        oofn=lambda: _ws_on_open, oe=lambda: _ws_on_error,
-        oc=lambda: _ws_on_close,
+        runtime=_mon_deps.MonitoringRuntimeDeps(
+            log=_pmlog, now=time.time, summ=log_position_summary,
+            ghb=lambda: globals()['_monitor_heartbeat_ts'],
+            shb=lambda v: globals().__setitem__('_monitor_heartbeat_ts', v)),
+        state=_mon_deps.MonitoringStateDeps(
+            load=_load, save=_save,
+            wcr=_was_closed_recently, mc=_mark_closed,
+            gq=_RECENTLY_GHOSTED, trgt=_try_record_ghost_trade),
+        market=_mon_deps.MonitoringMarketDeps(
+            s6=_s6api, dc=_get_data_cache, cfg=_get_cfg,
+            fund=_get_funding_rate, us=_update_stop_loss,
+            pc=_partial_close, rq=_round_qty),
+        action=_mon_deps.MonitoringActionDeps(
+            cls=_close, gcl=_ghost_cleanup, elm=_early_loss_momentum_weak,
+            stag=_is_stagnant_profit, cts=_calc_trail_sl,
+            pt=_place_trail_sl, pp=_peak_pullback_check,
+            g1h=_should_exit_1h_reversal),
+        ws=_mon_deps.MonitoringWsDeps(
+            wsp=_WS_POSITIONS, wsl=_WS_LOCK,
+            swlu=lambda v: globals().__setitem__('_WS_LAST_UPDATE', v),
+            wst=lambda: globals()['_WS_STOP'],
+            m1=_monitor_one, lkey=_WS_LEASE_KEY, lttl=_WS_LEASE_TTL,
+            inst=_WS_INSTANCE, ldr=lambda: _ws_am_leader(),
+            lkfn=_ws_listen_key, wsf=_ws_url,
+            oofn=lambda: _ws_on_open, oe=lambda: _ws_on_error,
+            oc=lambda: _ws_on_close),
     )
 
 
