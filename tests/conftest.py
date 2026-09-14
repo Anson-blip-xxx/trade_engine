@@ -115,3 +115,23 @@ def patch_executor(monkeypatch, fake_redis):
 
     set_balance(4000)
     return {'se': se, 'set_balance': set_balance}
+
+
+# ═══════════════════════════════════════════════════════════════
+# HOTFIX 2026-09-14 — 测试侧效应静音
+# 现象：Telegram『平仓 DOGEUSDT …』生产群被推送几千条。
+# 双保险之二（代码级 PYTEST guard 见 trade_recorder / position_manager）：
+#   record_trade 的 Telegram 助手在测试期间置 noop；
+#   PM 真实 AlgoSL 下单封死（tests 内的 per-test 后置 monkeypatch
+#   优先级兼容，保护链测试自身 stub 顺序不受影响）。
+# ═══════════════════════════════════════════════════════════════
+
+
+@pytest.fixture(autouse=True)
+def _silence_external_sideeffects(monkeypatch):
+    from shared import trade_recorder as _tr
+    if hasattr(_tr, '_send_and_pin'):
+        monkeypatch.setattr(_tr, '_send_and_pin', lambda *a, **k: None)
+    from shared import position_manager as _pm
+    monkeypatch.setattr(_pm, '_algo_place_sl_inner',
+                        lambda *a, **k: {'error': 'tests'})

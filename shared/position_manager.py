@@ -250,6 +250,9 @@ def _algo_place_sl_inner(symbol: str, side: str,
 
         # 下单前先取消该币所有活跃条件单（防止重启积累重复单）
         _cancel_all_algo(symbol)
+        if os.environ.get('PYTEST_CURRENT_TEST'):
+            # 测试环境静音：不下真实 AlgoSL（HOTFIX 2026-09-14）
+            return {'error': 'tests', 'algoId': 0}
 
         result = _light_fapi_post('/fapi/v1/algoOrder', {
             'symbol': symbol,
@@ -958,7 +961,7 @@ def _notify_external_position(symbol: str, raw: dict, system: str):
            f'已纳入 {system} PM 监控，请核对开仓来源。')
     _pmlog(f'[外部仓位] {symbol} {side} entry={entry} qty={qty} 未找到本地开仓事件')
     try:
-        if _TG_TOKEN and _TG_CHAT_ID:
+        if _TG_TOKEN and _TG_CHAT_ID and not os.environ.get('PYTEST_CURRENT_TEST'):
             requests.post(
                 f'https://api.telegram.org/bot{_TG_TOKEN}/sendMessage',
                 json={'chat_id': _TG_CHAT_ID, 'text': msg}, timeout=5,

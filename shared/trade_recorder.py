@@ -1,8 +1,10 @@
 """
 交易记录 — ClickHouse 落库 + Telegram 推送 + PnL 追踪
 依赖: binance_api (fapi_get, TG_TOKEN, TG_CHAT_ID), market_data, redis_store, clickhouse_client
+HOTFIX 2026-09-14: 测试环境（PYTEST_CURRENT_TEST）静音所有真实外发:
+  TG sendMessage / pinChatMessage 不发 —— 根治测试套件向生产群轰炸。
 """
-import time, json, requests, sys, hashlib
+import time, json, os, requests, sys, hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -337,20 +339,21 @@ def record_trade(symbol, entry, exit_price, qty, leverage, source, open_time, ex
     cycle_str = f"{cycle_pnl:+.2f} USDT" if cycle_pnl is not None else "计算中..."
 
     try:
-        emoji = '✅' if pct > 0 else '❌'
-        msg = (f"{emoji} *平仓* {symbol}\n"
-               f"入场: {entry:.4f} → 出场: {exit_price:.4f}\n"
-               f"盈亏: {pct:+.1f}% | {pnl_usdt:+.2f} USDT\n"
-               f"持仓: {duration_min}分钟 | 杠杆: {leverage}x\n\n"
-               f"📊 *累计战绩* ({total}单)\n"
-               f"胜率: {win_rate:.0f}% ({wins}胜{losses}负)\n"
-               f"本周期净盈亏: {cycle_str}\n"
-               f"均盈: {avg_win:+.1f}% | 均亏: {avg_loss:+.1f}%")
-        r = requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/sendMessage',
-            json={'chat_id': TG_CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'}, timeout=10)
-        mid = r.json().get('result', {}).get('message_id')
-        if mid:
-            requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/pinChatMessage',
-                json={'chat_id': TG_CHAT_ID, 'message_id': mid, 'disable_notification': True}, timeout=5)
+        if not os.environ.get('PYTEST_CURRENT_TEST'):
+            emoji = '✅' if pct > 0 else '❌'
+            msg = (f"{emoji} *平仓* {symbol}\n"
+                   f"入场: {entry:.4f} → 出场: {exit_price:.4f}\n"
+                   f"盈亏: {pct:+.1f}% | {pnl_usdt:+.2f} USDT\n"
+                   f"持仓: {duration_min}分钟 | 杠杆: {leverage}x\n\n"
+                   f"📊 *累计战绩* ({total}单)\n"
+                   f"胜率: {win_rate:.0f}% ({wins}胜{losses}负)\n"
+                   f"本周期净盈亏: {cycle_str}\n"
+                   f"均盈: {avg_win:+.1f}% | 均亏: {avg_loss:+.1f}%")
+            r = requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/sendMessage',
+                json={'chat_id': TG_CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'}, timeout=10)
+            mid = r.json().get('result', {}).get('message_id')
+            if mid:
+                requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/pinChatMessage',
+                    json={'chat_id': TG_CHAT_ID, 'message_id': mid, 'disable_notification': True}, timeout=5)
     except Exception:
         pass
