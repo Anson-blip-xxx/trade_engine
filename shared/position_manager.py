@@ -38,6 +38,7 @@ from position_monitoring import service as _mon_svc
 from position_reconcile import service as _rc_service
 
 from position_lifecycle import service as _lc_service
+from position_lifecycle import deps as _lc_deps
 from position_market import funding as _funding_helper
 from position_market import auth as _auth_helper
 _BASE       = Path(__file__).parent.parent
@@ -624,22 +625,24 @@ def _get_cfg(pos: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _lifecycle_service():
-    """P7-07B 晚绑定 factory：每次开/平调用解析当前模块态（monkeypatch
-    seam 保留；`_CLOSE_ERROR_LOG_TS` 等单 backing 仍为模块全局）。"""
+    """P7-07B 晚绑定 factory（P8-05B1：factory-time 构建新鲜 5 bundle
+    → 新 LifecycleService；monkeypatch seam 保留；无 cached/singleton deps）。"""
     return _lc_service.PositionLifecycleService(
-        log=_pmlog, now=time.time,
-        load=_load, save=_save,
-        wcr=_was_closed_recently, mc=_mark_closed, clr=_clear_closed_marker,
-        s6=_s6api, sandbox=_sandbox_active,
-        wkr=_algo_start_worker, enq=_algo_enqueue,
-        acx=_algo_cancel, cxa=_cancel_all_algo,
-        pg=_pg_record_event, rq=_round_qty,
-        posid=_position_id,
-        exec_fn=_execution_service,
-        close_fn=_close,
-        ci=lambda s, side, q: _exec_core.close_intent(s, side, q),
-        pi=lambda s, side, q: _exec_core.partial_close_intent(s, side, q),
-        lce=lambda s, m, interval=60: _log_close_error(s, m, interval),
+        runtime=_lc_deps.LifecycleRuntimeDeps(log=_pmlog, now=time.time),
+        execution=_lc_deps.LifecycleExecutionDeps(
+            exec_fn=_execution_service, ci=_exec_core.close_intent,
+            pi=_exec_core.partial_close_intent),
+        state=_lc_deps.LifecycleStateDeps(
+            load=_load, save=_save,
+            wcr=_was_closed_recently, mc=_mark_closed,
+            clr=_clear_closed_marker, posid=_position_id, rq=_round_qty),
+        protection=_lc_deps.LifecycleProtectionDeps(
+            wkr=_algo_start_worker, enq=_algo_enqueue,
+            acx=_algo_cancel, cxa=_cancel_all_algo),
+        action=_lc_deps.LifecycleActionDeps(
+            close_fn=_close, s6=_s6api, sandbox=_sandbox_active,
+            pg=_pg_record_event,
+            lce=_log_close_error),
     )
 
 

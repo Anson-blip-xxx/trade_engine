@@ -19,11 +19,15 @@ from __future__ import annotations
 
 
 class PositionLifecycleService:
-    """PM helmet 职责服务（thin façade；全部依赖经 callaable 注入）。"""
+    """PM helmet 职责服务（thin façade；5 责任域 bundle 注入，data-only holder）。"""
 
-    def __init__(self, **injected) -> None:
-        for key, value in injected.items():
-            setattr(self, key, value)
+    def __init__(self, *, runtime, execution, state, protection,
+                 action) -> None:
+        self.runtime = runtime
+        self.execution = execution
+        self.state = state
+        self.protection = protection
+        self.action = action
 
     # ═════════════════════════════════════════════════════════════════
     #  open（逐字迁移）
@@ -42,24 +46,24 @@ class PositionLifecycleService:
         - 挂条件止损单 Algo Order API（/fapi/v1/algoOrder）
         - 写入 pm_state + 同步原系统
         """
-        if self.wcr(symbol):
-            self.log(f'[开仓拒绝] {symbol} 4h 内被平仓过，跳过')
+        if self.state.wcr(symbol):
+            self.runtime.log(f'[开仓拒绝] {symbol} 4h 内被平仓过，跳过')
             return False
-        _, fapi_post, _, _, _, _, _, _ = self.s6()
+        _, fapi_post, _, _, _, _, _, _ = self.action.s6()
 
         # 1. 杠杆
         try:
             fapi_post('/fapi/v1/leverage',
                       {'symbol': symbol, 'leverage': leverage})
         except Exception as e:
-            self.log(f'[开仓] {symbol} 杠杆设置: {e}')
+            self.runtime.log(f'[开仓] {symbol} 杠杆设置: {e}')
 
         # 2. 保证金模式
         try:
             fapi_post('/fapi/v1/marginType',
                       {'symbol': symbol, 'marginType': margin_type})
         except Exception as e:
-            self.log(f'[开仓] {symbol} 保证金({margin_type}): {e}')
+            self.runtime.log(f'[开仓] {symbol} 保证金({margin_type}): {e}')
 
         # 3. 市价开仓
         order_side = 'SELL' if side == 'SHORT' else 'BUY'
@@ -69,18 +73,18 @@ class PositionLifecycleService:
                 'quantity': qty, 'positionSide': 'BOTH',
             })
         except Exception as e:
-            self.log(f'[开仓失败] {symbol}: {e}')
+            self.runtime.log(f'[开仓失败] {symbol}: {e}')
             return False
 
         # 4. 下条件止损单（Algo Order API）→ 入队异步消费
         sl_side = 'BUY' if side == 'SHORT' else 'SELL'
-        self.wkr()
-        self.enq(symbol, sl_side, sl, qty)
-        self.log(f'[开仓AlgoSL] {symbol} 止损{sl} 已入队')
+        self.protection.wkr()
+        self.protection.enq(symbol, sl_side, sl, qty)
+        self.runtime.log(f'[开仓AlgoSL] {symbol} 止损{sl} 已入队')
         algo_sl_id = None  # worker 完成后会更新 Redis
 
         # 5. 记录
-        now = int(self.now())
+        now = int(self.runtime.now())
         position = {
             'entry': entry, 'qty': qty, 'original_qty': qty,
             'leverage': leverage, 'sl': sl,
@@ -96,13 +100,13 @@ class PositionLifecycleService:
             **(metadata or {}),
             **(reasons or {}),
         }
-        positions = self.load()
+        positions = self.state.load()
         if symbol in positions:
-            self.log(f'[开仓] {symbol} 已在持仓中，跳过')
+            self.runtime.log(f'[开仓] {symbol} 已在持仓中，跳过')
             return True
         positions[symbol] = position
-        self.save(positions)
-        self.log(f'[开仓] {system} {symbol} {side} 入场{entry} 止损{sl} '
+        self.state.save(positions)
+        self.runtime.log(f'[开仓] {system} {symbol} {side} 入场{entry} 止损{sl} '
                  f'{leverage}x score={score}')
         return True
 
@@ -112,14 +116,14 @@ class PositionLifecycleService:
 
     def close_position(self, symbol: str, reason: str) -> bool:
         """外部调用平仓（经注入 close_fn 保留 pm seam）。"""
-        positions = self.load()
+        positions = self.state.load()
         pos = positions.get(symbol)
         if not pos:
-            self.log(f'[平仓] {symbol} PM无此持仓')
+            self.runtime.log(f'[平仓] {symbol} PM无此持仓')
             return False
-        _, _, _, get_price, _, _, _, _ = self.s6()
+        _, _, _, get_price, _, _, _, _ = self.action.s6()
         price = get_price(symbol)
-        return self.close_fn(symbol, pos, price, reason, positions,
+        return self.action.close_fn(symbol, pos, price, reason, positions,
                              force=True)
 
     def close(self, symbol: str, pos: dict, price: float, reason: str,
@@ -128,20 +132,20 @@ class PositionLifecycleService:
         """内部平仓：取消条件单 → 确认实盘 → 市价平 → 落库 → 删记录。
 
         force=False 时防重入：该币 4h 内已被处理过则直接跳过。"""
-        if not force and self.wcr(symbol):
-            self.log(f'[平仓跳过] {symbol} 近期已处理，防止重复平仓 ({reason})')
+        if not force and self.state.wcr(symbol):
+            self.runtime.log(f'[平仓跳过] {symbol} 近期已处理，防止重复平仓 ({reason})')
             return False
-        self.mc(symbol)
-        _, fapi_post, _, _, _, _, _, record_trade = self.s6()
+        self.state.mc(symbol)
+        _, fapi_post, _, _, _, _, _, record_trade = self.action.s6()
 
         # ═══ 沙盘模式：跳过 Binance API 检查，直接记录 ═══
-        if self.sandbox():
+        if self.action.sandbox():
             try:
                 from scripts.sandbox import _close_position as _sb_close
                 _sb_close(symbol)
             except Exception:
                 pass
-            self.log(f'[平仓·沙盘] {symbol} {reason} '
+            self.runtime.log(f'[平仓·沙盘] {symbol} {reason} '
                      f'入场={pos.get("entry")} 现价={price}')
             close_qty = pos.get('original_qty', pos.get('qty', 0))
             if pos['side'] == 'SHORT':
@@ -162,14 +166,14 @@ class PositionLifecycleService:
                          be_done=pos.get('be_done', False),
                          trail_active=pos.get('trail', False),
                          algo_sl_id=pos.get('algo_sl_id', 0),
-                         position_id=self.posid(symbol, pos),
+                         position_id=self.state.posid(symbol, pos),
                          final_close=True)
             positions.pop(symbol, None)
-            self.save(positions)
+            self.state.save(positions)
             return True
 
         # ═══ 实盘模式 ═══
-        fapi_get, _, _, _, _, _, _, record_trade = self.s6()
+        fapi_get, _, _, _, _, _, _, record_trade = self.action.s6()
 
         try:
             real_r = fapi_get('/fapi/v2/positionRisk', {'symbol': symbol})
@@ -186,10 +190,10 @@ class PositionLifecycleService:
             if not real_pos:
                 # 止损单已在交易所触发平仓，记录本次平仓
                 try:
-                    self.cxa(symbol)
-                    self.log(f'[平仓Algo取消] {symbol} 已清理全部条件单')
+                    self.protection.cxa(symbol)
+                    self.runtime.log(f'[平仓Algo取消] {symbol} 已清理全部条件单')
                 except Exception as e:
-                    self.log(f'[平仓Algo取消异常] {symbol}: {e}')
+                    self.runtime.log(f'[平仓Algo取消异常] {symbol}: {e}')
                 close_qty = pos.get('original_qty', pos.get('qty', 0))
                 if pos['side'] == 'SHORT':
                     pnl_pct = (pos['entry'] - price) / pos['entry'] * 100
@@ -197,7 +201,7 @@ class PositionLifecycleService:
                 else:
                     pnl_pct = (price - pos['entry']) / pos['entry'] * 100
                     pnl_u = round((price - pos['entry']) * close_qty, 2)
-                self.log(f'[平仓] {symbol} 交易所已平仓 pnl={pnl_pct:+.1f}% '
+                self.runtime.log(f'[平仓] {symbol} 交易所已平仓 pnl={pnl_pct:+.1f}% '
                          f'({pnl_u:+.2f}U) 原因={reason}')
                 record_trade(symbol, pos['entry'], price, close_qty,
                              pos.get("leverage", 3),
@@ -211,32 +215,32 @@ class PositionLifecycleService:
                              be_done=pos.get('be_done', False),
                              trail_active=pos.get('trail', False),
                              algo_sl_id=pos.get('algo_sl_id', 0),
-                             position_id=self.posid(symbol, pos),
+                             position_id=self.state.posid(symbol, pos),
                              final_close=True)
-                self.pg({
-                    'event_id': f"position:{self.posid(symbol, pos)}:flat",
-                    'position_id': self.posid(symbol, pos),
+                self.action.pg({
+                    'event_id': f"position:{self.state.posid(symbol, pos)}:flat",
+                    'position_id': self.state.posid(symbol, pos),
                     'event_type': 'EXCHANGE_POSITION_FLAT',
                     'order_id': '', 'fill_id': '', 'price': price,
                     'qty': close_qty, 'realized_pnl': pnl_u,
                     'payload': {'reason': reason},
                 })
                 positions.pop(symbol, None)
-                self.save(positions)
+                self.state.save(positions)
                 return True
 
-            requested_close_qty = self.rq(
+            requested_close_qty = self.state.rq(
                 symbol, abs(float(real_pos['positionAmt'])))
             close_qty = requested_close_qty
             # P4-03-01-C：订单执行经 ExecutionService → Binance Port
             #（intent 由 Core 构造：SHORT→BUY / 其余→SELL，MARKET + BOTH +
             # reduceOnly='true' —— E-OBS-5 冻结）。
-            result = self.exec_fn().execute_order(
-                self.ci(symbol, pos['side'], close_qty)).raw
+            result = self.execution.exec_fn().execute_order(
+                self.execution.ci(symbol, pos['side'], close_qty)).raw
             if isinstance(result, dict) and result.get('code'):
-                self.lce(symbol, result.get('msg', result), interval=60)
+                self.action.lce(symbol, result.get('msg', result), interval=60)
                 # 不要在市价单失败前删除原止损单，避免仓位裸奔。
-                self.clr(symbol)
+                self.state.clr(symbol)
                 return False
 
             # Market orders can be partially filled. Keep the position and
@@ -258,13 +262,13 @@ class PositionLifecycleService:
                 if reported_filled_qty < 0.001:
                     pos['qty'] = remaining_qty
                     positions[symbol] = pos
-                    self.save(positions)
-                    self.lce(symbol, '平仓响应无成交数量，保留仓位等待重试')
+                    self.state.save(positions)
+                    self.action.lce(symbol, '平仓响应无成交数量，保留仓位等待重试')
                     return False
                 filled_qty = reported_filled_qty
                 pos['qty'] = remaining_qty
                 positions[symbol] = pos
-                self.save(positions)
+                self.state.save(positions)
                 record_trade(symbol, pos['entry'], price, filled_qty,
                              pos.get("leverage", 3),
                              pos.get('system', ''), pos['open_time'],
@@ -277,12 +281,12 @@ class PositionLifecycleService:
                              be_done=pos.get('be_done', False),
                              trail_active=pos.get('trail', False),
                              algo_sl_id=pos.get('algo_sl_id', 0),
-                             position_id=self.posid(symbol, pos),
+                             position_id=self.state.posid(symbol, pos),
                              final_close=False)
-                self.pg({
+                self.action.pg({
                     'event_id': (f"order:{result.get('orderId', '')}:close:"
                                  f"{filled_qty}"),
-                    'position_id': self.posid(symbol, pos),
+                    'position_id': self.state.posid(symbol, pos),
                     'event_type': 'CLOSE_ORDER_PARTIAL',
                     'order_id': str(result.get('orderId', '')), 'fill_id': '',
                     'price': price, 'qty': filled_qty, 'realized_pnl': 0.0,
@@ -291,7 +295,7 @@ class PositionLifecycleService:
                                 'price': price, 'accounted_qty': filled_qty,
                                 'execution_status': result.get('status', '')},
                 })
-                self.log(f'[平仓部分成交] {symbol} qty={filled_qty} '
+                self.runtime.log(f'[平仓部分成交] {symbol} qty={filled_qty} '
                          f'剩余={remaining_qty}')
                 return False
             # Some Binance-compatible responses omit executedQty on a filled
@@ -301,16 +305,16 @@ class PositionLifecycleService:
                          if reported_filled_qty >= 0.001
                          else requested_close_qty)
         except Exception as e:
-            self.log(f'[平仓异常] {symbol}: {e}')
-            self.clr(symbol)
+            self.runtime.log(f'[平仓异常] {symbol}: {e}')
+            self.state.clr(symbol)
             return False
 
         # 市价平仓成功后再清理剩余条件单。
         try:
-            self.cxa(symbol)
-            self.log(f'[平仓Algo取消] {symbol} 已清理全部条件单')
+            self.protection.cxa(symbol)
+            self.runtime.log(f'[平仓Algo取消] {symbol} 已清理全部条件单')
         except Exception as e:
-            self.log(f'[平仓Algo取消异常] {symbol}: {e}')
+            self.runtime.log(f'[平仓Algo取消异常] {symbol}: {e}')
 
         # 盈亏
         if pos['side'] == 'SHORT':
@@ -325,16 +329,16 @@ class PositionLifecycleService:
         close_payload['price'] = price
         close_payload['accounted_qty'] = close_qty
         close_payload['execution_status'] = close_payload.get('status', '')
-        self.pg({
+        self.action.pg({
             'event_id': f"order:{result.get('orderId', '')}:close:final",
-            'position_id': self.posid(symbol, pos),
+            'position_id': self.state.posid(symbol, pos),
             'event_type': 'CLOSE_ORDER_FILLED',
             'order_id': str(result.get('orderId', '')), 'fill_id': '',
             'price': price, 'qty': close_qty, 'realized_pnl': pnl_u,
             'payload': close_payload,
         })
 
-        self.log(f'[平仓] {symbol} {reason} pnl={pnl_pct:+.1f}% ({pnl_u:+.2f}U)')
+        self.runtime.log(f'[平仓] {symbol} {reason} pnl={pnl_pct:+.1f}% ({pnl_u:+.2f}U)')
 
         # 落库
         record_trade(symbol, pos['entry'], price, close_qty,
@@ -349,12 +353,12 @@ class PositionLifecycleService:
                      be_done=pos.get('be_done', False),
                      trail_active=pos.get('trail', False),
                      algo_sl_id=pos.get('algo_sl_id', 0),
-                     position_id=self.posid(symbol, pos),
+                     position_id=self.state.posid(symbol, pos),
                      final_close=True)
 
         # 删记录
         positions.pop(symbol, None)
-        self.save(positions)
+        self.state.save(positions)
         return True
 
     # ═════════════════════════════════════════════════════════════════
@@ -365,19 +369,19 @@ class PositionLifecycleService:
                       close_qty: float, tp_pct: float, positions: dict):
         """分层止盈：市价平掉 close_qty 数量，保留剩余仓位。"""
         try:
-            r = self.exec_fn().execute_order(
-                self.pi(symbol, pos['side'], close_qty)).raw
+            r = self.execution.exec_fn().execute_order(
+                self.execution.pi(symbol, pos['side'], close_qty)).raw
             if not isinstance(r, dict) or r.get('code') is not None:
-                self.log(f'[分层止盈失败] {symbol} qty={close_qty}: '
+                self.runtime.log(f'[分层止盈失败] {symbol} qty={close_qty}: '
                          f'交易所拒绝 {r}')
                 return
         except Exception as e:
-            self.log(f'[分层止盈失败] {symbol} qty={close_qty}: {e}')
+            self.runtime.log(f'[分层止盈失败] {symbol} qty={close_qty}: {e}')
             return
         pos['qty'] = round(pos['qty'] - close_qty, 4)
         pnl_u = round((price - pos['entry']) * close_qty, 2) \
             if pos['side'] == 'LONG' \
             else round((pos['entry'] - price) * close_qty, 2)
-        self.save(positions)
-        self.log(f'[分层止盈] {symbol} +{pnl_u:.2f}USDT qty={close_qty} '
+        self.state.save(positions)
+        self.runtime.log(f'[分层止盈] {symbol} +{pnl_u:.2f}USDT qty={close_qty} '
                  f'剩余={pos["qty"]} ({tp_pct}%)')
