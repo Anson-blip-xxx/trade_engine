@@ -219,9 +219,15 @@ class TestTimingFrozen:
         assert pm._API_COOLDOWN == 3
 
     def test_grace_sec_unchanged(self):
+        # P7-06B：notify 逻辑迁入 PositionReconcileService（thin delegate）；
+        # 常量冻结目标随之迁移
         from shared import position_manager as pm
-        src = inspect.getsource(pm._notify_external_position)
+        from position_reconcile import service as rc
+        src = inspect.getsource(
+            rc.PositionReconcileService.notify_external_position)
         assert 'grace_sec = 30' in src
+        assert 'thin delegation' in inspect.getsource(
+            pm._notify_external_position)
 
     def test_import_side_effect_still_present(self):
         """N1 冻结：se 模块 import 即启动 worker（现址保留，不修）。"""

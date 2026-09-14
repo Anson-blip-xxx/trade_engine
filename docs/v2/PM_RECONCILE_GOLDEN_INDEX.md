@@ -125,3 +125,40 @@ PositionReconcileService（独立于 MonitoringService，不合并）
   不拥有: _close lifecycle 实现（P7-07）
 MonitoringService 保持：gcl / 一旦 P7-06B 落地 → reconcile_fn / ghost_cleanup_fn
 ```
+
+---
+
+# P7-06B · Reconcile Service Extraction Closure
+
+> commit：`refactor(v2): extract PositionManager reconcile service`
+
+## Ownership 迁移
+
+| 职责 | Before | After |
+|---|---|---|
+| `_ghost_cleanup`/`_ghost_cleanup_one`（通道 A：lock→record→mark→pop） | PM inline | `position_reconcile/service.py`（逐字；PMB-23 序不变） |
+| `reconcile_all`（通道 B：silent pop/list，无 record/mark/lock） | PM inline | service（逐字；PMB-24 不变） |
+| `_try_record_ghost_trade`（WS record 通道；lock 内二次去重） | PM inline | service（逐字） |
+| `_notify_external_position`（30s pending / 24h seen / TG 吞 / PG 传） | PM inline | service（逐字；PMB-26 不变） |
+| `migrate_existing_positions`（state:s6/s8 启动迁移） | PM inline | service（逐字；无 runtime adoption） |
+| ghost queue `_RECENTLY_GHOSTED` 消费 | monitoring（P7-05B） | **不动**（dead runtime 仍 monitoring 侧） |
+| `_close` lifecycle | PM | **不迁（P7-07）** |
+
+## ReconcileService API（注入契约，晚绑定 via `pm._reconcile_service()`）
+
+`PositionReconcileService(lgt, now, load, save, sandbox, exf, gpx, lacq, lrel, wcr, mc, s6, posid, rdget, rdset, rqst, tgt, tgc, pg, sk, pid, uid)`
+
+依赖方向：零反向 import（AST seal：禁 PM/shared_executor/monitoring/state/ledger/protection/execution）。
+
+## Legacy wrappers（PM 保留 thin delegate）
+
+`_ghost_cleanup` / `_ghost_cleanup_one` / `_try_record_ghost_trade` /
+`_notify_external_position` / `reconcile_all` / `migrate_existing_positions`
+
+## 新增测试
+
+- `test_reconcile_service_architecture.py`（9）：AST seal / clean import / 6 wrapper delegate parity
+- `test_reconcile_service_parity.py`（11）：通道 A/B/WS/migrate 直接构造 parity；
+  PMB-23 pop-before-record；lock fail/release；grace→seen 告警；双路径一致
+- `tests/execution/test_protection_boundary.py` grace 常量 guard 目标随 ownership
+  迁移（常量本身 30s 未变——architecture guard adjustment）

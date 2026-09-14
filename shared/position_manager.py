@@ -33,6 +33,8 @@ from position_state import service as ps_service
 from position_protection import service as pp_service
 
 from position_monitoring import service as _mon_svc
+
+from position_reconcile import service as _rc_service
 _BASE       = Path(__file__).parent.parent
 _LOG_DIR    = _BASE.parent / 'logs/position_manager'
 
@@ -511,39 +513,9 @@ if os.environ.get('PM_NO_WS') != '1':
 
 
 def _try_record_ghost_trade(sym: str, meta: dict):
-    """幽灵仓数据落库（不抛异常）。通过文件标记去重，防止双进程重复写"""
-    owner = f'ghost:{os.getpid()}:{uuid.uuid4().hex[:8]}'
-    lock_key = f'pm:ghost_close:{sym}'
-    if not _lock_acquire(lock_key, owner, ttl=60):
-        _pmlog(f'[幽灵跳过] {sym} 其他进程正在处理平仓')
-        return False
-    try:
-        # 去重：该 symbol 近期已被 _close 处理过则跳过
-        if _was_closed_recently(sym):
-            _pmlog(f'[幽灵跳过] {sym} 已由 _close 记录，跳过')
-            return False
-
-        _, _, _, _, _, _, _, record_trade = _s6api()
-        entry = meta.get('entry', 0)
-        side = meta.get('side', 'LONG')
-        qty = meta.get('original_qty', meta.get('qty', 0))
-        leverage = meta.get('leverage', 3)
-        system_name = meta.get('system', '')
-        open_time = meta.get('open_time', time.time())
-        ghost_price = _light_get_price(sym) or entry
-        record_trade(sym, entry, ghost_price, qty, leverage, system_name, open_time,
-                     exit_reason='幽灵仓关闭', side=side,
-                     signal_type=meta.get('event_type', ''),
-                      score=meta.get('score', 0), atr_entry=meta.get('atr', 0),
-                     sl_price=meta.get('sl', 0),
-                     position_id=_position_id(sym, meta), final_close=True,
-                     ghost_cleanup=True)
-        return True
-    except Exception as e:
-        _pmlog(f'[幽灵记录失败] {sym}: {e}')
-        return False
-    finally:
-        _lock_release(lock_key, owner)
+    """幽灵仓数据落库（P7-06B：thin delegation → ReconcileService，
+    lock 内二次去重序经 P7-06A golden 冻结）。"""
+    return _reconcile_service().try_record_ghost_trade(sym, meta)
 
 _SYSTEM_KEYS = {
     'S6': 'state:s6',
@@ -824,76 +796,35 @@ def open_position(
 #  监控
 # ═══════════════════════════════════════════════════════════════════════
 
+def _reconcile_service():
+    """P7-06B 晚绑定 factory：每次调用解析当前模块态，注入 Reconcile
+    Service（monkeypatch seam 保留；无 runtime backing 迁移——
+    `_RECENTLY_GHOSTED` 等仅消费仍经 monitoring。"""
+    return _rc_service.PositionReconcileService(
+        lgt=_pmlog, now=time.time, load=_load, save=_save,
+        sandbox=_sandbox_active,
+        exf=_light_fapi_get, gpx=_light_get_price,
+        lacq=_lock_acquire, lrel=_lock_release,
+        wcr=_was_closed_recently, mc=_mark_closed,
+        s6=_s6api, posid=_position_id,
+        rdget=_rget, rdset=_rset, rqst=requests,
+        tgt=_TG_TOKEN, tgc=_TG_CHAT_ID,
+        pg=_pg_record_event,
+        sk=lambda: _SYSTEM_KEYS,
+        pid=os.getpid, uid=lambda: uuid.uuid4().hex[:8],
+    )
+
+
 def _ghost_cleanup(positions: dict, system_filter: str = '') -> list:
-    """幽灵仓清理：对比 Binance positionRisk，清除并记录 trade。沙盘模式跳过。"""
-    if _sandbox_active():
-        return []
-    closed = []
-    try:
-        _, _, _, _, _, _, _, record_trade = _s6api()
-    except Exception:
-        record_trade = lambda *a, **kw: None
-    try:
-        real_r = _light_fapi_get('/fapi/v2/positionRisk')
-        if not isinstance(real_r, list):
-            return closed
-        real_syms = set()
-        for p in real_r:
-            if isinstance(p, dict) and abs(float(p.get('positionAmt', 0))) >= 0.001:
-                real_syms.add(p['symbol'])
-        for sym in list(positions.keys()):
-            if sym in real_syms:
-                continue
-            pos = positions.get(sym)
-            if not pos:
-                continue
-            # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
-            if _was_closed_recently(sym):
-                positions.pop(sym, None)
-                continue
-            # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
-            if system_filter and not pos.get('system', '').startswith(system_filter):
-                continue
-            owner = f'ghost-cleanup:{os.getpid()}:{uuid.uuid4().hex[:8]}'
-            lock_key = f'pm:ghost_close:{sym}'
-            if not _lock_acquire(lock_key, owner, ttl=60):
-                continue
-            try:
-                _ghost_cleanup_one(sym, pos, positions, record_trade, closed)
-            finally:
-                _lock_release(lock_key, owner)
-        if closed:
-            _pmlog(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
-    except Exception as e:
-        _pmlog(f'[幽灵检测异常] {e}')
-    return closed
+    """幽灵仓清理（P7-06B：thin delegation → PositionReconcileService，
+    行为经 P7-06A golden 冻结）。"""
+    return _reconcile_service().ghost_cleanup(positions, system_filter)
 
 
 def _ghost_cleanup_one(sym: str, pos: dict, positions: dict, record_trade, closed: list):
-    """Remove and record one ghost position while its distributed lock is held."""
-    positions.pop(sym, None)
-    entry = pos.get('entry', 0)
-    side = pos.get('side', 'LONG')
-    qty = pos.get('original_qty', pos.get('qty', 0))
-    ghost_price = _light_get_price(sym) or entry
-    _pmlog(f'[幽灵仓] {sym} 交易所已无持仓，清理 (入场={entry} 现价={ghost_price})')
-    record_trade(sym, entry, ghost_price, qty,
-                 pos.get('leverage', 1), pos.get('system', ''),
-                 pos.get('open_time', time.time()),
-                 exit_reason='手动平仓', side=side,
-                 signal_type=pos.get('event_type', ''),
-                 score=pos.get('score', 0),
-                 atr_entry=pos.get('atr', 0),
-                 sl_price=pos.get('sl', 0),
-                 margin_mode=pos.get('margin', ''),
-                 be_done=pos.get('be_done', False),
-                 trail_active=pos.get('trail', False),
-                 algo_sl_id=pos.get('algo_sl_id', 0),
-                 position_id=_position_id(sym, pos), final_close=True,
-                 ghost_cleanup=True)
-    # 标记已清理，防止下一轮 _load 从 meta 重新读到后再次清理/重复记账
-    _mark_closed(sym)
-    closed.append((sym, '手动平仓', ghost_price, entry, qty, side))
+    """（P7-06B：thin delegation——pop→record 序经 PMB-23 冻结。）"""
+    _reconcile_service().ghost_cleanup_one(sym, pos, positions,
+                                           record_trade, closed)
 
 
 _monitor_heartbeat_ts: float = 0
@@ -919,44 +850,9 @@ def _position_id(symbol: str, pos: dict) -> str:
 
 
 def _notify_external_position(symbol: str, raw: dict, system: str):
-    """Alert once when an exchange position has no local open event."""
-    grace_sec = 30
-    entry = float(raw.get('entry', 0))
-    qty = float(raw.get('qty', 0))
-    side = raw.get('side', 'LONG')
-    fingerprint = f'{side}:{entry:.12g}:{qty:.12g}'
-    key = f'alert:external_position:{symbol}'
-    pending_key = f'alert:external_position:pending:{symbol}'
-    pending = _rget(pending_key) or {}
-    if pending.get('fingerprint') != fingerprint:
-        _rset(pending_key, {'fingerprint': fingerprint, 'ts': time.time()})
-        return
-    if time.time() - float(pending.get('ts', 0)) < grace_sec:
-        return
-    seen = _rget(key) or {}
-    if seen.get('fingerprint') == fingerprint and time.time() - float(seen.get('ts', 0)) < 86400:
-        return
-    _rset(key, {'fingerprint': fingerprint, 'ts': time.time()})
-    _rset(pending_key, {})
-    msg = (f'⚠️ 外部/漏记仓位 {symbol}\n'
-           f'方向: {side} | 入场: {entry:.8g} | 数量: {qty:.8g}\n'
-           f'已纳入 {system} PM 监控，请核对开仓来源。')
-    _pmlog(f'[外部仓位] {symbol} {side} entry={entry} qty={qty} 未找到本地开仓事件')
-    try:
-        if _TG_TOKEN and _TG_CHAT_ID:
-            requests.post(
-                f'https://api.telegram.org/bot{_TG_TOKEN}/sendMessage',
-                json={'chat_id': _TG_CHAT_ID, 'text': msg}, timeout=5,
-            )
-    except Exception:
-        pass
-    _pg_record_event({
-        'event_id': f'external:{symbol}:{fingerprint}',
-        'position_id': f'external:{symbol}:{fingerprint}',
-        'event_type': 'EXTERNAL_POSITION_DETECTED',
-        'order_id': '', 'fill_id': '', 'price': entry, 'qty': qty,
-        'realized_pnl': 0.0, 'payload': {'system': system, 'raw': raw},
-    })
+    """（P7-06B：thin delegation → ReconcileService；30s/24h 语义与
+    TG/PG 吞错不对称经 P7-06A golden 冻结。）"""
+    _reconcile_service().notify_external_position(symbol, raw, system)
 
 
 def _should_exit_1h_reversal(pnl: float) -> bool:
@@ -1029,51 +925,10 @@ def _monitor_one(symbol: str, pos: dict, positions: dict):
 
 def reconcile_all():
     """
-    对账：对比 PM state vs Binance 实际持仓。
-    - PM有但Binance无 → 清理幽灵仓
-    - Binance有但PM无 → 告警（可能丢失跟踪）
-    返回 (ghost_cleaned, missing_tracked)
+    对账（P7-06B：thin delegation → PositionReconcileService；silent
+    第二通道语义经 P7-06A golden 冻结——无 record/mark/lock/adoption）。
     """
-    fapi_get, _, _, _, _, _, _, _ = _s6api()
-    positions = _load()
-    ghost = []
-    missing = []
-
-    # Binance 实际持仓
-    try:
-        real_r = fapi_get('/fapi/v2/positionRisk')
-        # API错误（限速/banned）时不执行对账——宁漏不错
-        if not isinstance(real_r, list):
-            _pmlog(f'[对账跳过] Binance API返回异常: {type(real_r).__name__}')
-            return [], []
-        real_positions = {}
-        for p in real_r:
-            if isinstance(p, dict):
-                amt = float(p.get('positionAmt', 0))
-                if abs(amt) >= 0.001:  # 忽略极微量
-                    real_positions[p['symbol']] = {
-                        'amt': amt,
-                        'side': 'SHORT' if amt < 0 else 'LONG',
-                    }
-    except Exception as e:
-        _pmlog(f'[对账失败] Binance API: {e}')
-        return [], []
-
-    # PM有但Binance无
-    for sym in list(positions.keys()):
-        if sym not in real_positions:
-            _pmlog(f'[对账] 幽灵仓清除: {sym} entry={positions[sym].get("entry")}（state有但交易所无）')
-            positions.pop(sym, None)
-            ghost.append(sym)
-
-    # Binance有但PM无
-    for sym, info in real_positions.items():
-        if sym not in positions:
-            _pmlog(f'[对账] 漏记仓: {sym} {info["side"]} 持仓{info["amt"]}（交易所已有但PM未跟踪）')
-            missing.append(sym)
-
-    _save(positions)
-    return ghost, missing
+    return _reconcile_service().reconcile_all()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1697,26 +1552,6 @@ def _set_cooldown(symbol: str, system: str, pnl_pct: float):
 
 
 def migrate_existing_positions():
-    """迁移各系统现存持仓到 PM（启动时调用一次）"""
-    positions = _load()
-    changed = False
-    for system, key in _SYSTEM_KEYS.items():
-        try:
-            state = _rget(key)
-            if not state:
-                continue
-            for sym, pos in state.get('positions', {}).items():
-                if sym not in positions:
-                    pos['system'] = pos.get('system', system)
-                    if 'side' not in pos:
-                        pos['side'] = pos.get('side', 'SHORT')
-                    if 'original_qty' not in pos:
-                        pos['original_qty'] = pos.get('qty', 0)
-                    positions[sym] = pos
-                    changed = True
-                    _pmlog(f'[迁移] {system} {sym} 入场{pos.get("entry")} 已纳入PM管理')
-        except Exception as e:
-            _pmlog(f'[迁移失败] {system}: {e}')
-    if changed:
-        _save(positions)
-    return positions
+    """迁移各系统现存持仓到 PM（P7-06B：thin delegation →
+    ReconcileService；启动 once 语义经 P7-06A golden 冻结）。"""
+    return _reconcile_service().migrate_existing_positions()
