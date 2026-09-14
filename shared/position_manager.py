@@ -29,6 +29,7 @@ from execution import service as _exec_service
 from execution.adapters import binance as _exec_binance
 from execution.adapters import position_state as _exec_pos_state
 from position_state import service as ps_service
+from position_state.service import parse_position_risk as _ext_pos_parse
 
 from position_protection import service as pp_service
 
@@ -516,31 +517,15 @@ def _load() -> dict:
     三层加载持仓：
       一层 WS 实时流 → 二层 REST 轮询 → 三层本地元数据
     沙盘模式：跳过 WS/REST，仅用本地。
-    （P7-02：状态 assembly 委托 PositionStateService；merge/REST 解析经
-    callable 注入，顺序/异常吞错逐字保持。）
+    （P7-02：状态 assembly 委托 PositionStateService；P8-02：closure 外提
+    成模块级 `_ws_snapshot/_merge_and_save/_meta_filtered`，链序/回退序/
+    异常吞错逐字保持。）
     """
-    def merge_and_save(raw, now):
-        meta = _load_meta()
-        merged = _merge_meta_preserving_missing(raw, meta, now)
-        _save(merged)
-        return merged
-
-    def meta_filtered():
-        meta = _load_meta()
-        merged = {s: p for s, p in meta.items() if not _was_closed_recently(s)}
-        if merged:
-            _save(merged)
-        return merged
-
-    def ws_snapshot():
-        with _WS_LOCK:
-            return (_WS_LAST_UPDATE, dict(_WS_POSITIONS))
-
     return _state_service().load_assembly(
-        ws_snapshot_fn=ws_snapshot,
+        ws_snapshot_fn=_ws_snapshot,
         rest_positions_fn=_rest_positions_snapshot,
-        merge_and_save_fn=merge_and_save,
-        meta_filtered_fn=meta_filtered,
+        merge_and_save_fn=_merge_and_save,
+        meta_filtered_fn=_meta_filtered,
     )
 
 
@@ -562,22 +547,39 @@ def _state_service() -> 'ps_service.PositionStateService':
     )
 
 
+def _ws_snapshot() -> tuple:
+    """P8-02：从 `_load` 内联 closure 外提的 WS 快照 glue（语义逐字：
+    锁内 copy — fresh dict；backing 仍是 PM 单 owner）。"""
+    with _WS_LOCK:
+        return (_WS_LAST_UPDATE, dict(_WS_POSITIONS))
+
+
+def _merge_and_save(raw, now) -> dict:
+    """三层链第 2/3 层 spare merge 胶水（P7-02 冻结语义；
+    依赖均经模块全局晚绑定——monkeypatch seam 保留）。"""
+    meta = _load_meta()
+    merged = _merge_meta_preserving_missing(raw, meta, now)
+    _save(merged)
+    return merged
+
+
+def _meta_filtered() -> dict:
+    """第 3 层 meta 兜底（recently closed 过滤；merged 非空才 save
+    ——PMB-19 双 save 的第一笔）。"""
+    meta = _load_meta()
+    merged = {s: p for s, p in meta.items() if not _was_closed_recently(s)}
+    if merged:
+        _save(merged)
+    return merged
+
+
 def _rest_positions_snapshot() -> dict:
-    """REST 轮询解析（P7-02 从 `_load` 抽出为 helper；解析/异常吞错逐字）。"""
+    """REST 轮询解析（P8-02：解析机械迁 StateService `parse_position_risk`；
+    fetch/异常吞错留本 owner——语义逐字）。"""
     rest_positions: dict[str, dict] = {}
     try:
         real_r = _light_fapi_get('/fapi/v2/positionRisk')
-        if isinstance(real_r, list):
-            for p in real_r:
-                amt = abs(float(p.get('positionAmt', 0)))
-                if amt < 0.001:
-                    continue
-                side = 'SHORT' if float(p.get('positionAmt', 0)) < 0 else 'LONG'
-                rest_positions[p['symbol']] = {
-                    'entry': float(p['entryPrice']), 'side': side, 'qty': amt,
-                    'leverage': int(p.get('leverage', 3)),
-                    'margin': p.get('marginType', 'CROSSED').upper(),
-                }
+        rest_positions = _ext_pos_parse(real_r, rest_positions)  # 增量语义逐字
     except Exception:
         pass
     return rest_positions

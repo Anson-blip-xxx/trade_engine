@@ -120,3 +120,29 @@ class PositionStateService:
             return merge_and_save_fn(rest_positions, now)
 
         return meta_filtered_fn()
+
+
+def parse_position_risk(raw_r, out=None) -> dict:
+    """REST positionRisk 纯解析（P8-02 从 PM `_rest_positions_snapshot` 抽出
+    的机械部分；fetch/异常吞错仍留 caller owner）。
+
+    冻结语义逐字：
+    - caller 内联 try/except 吞错：增量解析、部分解析结果保留（P7-02 冻结）
+    - |positionAmt| < 0.001 → skip（微量忽略）
+    - side 由符号定（<0 → SHORT）；margin upper（缺省 'CROSSED'）、
+      leverage int 缺省 3、entry float
+    """
+    if out is None:
+        out = {}
+    if isinstance(raw_r, list):
+        for p in raw_r:
+            amt = abs(float(p.get('positionAmt', 0)))
+            if amt < 0.001:
+                continue
+            side = 'SHORT' if float(p.get('positionAmt', 0)) < 0 else 'LONG'
+            out[p['symbol']] = {
+                'entry': float(p['entryPrice']), 'side': side, 'qty': amt,
+                'leverage': int(p.get('leverage', 3)),
+                'margin': p.get('marginType', 'CROSSED').upper(),
+            }
+    return out
