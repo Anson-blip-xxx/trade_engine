@@ -267,3 +267,58 @@ hidden IO；P7-04B 期间经 callable 注入但不更换 Binance client。
 **跳过不触发 DELETE**。
 ### Migration constraint:
 P7-04B 保留过滤逻辑（不改 status set）。
+
+## PMB-16 · monitor_all 心跳 60s 节流与持仓快照合并（P7-05A 冻结）
+### Observed:
+- 空仓（`_load()` == {}）：60s 内重复调用完全静默；>60s 才 log `[监控心跳] 无持仓`。
+- 持仓：心跳行最多列 8 个 symbol（`list(positions.items())[:8]`），get_price
+  成功输出 `{sym}({首字母} pnl:+.1f%)`，失败/无价输出 `{sym}({首字母})`——
+  get_price 逐币异常吞错（不中断 sweep）。
+### Migration constraint:
+节流写回 `_monitor_heartbeat_ts`（模块级全局）；P7-05B 拆分时保留。
+
+## PMB-17 · _RECENTLY_GHOSTED len<6 → side=None → filter 失效被消费（P7-05A 冻结）
+### Observed:
+ghost 队列多元组若不足 6 项（无 side），`g_side=None` → `not g_side` →
+`closed.append(g)` 直接消费——system_filter 完全失效，S6 进程可能记账 S8 的
+AlgoSL ghost 平仓。
+### Migration constraint:
+P7-05B 保留意图不加"修复"；若作为 action ticket 必须显式记录。
+
+## PMB-18 · time_extended 后 deadline 失效（延期只生效一轮，P7-05A 冻结）
+### Observed:
+`time_extended=True` 后：deadline 检查跳过（`if not time_extended` 包住了
+deadline 判断），下一轮 hold>ts_min 直接平『时间止损』。延期语义 =
+"再观察一次周期"，非"延长到 deadline"。
+### Migration constraint:
+P7-05B 保留（意图不重建为 deadline 语义）。
+
+## PMB-19 · _save 保存全量 all_positions（filter 只影响 sweep 范围，P7-05A 冻结）
+### Observed:
+monitor_all(system_filter) 只把 _monitor_one 应用到过滤后的 positions；
+但 `all_positions`（不过滤）被终局 `_save` 整量写回——meta_filtered 兜底
+回写 + 终局快照 = 每轮两次整量 save。
+### Migration constraint:
+双 save（_load meta_filtered + monitor_all 终局）保持；P7-05B 不合并。
+
+## PMB-20 · WS lease fail-open（redis 异常 → 允许连接，P7-05A 冻结）
+### Observed:
+`_ws_am_leader` 包 try/except：任何 redis 异常 → `return True`——锁服务
+失效时双进程可能同时连 listenKey（原本要防的互相踢线在异常时回归）。
+### Migration constraint:
+保留 fail-open 意图（选择可用性优先）。
+
+## PMB-21 · WS 平仓 → 先记账后标记（P7-05A 冻结）
+### Observed:
+`_ws_on_message` 删仓时：先 `_try_record_ghost_trade`（此时 marker 未设，
+自身拦截不生效）→ 成功后 `_mark_closed`。顺序用于跨进程去重：对方进程
+`_was_closed_recently` 命中即可跳过。
+### Migration constraint:
+record→mark 顺序保持。
+
+## PMB-22 · 1h 反转分支 return None 阻断当轮时间止损（P7-05A 冻结）
+### Observed:
+`_monitor_one` 第 6 步：SHORT ema9>ema20*1.02（或 LONG ema9<ema20*0.98）
+命中后即使未平仓也 `return None`——当轮时间止损不再评估（下一轮才可能平）。
+### Migration constraint:
+P7-05B 保留链序（勿把 return None 改为 fall-through）。
