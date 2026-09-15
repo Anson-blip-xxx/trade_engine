@@ -190,13 +190,13 @@ class TestGhostQueueConsumption:
         pm.monitor_all()
         assert pm._RECENTLY_GHOSTED == []
 
-    def test_ghost_queue_missing_side_consumed_even_under_filter(self, mon):
-        """len(g)<6 → g_side=None → `not g_side` 直接消费（filter 失效）。"""
+    def test_ghost_queue_missing_side_dropped_pmb17_fixed(self, mon):
+        """P9-06B regression：len<6 → log + drop（原 bypass 消费有意翻转）。"""
         pm = mon['pm']
         self._seed(mon)
         pm._RECENTLY_GHOSTED.append(('BUSDT', 'x', 5.0, 5.0, 10.0))
         out = pm.monitor_all('S8')
-        assert any(c[0] == 'BUSDT' for c in out)
+        assert out == []                        # malformed drop
         assert pm._RECENTLY_GHOSTED == []
 
     def test_ghost_queue_all_s6_allows_long_only(self, mon):

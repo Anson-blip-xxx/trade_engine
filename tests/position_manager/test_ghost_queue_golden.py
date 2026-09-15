@@ -57,22 +57,22 @@ class TestQueueContract:
         assert sym_counts == 1              # 第二入れず closed_syms skip
         assert pm._RECENTLY_GHOSTED == []
 
-    def test_short_tuple_consumed_filter_bypass(self, q):
-        """PMB-17 冻结复确认：len<6 → side=None → filter 失效消费。"""
+    def test_short_tuple_dropped_pmb17_fixed(self, q):
+        """P9-06B regression：len<6 → log + drop（不再 bypass）。"""
         pm = q['pm']
         pm._save({'AUSDT': {'entry': 1.0, 'system': 'S8'}})
         pm._RECENTLY_GHOSTED.append(('B', 'x', 1, 2, 3))
         out = pm.monitor_all('S8')
-        assert [c[0] for c in out] == ['B']
+        assert out == []                        # malformed drop
         assert pm._RECENTLY_GHOSTED == []
 
-    def test_malformed_single_tuple(self, q):
-        """str item：g[0] 取字符 → closed_syms 判空/字符比对容错消费。"""
+    def test_malformed_single_tuple_dropped(self, q):
+        """P9-06B regression：`str` item（len<6）→ log + drop。"""
         pm = q['pm']
         pm._save({'AUSDT': {'entry': 1.0}})
         pm._RECENTLY_GHOSTED.append(('X',))
         out = pm.monitor_all()
-        assert out == [('X',)]              # 单元组 g[0]='X' 正常消费
+        assert out == []                        # malformed drop
 
     def test_requeued_unmatched_kept_order(self, q):
         pm = q['pm']

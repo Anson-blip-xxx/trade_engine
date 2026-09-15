@@ -90,3 +90,19 @@ final phase**（consumption zone）；其本身**无 catch**（演示
 
 - PMB-23A/B 独立（人 split pass）—— PMB-17 queue schema / malformed item 是
   consumer parser层， unrelated cleanup helpers。
+
+
+---
+
+# FIXED（P9-06B）
+
+- **FIXED BY:** `fix(v2): drop malformed ghost queue entries safely`（commit pending）
+- **OLD**: len<6 → side=None → `not g_side` bypass → 消费；empty → IndexError
+- **NEW**: queue consumer precheck —— `len(g) >= 6 and g[5]` 非空；
+  malformed → log『[ghost queue malformed] {g!r} …』→ **drop**（不 requeue、
+  不 infer、empty/no-lend 不再炸 loop）
+- UNKNOWN：仍 unmatched → requeue（兼容边界不变）
+- extra-fields（len>6）：兼容（用 g[0]/g[5]）；valid LONG/SHORT 0 diff
+- producer：0 active（不下);
+- PMB-25：仍 DEFERRED
+- **Rollback:** `git revert <P9-06B_commit>`（P9-06A `71327c2` 保留）

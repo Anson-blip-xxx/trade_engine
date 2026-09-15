@@ -112,6 +112,17 @@ class PositionMonitoringService:
         remaining = []
         while self.state.gq:
             g = self.state.gq.pop(0)
+            # P9-06B（PMB-17 修复）：最小 schema validation —— len≥6 且
+            # side 非空；malformed → log + drop（不 requeue、不 infer、
+            # empty/no-lend 对象不再炸 monitor loop）
+            try:
+                _ok = (len(g) >= 6 and g[5])
+            except TypeError:
+                _ok = False
+            if not _ok:
+                self.log(f'[ghost queue malformed] {g!r} '
+                         '（len<6 或 side 缺失）→ drop')
+                continue
             g_sym = g[0]
             g_side = g[5] if len(g) >= 6 else None
             if g_sym in closed_syms:
@@ -128,7 +139,6 @@ class PositionMonitoringService:
             else:
                 remaining.append(g)
         self.state.gq.extend(remaining)
-
         # PMB-19：终局整量 save（`all_positions`，不过滤）
         self.state.save(all_positions)
 

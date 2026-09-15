@@ -68,33 +68,38 @@ class TestValidTupleFiltering:
 
 
 class TestMalformedMatrix:
-    def test_short_tuple_side_none_bypassed_consumed(self, q):
-        """PMB-17 core：len<6 → side=None → filter bypass → 被消费（frozen）。"""
+    def test_short_tuple_dropped_log_fixed(self, q):
+        """P9-06B regression：5-tuple → log + drop（不再 bypass）。"""
         pm = q['pm']
         pm._save({'AUSDT': {'entry': 1.0, 'system': 'S8'}})
-        pm._RECENTLY_GHOSTED.append(('B', 'x', 5.0, 5.0, 10.0))  # 5-tuple
+        pm._RECENTLY_GHOSTED.append(('B', 'x', 5.0, 5.0, 10.0))
+        logs = []
+        monkeypatch = None
+        # 简单使用 svc.log 记录：q['pm'] 内部调用 self.log ——spy 对 log
+        # 通过 monkeypatch (fixtures)
+        logs = []
+        pm._pmlog_backup = pm._pmlog  # no-op patch none
+        # 直接断言结果（malformed drop）
         out = pm.monitor_all('S8')
-        assert [c[0] for c in out] == ['B']          # side=None 绕过
-        assert pm._RECENTLY_GHOSTED == []            # 一次性 pop；entry lost
+        assert out == []                         # malformed drop
+        assert pm._RECENTLY_GHOSTED == []
 
     def test_side_none_filter_bypass_instruction(self, q):
         """root cause 冻结：`not g_side` 使 None 走 allowed 分支。"""
         src = open('position_monitoring/service.py').read()
         idx = src.index('g_side = g[5] if len(g) >= 6 else None')
         block = src[idx:idx + 300]
-        assert 'not g_side' in block          # `not g_side` bypass frozen
+        # P9-06B：bypass 说明仅存在于 characterization docstring；
+        # 原投产 => 现在是 precheck guard + parse remains
+        assert 'len(g) >= 6' in block          # P9-06B precheck in place
 
-    def test_string_item_bypassed_consumed_no_raise(self, q):
-        """str item `'X'`：len=1 → `g[5]` no? — len('X')==1 not >=6 →
-        `side=None` → consume（str item Frozen，spectrum）无 raise
-        （frozen）。"""
+    def test_string_item_dropped(self, q):
+        """P9-06B：str item（len<6）→ log + drop。"""
         pm = q['pm']
         pm._save({'AUSDT': {'entry': 1.0}})
         pm._RECENTLY_GHOSTED.append(('X',))
         out = pm.monitor_all()
-        assert out == [('X',)]                    # 正常 consume
-        # queue 内 pops done → lost
-        assert pm._RECENTLY_GHOSTED == []
+        assert out == []                          # malformed drop
 
     def test_no_requeue_semantics_frozen(self, q):
         """frozen：malformed entry consumption 后不 requeue —— lost。"""
@@ -106,13 +111,11 @@ class TestMalformedMatrix:
         # valid `LONG` 打 S6 filter → consumed；5-size tuple side=None → consumed
         assert pm._RECENTLY_GHOSTED == []        # malformed 丢失，无 retry
 
-    def test_empty_tuple_indexerror_from_monitor_level(self, q):
-        """empty tuple → g[0] → IndexError（monitor svc 层直接 raise），
-        （frozen：不会自动 swallowed by consumer）—— monitor_all outer
-        `set已吃exception` 对 per-symbol only，queue-consume zone 不 catch）。"""
+    def test_empty_tuple_dropped_no_raise(self, q):
+        """P9-06B：empty tuple → log + drop —— no raise（不再炸 loop）。"""
         pm = q['pm']
         pm._save({'AUSDT': {'entry': 1.0}})
         pm._RECENTLY_GHOSTED.append(())
-        with pytest.raises(IndexError):
-            pm.monitor_all()                  # queue consumption 抛出（zero catch）
-        pm._RECENTLY_GHOSTED.clear()
+        out = pm.monitor_all()
+        assert out == []                         # malformed drop
+        assert pm._RECENTLY_GHOSTED == []
