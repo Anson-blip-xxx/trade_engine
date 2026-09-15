@@ -259,7 +259,7 @@ class TestCloseOrdering:
         assert seq[3] == ('REC', False)
         assert seq[4] == ('PG', 'CLOSE_ORDER_PARTIAL')
         assert positions['AUSDT']['qty'] == 6.0
-        assert op['calls']['clr'] == []    # marker 保留（PMB-27）
+        assert op['calls']['clr'] == ['AUSDT']   # P9-04B：partial 后 clear
 
 
 def _pos_children():

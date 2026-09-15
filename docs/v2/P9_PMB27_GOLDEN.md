@@ -86,3 +86,17 @@ partial 后 remaining qty/entry/meta/position_id/algo_sl_id 全保留（P7-03A f
 self.state.clr(symbol)      # P9-04B fix（PMB-27）—— partial 不留 recent marker
 ```
 rollback single revert。
+
+
+---
+
+# FIXED（P9-04B）
+
+- **FIXED BY:** `fix(v2): clear recent marker after non-final close`（commit pending）
+- **OLD**: partial-fill / no-fill → marker keep → 后续 non-force close 被 recent guard 拦
+- **NEW**: partial/no-fill return False 前 `self.state.clr(symbol)` —— marker clear
+- Full success / Execution failure / Exchange-flat / exception paths：unchanged
+- Scope：non-final close outcome only（partial / no-fill）
+- 其它：force semantics unchanged；recent guard/4h/symbol key unchanged；
+  `_partial_close` unchanged；T12 untouched
+- **Rollback**: `git revert <P9-04B>"`（P9-04A characterization `994a8ca` 保留）

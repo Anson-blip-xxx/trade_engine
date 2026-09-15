@@ -209,7 +209,8 @@ class TestCloseFailureTopo:
         assert LF_CALLS['rec'] == [] and LF_CALLS['pg'] == []  # 无记账
         assert LF_CALLS['save'] != []               # state 回写
         assert 'AUSDT' in positions
-        assert LF_CALLS['clr'] == []                # marker 仍设（PMB-27）
+        # P9-04B regression：marker clear upsert in no-fill path
+        assert LF_CALLS['clr'] == ['AUSDT']            # cleared now
 
 
 class TestPartialFailureTopo:

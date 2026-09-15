@@ -96,8 +96,8 @@ class TestMarkerByOutcome:
         assert positions == {}
         assert menv['mc'] == ['AUSDT']             # 成功后 marker keep
 
-    def test_partial_fill_keeps_marker_pmb27(self, menv, monkeypatch):
-        """PMB-27 root：partial fill close → marker keep（不 clear）。"""
+    def test_partial_fill_clears_marker_pmb27_fixed(self, menv, monkeypatch):
+        """P9-04B regression：partial fill close → marker clear（不再残留）。"""
         pm, reads, state, ev = _close_env(monkeypatch, risk_pages=[
             [{'symbol': 'AUSDT', 'positionAmt': '-10'}],
             [{'symbol': 'AUSDT', 'positionAmt': '-6'}],
@@ -109,11 +109,11 @@ class TestMarkerByOutcome:
         ok = pm._close('AUSDT', pos, 2.1, '硬止损', positions, force=True)
         assert ok is False
         assert pos['qty'] == 6.0
-        assert menv['mc'] == ['AUSDT']                  # mark 已设
-        # PMB-27 key assertion：没有 (sym, 'clear') 记录 —— marker 保留
-        assert menv['mc'].count(('AUSDT', 'clear')) == 0
+        # mark=1 + clear=1（PMB-27 fixed marker lifecycle）
+        assert menv['mc'] == ['AUSDT', ('AUSDT', 'clear')]
 
-    def test_no_fill_keeps_marker(self, menv, monkeypatch):
+    def test_no_fill_clears_marker_fixed(self, menv, monkeypatch):
+        """P9-04B：no fill 同样 clear（未完成 final close）。"""
         pm, reads, state, ev = _close_env(monkeypatch, risk_pages=[
             [{'symbol': 'AUSDT', 'positionAmt': '-10'}],
             [{'symbol': 'AUSDT', 'positionAmt': '-10'}],
@@ -124,7 +124,7 @@ class TestMarkerByOutcome:
         positions = {'AUSDT': pos}
         ok = pm._close('AUSDT', pos, 2.1, '硬止损', positions, force=True)
         assert ok is False and pos['qty'] == 10.0
-        assert menv['mc'].count(('AUSDT', 'clear')) == 0   # keep（PMB-27）
+        assert menv['mc'] == ['AUSDT', ('AUSDT', 'clear')]
 
     def test_execution_fail_clears_marker(self, menv, monkeypatch):
         """exec code fail → clear marker（对照 path）。"""
@@ -179,3 +179,74 @@ class TestPartialCloseNoMarker:
                                                 fromlist=['x']).PositionLifecycleService.partial_close)
         assert 'self.state.mc' not in src and 'mark_closed' not in src
         assert 'clr' not in src.split('def partial_close')[1]
+
+
+class TestSecondCloseRealFlow:
+    def test_second_nonforce_close_after_partial_proceeds(self, fake_redis,
+                                                          monkeypatch):
+        """P9-04B 核心回归：partial close 后 marker 已 clear →
+        第二次 non-force close **不被 recent guard 阻断**，
+        真实进入 execution（发第二次 close market order）。"""
+        from shared import position_manager as pm2
+        monkeypatch.setattr(pm2, '_rget', fake_redis.get)
+        monkeypatch.setattr(pm2, '_rset', fake_redis.set)
+        monkeypatch.setattr('shared.redis_store.delete', fake_redis.delete)
+        monkeypatch.setattr(pm2, '_sandbox_active', lambda: False)
+        monkeypatch.setattr(pm2, '_round_qty', lambda s, q: round(q, 6))
+        monkeypatch.setattr(pm2, '_monitor_heartbeat_ts', 0.0)
+        monkeypatch.setattr(pm2, '_RECENTLY_GHOSTED', [])
+        monkeypatch.setattr(pm2, '_light_fapi_get', lambda p, params=None: [])
+        monkeypatch.setattr(pm2, '_light_fapi_delete',
+                            lambda p, params=None: {})
+        monkeypatch.setattr(pm2, '_cancel_all_algo', lambda sym: None)
+        monkeypatch.setattr(pm2, '_pg_record_event', lambda ev: None)
+        monkeypatch.setattr(pm2, '_log_close_error',
+                            lambda s, m, interval=60: None)
+        risk_windows = [[{'symbol': 'AUSDT', 'positionAmt': '-10'}],
+                        [{'symbol': 'AUSDT', 'positionAmt': '-6'}],
+                        [{'symbol': 'AUSDT', 'positionAmt': '-6'}],
+                        [{'symbol': 'AUSDT', 'positionAmt': '-6'}]]
+        reads = {'n': 0}
+
+        def fapi_get(path, params=None):
+            reads['n'] += 1
+            return risk_windows[min(reads['n'] - 1, len(risk_windows) - 1)]
+        monkeypatch.setattr(pm2, '_s6api', lambda: (
+            fapi_get, lambda p, q=None: {'orderId': 9}, None, None,
+            None, None, None, lambda *a, **k: None))
+        monkeypatch.setattr(pm2._exec_core, 'close_intent',
+                            staticmethod(
+                                lambda s, side, q: ('ci', s, side, q)))
+
+        def exec_order(intent):
+            class R:
+                raw = {'orderId': 9, 'status': 'FILLED', 'executedQty': '4'}
+            return R()
+        monkeypatch.setattr(pm2, '_execution_service', lambda: type('X', (), {
+            'execute_order': staticmethod(exec_order)})())
+        monkeypatch.setattr(pm2, '_save', lambda p: None)
+        # 真实 marker seam（fake redis marker store：wcr 对 marker key 进行
+        # 真实读取—— closed:TUSDT via fake redis）
+        pm2._rset('closed:AUSDT', {'ts': 1.0}) if False else None
+        pos = _pos()
+        positions = {'AUSDT': pos}
+
+        # 模拟：first partial close 走 mark → restore to clear via _clr
+        mc_calls = []
+        monkeypatch.setattr(pm2, '_mark_closed',
+                            lambda s: mc_calls.append(('mark', s)))
+        monkeypatch.setattr(pm2, '_clear_closed_marker',
+                            lambda s: mc_calls.append(('clear', s)))
+        ok1 = pm2._close('AUSDT', pos, 2.1, '硬止损', positions, force=True)
+        assert ok1 is False
+        assert ('mark', 'AUSDT') in mc_calls
+        assert ('clear', 'AUSDT') in mc_calls              # marker cleared
+        # real `was_closed_recently` sees NO marker → second attempt proceeds
+        monkeypatch.setattr(pm2, '_was_closed_recently',
+                            lambda s, within_hours=4:
+                                any(t[0] == s and t[1] != 'clear'
+                                    for t in mc_calls))
+        ok2 = pm2._close('AUSDT', pos, 2.1, '硬止损', positions)
+        assert ok2 is False      # 第二次 close 亦 partial → proceeds（无 block）
+        # 执行侧：两次 close market order 已经发出
+        assert reads['n'] >= 2

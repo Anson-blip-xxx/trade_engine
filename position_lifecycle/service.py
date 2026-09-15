@@ -267,6 +267,9 @@ class PositionLifecycleService:
                     positions[symbol] = pos
                     self.state.save(positions)
                     self.action.lce(symbol, '平仓响应无成交数量，保留仓位等待重试')
+                    # P9-04B（PMB-27）：no-fill = 未完成 final close，
+                    # 清 recent marker，避免后续 legitimate close 被拦
+                    self.state.clr(symbol)
                     return False
                 filled_qty = reported_filled_qty
                 pos['qty'] = remaining_qty
@@ -300,6 +303,9 @@ class PositionLifecycleService:
                 })
                 self.runtime.log(f'[平仓部分成交] {symbol} qty={filled_qty} '
                          f'剩余={remaining_qty}')
+                # P9-04B（PMB-27）：partial fill 未完成 final close，
+                # 在 return False 前 clear recent marker
+                self.state.clr(symbol)
                 return False
             # Some Binance-compatible responses omit executedQty on a filled
             # market order. If positionRisk is flat, the requested quantity is
