@@ -57,7 +57,8 @@ class TestLegacyAliases:
     def test_factories_still_inject_same_literals(self):
         """legacy service factory 读到的参考值不变。"""
         svc = pm._reconcile_service()
-        assert list(svc.sk()) and set(svc.sk()) == {'S6', 'S8'}
+        assert set(svc.sk) and svc.sk == {'S6': 'state:s6',
+                                        'S8': 'state:s8'}
         mon = pm._monitoring_service()
         assert mon.lkey == 'ws:leader' and mon.lttl == 45
 

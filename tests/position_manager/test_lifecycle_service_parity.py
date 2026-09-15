@@ -10,6 +10,7 @@ import pytest
 
 from shared import position_manager as pm
 from position_lifecycle import service as lcs
+from position_lifecycle import deps as _ld_deps
 
 
 def build_svc(rec=None, load=None, save=None, log=None, sandbox=False,
@@ -57,23 +58,29 @@ def build_svc(rec=None, load=None, save=None, log=None, sandbox=False,
     def save_fn(p):
         calls['save'].append(dict(p))
     svc = lcs.PositionLifecycleService(
-        log=log or default_log, now=time_mod.time,
-        load=load or (lambda: {}), save=save_fn,
-        wcr=wcr if wcr is not None else default_wcr,
-        mc=lmc, clr=lc2m,
-        s6=lambda: real_s6, sandbox=lambda: sandbox,
-        wkr=lambda: calls['wkr'].append(1),
-        enq=lambda sym, side, sl, q: calls['enq'].append(
-            (sym, side, sl, q)),
-        acx=lambda aid: ('acx', aid := aid),
-        cxa=lambda s: calls['cxa'].append(s),
-        pg=default_pg, rq=lambda s, q: round(q, 6),
-        posid=lambda s, p: p.get('position_id') or f'{p.get("system")}:{p.get("entry")}',
-        exec_fn=lambda: _Exec(),
-        close_fn=lambda *a, **kw: None,          # parity 不经 close_position
-        ci=lambda s, side, q: ('ci', s, side, q),
-        pi=lambda s, side, q: ('pi', s, side, q),
-        lce=lambda s, m, interval=60: None,
+        runtime=_ld_deps.LifecycleRuntimeDeps(log=log or default_log,
+                                            now=time_mod.time),
+        execution=_ld_deps.LifecycleExecutionDeps(
+            exec_fn=lambda: _Exec(),
+            ci=lambda s, side, q: ('ci', s, side, q),
+            pi=lambda s, side, q: ('pi', s, side, q)),
+        state=_ld_deps.LifecycleStateDeps(
+            load=load or (lambda: {}), save=save_fn,
+            wcr=wcr if wcr is not None else default_wcr,
+            mc=lmc, clr=lc2m,
+            posid=lambda s, p: p.get('position_id') or
+            f'{p.get("system")}:{p.get("entry")}',
+            rq=lambda s, q: round(q, 6)),
+        protection=_ld_deps.LifecycleProtectionDeps(
+            wkr=lambda: calls['wkr'].append(1),
+            enq=lambda sym, side, sl, q: calls['enq'].append(
+                (sym, side, sl, q)),
+            acx=lambda aid: ('acx', aid := aid),
+            cxa=lambda s: calls['cxa'].append(s)),
+        action=_ld_deps.LifecycleActionDeps(
+            close_fn=lambda *a, **kw: None,   # parity 不经 close_position
+            s6=lambda: real_s6, sandbox=lambda: sandbox,
+            pg=default_pg, lce=lambda s, m, interval=60: None),
     )
     return svc, calls
 

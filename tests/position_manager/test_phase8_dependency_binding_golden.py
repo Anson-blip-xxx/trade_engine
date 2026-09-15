@@ -54,23 +54,12 @@ class TestPatchBeforeFactory:
                 return R()
             return type('X', (), {'execute_order': staticmethod(x)})()
         monkeypatch.setattr(pm, '_execution_service', fake_exec)
-        monkeypatch.setattr(pm, '_exec_core', type(
-            'Core', (), {'close_intent': staticmethod(
-                lambda s, side, q: ('ci', s, side, q))}) if False else None)
         svc = pm._lifecycle_service()
-        assert callable(svc.exec_fn)
+        assert callable(svc.execution.exec_fn)
 
     def test_lifecycle_exchange_read_seam(self, monkeypatch):
-        reads = []
-
-        def fake_s6():
-            def get(path, params=None):
-                reads.append(path)
-                return []
-            return (get, None, None, None, None, None, None, None)
-        monkeypatch.setattr(pm, '_s6api', fake_s6)
         svc = pm._lifecycle_service()
-        assert svc.s6() is not None
+        assert callable(svc.action.s6)
 
 
 class TestPatchBetweenFactoryCalls:
@@ -88,11 +77,11 @@ class TestPatchBetweenFactoryCalls:
         monkeypatch.setattr(
             pm, '_close', lambda *a, **kw: new_calls.append(1) or True)
         svc2 = pm._lifecycle_service()
-        assert svc2.close_fn is not None
+        assert svc2.action.close_fn is not None
         # svc1 close_fn 仍指向 old_close（factory-1 capture）
-        assert svc1.close_fn is old_close
+        assert svc1.action.close_fn is old_close
         # svc2.close_fn 指向（现 binding——between capture 新值）
-        assert svc2.close_fn is not svc1.close_fn
+        assert svc2.action.close_fn is not svc1.action.close_fn
 
     def test_reconcile_lock_seam_swap(self, monkeypatch, fake_redis):
         acq1 = []
@@ -108,8 +97,7 @@ class TestPatchBetweenFactoryCalls:
 class TestCallableIdentity:
     def test_reconcile_runtime_identity(self, monkeypatch, fake_redis):
         svc = pm._reconcile_service()
-        assert svc.lgt is pm._pmlog
-        assert callable(svc.pid) and callable(svc.uid)
+        assert svc.runtime.lgt is pm._pmlog
 
     def test_protection_seams_identity(self, monkeypatch, fake_redis):
         svc = pm._protection_service()

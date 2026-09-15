@@ -165,6 +165,8 @@ class TestExitPriorityParity:
         monkeypatch.setattr(pm, '_s6api', lambda: (
             None, None, None, lambda s: 97.0, None, None, None, None))
         monkeypatch.setattr(pm, '_get_cfg', lambda p: dict(CFG))
+        # P8-05C：真实 _get_funding_rate 会碰 testnet——冻结 seam 收敛
+        monkeypatch.setattr(pm, '_get_funding_rate', lambda s: 0.0)
         monkeypatch.setattr(pm, '_close', lclose)
         monkeypatch.setattr(pm, '_get_data_cache',
                             lambda: _DC(k1h=None))
