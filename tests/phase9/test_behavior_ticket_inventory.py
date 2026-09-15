@@ -67,7 +67,6 @@ class TestProductionZeroDiff:
                            capture_output=True, text=True,
                            cwd=Path('.').resolve())
         changed = [l for l in r.stdout.splitlines()
-                   if not l.strip().startswith(('docs/v2/', 'tests/phase9'))
-                   and '.pyc' not in l and l.strip()]
+                   if '|' in l and '.pyc' not in l and l.strip()]
         # 仅 docs/phase9 tests 允许
         assert all(('docs/' in l or 'tests/' in l) for l in changed), changed
