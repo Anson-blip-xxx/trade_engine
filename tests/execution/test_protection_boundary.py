@@ -244,22 +244,21 @@ class TestTimingFrozen:
 # ═══════════════════════════════════════════════════════════════
 
 class TestPMB9FallbackFact:
-    def test_fallback_slot3_is_get_not_delete(self):
-        """冻结观察：兜底元组第 3 槽 = _light_fapi_get（非 delete）——
-        _algo_cancel 在兜底模式下发 GET 而非 DELETE（OBSERVED，不修）。"""
+    def test_fallback_slot3_is_delete_fixed(self):
+        """P9-02B regression：兜底元组第 3 槽 = _light_fapi_delete
+        （PMI-9 修复后，`_algo_cancel` 兜底模式走真 DELETE）。"""
         from shared import position_manager as pm
-        # 直接验证兜底元组构造（不触发真实网络：构造后立刻还原）
         saved = pm._S6_API
         pm._S6_API = None
         try:
             def _no_import(*a, **k):
                 raise ImportError('blocked for test')
-            # 模拟 fallback 分支：binance_api import 失败
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr('builtins.__import__', _no_import)
                 pm._S6_API = None
                 trio = pm._s6api()
-                assert trio[2] is pm._light_fapi_get   # GET 冒充 delete
+                assert trio[2] is pm._light_fapi_delete   # FIXED
+                assert trio[2] is not pm._light_fapi_get
         finally:
             pm._S6_API = saved = saved if (saved := saved) else pm._S6_API
 

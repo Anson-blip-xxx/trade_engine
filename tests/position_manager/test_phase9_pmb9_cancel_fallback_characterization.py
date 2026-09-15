@@ -7,12 +7,10 @@ import shared.position_manager as pm
 
 
 class TestTupleSlotContract:
-    def test_primary_tuple_slots_correct(self):
-        """primary tuple（fresh import edge case 不可控）——这里只冻结
-        兜底 tuple 的 contract。"""
+    def test_fallback_tuple_slot_is_delete_fixed(self):
+        """P9-02B regression：fallback tuple slot-3 = `_light_fapi_delete`。"""
         src = open('shared/position_manager.py').read()
-        # 兜底 tuple 第三 slot 语义 = fapi_delete
-        assert '_S6_API = (_light_fapi_get, _light_fapi_post, _light_fapi_get,' in src
+        assert '_S6_API = (_light_fapi_get, _light_fapi_post, _light_fapi_delete,' in src
 
     def test_intended_slot_should_be_delete(self):
         """intended：第三 slot = _light_fapi_delete（P9-02B 目标），当前不是。"""
@@ -34,12 +32,11 @@ class TestTupleSlotContract:
             ba.__dict__.update({'__name__': 'shared.binance_api'})
             pm._S6_API = None
             tuple8 = pm._s6api()
-            # ── 核心 PMB-9 bug reproduction ──
-            assert tuple8[0] is pm._light_fapi_get   # slot1 OK
-            assert tuple8[1] is pm._light_fapi_post  # slot2 OK
-            # slot3 intended DELETE；当前是 GET（PMB-9）
-            assert tuple8[2] is pm._light_fapi_get   # ← BUG
-            assert tuple8[2] is not pm._light_fapi_delete
+            # ── P9-02B regression：slot-3 现在是 DELETE ──
+            assert tuple8[0] is pm._light_fapi_get   # slot1 不变
+            assert tuple8[1] is pm._light_fapi_post  # slot2 不变
+            assert tuple8[2] is pm._light_fapi_delete      # FIXED
+            assert tuple8[2] is not pm._light_fapi_get     # 不再 GET
         finally:
             ba.__dict__.clear()
             ba.__dict__.update(keep)

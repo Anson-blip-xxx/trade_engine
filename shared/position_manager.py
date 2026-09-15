@@ -339,7 +339,7 @@ def _s6api():
                 return 50.0
             def _rec(*a, **kw):
                 pass
-            _S6_API = (_light_fapi_get, _light_fapi_post, _light_fapi_get, _price, _info,
+            _S6_API = (_light_fapi_get, _light_fapi_post, _light_fapi_delete, _price, _info,
                         _oif, _rsi, _rec)
             _pmlog(f'[_s6api 兜底] s6_auto_trader 不可用: {e}，使用轻量 API')
     return _S6_API
