@@ -72,9 +72,11 @@ def test_open_same_symbol_order_placed_but_record_not_overwritten(pm_full):
     ok = pm_full['pm'].open_position(
         'AUSDT', 'LONG', 1.0, 100.0, 3, 0.92, system='S6', signal_type='TREND_UP')
 
-    assert ok is True                                   # 当前行为：仍返回 True
+    assert ok is True
+    # P9-03B：precheck 前移 → duplicate path 零 side effects（原 fail-path
+    # post 观察有意翻转——0 order 发出）
     posts = pm_full['calls']['post']
-    assert posts[-1]['path'] == '/fapi/v1/order'        # 订单确实已发出
+    assert posts == []                                  # 0 real order
     stored = pm_full['redis'].get('pm:positions')['AUSDT']
     assert stored['entry'] == 2.0 and stored['qty'] == 10.0   # 记录未覆盖
 

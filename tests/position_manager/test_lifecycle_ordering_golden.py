@@ -81,13 +81,15 @@ class TestOpenOrdering:
         ok = pm.open_position('TUSDT', 'SHORT', 100.0, 10.0, 3, 95.0,
                               system='S6')
         assert ok is True
-        assert seq == ['/fapi/v1/leverage', '/fapi/v1/marginType',
-                       '/fapi/v1/order', 'WORKER', 'ENQUEUE', 'LOAD', 'SAVE']
+        # P9-03B：dup precheck 前移 —— load 在 side effects 之前
+        assert seq == ['LOAD', '/fapi/v1/leverage', '/fapi/v1/marginType',
+                       '/fapi/v1/order', 'WORKER', 'ENQUEUE', 'SAVE']
         assert save_calls[0]['TUSDT']['algo_sl_id'] is None
 
-    def test_duplicate_order_sent_first(self, op, monkeypatch):
-        """OBS-3：PM 先已有仓 → Binance order 已发 + AlgoSL 已入队 →
-        只 skim 不覆盖 → return True。"""
+    def test_duplicate_precheck_rejects_before_side_effects(self, op,
+                                                            monkeypatch):
+        """P9-03B regression：local dup → **0 order / 0 enqueue**（OBS-3
+        旧 expected 有意翻转），return 合同仍 True。"""
         pm = op['pm']
         seq = []
         monkeypatch.setattr(pm, '_algo_enqueue',
@@ -95,13 +97,17 @@ class TestOpenOrdering:
         monkeypatch.setattr(pm, '_s6api', lambda: (
             None, lambda p, q=None: seq.append(p) or {'ok': 1},
             None, None, None, None, None, None))
+        worker = []
+        monkeypatch.setattr(pm, '_algo_start_worker',
+                            lambda: worker.append(1))
         monkeypatch.setattr(pm, '_load', lambda: {
             'TUSDT': {'entry': 1.0, 'qty': 1.0}})
         ok = pm.open_position('TUSDT', 'SHORT', 100.0, 10.0, 3, 95.0)
-        assert ok is True
-        assert seq.count('/fapi/v1/order') == 1
-        assert seq.count('ENQUEUE') == 1       # 或有条件单已入队
-        assert op['calls']['save'] == []       # state 不变
+        assert ok is True                        # return 合同不变
+        assert seq.count('/fapi/v1/order') == 0      # 0 real order
+        assert seq.count('ENQUEUE') == 0             # 0 orphan SL
+        assert worker == []                      # worker 0 side effect
+        assert op['calls']['save'] == []         # 0 save
         assert any('已在持仓中' in l for l in op['calls']['logs'])
 
     def test_recent_closed_guard_first_no_order(self, op, monkeypatch):

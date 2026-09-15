@@ -320,6 +320,8 @@ def test_pm_open_order_exception_no_retry(close_env, monkeypatch):
                 lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0,
                 lambda *a, **kw: None)
     monkeypatch.setattr(pm, '_s6api', make_boom_s6api)
+    # P9-03B：dup precheck 前移——需要空 local state（仅 order 走路）
+    monkeypatch.setattr(pm, '_load', lambda: {})
 
     r = pm.open_position('AUSDT', 'SHORT', 2.0, 10.0, 3, 2.2)
     assert r is False

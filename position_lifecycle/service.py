@@ -51,6 +51,13 @@ class PositionLifecycleService:
             return False
         _, fapi_post, _, _, _, _, _, _ = self.action.s6()
 
+        # 0. 本地重复 precheck（T1-A，P9-03B：在真实 side effect 之前拒绝；
+        #    duplicate return 合同不变 = True；key 仍 symbol-only）
+        positions = self.state.load()
+        if symbol in positions:
+            self.runtime.log(f'[开仓] {symbol} 已在持仓中，跳过')
+            return True
+
         # 1. 杠杆
         try:
             fapi_post('/fapi/v1/leverage',
@@ -100,10 +107,6 @@ class PositionLifecycleService:
             **(metadata or {}),
             **(reasons or {}),
         }
-        positions = self.state.load()
-        if symbol in positions:
-            self.runtime.log(f'[开仓] {symbol} 已在持仓中，跳过')
-            return True
         positions[symbol] = position
         self.state.save(positions)
         self.runtime.log(f'[开仓] {system} {symbol} {side} 入场{entry} 止损{sl} '

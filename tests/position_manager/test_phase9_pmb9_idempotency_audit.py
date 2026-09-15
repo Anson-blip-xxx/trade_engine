@@ -22,20 +22,18 @@ class TestCurrentOrderingFrozen:
         assert "fapi_post('/fapi/v1/order'" in src
         assert ('self.protection.enq(symbol'
                 in src)               # enqueue 在
-        # dup-check 在 enqueue 之后出现
-        assert src.index('_algo_enqiue' if False else 'self.protection.enq(') \
-            < src.index('positions = self.state.load()')
+        # P9-03B：dup precheck (load) 已前移至 enqueue 之前
+        assert src.index('positions = self.state.load()') \
+            < src.index('self.protection.enq(')
         assert 'if symbol in positions' in src
 
-    def test_enqueue_before_dupcheck_source_order(self):
+    def test_dupcheck_before_side_effects_fixed(self):
+        """P9-03B regression：precheck 在 leverage/order/enqueue 之前。"""
         src = open('position_lifecycle/service.py').read()
-        assert src.index('fapi_post') < src.index(' handguns') if False else True
-        src_snapshot = src
         dup_idx = src.index('if symbol in positions')
-        enq_idx = src.index('self.protection.enq(')
-        assert enq_idx < dup_idx
-        order_idx = src.index("fapi_post('/fapi/v1/order'")
-        assert order_idx < enq_idx
+        assert dup_idx < src.index("fapi_post('/fapi/v1/leverage'")
+        assert dup_idx < src.index("fapi_post('/fapi/v1/order'")
+        assert dup_idx < src.index('self.protection.enq(')
 
     def test_duplicate_return_contract_true(self, monkeypatch, fake_redis):
         pm2 = pm
@@ -57,24 +55,30 @@ class TestCurrentOrderingFrozen:
 
 
 class TestPMB30OrphanFact:
-    def test_orphan_sl_on_dup(self, fake_redis, monkeypatch):
-        """dup path：real order+enqueue 已发生（PMB-30 orphan SL fact）。"""
-        enq = []
+    def test_orphan_sl_resolved_on_dup(self, fake_redis, monkeypatch):
+        """P9-03B：dup path 已零 side effect（PMB-30 duplicate branch resolved）。
+        precheck 在 0 IO 之前 → 0 order / 0 enqueue / 0 save / return True。"""
+        enq, orders = [], []
         monkeypatch.setattr(pm, '_rget', fake_redis.get)
         monkeypatch.setattr(pm, '_rset', fake_redis.set)
         monkeypatch.setattr('shared.redis_store.delete', fake_redis.delete)
         monkeypatch.setattr(pm, '_sandbox_active', lambda: False)
         monkeypatch.setattr(pm, '_was_closed_recently', lambda s: False)
-        monkeypatch.setattr(pm, '_algo_start_worker', lambda: None)
+        worker_started = []
+        monkeypatch.setattr(pm, '_algo_start_worker',
+                            lambda: worker_started.append(1))
         monkeypatch.setattr(pm, '_algo_enqueue',
                             lambda s, side, sl, q: enq.append((s, side, sl, q)))
         monkeypatch.setattr(pm, '_s6api', lambda: (
-            None, lambda p, q=None: {'ok': 1}, None, None, None,
-            None, None, None))
-        monkeypatch.setattr(pm, '_load', lambda: {
-            'TUSDT': _pos()})
-        pm.open_position('TUSDT', 'SHORT', 2.0, 10.0, 3, 1.9)
-        assert enq == [('TUSDT', 'BUY', 1.9, 10.0)]    # SL 已孤立入队
+            None, lambda p, q=None: orders.append(1) or {'ok': 1}, None,
+            None, None, None, None, None))
+        saved = []
+        monkeypatch.setattr(pm, '_load', lambda: {'TUSDT': _pos()})
+        monkeypatch.setattr(pm, '_save', lambda p: saved.append(p))
+        ok = pm.open_position('TUSDT', 'SHORT', 2.0, 10.0, 3, 1.9)
+        assert ok is True                       # return 合同不变
+        assert enq == [] and orders == [] and saved == []
+        assert worker_started == []              # worker 0 side effect
 
 
 class TestConcurrencyLimitationGuard:

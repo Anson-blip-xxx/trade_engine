@@ -179,6 +179,8 @@ class TestOrderIntent:
             lambda *a, **k: (0, 0, 0), lambda *a, **k: 50.0,
             lambda *a, **kw: None))
         monkeypatch.setattr(pm, '_algo_start_worker', lambda: None)
+        # P9-03B：precheck 需要 empty local state（order-only path测试）
+        monkeypatch.setattr(pm, '_load', lambda: {})
 
         r = pm.open_position('AUSDT', 'SHORT', 2.0, 10.0, 3, 2.2)
         assert r is True

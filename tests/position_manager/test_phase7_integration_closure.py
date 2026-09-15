@@ -55,14 +55,18 @@ class TestLifecycleThroughFacade:
 
     def test_duplicate_open_returns_true_state_unchanged(self, it,
                                                          monkeypatch):
+        """P9-03B regression：local dup → precheck **先** reject —— 0 order/
+        0 enqueue/0 save；return 合同仍 True（原 PMB-30 orphan 冒烟翻转）。"""
         pm = it['pm']
         pm._save({'TUSDT': _pos()})
-        monkeypatch.setattr(pm, '_algo_start_worker', lambda: None)
-        enq = []
+        enq, worker = [], []
+        monkeypatch.setattr(pm, '_algo_start_worker',
+                            lambda: worker.append(1))
         monkeypatch.setattr(pm, '_algo_enqueue',
                             lambda s, side, sl, q: enq.append(1))
         ok = pm.open_position('TUSDT', 'SHORT', 2.0, 10.0, 3, 1.9)
-        assert ok is True and enq == [1]         # PMB-30 冒烟：SL 已孤立入队
+        assert ok is True
+        assert enq == [] and worker == []        # 0 orphan
         assert it['redis'].get('pm:positions')['TUSDT']['entry'] == 2.0
 
     def test_full_close_via_facade(self, it, monkeypatch):

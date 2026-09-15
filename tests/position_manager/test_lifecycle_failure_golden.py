@@ -55,6 +55,8 @@ class TestOpenFailureMatrix:
             return {'ok': 1}
         monkeypatch.setattr(pm, '_s6api', lambda: (
             None, fapi_post, None, None, None, None, None, None))
+        # P9-03B：precheck 前移 → open 需 local state 为空
+        monkeypatch.setattr(pm, '_load', lambda: {})
         ok = pm.open_position('TUSDT', 'SHORT', 1.0, 1.0, 3, 0.99)
         assert ok is False
         assert fired.count('/fapi/v1/order') == 1
@@ -74,21 +76,21 @@ class TestOpenFailureMatrix:
         ok = pm.open_position('TUSDT', 'SHORT', 1.0, 1.0, 3, 0.99)
         assert ok is True
 
-    def test_enqueue_before_dup_check_pmb30(self, lf, monkeypatch):
-        """PMB-30：AlgoSL 入队先于 duplicate check —— dup 开仓时
-        孤立条件单已入队。"""
+    def test_pmb30_duplicate_branch_resolved_by_t1a(self, lf, monkeypatch):
+        """P9-03B regression：local dup → 0 enqueue（PMB-30 duplicate
+        branch 已由 T1-A 前移解决；orphan SL 再不造）。"""
         pm = lf['pm']
-        monkeypatch.setattr(pm, '_algo_start_worker', lambda: None)
         enq = []
+        monkeypatch.setattr(pm, '_algo_start_worker', lambda: None)
         monkeypatch.setattr(pm, '_algo_enqueue',
                             lambda s, side, sl, q: enq.append(1))
         monkeypatch.setattr(pm, '_s6api', lambda: (
-            None, lambda p, q=None: {'ok': 1}, None, None, None, None,
-            None, None))
+            None, lambda p, q=None: {'ok': 1}, None, None, None,
+            None, None, None))
         monkeypatch.setattr(pm, '_load', lambda: {
             'TUSDT': {'entry': 1.0, 'qty': 1.0}})
         ok = pm.open_position('TUSDT', 'SHORT', 1.0, 1.0, 3, 0.99)
-        assert ok is True and enq == [1]    # 已孤立入队
+        assert ok is True and enq == []         # P9-03B precheck 拒绝
 
 
 class TestCloseFailureTopo:
