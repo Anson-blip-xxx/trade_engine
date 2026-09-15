@@ -62,8 +62,8 @@ class TestReferencedGoldensExist:
 
 
 class TestProductionZeroDiff:
-    def test_no_production_change_in_p9_00_phase(self):
-        r = subprocess.run(['git', 'diff', 'HEAD~2', 'HEAD~1', '--stat'],
+    def test_no_production_change_since_p9_01b(self):
+        r = subprocess.run(['git', 'diff', 'dd84532', 'HEAD', '--stat'],
                            capture_output=True, text=True,
                            cwd=Path('.').resolve())
         changed = [l for l in r.stdout.splitlines()
