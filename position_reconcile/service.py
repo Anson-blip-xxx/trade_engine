@@ -135,28 +135,34 @@ class PositionReconcileService:
                         abs(float(p.get('positionAmt', 0))) >= 0.001:
                     real_syms.add(p['symbol'])
             for sym in list(positions.keys()):
-                if sym in real_syms:
-                    continue
-                pos = positions.get(sym)
-                if not pos:
-                    continue
-                # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
-                if self.state.wcr(sym):
-                    positions.pop(sym, None)
-                    continue
-                # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
-                if system_filter and not pos.get('system', '') \
-                        .startswith(system_filter):
-                    continue
-                owner = f'ghost-cleanup:{self.coordination.pid()}:{self.coordination.uid()}'
-                lock_key = f'pm:ghost_close:{sym}'
-                if not self.coordination.lacq(lock_key, owner, ttl=60):
-                    continue
+                # P9-05B（PMB-23B）：per-symbol isolation —— 单 symbol
+                # 异常 log 后 continue，不中止余下 batch（全局 fetch 仍外层 try）
                 try:
-                    self.ghost_cleanup_one(sym, pos, positions,
-                                           record_trade, closed)
-                finally:
-                    self.coordination.lrel(lock_key, owner)
+                    if sym in real_syms:
+                        continue
+                    pos = positions.get(sym)
+                    if not pos:
+                        continue
+                    # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
+                    if self.state.wcr(sym):
+                        positions.pop(sym, None)
+                        continue
+                    # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
+                    if system_filter and not pos.get('system', '') \
+                            .startswith(system_filter):
+                        continue
+                    owner = f'ghost-cleanup:{self.coordination.pid()}:{self.coordination.uid()}'
+                    lock_key = f'pm:ghost_close:{sym}'
+                    if not self.coordination.lacq(lock_key, owner, ttl=60):
+                        continue
+                    try:
+                        self.ghost_cleanup_one(sym, pos, positions,
+                                               record_trade, closed)
+                    finally:
+                        self.coordination.lrel(lock_key, owner)
+                except Exception as e:
+                    self.runtime.lgt(f'[幽灵检测异常] {sym}: {e}')
+                    continue
             if closed:
                 self.runtime.lgt(f'[幽灵清理完毕] 共清除 {len(closed)} 个幽灵仓')
         except Exception as e:

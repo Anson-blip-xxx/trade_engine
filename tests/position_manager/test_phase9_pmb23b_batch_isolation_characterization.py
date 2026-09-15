@@ -41,19 +41,21 @@ class TestFrozenCallGraph:
         assert 'try:' in src and 'finally:\n                    self'
         assert ' lock is held' or True
 
-    def test_inner_try_only_covers_cleanup_one(self):
+    def test_per_symbol_try_covers_symbol_block(self):
+        """P9-05B regression：per-symbol try 在 loop 内包 symbol；
+        inner existing try/finally 仍是 lock release 位置。"""
         src = open('position_reconcile/service.py').read()
-        idx = src.find('try:')
-        idx1 = src.index('try:\n                    self.ghost_cleanup_one')
-        fin_idx = src.index('finally:\n                    self.coordination.lrel')
+        idx1 = src.index('try:\n                        self.ghost_cleanup_one')
+        fin_idx = src.index('finally:\n                        self.coordination.lrel')
+        # per-symbol try exists（wraps symbol body）
+        assert ("except Exception as e:\n                    "
+                "self.runtime.lgt(f'[幽灵检测异常] {sym}: {e}')") in src
         assert idx1 < fin_idx < idx1 + 200
-        assert idx <= idx1
 
 
 class TestBatchInterruptionRepro:
-    def test_b_failure_stops_c_current(self, fake_redis, monkeypatch):
-        """PMB-23B reproduction：A 成功 → B 抛内层异常 → C 未处理
-        （loop 全部跳过）。"""
+    def test_b_failure_does_not_stop_c_fixed(self, fake_redis, monkeypatch):
+        """P9-05B regression：A 成功 → B 抛内层异常 → **C 继续处理**。"""
         P = __import__('position_runtime' if False else 'position_reconcile',
                         fromlist=['x'])
         svc = P.PositionReconcileService(
@@ -97,11 +99,12 @@ class TestBatchInterruptionRepro:
         # A ok, B raise，C skip
         positions = {'AUSDT': _pos(), 'BUSDT': _pos(), 'CUSDT': _pos()}
         out = svc.ghost_cleanup(positions, 'S6')
-        assert seen == ['AUSDT', 'BUSDT']             # C 未处理
-        assert 'CUSDT' in positions
+        assert seen == ['AUSDT', 'BUSDT', 'CUSDT']    # C 继续处理
+        # helper mock 内 pop 先于 record（PMB-23A 冻结序）：A/C pop；B
+        # pop 也发生（mock 内先 pop）→ BUSDT 已 pop；CUSDT 已 pop
+        assert 'CUSDT' not in positions
         # outer catch log semantics frozen（ghost 检测异常打 log 不 raise）
-        assert 'CUSDT' in positions and positions['CUSDT'].get('entry') == 1
-
+        # B cleanup mock 决定其内部顺序；A/C 状态完全 processed
 
 class TestFailureInjectionMatrix:
     """PMB-23B：validate which failure points DON'T interrupt the batch."""
@@ -137,9 +140,9 @@ class TestFailureInjectionMatrix:
         svc.ghost_cleanup({'AUSDT': _pos(), 'BUSDT': _pos()}, '')
         assert seen == ['BUSDT']
 
-    def test_marker_failure_interrupts_batch(self, fake_redis, monkeypatch):
-        """marker (state.mc) raise → 内层 finally release → outer catch →
-        后续 symbol skip（current）。"""
+    def test_marker_failure_does_not_stop_batch_fixed(self, fake_redis,
+                                                       monkeypatch):
+        """P9-05B regression：marker raise → symbol-local log & continue。"""
         P = __import__('position_reconcile', fromlist=['x'])
         D = __import__('position_reconcile.deps', fromlist=['x'])
         svc = P.PositionReconcileService(
@@ -186,4 +189,4 @@ class TestFailureInjectionMatrix:
         svc.ghost_cleanup_one = inner_cleanup
         positions = {'AUSDT': _pos(), 'BUSDT': _pos(), 'CUSDT': _pos()}
         out = svc.ghost_cleanup(positions, 'S6')
-        assert seen == ['AUSDT', 'BUSDT']       # C skipped（PMB-23B fact）
+        assert seen == ['AUSDT', 'BUSDT', 'CUSDT']  # all 3 processed

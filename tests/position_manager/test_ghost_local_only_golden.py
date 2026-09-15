@@ -180,8 +180,9 @@ class TestLocalOnlyRecord:
 
 
 class TestLoopAbortsOnRecordFailure:
-    def test_record_raise_kills_loop(self, gh, monkeypatch):
-        """PMB-23：cleanup_one 内 raise → 整个 loop 中止（非 per-symbol）。"""
+    def test_record_failure_isolated_pmb23b_fixed(self, gh, monkeypatch):
+        """P9-05B regression：cleanup_one 内 raise → per-symbol log 后
+        后续 symbol 继续处理（旧全 batch abort 已有意更新）。"""
         pm = gh['pm']
         pm._light_fapi_get = lambda p, params=None: []
         # 第一仓 record raise；观察第二仓是否被处理
@@ -199,15 +200,18 @@ class TestLoopAbortsOnRecordFailure:
                      'CUSDT': {'entry': 1.0, 'side': 'SHORT', 'system': 'S8',
                                'qty': 2.0}}
         out = pm._ghost_cleanup(positions, '')
-        assert [c[0] for c in out] == ['AUSDT']   # A 成功后 B raise 中止余下
-        assert 'BUSDT' not in positions and 'CUSDT' in positions
-        # C 完全未处理（死循环序：pop 先于 record —— B 已 pop 却未记账/未 mark）
-        assert 'BUSDT' not in gh['calls']['mc'] and \
-            'CUSDT' not in gh['calls']['mc']
+        assert [c[0] for c in out] == ['AUSDT', 'CUSDT']    # B raise 后 C 继续
+        assert 'BUSDT' not in positions and 'CUSDT' not in positions
+        # P9-05B：C 已 processed；B 已 pop（PMB-23A 序不变——pop 先于 record）
+        # 但未 record/未 mark
+        # B 未 mark（record raise 后未到 mark）；C 正常 mark
+        assert 'BUSDT' not in gh['calls']['mc']
+        assert 'CUSDT' in gh['calls']['mc']
         # 主循环中止但锁仍然 released（finally 保证）
         rel_syms = [c[1] for c in gh['calls']['lock'] if c[0] == 'release']
+        assert 'pm:ghost_close:AUSDT' in rel_syms
         assert 'pm:ghost_close:BUSDT' in rel_syms and \
-            'pm:ghost_close:CUSDT' not in rel_syms
+            'pm:ghost_close:CUSDT' in rel_syms      # 后续都 release
         assert any('幽灵检测异常' in l for l in gh['calls']['logs'])
 
     def test_lock_acquired_before_cleanup(self, gh, monkeypatch):
