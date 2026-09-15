@@ -38,13 +38,10 @@ class TestProducerContract:
 
 
 class TestReaderContract:
-    def test_producer_shaped_payload_fail_open_now(self, monkeypatch):
-        """核心 bug 重现：真实 S0 producer-shape payload 只含
-        `market_state` —— 当前 reader 读 `market_mode` → 缺省 'normal'
-        → **fail-open 允许开仓**。"""
+    def test_s0_risk_off_market_state_blocks_open(self, monkeypatch):
+        """P9-01B 修复回归 guard：producer-shaped risk-off 现在**阻断**。"""
         payload = _producer_payload()          # market_state == 'risk-off'
-        assert payload.get('market_mode') is None   # key mismatch 直接证据
-
+        assert payload.get('market_mode') is None   # key mismatch 证据保留
         recorded = []
 
         def fake_log(name, msg):
@@ -52,7 +49,8 @@ class TestReaderContract:
         monkeypatch.setattr(se, '_rget', lambda key: payload if
                             key == 'market:s0' else None)
         monkeypatch.setattr(se, '_log', fake_log)
-        assert se.market_allows_trading('S6', 'LONG') is True   # fail-open
+        assert se.market_allows_trading('S6', 'LONG') is False
+        assert any('跳过开仓' in m for _, m in recorded)
 
     def test_legacy_market_mode_risk_off_blocks(self, monkeypatch):
         """legacy path 冻结：写 'market_mode'+'risk_off' → 忽略。"""
@@ -75,13 +73,17 @@ class TestReaderContract:
         monkeypatch.setattr(se, '_rget', lambda key: {})
         assert se.market_allows_trading('S6', 'LONG') is True
 
-    def test_both_keys_conflict_to_legacy(self, monkeypatch):
-        """冻结 conflict：market_mode 优先（key 决定）；legacy VALUES wins."""
+    def test_both_keys_conflict_new_key_wins(self, monkeypatch):
+        """P9-01B authority：market_state 优先；B/A/C 矩阵。"""
         monkeypatch.setattr(se, '_rget', lambda key: {
-            'market_state': 'risk-off',           # 新 key（producer 语义）
-            'market_mode': 'normal',              # legacy key
-        })
-        assert se.market_allows_trading('S6', 'LONG') is True
+            'market_state': 'risk-off', 'market_mode': 'normal'})
+        assert se.market_allows_trading('S6', 'LONG') is False   # A
+        monkeypatch.setattr(se, '_rget', lambda key: {
+            'market_state': 'range', 'market_mode': 'risk_off'})
+        assert se.market_allows_trading('S6', 'LONG') is True    # B
+        monkeypatch.setattr(se, '_rget', lambda key: {
+            'market_state': 'trend', 'market_mode': 'risk_off'})
+        assert se.market_allows_trading('S6', 'LONG') is True    # C
 
     def test_unknown_value_allows(self, monkeypatch):
         monkeypatch.setattr(se, '_rget',
@@ -108,3 +110,101 @@ class TestReaderContract:
         s8 = open('strategies/S8.py').read()
         assert 'market_allows_trading(NAME' in s6
         assert 'market_allows_trading(NAME' in s8
+
+
+class TestNewKeySemantics:
+    def test_none_payload_fail_open(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: None)
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_empty_payload_allows(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: {})
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_market_state_none_authoritative_allows(self, monkeypatch):
+        """presence != truthiness：market_state=None 不逆 fallback。"""
+        monkeypatch.setattr(se, '_rget', lambda key: {
+            'market_state': None, 'market_mode': 'risk_off'})
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_market_state_empty_authoritative_allows(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: {
+            'market_state': '', 'market_mode': 'risk_off'})
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_unknown_market_state_fail_open(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget',
+                            lambda key: {'market_state': 'WTF'})
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_missing_both_keys_fail_open(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: {'foo': 1})
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_fetch_exception_fail_open_keeps(self, monkeypatch):
+        def boom(key):
+            raise RuntimeError('redis')
+        monkeypatch.setattr(se, '_rget', boom)
+        assert se.market_allows_trading('S6', 'LONG') is True
+
+    def test_call_count_unchanged(self, monkeypatch):
+        hits = []
+        monkeypatch.setattr(se, '_rget',
+                            lambda key: hits.append(key) or {})
+        se.market_allows_trading('S6', 'LONG')
+        assert hits == ['market:s0']     # 仍一次 fetch（同一 payload 内 fallback）
+
+    def test_hyphen_value_blocks(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: {'market_state': 'risk-off'})
+        assert se.market_allows_trading('S6', 'LONG') is False
+
+    def test_legacy_underscore_value_blocks(self, monkeypatch):
+        monkeypatch.setattr(se, '_rget', lambda key: {'market_state': 'risk_off'})
+        assert se.market_allows_trading('S6', 'LONG') is False
+
+    def test_s0_producer_vocab_trend_range_allow(self, monkeypatch):
+        for v in ('trend', 'range'):
+            monkeypatch.setattr(se, '_rget',
+                                lambda key, v=v: {'market_state': v})
+            assert se.market_allows_trading('S6', 'LONG') is True
+
+
+class TestS6S8OpenGateIntegration:
+    def _s6_name(self):
+        try:
+            from strategies import S6 as m6
+            return m6.NAME
+        except BaseException:
+            return 'S6'
+
+    def _s8_name(self):
+        try:
+            from strategies import S8 as m8
+            return m8.NAME
+        except BaseException:
+            return 'S8'
+
+    def test_s6_open_gate_blocked_under_producer_risk_off(self, monkeypatch):
+        """producer-shaped risk-off → S6 open gate 阻断（不真实下单；
+        reader seam 级，S6 main-loop `_mkt_ok` 实际消费此函数）。"""
+        payload = _producer_payload()
+        monkeypatch.setattr(se, '_rget', lambda key: payload if
+                            key == 'market:s0' else None)
+        monkeypatch.setattr(se, '_log', lambda n, m: None)
+        assert se.market_allows_trading(self._s6_name(), 'LONG') is False
+
+    def test_s8_short_gate_blocked(self, monkeypatch):
+        payload = _producer_payload()
+        monkeypatch.setattr(se, '_rget', lambda key: payload if
+                            key == 'market:s0' else None)
+        monkeypatch.setattr(se, '_log', lambda n, m: None)
+        assert se.market_allows_trading(self._s8_name() if False else self._s8_name(), 'SHORT') if False else             se.market_allows_trading(self._s8_name(), 'SHORT') is False
+
+    def test_close_partial_unaffected_seam(self):
+        """close/partial 链不调用 market_allows_trading（blast radius）。"""
+        import inspect
+        lc_src = inspect.getsource(
+            __import__('position_lifecycle.service', fromlist=['x']))
+        assert 'market_allows_trading' not in lc_src
+        se_src = open('strategies/shared_executor.py').read()
+        assert se_src.count("market_allows_trading(") == 1  # def

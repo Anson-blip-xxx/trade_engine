@@ -19,14 +19,14 @@ S0_PAYLOAD = {
 }
 
 
-class TestS01FailOpenFrozen:
-    def test_risk_off_state_still_trades(self, monkeypatch):
-        """真实 consumer path：market_allows_trading 读 market_mode（S0 不写）
-        → risk-off 市场下仍返回 True（fail-open）。"""
+class TestS01FixedRegression:
+    def test_risk_off_state_now_blocks(self, monkeypatch):
+        """P9-01B：reader 对齐 market_state → producer risk-off 现在**阻断**
+        （原 P9-01A 冻结的 fail-open defect，有意翻转）。"""
         from strategies import shared_executor as se
         monkeypatch.setattr(se, '_rget', lambda k: S0_PAYLOAD)
         monkeypatch.setattr(se, '_log', lambda *a, **k: None)
-        assert se.market_allows_trading('S6', 'LONG') is True
+        assert se.market_allows_trading('S6', 'LONG') is False
 
     def test_market_mode_honored_if_written(self, monkeypatch):
         """对照：显式 market_mode 存在时 gate 生效（机制在、键不在）。"""

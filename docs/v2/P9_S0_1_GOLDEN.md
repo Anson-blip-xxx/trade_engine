@@ -76,3 +76,23 @@ P9-01B 单 commit 行为改动（reader seam 一处）；
 异常 revert `git revert <P9-01B>` 恢复 current fail-open。
 PYEOF
 python3 -m pytest -q tests/execution 2>&1 | tail -1
+
+
+---
+
+# FIXED（P9-01B）
+
+- Commit pending：`fix(v2): align executor S0 market-state gate`
+- **OLD behavior**：SE 读 `market_mode` → producer 只发 `market_state`，
+  producer-shaped `risk-off` fail-open 允仓（S6/S8）。
+- **NEW behavior**：`mode = ms.get('market_state', ms.get('market_mode','normal'))`；
+  value `in ('risk-off','risk_off')` → BLOCK。`market_state` authoritative
+  （presence != truthiness；None/empty 不逆 fallback）；legacy `market_mode`
+  仅在 `market_state` 缺失时 fallback。
+- **authority rule**：单 key authoritative（非 OR 双 source-of-truth）
+- legacy fallback：`{'market_mode':'risk_off'}` 继续阻断 / 'normal' 允许
+- value compat：`risk-off`（连字生产 vocab）与 `risk_off`（legacy）都阻断；
+  'trend'/'range'/unknown → 允许（不 normalization；唯一字面值集合）
+- blast radius：S6/S8 open 闸门（无 close/partial 变化）
+- rollback：`git revert <P9-01B>` 单 commit 恢复旧 fail-open（无 schema/Redis
+  cleanup/producer coordination）

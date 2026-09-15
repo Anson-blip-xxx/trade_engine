@@ -87,7 +87,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 
 ## 六、Priority Tiers
 
-- **P0**：S0-1（唯一高 Money/Prob/Blast **简单一行 key 对齐** + 测试完备）
+- **P0**：S0-1（唯一高 Money/Prob/Blast **简单一行 key 对齐** + 测试完备）→ **FIXED / CLOSED（P9-01B，commit 待填）**
 - **P1**：T1+PMB-30 cluster；T5 11s SL；PMB-9
 - **P2**：PMB-23（A/B 拆票）；PMB-27；PMB-17；PMB-26（拆票）
 - **P3**：PMB-24（NEEDS_DECISION）；PMB-29（NO RISK）；POS-ID（normalization）

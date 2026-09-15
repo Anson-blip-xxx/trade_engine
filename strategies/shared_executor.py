@@ -1093,10 +1093,17 @@ def get_market_state() -> dict:
     return {}
 
 def market_allows_trading(name: str, side: str) -> bool:
-    """检查 S0 市场状态是否允许开仓"""
+    """检查 S0 市场状态是否允许开仓
+
+    P9-01B（S0-1 修复）：`market_state` 是 authoritative key（S0 producer
+    写）；`market_mode` 仅在该键缺失时 legacy fallback。`presence != truthiness`
+    ——STAY `dict.get` 双层语义（不做 `or`），None/empty 不会逆 fallback。
+    value 兜底：risk-off（连字符，producer vocab）与 risk_off（legacy）都视为
+    风险关闭。无 normalization；unknown 仍 fail-open 允许。
+    """
     ms = get_market_state()
-    mode = ms.get('market_mode', 'normal')
-    if mode == 'risk_off':
+    mode = ms.get('market_state', ms.get('market_mode', 'normal'))
+    if mode in ('risk-off', 'risk_off'):
         _log(name, '[S0] 市场处于 risk_off 模式，跳过开仓')
         return False
     return True
