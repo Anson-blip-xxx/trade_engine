@@ -113,7 +113,7 @@ inner cleanup_one 内部顺序/锁 / record-inside-lock **不动**。
 
 # FIXED（P9-05B）
 
-- **FIXED BY:** `fix(v2): isolate ghost-cleanup failures per symbol`（commit pending）
+- **FIXED BY:** `fix(v2): isolate ghost-cleanup failures per symbol`commit `<P9-05B>`
 - **OLD**: per-symbol 异常经 outer try → 后续 symbol 全部 skip
 - **NEW**: per-symbol try/except 包住 loop 内 symbol-local guard + lock +
   cleanup_one/finally —— 异常 log『[幽灵检测异常] {sym}: {e}』后 continue
