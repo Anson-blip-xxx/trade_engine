@@ -106,9 +106,28 @@ class TestDeferredNotSilentlyMigrated:
         r = subprocess.run(['git', 'diff', 'HEAD~1', 'HEAD', '--',
                             'shared/position_manager.py'],
                            capture_output=True, text=True)
-        # C1 本 commit==0 diff（无 `_light_fapi_` 主体改动）
-        assert all(not l.startswith(('+', '-')) or '_light_fapi' not in l
-                   for l in r.stdout.splitlines())
+        # helper 函数体不得被触碰（slot 指针迁移除外——PMB-9 行为修复允许
+        # fallback tuple 配置改指；_light_fapi_get/post/delete **定义体**
+        # 仍 0 diff）。这里比较 helper 定义 AST 跨 commit 不变：
+        import ast as _ast
+        def helper_bodies(tree):
+            out = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and \
+                        node.name.startswith('_light_fapi'):
+                    out[node.name] = ast.dump(node)
+            return out
+        cur_map = helper_bodies(ast.parse(
+            open('shared/position_manager.py').read()))
+        prev_src = subprocess.run(
+            ['git', 'show', 'HEAD~1:shared/position_manager.py'],
+            capture_output=True, text=True).stdout
+        prev_map = {}
+        for node in ast.walk(ast.parse(prev_src)):
+            if isinstance(node, ast.FunctionDef) and \
+                    node.name.startswith('_light_fapi'):
+                prev_map[node.name] = ast.dump(node)
+        assert cur_map == prev_map     # body unchanged（指针迁移除外）
 
     def test_c6_not_migrated(self):
         """exchangeInfo cache 未偷偷改变（仍 inline PM `_algo_place_sl_inner`）。"""
