@@ -208,8 +208,11 @@ class TestNotificationDelegation:
 class TestTimingFrozen:
     def test_worker_sleep_intervals_unchanged(self):
         from shared import position_manager as pm
-        src = inspect.getsource(pm._algo_worker_loop)
+        # P8-06B：loop mechanics 迁 position_runtime；guard 目标随迁
+        from position_runtime import runtime as rt
+        src = inspect.getsource(rt.algo_worker_loop)
         assert 'time.sleep(11)' in src      # 限速间隔（无保护窗口，E-OBS-3）
+        assert 'time.sleep(1)' in src       # idle path（队列空）
         assert 'time.sleep(1)' in src       # 空队列轮询
 
     def test_throttle_constants_unchanged(self):

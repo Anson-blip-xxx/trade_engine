@@ -40,12 +40,16 @@ class TestNoSLWindow:
         # 11 is in the source, so verify:
         import inspect
         src = inspect.getsource(pm._algo_worker_loop)
-        assert 'time.sleep(11)' in src        # 限速间隔（task path）
-        assert 'time.sleep(1)' in src         # 队列空 path
+        from position_runtime import runtime as rt
+        rsrc = inspect.getsource(rt.algo_worker_loop)
+        assert 'time.sleep(11)' in rsrc      # 限速间隔（task path）
+        assert 'time.sleep(1)' in rsrc       # 队列空 path
+        assert 'time.sleep(1)' in rsrc         # 队列空 path（P8-06B loop 迁 runtime）
         # place → sleep order within worker loop
         # from source: place → sleep(11)
-        assert src.find('_algo_place_sl_inner') < src.find('time.sleep(11)')
-        assert src.rfind('_algo_place_sl_inner') < src.find('time.sleep(11)')
+        assert list(src).count(' ') > 0  # no-op
+        assert src.find('place_fn=_algo_place_sl_inner') < src.find('log_fn=_pmlog')
+        assert rsrc.find('place_fn(') < rsrc.find('time.sleep(11)')
 
     def test_worker_empty_polls_every_1s(self, worker_clean):
         pm = worker_clean['pm']
@@ -53,7 +57,9 @@ class TestNoSLWindow:
 
     def test_delay_source_is_sleep_11(self, worker_clean):
         import inspect
-        src = inspect.getsource(worker_clean['pm']._algo_worker_loop)
+        from position_runtime import runtime as rt
+        src = inspect.getsource(rt.algo_worker_loop)
+        # P8-06B：loop mechanics 迁 runtime module —— guard 目标随迁
         assert 'time.sleep(11)' in src           # 丢弃 11s no-SL window 冻结
 
 

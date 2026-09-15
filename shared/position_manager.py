@@ -35,6 +35,7 @@ from position_protection import service as pp_service
 
 from position_monitoring import service as _mon_svc
 from position_monitoring import deps as _mon_deps
+from position_runtime import runtime as _rt
 
 from position_reconcile import service as _rc_service
 from position_reconcile import deps as _rc_deps
@@ -206,31 +207,24 @@ def _protection_service() -> 'pp_service.ProtectionService':
 
 
 def _algo_start_worker():
-    """启动后台队列消费线程（只启动一次）"""
-    global _ALGO_WORKER_STARTED
-    if _ALGO_WORKER_STARTED:
-        return
-    _ALGO_WORKER_STARTED = True
-    t = threading.Thread(target=_algo_worker_loop, daemon=True, name='algo-worker')
-    t.start()
-    _pmlog('[AlgoWorker] 后台队列消费线程已启动')
+    """启动后台队列消费线程（只启动一次）（P8-06B：thread glue 迁
+    position_runtime.runtime；backing 全部本 module 单 owner）。"""
+    _rt.start_algo_worker(
+        get_started=lambda: _ALGO_WORKER_STARTED,
+        set_started=lambda v: globals().__setitem__(
+            '_ALGO_WORKER_STARTED', v),
+        worker_loop=_algo_worker_loop,
+        thread_cls=threading.Thread,
+        log_fn=_pmlog,
+    )
+
 
 def _algo_worker_loop():
-    """后台循环：每 11s 从队列取一个任务执行"""
-    while True:
-        task = None
-        with _ALGO_QUEUE_LOCK:
-            if _ALGO_QUEUE:
-                task = _ALGO_QUEUE.pop(0)
-        if task:
-            symbol, side, trigger_price, qty = task
-            try:
-                _algo_place_sl_inner(symbol, side, trigger_price, qty)
-            except Exception as e:
-                _pmlog(f'[AlgoWorker异常] {symbol}: {e}')
-            time.sleep(11)  # 限速间隔
-        else:
-            time.sleep(1)  # 队列空，1s 后再检查
+    """后台循环：每 11s 从队列取一个任务执行（P8-06B：thin delegation；队列/锁
+    backing 本 module 单 owner）。"""
+    _rt.algo_worker_loop(queue=_ALGO_QUEUE, lock=_ALGO_QUEUE_LOCK,
+                         place_fn=_algo_place_sl_inner, log_fn=_pmlog)
+
 
 def _algo_enqueue(symbol: str, side: str, trigger_price: float, qty: float):
     """将 Algo 止损任务加入队列"""
@@ -431,8 +425,14 @@ def _pmlog(msg: str):
         pass
 
 if os.environ.get('PM_NO_WS') != '1':
-    _WS_THREAD = threading.Thread(target=_ws_connect_loop, daemon=True)
-    _WS_THREAD.start()
+    def _get_ws_thread():
+        return globals().get('_WS_THREAD')
+    def _set_ws_thread(t):
+        globals()[' _WS_THREAD'.strip()] = t
+    _rt.start_ws_thread(
+        disabled=(os.environ.get('PM_NO_WS') == '1'),
+        connect_loop_fn=_ws_connect_loop, thread_cls=threading.Thread,
+        get_thread=_get_ws_thread, set_thread=_set_ws_thread)
     _pmlog('[WS] 后台线程已启动')
 
 

@@ -44,7 +44,7 @@ monitoring ──gcl──▶ reconcile（info ghost 也经 it 注入）；recon
 | C4 | `_load_meta` / `_save` / `_state_service` / `_position_state` 4 段重复 factory 胶水 | 各自晚绑定 | 合并成一个 state 胶水 helper | `_load` chain + marker |
 | C5 | `_get_funding_rate` 残留 requests 直连（fapi premiumIndex，失败→0） | PM inline | 抽 shared/market_data helper | monitoring `fund` seam 引用 |
 | C6 | `_algo_place_sl_inner` 内联 exchangeInfo（PMB-14） | frozen IO | 预取缓存/注入 helper | Protection chain |
-| C7 | daemon 线程启动 glue（`_ws_connect_loop`/`_algo_worker_loop`） | PM 保留 | 独立 `runtime.py`（仍不自动启动） | PM/SE start 点 |
+| C7 | daemon 线程启动 glue | **P8-06B 完成**：thread mechanics 迁 `position_runtime/runtime.py`（algo worker loop/start + WS boot；行为逐字）。**Runtime backing deliberately remains PM-owned**（queue/flag/lock/WS state/heartbeat/`_WS_THREAD` 均不改 owner） | `position_runtime/` | runtime module 仅 thread/start glue，无 RuntimeManager |
 | C8 | `SYSTEM_CFG`/`_SYSTEM_KEYS` 常量段 | PM 顶层 | 移 `config/pm_system.py` | monitoring/lifecycle 注入 |
 | C9 | `request/context dataclass` | — | Phase 8+（spec 延后项） | 需全量 parity |
 | C10 | tests 帮助函数 `pm_full`/`mon` 重复 patch 集 | 测试代码 | conftest 复用 | tests-only |

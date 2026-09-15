@@ -79,14 +79,18 @@ class TestRoundAndTimeSemantics:
     def test_algo_worker_loop_11s_frozen_source(self):
         import inspect
         from shared import position_manager as pm
-        src = inspect.getsource(pm._algo_worker_loop)
+        from position_runtime import runtime as rt
+        src = inspect.getsource(rt.algo_worker_loop)
+        # P8-06B：loop mechanics 迁 runtime module；seam delegate 保持
         assert 'time.sleep(11)' in src
         assert 'time.sleep(1)' in src
 
     def test_worker_exception_does_not_kill_thread(self):
         import inspect
         from shared import position_manager as pm
-        src = inspect.getsource(pm._algo_worker_loop)
+        from position_runtime import runtime as rt
+        src = inspect.getsource(rt.algo_worker_loop)
+        # P8-06B：loop 迁 runtime module —— guard 目标随迁
         assert 'except Exception as e' in src
         assert 'time.sleep(11)' in src
         # while True keeps running after exception
