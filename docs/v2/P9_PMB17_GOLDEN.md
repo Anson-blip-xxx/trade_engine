@@ -96,7 +96,7 @@ final phase**（consumption zone）；其本身**无 catch**（演示
 
 # FIXED（P9-06B）
 
-- **FIXED BY:** `fix(v2): drop malformed ghost queue entries safely`（commit pending）
+- **FIXED BY:** commit `32412d9`（`fix(v2): drop malformed ghost queue entries safely`）
 - **OLD**: len<6 → side=None → `not g_side` bypass → 消费；empty → IndexError
 - **NEW**: queue consumer precheck —— `len(g) >= 6 and g[5]` 非空；
   malformed → log『[ghost queue malformed] {g!r} …』→ **drop**（不 requeue、
@@ -105,4 +105,4 @@ final phase**（consumption zone）；其本身**无 catch**（演示
 - extra-fields（len>6）：兼容（用 g[0]/g[5]）；valid LONG/SHORT 0 diff
 - producer：0 active（不下);
 - PMB-25：仍 DEFERRED
-- **Rollback:** `git revert <P9-06B_commit>`（P9-06A `71327c2` 保留）
+- **Rollback:** `git revert 32412d9`（P9-06A `71327c2` 保留）

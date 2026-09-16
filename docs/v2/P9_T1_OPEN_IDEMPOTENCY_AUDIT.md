@@ -122,7 +122,7 @@ load 之后；PMB-30 的 dup-open 分支自然消失。
 
 # T1-A FIXED（P9-03B）
 
-- **FIXED BY**: `fix(v2): precheck local duplicate before open side effects`（待填号）
+- **FIXED BY**: `e4a4a2a`（`fix(v2): precheck local duplicate before open side effects`）
 - **OLD open sequence**: guard→leverage→marginType→**real order**→WORKER→**ENQUEUE SL**→build→load→dup-check→(True)→save
 - **NEW open sequence**: guard→s6→**load→dup-check**（symbol-only）→leverage→marginType→real order→WORKER→ENQUEUE SL→build→save→True
 - **Scope**: sequential only（A/B 并发 race 仍在——T1-B DEFERRED/NEEDS_PRODUCT_DECISION）
@@ -133,4 +133,4 @@ load 之后；PMB-30 的 dup-open 分支自然消失。
 - **被拒 side effects**：0 leverage / 0 marginType / **0 real order** / 0 worker start / **0 AlgoSL enqueue** / 0 save
 - **PMB-30**: duplicate-ordering branch **RESOLVED BY T1-A**；save-failure/restart
   等其它 orphan path 再再票。T5 11s SL window 仍保留原样（未动）
-- **rollback**: `git revert <P9-03B>`
+- **rollback**: `git revert e4a4a2a`
