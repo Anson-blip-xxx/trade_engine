@@ -79,7 +79,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 | PMB-9 | NEEDS_GOLDEN（先补 characterization） |
 | PMB-27/17 | READY（低 blast） |
 | PMB-24 | NEEDS_PRODUCT_DECISION |
-| PMB-26 | A CLOSED；B CLOSED（best-effort）；B2/C NEEDS_PRODUCT_DECISION |
+| PMB-26 | A/B CLOSED；B2 DEFERRED；C REVIEWED/NEEDS_PRODUCT_DECISION |
 | PMB-29 | NO RISK / defer |
 | POSIX-ID | ARCHITECTURE / defer |
 | T12 | NEEDS_COMPLEXITY_REVIEW |
@@ -89,7 +89,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 
 - **P0**：S0-1（唯一高 Money/Prob/Blast **简单一行 key 对齐** + 测试完备）→ **FIXED / CLOSED（P9-01B，commit `8ee0ea5`）**
 - **P1**：T1+PMB-30 cluster；T5 11s SL；PMB-9
-- **P2**：PMB-23（A/B 拆票）；PMB-27（**已修，已关闭 / P9-04B `eb6c14f`**）；PMB-17（**FIXED/CLOSED P9-06B**）；PMB-26A/B（**REVIEWED/CLOSED**），PMB-26B2/C（NEEDS_PRODUCT_DECISION）
+- **P2**：PMB-23（A/B 拆票）；PMB-27（**已修，已关闭 / P9-04B `eb6c14f`**）；PMB-17（**FIXED/CLOSED P9-06B**）；PMB-26A/B（**REVIEWED/CLOSED**），PMB-26B2（DEFERRED），PMB-26C（**REVIEWED/NEEDS_PRODUCT_DECISION**）
 - **P3**：PMB-24（NEEDS_DECISION）；PMB-29（NO RISK）；POS-ID（normalization）
 
 ## 七、首选票建议：**P9-01 = S0-1 修复**
