@@ -5,13 +5,13 @@
 
 ## Status Vocabulary
 
-`READY`, `NEEDS_DESIGN`, `NEEDS_PRODUCT`, `NEEDS_CHARACTERIZATION`, and
-`BLOCKED_BY_OTHER_TICKET`.
+`READY`, `NEEDS_DESIGN`, `NEEDS_PRODUCT`, `NEEDS_CHARACTERIZATION`,
+`BLOCKED_BY_OTHER_TICKET`, `BLOCKED_BY_PRODUCT_DECISION`, and `DESIGN AUDITED`.
 
 <!-- P10_BACKLOG_START -->
 | ID | Cluster | Status | depends_on | decision_required | target_artifact | production change allowed? |
 |---|---|---|---|---|---|---|
-| T1-B | A Open Safety | NEEDS_PRODUCT | P10-D1 | duplicate scope, scale-in, cross-system/side policy, exchange acknowledgement | approved open idempotency contract + race/crash acceptance matrix | NO |
+| T1-B | A Open Safety | BLOCKED_BY_PRODUCT_DECISION | P10-D1 DESIGN AUDITED | duplicate scope, scale-in, cross-system/side policy, UNKNOWN timeout policy, retention and restart guarantee | approved product contract, then D1A-D1D implementation tickets | NO |
 | T5 | A Open Safety | NEEDS_PRODUCT | P10-D2; identity relation from P10-D1/D5 | fill-to-protection SLO, whether open requires protection, failure response | protection establishment model + idle/backlog latency characterization | NO |
 | PMB-23A | B Close/Reconcile Durability | NEEDS_PRODUCT | P10-D3/D4/D5 | duplicate-versus-loss preference and durable recorder sink | ghost-close durability/replay contract | NO |
 | T12 | B Close/Reconcile Durability | NEEDS_DESIGN | P10-D1/D2/D3/D4/D5 | authority and recovery guarantees for open/close/save/restart | T12-A/B/C/D crash-consistency design | NO |
@@ -36,7 +36,7 @@
 
 | ID | Status | Output | Enables |
 |---|---|---|---|
-| P10-D1 Open Idempotency Model | proposed | active path + request identity + broker acknowledgement contract | T1-B, T12-A, T5 identity |
+| P10-D1 Open Idempotency Model | **DESIGN AUDITED** | `P10_D1_OPEN_IDEMPOTENCY_MODEL.md`; active path + request identity + broker acknowledgement contract | T1-B, T12-A, T5 identity |
 | P10-D2 Protection Establishment Model | proposed | protection SLO + desired state + worker/retry/restart contract | T5, T12-A |
 | P10-D3 Crash Consistency Model | proposed | lifecycle saga/stages + compensation/recovery | T12, PMB-23A, C2, PMB-24 implementation |
 | P10-D4 Persistence Failure Policy | proposed | PG/recorder/TG acknowledgement and retry contract | C1, C2, B2 implementation |
@@ -52,3 +52,16 @@
 6. Behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
+
+## P10-D1 Suggested Implementation Split
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| P10-D1A | stable request identity contract and propagation | BLOCKED_BY_PRODUCT_DECISION | NO |
+| P10-D1B | durable reservation/state and ownership | BLOCKED_BY_D1A | NO |
+| P10-D1C | Binance client-order-ID submission/query contract | NEEDS_CHARACTERIZATION | NO |
+| P10-D1D | UNKNOWN acknowledgement recovery and resume | BLOCKED_BY_D1A_D1C | NO |
+
+P10-D1 is design-complete, but T1-B remains
+`BLOCKED_BY_PRODUCT_DECISION`. See
+`docs/v2/P10_D1_OPEN_IDEMPOTENCY_MODEL.md`.
