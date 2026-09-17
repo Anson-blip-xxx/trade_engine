@@ -7,7 +7,8 @@
 
 `READY`, `READY_FOR_DESIGN`, `READY_FOR_IMPLEMENTATION`, `NEEDS_DESIGN`,
 `NEEDS_PRODUCT`, `NEEDS_CHARACTERIZATION`, `BLOCKED_BY_OTHER_TICKET`,
-`BLOCKED_BY_PRODUCT_DECISION`, `BLOCKED_BY_D3`, and `DESIGN AUDITED`.
+`BLOCKED_BY_PRODUCT_DECISION`, `BLOCKED_BY_SPECIFIC_PRODUCT_DECISION`,
+`BLOCKED_BY_D5A`, `BLOCKED_BY_D3`, and `DESIGN AUDITED`.
 `SUPERSEDED_BY_D3_DESIGN` means the design scope was consolidated into P10-D3;
 it does not mean the production behavior was implemented.
 
@@ -43,6 +44,7 @@ it does not mean the production behavior was implemented.
 | P10-D2 Protection Establishment Model | **DESIGN AUDITED** | `P10_D2_PROTECTION_ESTABLISHMENT_MODEL.md`; PROTECTED definition + generation + SLO/failure/retry/restart contract | T5, T12-A, P10-D5 identity requirements |
 | P10-D3 Crash Consistency Model | **DESIGN AUDITED** | `P10_D3_CRASH_CONSISTENCY_MODEL.md`; operation state/commit + UNKNOWN/replay/CAS/fencing/compensation using D1/D2/D4/D5 | supersedes T12 design; defines D3A-D3E gates for PMB-23A, C2, and PMB-24 implementation |
 | P10-D3D Generation Fencing Audit | **DESIGN AUDITED** | `P10_D3D_GENERATION_FENCING_AUDIT.md`; stale-work taxonomy + protection ABA golden + minimal queue fence/readiness | D3D-1 first implementation boundary; D3D-2/D3D-3/D3D-4 remain separate |
+| P10-D3D-1 Episode Fence Authority | **DESIGN AUDITED** | `P10_D3D1_EPISODE_FENCE_AUTHORITY.md`; normalized slot + opaque episode ID + slot generation + legacy/reconstructed authority | narrows D3D-1 to BLOCKED_BY_D5A and defines D3D-1A-E order |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -54,8 +56,9 @@ it does not mean the production behavior was implemented.
 4. P10-D4 persistence and delivery policy.
 5. P10-D3 integrated crash/restart model (design audited as P10-05).
 6. P10-D3D stale async-work fencing audit (design audited as P10-06A).
-7. Product/API decisions and D3A-D3E prerequisites.
-8. Behavior tickets only after their predecessor artifacts are approved.
+7. P10-D3D-1 episode fence authority contract (design audited as P10-06B).
+8. D5A/D3D-1A specific authority decisions and implementation foundation.
+9. Behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
 
@@ -90,7 +93,7 @@ P10-D2 is design-complete, but T5 remains
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| P10-D5A | exchange slot and immutable episode boundary/ownership contract | BLOCKED_BY_PRODUCT_DECISION | NO |
+| P10-D5A | normalized slot, immutable episode authority, slot generation, provenance, and CAS foundation | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION: account principal source; legacy adoption vs quarantine; reconstructed auto vs operator activation | NO |
 | P10-D5B | request/order/fill/legacy/protection alias model | BLOCKED_BY_D5A_AND_API_CHARACTERIZATION | NO |
 | P10-D5C | versioned live/historical migration and provenance | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
 | P10-D5D | typed marker roles, lifecycle generation, and compare-and-clear | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
@@ -160,7 +163,7 @@ ticket is implementation-ready. See
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| P10-D3D-1 | protection queue episode fence before cancel/create/writeback | BLOCKED_BY_D5_PRODUCT_DECISION | NO |
+| P10-D3D-1 | protection queue episode fence before cancel/create/writeback | BLOCKED_BY_D5A | NO |
 | P10-D3D-2 | monotonic desired-protection generation fence within one episode | BLOCKED_BY_D2_PRODUCT_DECISION | NO |
 | P10-D3D-3 | episode/operation-scoped marker compare-and-clear | BLOCKED_BY_D5_PRODUCT_DECISION | NO |
 | P10-D3D-4 | reconcile/monitor projection revision and generation CAS | BLOCKED_BY_D5_PRODUCT_DECISION_AND_D4_ACK_CONTRACT | NO |
@@ -168,10 +171,11 @@ ticket is implementation-ready. See
 ## P10-D3D Readiness
 
 D3D-1 is the smallest recommended behavior scope, but it is not ready to use
-current `position_id` as authority. Active S6/S8 has that ID before enqueue;
-legacy open does not consistently have it, exchange reconstruction cannot
-recover it, same-episode replacement needs a separate protection generation,
-and one unlocked equality check cannot fence a concurrent slot transition.
+current `position_id` as authority. P10-06B narrows its prerequisite to D5A:
+normalized slot identity, durable opaque episode authority, monotonic slot
+generation, provenance, acknowledged CAS, and a legacy/reconstructed-position
+policy. Scale-in, cross-system allocation, full historical migration, marker
+redesign, journal, and replay are not D3D-1 blockers.
 
 The selected future fail-safe is to drop missing, malformed, mismatched, or
 legacy-unfenced tasks before any exchange mutation, then let D2 health/emergency
@@ -182,3 +186,23 @@ restart recovery.
 P10-D3D is design-complete. No generation field, queue payload, marker, Redis
 schema, journal, replay, or production behavior changed. See
 `docs/v2/P10_D3D_GENERATION_FENCING_AUDIT.md`.
+
+## P10-D3D-1 Authority And Implementation Split
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| D5A / P10-D3D-1A | exchange-position-key namespace, episode field, slot generation, provenance, CAS | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION | NO |
+| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | BLOCKED_BY_D3D-1A | NO |
+| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | BLOCKED_BY_D3D-1A_D3D-1B | NO |
+| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_D3D-1A | NO |
+| P10-D3D-1E | controlled legacy adoption/quarantine and reconstructed provenance guard | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION | NO |
+
+The specific D5A decisions are the stable account-principal source, controlled
+adoption versus quarantine-until-flat for active legacy positions, and automatic
+versus operator-approved activation for reconstructed exposure. Once those are
+approved and D5A/D3D-1A is implemented, D3D-1B/C/D can proceed without waiting
+for scale-in or cross-system ownership policy.
+
+P10-D3D-1 is design-complete and `BLOCKED_BY_D5A`. Current `position_id` is
+`TEMPORARY_FENCE_ONLY`, never canonical authority. See
+`docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md`.
