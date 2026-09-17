@@ -142,5 +142,5 @@ def test_d4_document_and_backlog_record_readiness():
     ):
         assert phrase in model
     assert 'P10-D4 Persistence Failure Policy | **DESIGN AUDITED**' in backlog
-    assert '| PMB-26C2 | B Close/Reconcile Durability | BLOCKED_BY_D3' \
+    assert '| PMB-26C2 | B Close/Reconcile Durability | BLOCKED_BY_PRODUCT_DECISION' \
         in backlog
