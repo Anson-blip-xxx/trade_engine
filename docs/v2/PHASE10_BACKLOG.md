@@ -42,6 +42,7 @@ it does not mean the production behavior was implemented.
 | P10-D1 Open Idempotency Model | **DESIGN AUDITED** | `P10_D1_OPEN_IDEMPOTENCY_MODEL.md`; active path + request identity + broker acknowledgement contract | T1-B, T12-A, T5 identity |
 | P10-D2 Protection Establishment Model | **DESIGN AUDITED** | `P10_D2_PROTECTION_ESTABLISHMENT_MODEL.md`; PROTECTED definition + generation + SLO/failure/retry/restart contract | T5, T12-A, P10-D5 identity requirements |
 | P10-D3 Crash Consistency Model | **DESIGN AUDITED** | `P10_D3_CRASH_CONSISTENCY_MODEL.md`; operation state/commit + UNKNOWN/replay/CAS/fencing/compensation using D1/D2/D4/D5 | supersedes T12 design; defines D3A-D3E gates for PMB-23A, C2, and PMB-24 implementation |
+| P10-D3D Generation Fencing Audit | **DESIGN AUDITED** | `P10_D3D_GENERATION_FENCING_AUDIT.md`; stale-work taxonomy + protection ABA golden + minimal queue fence/readiness | D3D-1 first implementation boundary; D3D-2/D3D-3/D3D-4 remain separate |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -52,8 +53,9 @@ it does not mean the production behavior was implemented.
 3. P10-D5 identity and marker authority.
 4. P10-D4 persistence and delivery policy.
 5. P10-D3 integrated crash/restart model (design audited as P10-05).
-6. Product/API decisions and D3A-D3E prerequisites.
-7. Behavior tickets only after their predecessor artifacts are approved.
+6. P10-D3D stale async-work fencing audit (design audited as P10-06A).
+7. Product/API decisions and D3A-D3E prerequisites.
+8. Behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
 
@@ -135,7 +137,7 @@ implementation. See `docs/v2/P10_D4_PERSISTENCE_FAILURE_POLICY.md`.
 | P10-D3A | operation journal authority/schema, CAS, leases, and retention | BLOCKED_BY_PRODUCT_DECISION | NO |
 | P10-D3B | startup/continuous recovery and idempotent stage replay | BLOCKED_BY_D3A_D3C_D3D | NO |
 | P10-D3C | exchange UNKNOWN resolver for orders, fills, positions, and algo orders | BLOCKED_BY_D1_D2_D4_D5_AND_PRODUCT_DECISION | NO |
-| P10-D3D | episode/lifecycle/protection generation fencing and projection CAS | BLOCKED_BY_D2_D5_AND_D3A | NO |
+| P10-D3D | generation-fencing family; protection queue, marker, and reconcile splits | DESIGN AUDITED as P10-06A; see D3D-1 through D3D-4 | NO |
 | P10-D3E | structured result and legacy bool/None compatibility adapter | BLOCKED_BY_PRODUCT_DECISION | NO |
 
 ## P10-D3 Readiness
@@ -153,3 +155,30 @@ resolution, restart replay, CAS/lease ownership, generation fencing,
 compensation, and compatibility requirements. No crash-consistency behavior
 ticket is implementation-ready. See
 `docs/v2/P10_D3_CRASH_CONSISTENCY_MODEL.md`.
+
+## P10-D3D Suggested Implementation Split
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| P10-D3D-1 | protection queue episode fence before cancel/create/writeback | BLOCKED_BY_D5_PRODUCT_DECISION | NO |
+| P10-D3D-2 | monotonic desired-protection generation fence within one episode | BLOCKED_BY_D2_PRODUCT_DECISION | NO |
+| P10-D3D-3 | episode/operation-scoped marker compare-and-clear | BLOCKED_BY_D5_PRODUCT_DECISION | NO |
+| P10-D3D-4 | reconcile/monitor projection revision and generation CAS | BLOCKED_BY_D5_PRODUCT_DECISION_AND_D4_ACK_CONTRACT | NO |
+
+## P10-D3D Readiness
+
+D3D-1 is the smallest recommended behavior scope, but it is not ready to use
+current `position_id` as authority. Active S6/S8 has that ID before enqueue;
+legacy open does not consistently have it, exchange reconstruction cannot
+recover it, same-episode replacement needs a separate protection generation,
+and one unlocked equality check cannot fence a concurrent slot transition.
+
+The selected future fail-safe is to drop missing, malformed, mismatched, or
+legacy-unfenced tasks before any exchange mutation, then let D2 health/emergency
+policy handle an unprotected current episode. Normal process-restart deployment
+naturally clears old four-tuples because the queue is memory-only; this is not
+restart recovery.
+
+P10-D3D is design-complete. No generation field, queue payload, marker, Redis
+schema, journal, replay, or production behavior changed. See
+`docs/v2/P10_D3D_GENERATION_FENCING_AUDIT.md`.
