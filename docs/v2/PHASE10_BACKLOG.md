@@ -19,8 +19,8 @@
 | PMB-26C2 | B Close/Reconcile Durability | BLOCKED_BY_OTHER_TICKET | PMB-26C1; PMB-26B2; T12 | rollback/retry/batch policy after required persistence failure | staged partial-commit and retry model | NO |
 | PMB-24 | D Product Policy | NEEDS_PRODUCT | product decision; implementation later P10-D3/D5 | internal repair, business close, or discrepancy quarantine | reconcile divergence policy | NO |
 | PMB-26B2 | D Product Policy | NEEDS_PRODUCT | product decision; implementation later P10-D4/C2 | at-most-once, at-least-once, bounded retry, or escalation | notification acknowledgement/retry policy | NO |
-| POS-ID | C Identity/Marker Model | NEEDS_DESIGN | P10-D5 | canonical episode/request/order/fill identity and migration | identity schema, alias map, migration contract | NO |
-| PMB-4 | C Identity/Marker Model | BLOCKED_BY_OTHER_TICKET | POS-ID; P10-D5 | lease versus tombstone/cooldown scope, expiry, CAS cleanup | marker authority/schema/migration model | NO |
+| POS-ID | C Identity/Marker Model | BLOCKED_BY_PRODUCT_DECISION | P10-D5 DESIGN AUDITED; D1/D2 relations defined | episode boundaries, scale-in/side-flip, cross-system ownership, restart guarantee, legacy migration | approved episode/alias/migration contract, then D5A-D5C | NO |
+| PMB-4 | C Identity/Marker Model | BLOCKED_BY_PRODUCT_DECISION | P10-D5 DESIGN AUDITED; POS-ID decision | marker role separation, cross-episode cooldown scope, retention/expiry, malformed policy | approved marker contract, then PMB-4A/B/C and D5D | NO |
 <!-- P10_BACKLOG_END -->
 
 ## Cluster Ownership
@@ -40,7 +40,7 @@
 | P10-D2 Protection Establishment Model | **DESIGN AUDITED** | `P10_D2_PROTECTION_ESTABLISHMENT_MODEL.md`; PROTECTED definition + generation + SLO/failure/retry/restart contract | T5, T12-A, P10-D5 identity requirements |
 | P10-D3 Crash Consistency Model | proposed | lifecycle saga/stages + compensation/recovery | T12, PMB-23A, C2, PMB-24 implementation |
 | P10-D4 Persistence Failure Policy | proposed | PG/recorder/TG acknowledgement and retry contract | C1, C2, B2 implementation |
-| P10-D5 Position Identity And Marker Authority | proposed | canonical aliases + migration + lease/tombstone schema | POS-ID, PMB-4, replay identity |
+| P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
 ## Recommended Order
 
@@ -79,3 +79,24 @@ P10-D1 is design-complete, but T1-B remains
 P10-D2 is design-complete, but T5 remains
 `BLOCKED_BY_PRODUCT_DECISION` and implementation depends on P10-D5. See
 `docs/v2/P10_D2_PROTECTION_ESTABLISHMENT_MODEL.md`.
+
+## P10-D5 Suggested Implementation Split
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| P10-D5A | exchange slot and immutable episode boundary/ownership contract | BLOCKED_BY_PRODUCT_DECISION | NO |
+| P10-D5B | request/order/fill/legacy/protection alias model | BLOCKED_BY_D5A_AND_API_CHARACTERIZATION | NO |
+| P10-D5C | versioned live/historical migration and provenance | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
+| P10-D5D | typed marker roles, lifecycle generation, and compare-and-clear | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
+
+## PMB-4 Decomposition
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| PMB-4A | stale marker retention and logical/physical expiry policy | BLOCKED_BY_PRODUCT_DECISION | NO |
+| PMB-4B | cross-episode contamination and marker ABA fencing | BLOCKED_BY_POS-ID | NO |
+| PMB-4C | malformed/version handling, observability, and safe cleanup | NEEDS_DESIGN; implementation waits D5D | NO |
+
+P10-D5 is design-complete, but POS-ID and PMB-4 remain
+`BLOCKED_BY_PRODUCT_DECISION`. Recommended P10-04 is P10-D4, followed by P10-D3.
+See `docs/v2/P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`.
