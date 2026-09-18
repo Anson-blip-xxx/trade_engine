@@ -2,7 +2,6 @@
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / 'docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md'
 BACKLOG = ROOT / 'docs/v2/PHASE10_BACKLOG.md'
@@ -165,4 +164,5 @@ def test_episode_authority_document_and_backlog_readiness():
     assert 'P10-D3D-1 Episode Fence Authority | **DESIGN AUDITED**' \
         in backlog
     assert '| P10-D3D-1 | protection queue episode fence' in backlog
-    assert '| READY_AFTER_D5A_FOUNDATION |' in backlog
+    assert '| P10-D3D-1B | immutable queue identity extension' in backlog
+    assert '| READY_FOR_IMPLEMENTATION | NO |' in backlog

@@ -161,5 +161,4 @@ def test_implementation_doc_and_backlog_close_d5a2_only():
         assert phrase in model
     assert 'P10-D5A-2 Slot Authority Store | **IMPLEMENTED / CLOSED**' \
         in backlog
-    assert 'P10-07D / D5A-3' in backlog
-    assert 'READY_FOR_IMPLEMENTATION' in backlog
+    assert 'P10-D5A-3 Episode Onboarding | **IMPLEMENTED / CLOSED**' in backlog
