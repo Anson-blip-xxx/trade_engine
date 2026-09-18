@@ -4,6 +4,17 @@ This package is intentionally dormant: it performs no IO and is not wired into
 the active trading runtime.
 """
 
+from position_identity.authority import (
+    AUTHORITY_SCHEMA_VERSION,
+    AuthorityAck,
+    AuthorityAckCode,
+    AuthorityProvenance,
+    AuthorityReadCode,
+    AuthorityReadResult,
+    AuthorityStatus,
+    SlotAuthority,
+)
+from position_identity.authority_redis import RedisSlotAuthorityAdapter
 from position_identity.principal import (
     ACCOUNT_PRINCIPAL_CONFIG_KEY,
     AccountPrincipal,
@@ -22,11 +33,20 @@ from position_identity.slot import (
 
 __all__ = [
     'ACCOUNT_PRINCIPAL_CONFIG_KEY',
+    'AUTHORITY_SCHEMA_VERSION',
     'AccountPrincipal',
+    'AuthorityAck',
+    'AuthorityAckCode',
+    'AuthorityProvenance',
+    'AuthorityReadCode',
+    'AuthorityReadResult',
+    'AuthorityStatus',
     'Exchange',
     'ExchangePositionKey',
     'PositionMode',
     'Product',
+    'RedisSlotAuthorityAdapter',
+    'SlotAuthority',
     'SlotEnvironment',
     'SlotSide',
     'resolve_account_principal',
