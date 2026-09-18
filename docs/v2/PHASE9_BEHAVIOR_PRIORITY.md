@@ -2,6 +2,9 @@
 
 > @ `1f9eb00`。P9 不修 bug：统一档案 → 评分 → 依赖图 → Golden 完备度审计 →
 > 分层 → **首票建议 + 为什么不是其它候选**。
+>
+> 本文一至十节保留 P9-00 起点判断；P9-10 最终状态以第十一节和
+> `PHASE9_CLOSURE.md` 为准。
 
 ---
 
@@ -23,6 +26,7 @@
 | T12 | save-order symmetry | State/StateService | PMB-28 |
 | T14 | dependent-on-T1 | — | — |
 | POS-ID | position_id 来源多格式（OBS-1/2） | State/ledger | OBS-1/2 |
+| PMB-4 | expired/malformed closed marker 无 TTL 清理 | State/Redis | PMB-4 |
 
 ## 二、Scoring（1-5）
 
@@ -68,7 +72,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 | T12 | PARTIAL | save-order 三分支冻结；无 crash-consistency 端到端 |
 | POS-ID | PARTIAL | 两格式 frozen |
 
-## 五、Fix Readiness
+## 五、P9-00 Fix Readiness（历史起点）
 
 | Ticket | Readiness |
 |---|---|
@@ -79,7 +83,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 | PMB-9 | NEEDS_GOLDEN（先补 characterization） |
 | PMB-27/17 | READY（低 blast） |
 | PMB-24 | NEEDS_PRODUCT_DECISION |
-| PMB-26 | NEEDS_SEMANTIC_DECISION（拆票） |
+| PMB-26 | A/B CLOSED；B2 DEFERRED；C REVIEWED/NEEDS_PRODUCT_DECISION |
 | PMB-29 | NO RISK / defer |
 | POSIX-ID | ARCHITECTURE / defer |
 | T12 | NEEDS_COMPLEXITY_REVIEW |
@@ -89,7 +93,7 @@ POS-ID ↔ reconcile/migrate/ledger（normalization，放后）
 
 - **P0**：S0-1（唯一高 Money/Prob/Blast **简单一行 key 对齐** + 测试完备）→ **FIXED / CLOSED（P9-01B，commit `8ee0ea5`）**
 - **P1**：T1+PMB-30 cluster；T5 11s SL；PMB-9
-- **P2**：PMB-23（A/B 拆票）；PMB-27（**已修，已关闭 / P9-04B `eb6c14f`**）；PMB-17（**FIXED/CLOSED P9-06B**）；PMB-26（拆票）
+- **P2**：PMB-23（A/B 拆票）；PMB-27（**已修，已关闭 / P9-04B `eb6c14f`**）；PMB-17（**FIXED/CLOSED P9-06B**）；PMB-26A/B（**REVIEWED/CLOSED**），PMB-26B2（DEFERRED），PMB-26C（**REVIEWED/NEEDS_PRODUCT_DECISION**）
 - **P3**：PMB-24（NEEDS_DECISION）；PMB-29（NO RISK）；POS-ID（normalization）
 
 ## 七、首选票建议：**P9-01 = S0-1 修复**
@@ -114,3 +118,20 @@ commit。Risk Tier 分 P0/P1/P2/P3；首票 S0-1 READY。
 ## 十、（backup doc only）
 每票的 Current vs Expected / 12 criteria 详表落
 `docs/v2/PHASE9_BEHAVIOR_PRIORITY.md`（本文件）。
+
+## 十一、P9-10 Final Status Overlay（authoritative）
+
+| Ticket | Final status |
+|---|---|
+| S0-1 / PMB-9 / PMB-17 / PMB-23B / PMB-27 | **FIXED / CLOSED** |
+| T1-A / PMB-30 duplicate-ordering branch | **FIXED / CLOSED** |
+| PMB-26A / PMB-26B | **REVIEWED / INTENTIONAL / CLOSED** |
+| T1-B / PMB-23A / PMB-24 / PMB-26B2 / PMB-26C1 / PMB-26C2 | **DEFERRED / NEEDS_PRODUCT_DECISION** |
+| T5 / T12 / POS-ID / PMB-4 | **DEFERRED / DESIGN_REQUIRED** |
+| PMB-29 | **NO-RISK / KEEP** |
+| T14 | **INVALID / SUPERSEDED**（由 T1-A 完成） |
+| T1 / PMB-23 / PMB-26 / PMB-26C parent tickets | **INVALID / SUPERSEDED**（由明确子票取代） |
+
+无 `OPEN / READY`、`OPEN / CHARACTERIZATION_NEEDED` 或 UNKNOWN ticket。
+最终 risk ledger、decision questions、owners、commit ledger、rollback matrix
+和 next-phase backlog 见 `docs/v2/PHASE9_CLOSURE.md`。

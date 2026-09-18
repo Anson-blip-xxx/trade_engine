@@ -73,16 +73,14 @@ vocabulary 并入同票：reader 读 `market_state` + 判 `in ('risk-off','risk_
 ## 九、Rollback boundary
 
 P9-01B 单 commit 行为改动（reader seam 一处）；
-异常 revert `git revert <P9-01B>` 恢复 current fail-open。
-PYEOF
-python3 -m pytest -q tests/execution 2>&1 | tail -1
+异常 revert `git revert 8ee0ea5` 恢复原 fail-open。
 
 
 ---
 
 # FIXED（P9-01B）
 
-- Commit pending：`fix(v2): align executor S0 market-state gate`
+- Commit `8ee0ea5`：`fix(v2): align executor S0 market-state gate`
 - **OLD behavior**：SE 读 `market_mode` → producer 只发 `market_state`，
   producer-shaped `risk-off` fail-open 允仓（S6/S8）。
 - **NEW behavior**：`mode = ms.get('market_state', ms.get('market_mode','normal'))`；
@@ -94,5 +92,5 @@ python3 -m pytest -q tests/execution 2>&1 | tail -1
 - value compat：`risk-off`（连字生产 vocab）与 `risk_off`（legacy）都阻断；
   'trend'/'range'/unknown → 允许（不 normalization；唯一字面值集合）
 - blast radius：S6/S8 open 闸门（无 close/partial 变化）
-- rollback：`git revert <P9-01B>` 单 commit 恢复旧 fail-open（无 schema/Redis
+- rollback：`git revert 8ee0ea5` 单 commit 恢复旧 fail-open（无 schema/Redis
   cleanup/producer coordination）

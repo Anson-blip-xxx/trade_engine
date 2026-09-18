@@ -77,12 +77,12 @@ _S6_API = (_light_fapi_get, _light_fapi_post, _light_fapi_delete, ...)
 
 # FIXED（P9-02B）
 
-- **FIXED BY:** commit `fix(v2): correct algo cancel fallback delete seam`（待填号）
+- **FIXED BY:** commit `f1d3cd2`（`fix(v2): correct algo cancel fallback delete seam`）
 - **OLD**: fallback tuple slot-3 = `_light_fapi_get` —— `_algo_cancel` 兜底模式发
   GET（delete 永未发生；stale 保护留置 confirmed）
 - **NEW**: slot-3 = `_light_fapi_delete` —— 兜底 cancel 真删除
 - **scope**: single tuple slot（`shared/position_manager.py` 一行）
 - **primary path**: unchanged（`shared.binance_api.fapi_delete` 不动）
 - **C1**: 仍 DEFERRED（_light_fapi 三 helper body 0 diff）
-- **rollback**: `git revert <P9-02B_commit>` —— 恢复 GET bug；
+- **rollback**: `git revert f1d3cd2` —— 恢复 GET bug；
   characterization/docs 保留
