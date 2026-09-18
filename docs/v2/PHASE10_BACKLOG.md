@@ -9,7 +9,7 @@
 `NEEDS_PRODUCT`, `NEEDS_CHARACTERIZATION`, `BLOCKED_BY_OTHER_TICKET`,
 `BLOCKED_BY_PRODUCT_DECISION`, `BLOCKED_BY_SPECIFIC_PRODUCT_DECISION`,
 `BLOCKED_BY_D5A`, `READY_AFTER_D5A_FOUNDATION`, `BLOCKED_BY_D3`, and
-`DESIGN AUDITED`.
+`DESIGN AUDITED`, `IMPLEMENTED / CLOSED`.
 `SUPERSEDED_BY_D3_DESIGN` means the design scope was consolidated into P10-D3;
 it does not mean the production behavior was implemented.
 
@@ -47,6 +47,7 @@ it does not mean the production behavior was implemented.
 | P10-D3D Generation Fencing Audit | **DESIGN AUDITED** | `P10_D3D_GENERATION_FENCING_AUDIT.md`; stale-work taxonomy + protection ABA golden + minimal queue fence/readiness | D3D-1 first implementation boundary; D3D-2/D3D-3/D3D-4 remain separate |
 | P10-D3D-1 Episode Fence Authority | **DESIGN AUDITED** | `P10_D3D1_EPISODE_FENCE_AUTHORITY.md`; normalized slot + opaque episode ID + slot generation + legacy/reconstructed authority | narrows D3D-1 to BLOCKED_BY_D5A and defines D3D-1A-E order |
 | P10-D5A Episode Authority Readiness | **DESIGN AUDITED** | `P10_D5A_EPISODE_AUTHORITY_READINESS.md`; principal + legacy adoption/quarantine + reconstructed quarantine + Redis CAS readiness | makes D5A staged foundation ready and D3D-1 ready after it |
+| P10-D5A-1 Slot Namespace | **IMPLEMENTED / CLOSED** | `position_identity`; `P10_D5A1_SLOT_NAMESPACE_IMPLEMENTATION.md`; pure principal/slot value objects with no runtime wiring | P10-07C D5A-2 authority store |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -60,8 +61,9 @@ it does not mean the production behavior was implemented.
 6. P10-D3D stale async-work fencing audit (design audited as P10-06A).
 7. P10-D3D-1 episode fence authority contract (design audited as P10-06B).
 8. P10-D5A authority readiness (design audited as P10-07).
-9. P10-07B D5A-1 slot namespace and principal resolver.
-10. Behavior tickets only after their predecessor artifacts are approved.
+9. P10-07B D5A-1 slot namespace and principal resolver (implemented/closed).
+10. P10-07C D5A-2 dedicated slot authority store and generation CAS.
+11. Behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
 
@@ -214,13 +216,13 @@ P10-D3D-1 is design-complete and `READY_AFTER_D5A_FOUNDATION`. Current
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| P10-07B / D5A-1 | non-secret principal resolver, PROD/DEMO/SANDBOX + ONE_WAY/BOTH normalization, canonical slot-key value object | READY_FOR_IMPLEMENTATION | YES in its own behavior-zero ticket |
-| P10-07C / D5A-2 | dedicated slot authority adapter, Redis Lua CAS, generation high-water, typed acknowledgement | READY_AFTER_D5A-1 | NO until P10-07B |
+| P10-07B / D5A-1 | non-secret principal resolver, PROD/DEMO/SANDBOX + ONE_WAY/BOTH normalization, canonical slot-key value object | IMPLEMENTED / CLOSED | YES; dormant behavior-zero leaf module |
+| P10-07C / D5A-2 | dedicated slot authority adapter, Redis Lua CAS, generation high-water, typed acknowledgement | READY_FOR_IMPLEMENTATION | YES in its own dormant adapter ticket |
 | P10-07D / D5A-3 | controlled legacy adoption and reconstructed-quarantine foundation | READY_AFTER_D5A-2 | NO until P10-07C |
 
-P10-07 selects P10-07B as the first production ticket. It adds pure namespace
-and principal-validation infrastructure without wiring active open, close,
-position state, queue, worker, reconcile, marker, or Redis behavior.
+P10-07B implemented pure namespace and principal-validation infrastructure
+without wiring active open, close, position state, queue, worker, reconcile,
+marker, or Redis behavior. P10-07C is next.
 
 P10-D5A readiness is `READY_FOR_IMPLEMENTATION`; P10-D3D-1 readiness is
 `READY_AFTER_D5A_FOUNDATION`. See
