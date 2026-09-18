@@ -8,7 +8,8 @@
 `READY`, `READY_FOR_DESIGN`, `READY_FOR_IMPLEMENTATION`, `NEEDS_DESIGN`,
 `NEEDS_PRODUCT`, `NEEDS_CHARACTERIZATION`, `BLOCKED_BY_OTHER_TICKET`,
 `BLOCKED_BY_PRODUCT_DECISION`, `BLOCKED_BY_SPECIFIC_PRODUCT_DECISION`,
-`BLOCKED_BY_D5A`, `BLOCKED_BY_D3`, and `DESIGN AUDITED`.
+`BLOCKED_BY_D5A`, `READY_AFTER_D5A_FOUNDATION`, `BLOCKED_BY_D3`, and
+`DESIGN AUDITED`.
 `SUPERSEDED_BY_D3_DESIGN` means the design scope was consolidated into P10-D3;
 it does not mean the production behavior was implemented.
 
@@ -45,6 +46,7 @@ it does not mean the production behavior was implemented.
 | P10-D3 Crash Consistency Model | **DESIGN AUDITED** | `P10_D3_CRASH_CONSISTENCY_MODEL.md`; operation state/commit + UNKNOWN/replay/CAS/fencing/compensation using D1/D2/D4/D5 | supersedes T12 design; defines D3A-D3E gates for PMB-23A, C2, and PMB-24 implementation |
 | P10-D3D Generation Fencing Audit | **DESIGN AUDITED** | `P10_D3D_GENERATION_FENCING_AUDIT.md`; stale-work taxonomy + protection ABA golden + minimal queue fence/readiness | D3D-1 first implementation boundary; D3D-2/D3D-3/D3D-4 remain separate |
 | P10-D3D-1 Episode Fence Authority | **DESIGN AUDITED** | `P10_D3D1_EPISODE_FENCE_AUTHORITY.md`; normalized slot + opaque episode ID + slot generation + legacy/reconstructed authority | narrows D3D-1 to BLOCKED_BY_D5A and defines D3D-1A-E order |
+| P10-D5A Episode Authority Readiness | **DESIGN AUDITED** | `P10_D5A_EPISODE_AUTHORITY_READINESS.md`; principal + legacy adoption/quarantine + reconstructed quarantine + Redis CAS readiness | makes D5A staged foundation ready and D3D-1 ready after it |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -57,8 +59,9 @@ it does not mean the production behavior was implemented.
 5. P10-D3 integrated crash/restart model (design audited as P10-05).
 6. P10-D3D stale async-work fencing audit (design audited as P10-06A).
 7. P10-D3D-1 episode fence authority contract (design audited as P10-06B).
-8. D5A/D3D-1A specific authority decisions and implementation foundation.
-9. Behavior tickets only after their predecessor artifacts are approved.
+8. P10-D5A authority readiness (design audited as P10-07).
+9. P10-07B D5A-1 slot namespace and principal resolver.
+10. Behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
 
@@ -93,7 +96,7 @@ P10-D2 is design-complete, but T5 remains
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| P10-D5A | normalized slot, immutable episode authority, slot generation, provenance, and CAS foundation | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION: account principal source; legacy adoption vs quarantine; reconstructed auto vs operator activation | NO |
+| P10-D5A | normalized slot, immutable episode authority, slot generation, provenance, and CAS foundation | READY_FOR_IMPLEMENTATION in staged P10-07B/C/D tickets | NO; P10-07 design only |
 | P10-D5B | request/order/fill/legacy/protection alias model | BLOCKED_BY_D5A_AND_API_CHARACTERIZATION | NO |
 | P10-D5C | versioned live/historical migration and provenance | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
 | P10-D5D | typed marker roles, lifecycle generation, and compare-and-clear | BLOCKED_BY_D5A_AND_PRODUCT_DECISION | NO |
@@ -163,19 +166,19 @@ ticket is implementation-ready. See
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| P10-D3D-1 | protection queue episode fence before cancel/create/writeback | BLOCKED_BY_D5A | NO |
+| P10-D3D-1 | protection queue episode fence before cancel/create/writeback | READY_AFTER_D5A_FOUNDATION | NO |
 | P10-D3D-2 | monotonic desired-protection generation fence within one episode | BLOCKED_BY_D2_PRODUCT_DECISION | NO |
 | P10-D3D-3 | episode/operation-scoped marker compare-and-clear | BLOCKED_BY_D5_PRODUCT_DECISION | NO |
 | P10-D3D-4 | reconcile/monitor projection revision and generation CAS | BLOCKED_BY_D5_PRODUCT_DECISION_AND_D4_ACK_CONTRACT | NO |
 
 ## P10-D3D Readiness
 
-D3D-1 is the smallest recommended behavior scope, but it is not ready to use
-current `position_id` as authority. P10-06B narrows its prerequisite to D5A:
-normalized slot identity, durable opaque episode authority, monotonic slot
-generation, provenance, acknowledged CAS, and a legacy/reconstructed-position
-policy. Scale-in, cross-system allocation, full historical migration, marker
-redesign, journal, and replay are not D3D-1 blockers.
+D3D-1 is the smallest recommended behavior scope and cannot use current
+`position_id` as authority. P10-07 resolves D5A inputs and selects a staged
+foundation: explicit non-secret principal, dedicated Redis Lua CAS authority,
+controlled legacy adoption with quarantine fallback, and automatic reconstructed
+authority only as quarantined. Scale-in, cross-system allocation, full history
+migration, marker redesign, journal, and replay are not D3D-1 blockers.
 
 The selected future fail-safe is to drop missing, malformed, mismatched, or
 legacy-unfenced tasks before any exchange mutation, then let D2 health/emergency
@@ -191,18 +194,34 @@ schema, journal, replay, or production behavior changed. See
 
 | ID | Scope | Readiness | Production allowed now? |
 |---|---|---|---|
-| D5A / P10-D3D-1A | exchange-position-key namespace, episode field, slot generation, provenance, CAS | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION | NO |
-| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | BLOCKED_BY_D3D-1A | NO |
-| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | BLOCKED_BY_D3D-1A_D3D-1B | NO |
-| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_D3D-1A | NO |
-| P10-D3D-1E | controlled legacy adoption/quarantine and reconstructed provenance guard | BLOCKED_BY_SPECIFIC_PRODUCT_DECISION | NO |
+| D5A / P10-D3D-1A | exchange-position-key namespace, episode field, slot generation, provenance, CAS | READY_FOR_IMPLEMENTATION through P10-07B/C/D | NO; implement by staged ticket |
+| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | READY_AFTER_D5A_FOUNDATION | NO |
+| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | READY_AFTER_D5A_FOUNDATION_AND_D3D-1B | NO |
+| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | READY_AFTER_D5A_FOUNDATION | NO |
+| P10-D3D-1E | controlled legacy adoption/quarantine and reconstructed provenance guard | READY_AFTER_D5A-2 | NO |
 
-The specific D5A decisions are the stable account-principal source, controlled
-adoption versus quarantine-until-flat for active legacy positions, and automatic
-versus operator-approved activation for reconstructed exposure. Once those are
-approved and D5A/D3D-1A is implemented, D3D-1B/C/D can proceed without waiting
-for scale-in or cross-system ownership policy.
+P10-07 resolves the former D5A decisions: explicit configured principal;
+controlled adoption when strict evidence/CAS passes and quarantine otherwise;
+automatic reconstructed authority only as `RECONSTRUCTED_QUARANTINED`.
+D3D-1B/C/D can proceed after D5A foundation without waiting for scale-in or
+cross-system ownership policy.
 
-P10-D3D-1 is design-complete and `BLOCKED_BY_D5A`. Current `position_id` is
-`TEMPORARY_FENCE_ONLY`, never canonical authority. See
+P10-D3D-1 is design-complete and `READY_AFTER_D5A_FOUNDATION`. Current
+`position_id` is `TEMPORARY_FENCE_ONLY`, never canonical authority. See
 `docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md`.
+
+## P10-D5A Foundation Implementation Split
+
+| ID | Scope | Readiness | Production allowed now? |
+|---|---|---|---|
+| P10-07B / D5A-1 | non-secret principal resolver, PROD/DEMO/SANDBOX + ONE_WAY/BOTH normalization, canonical slot-key value object | READY_FOR_IMPLEMENTATION | YES in its own behavior-zero ticket |
+| P10-07C / D5A-2 | dedicated slot authority adapter, Redis Lua CAS, generation high-water, typed acknowledgement | READY_AFTER_D5A-1 | NO until P10-07B |
+| P10-07D / D5A-3 | controlled legacy adoption and reconstructed-quarantine foundation | READY_AFTER_D5A-2 | NO until P10-07C |
+
+P10-07 selects P10-07B as the first production ticket. It adds pure namespace
+and principal-validation infrastructure without wiring active open, close,
+position state, queue, worker, reconcile, marker, or Redis behavior.
+
+P10-D5A readiness is `READY_FOR_IMPLEMENTATION`; P10-D3D-1 readiness is
+`READY_AFTER_D5A_FOUNDATION`. See
+`docs/v2/P10_D5A_EPISODE_AUTHORITY_READINESS.md`.

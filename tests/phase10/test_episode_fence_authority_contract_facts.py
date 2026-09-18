@@ -165,4 +165,4 @@ def test_episode_authority_document_and_backlog_readiness():
     assert 'P10-D3D-1 Episode Fence Authority | **DESIGN AUDITED**' \
         in backlog
     assert '| P10-D3D-1 | protection queue episode fence' in backlog
-    assert '| BLOCKED_BY_D5A |' in backlog
+    assert '| READY_AFTER_D5A_FOUNDATION |' in backlog
