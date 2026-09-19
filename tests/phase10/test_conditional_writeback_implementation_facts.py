@@ -49,7 +49,7 @@ def test_ack_does_not_claim_active_or_protected():
     assert "ACK proves `PROTECTED`" in model
 
 
-def test_r4_native_open_and_close_are_only_projection_revision_consumers():
+def test_r4_boundaries_are_only_projection_revision_consumers():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -60,6 +60,7 @@ def test_r4_native_open_and_close_are_only_projection_revision_consumers():
             callers.append(str(relative))
     assert set(callers) == {
         'position_identity/close_finalizer.py',
+        'position_identity/projection_mutation.py',
         'shared/position_manager.py',
     }
     executor = (ROOT / 'strategies/shared_executor.py').read_text()

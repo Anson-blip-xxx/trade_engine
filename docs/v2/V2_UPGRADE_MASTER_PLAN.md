@@ -121,7 +121,8 @@ slot generation、protection generation、projection revision 做原子 CAS。�
 2. canonical close-to-FLAT finalization（R4A-CLOSE：IMPLEMENTED / CLOSED）；
    - R4B-IDENTITY atomic legacy authority + projection handoff: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-WRITER per-symbol legacy snapshot fence planner: IMPLEMENTED / CLOSED (DORMANT);
-   - active migration remains gated by typed writer integration, canonical mutation CAS, and exchange protection verification.
+   - R4B-MUTATION authority-fenced projection reduction CAS: IMPLEMENTED / CLOSED (DORMANT);
+   - active migration remains gated by typed writer integration, lifecycle mutation wiring, and exchange protection verification.
 3. controlled migrated position；
 4. break-even replacement；
 5. trailing replacement；

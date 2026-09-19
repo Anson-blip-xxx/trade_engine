@@ -67,6 +67,11 @@ from position_identity.projection_migration import (
     legacy_snapshot_write_decision,
     prepare_legacy_projection,
 )
+from position_identity.projection_mutation import (
+    ProjectionMutationCode,
+    ProjectionMutationResult,
+    RedisProjectionMutationAdapter,
+)
 from position_identity.projection_redis import RedisLivePositionProjectionAdapter
 from position_identity.slot import (
     Exchange,
@@ -121,6 +126,8 @@ __all__ = [
     'OnboardingResultCode',
     'PositionMode',
     'Product',
+    'ProjectionMutationCode',
+    'ProjectionMutationResult',
     'ProjectionReadCode',
     'ProjectionReadResult',
     'ProjectionWriteCode',
@@ -129,6 +136,7 @@ __all__ = [
     'ReconstructionPlan',
     'RedisLegacyMigrationHandoffAdapter',
     'RedisLivePositionProjectionAdapter',
+    'RedisProjectionMutationAdapter',
     'RedisSlotAuthorityAdapter',
     'SlotAuthority',
     'SlotEnvironment',
