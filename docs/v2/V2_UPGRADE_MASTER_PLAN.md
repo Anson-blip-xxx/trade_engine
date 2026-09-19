@@ -128,6 +128,7 @@ slot generation、protection generation、projection revision 做原子 CAS。�
    - R4B-PROTECTION-VERIFY strict pure exchange-evidence core: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-PROTECTION-COMMIT verified ACTIVE three-token CAS: IMPLEMENTED / CLOSED (DORMANT);
    - D2C strict Binance observation normalization + bounded reverification: IMPLEMENTED / CLOSED (DORMANT);
+   - D2C one-step query/normalize/verified-ACTIVE coordinator: IMPLEMENTED / CLOSED (DORMANT);
    - active migration remains gated by caller acknowledgement propagation, lifecycle mutation wiring, and exchange protection verification.
 3. controlled migrated position；
 4. break-even replacement；
