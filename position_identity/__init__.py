@@ -33,8 +33,17 @@ from position_identity.authority import (
 )
 from position_identity.authority_redis import RedisSlotAuthorityAdapter
 from position_identity.close_finalizer import (
-    CanonicalCloseFence, CanonicalCloseFinalizer, CloseCaptureCode,
-    CloseCaptureResult, CloseFinalizeCode, CloseFinalizeResult,
+    CanonicalCloseFence,
+    CanonicalCloseFinalizer,
+    CloseCaptureCode,
+    CloseCaptureResult,
+    CloseFinalizeCode,
+    CloseFinalizeResult,
+)
+from position_identity.migration_handoff import (
+    LegacyMigrationHandoffCode,
+    LegacyMigrationHandoffResult,
+    RedisLegacyMigrationHandoffAdapter,
 )
 from position_identity.principal import (
     ACCOUNT_PRINCIPAL_CONFIG_KEY,
@@ -83,15 +92,17 @@ __all__ = [
     'AuthorityReadCode',
     'AuthorityReadResult',
     'AuthorityStatus',
-    'ClassificationDecision',
     'CanonicalCloseFence',
     'CanonicalCloseFinalizer',
+    'ClassificationDecision',
     'CloseCaptureCode',
     'CloseCaptureResult',
     'CloseFinalizeCode',
     'CloseFinalizeResult',
     'Exchange',
     'ExchangePositionKey',
+    'LegacyMigrationHandoffCode',
+    'LegacyMigrationHandoffResult',
     'LegacyProjectionCode',
     'LegacyProjectionReason',
     'LegacyProjectionResult',
@@ -107,6 +118,7 @@ __all__ = [
     'ProjectionWriteResult',
     'QuarantineReason',
     'ReconstructionPlan',
+    'RedisLegacyMigrationHandoffAdapter',
     'RedisLivePositionProjectionAdapter',
     'RedisSlotAuthorityAdapter',
     'SlotAuthority',

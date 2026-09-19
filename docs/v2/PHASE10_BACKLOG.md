@@ -58,6 +58,7 @@ it does not mean the production behavior was implemented.
 | R4 Active Producer Wiring | IN_PROGRESS | native/migrated/replacement producer identity and V3 enqueue wiring | R4A native open closed; remaining producers pending |
 | R4A Native Active Open | **IMPLEMENTED / CLOSED** | `position_protection.handoff*`; `P10_R4A_NATIVE_OPEN_PRODUCER_IMPLEMENTATION.md`; atomic three-record handoff + configured active-open V3 enqueue | R4A-CLOSE closed; proceed to controlled migrated producer |
 | R4A-CLOSE Canonical Close Finalization | **IMPLEMENTED / CLOSED** | `position_identity.close_finalizer`; `P10_R4A_CLOSE_FINALIZATION_IMPLEMENTATION.md`; generation-fenced ACTIVE-to-FLAT CAS after exchange-flat evidence | R4B controlled migrated producer |
+| R4B-IDENTITY Legacy Identity Handoff | **IMPLEMENTED / CLOSED (DORMANT)** | `position_identity.migration_handoff`; `P10_R4B_IDENTITY_HANDOFF_IMPLEMENTATION.md`; atomic MIGRATED authority + projection CAS | writer guard + protection verification before active R4B producer |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -79,7 +80,7 @@ it does not mean the production behavior was implemented.
 14. R1 canonical live projection/revision and dormant legacy guard (implemented/closed).
 15. R2 / P10-D2A durable desired-protection record after R1 (implemented/closed).
 16. R3 conditional writeback (implemented/closed).
-17. R4A native active-open and R4A-CLOSE finalization (implemented/closed); continue R4B migrated then replacement producers.
+17. R4A native active-open and R4A-CLOSE finalization (implemented/closed); R4B-IDENTITY dormant handoff implemented, then complete writer/protection gates before active R4B producer.
 18. Remaining behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.

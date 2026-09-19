@@ -119,6 +119,8 @@ slot generation、protection generation、projection revision 做原子 CAS。�
 按顺序接线：
 1. native active open（R4A：IMPLEMENTED / CLOSED）；
 2. canonical close-to-FLAT finalization（R4A-CLOSE：IMPLEMENTED / CLOSED）；
+   - R4B-IDENTITY atomic legacy authority + projection handoff: IMPLEMENTED / CLOSED (DORMANT);
+   - active migration remains gated by legacy writer fencing and exchange protection verification.
 3. controlled migrated position；
 4. break-even replacement；
 5. trailing replacement；
