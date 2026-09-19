@@ -79,7 +79,7 @@ def test_legacy_compatibility_is_controlled_and_fail_closed():
         assert forbidden not in source
 
 
-def test_no_active_runtime_imports_projection_implementation():
+def test_only_r4_handoff_imports_projection_implementation():
     callers = []
     needles = (
         'RedisLivePositionProjectionAdapter',
@@ -94,7 +94,10 @@ def test_no_active_runtime_imports_projection_implementation():
         source = path.read_text()
         if any(needle in source for needle in needles):
             callers.append(str(relative))
-    assert callers == []
+    assert set(callers) == {
+        'position_protection/handoff.py',
+        'position_protection/handoff_redis.py',
+    }
 
 
 def test_active_legacy_writer_has_no_canonical_fields():

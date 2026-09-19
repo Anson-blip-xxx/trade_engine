@@ -13,7 +13,7 @@ LOG_DIR = TRADE_DIR.parent / 'logs'
 
 sys.path.insert(0, str(TRADE_DIR))
 from shared.binance_api import FAPI
-from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_start_worker, _load as _pm_load
+from shared.position_manager import monitor_all, close_position, _algo_enqueue, _algo_enqueue_native_open, _algo_start_worker, _load as _pm_load
 from shared.postgres_client import record_trade_event as _pg_record_event
 from decision.core import (
     CONFIRMED_SHORT_SIGNALS,
@@ -54,6 +54,8 @@ _TG_TOKEN = ''
 _TG_CHAT_ID = 0
 _API_KEY = ''
 _API_SECRET = ''
+_ACCOUNT_PRINCIPAL_ID = ''
+_is_testnet = False
 
 
 if _CONFIG_ENV.exists():
@@ -64,6 +66,7 @@ if _CONFIG_ENV.exists():
             if k == 'TG_NOTIFY_TOKEN': _TG_TOKEN = v
             elif k == 'TG_NOTIFY_CHAT_ID': _TG_CHAT_ID = int(v)
             elif k == 'BINANCE_TESTNET': _is_testnet = v.strip().lower() == 'true'
+            elif k == 'ACCOUNT_PRINCIPAL_ID': _ACCOUNT_PRINCIPAL_ID = v.strip()
             elif k == 'BINANCE_API_KEY' and not _is_testnet: _API_KEY = v
             elif k == 'BINANCE_API_SECRET' and not _is_testnet: _API_SECRET = v
             elif k == 'BINANCE_TESTNET_API_KEY' and _is_testnet: _API_KEY = v
@@ -1060,7 +1063,20 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
         if stop_price > 0:
             try:
                 close_side = 'BUY' if side == 'SHORT' else 'SELL'
-                _algo_enqueue(symbol, close_side, stop_price, filled_qty)
+                if _ACCOUNT_PRINCIPAL_ID:
+                    handoff = _algo_enqueue_native_open(
+                        symbol, close_side, stop_price, filled_qty,
+                        account_principal_id=_ACCOUNT_PRINCIPAL_ID,
+                        environment='DEMO' if _is_testnet else 'PROD',
+                        position_side=side, system=name,
+                        entry_price=avg_price,
+                        opened_at=_POS_CACHE[symbol]['open_time'],
+                        open_order_alias=str(result.get('orderId') or position_id))
+                    if not handoff.applied:
+                        raise RuntimeError(
+                            f'native protection handoff {handoff.code.value}')
+                else:
+                    _algo_enqueue(symbol, close_side, stop_price, filled_qty)
                 _log(name, f'{symbol} 止损单已入队 ({stop_price})')
             except Exception as e:
                 _log(name, f'{symbol} 止损入队失败: {e}')

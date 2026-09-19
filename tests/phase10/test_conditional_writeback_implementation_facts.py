@@ -49,7 +49,7 @@ def test_ack_does_not_claim_active_or_protected():
     assert "ACK proves `PROTECTED`" in model
 
 
-def test_no_production_v3_producer_yet():
+def test_r4_native_open_is_the_only_v3_producer_boundary():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -59,6 +59,8 @@ def test_no_production_v3_producer_yet():
         if 'desired_revision=' in source or 'projection_revision=' in source:
             callers.append(str(relative))
     assert callers == ['shared/position_manager.py']
+    executor = (ROOT / 'strategies/shared_executor.py').read_text()
+    assert '_algo_enqueue_native_open(' in executor
 
 
 def test_doc_and_backlog_close_r3_only():
@@ -67,4 +69,4 @@ def test_doc_and_backlog_close_r3_only():
     assert '**P10 R3 PASS.**' in model
     assert 'R3 / P10-D3D-1D Conditional Writeback | **IMPLEMENTED / CLOSED**' \
         in backlog
-    assert 'R4 Active Producer Wiring | READY_AFTER_R3' in backlog
+    assert 'R4 Active Producer Wiring | IN_PROGRESS' in backlog

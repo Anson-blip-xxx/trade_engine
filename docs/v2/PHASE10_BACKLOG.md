@@ -55,7 +55,9 @@ it does not mean the production behavior was implemented.
 | R1 Canonical Live Projection | **IMPLEMENTED / CLOSED** | `position_identity.projection*`; `P10_R1_CANONICAL_LIVE_PROJECTION_IMPLEMENTATION.md`; dormant per-slot schema/CAS + legacy compatibility guard | R2 / P10-D2A desired-protection authority |
 | R2 / P10-D2A Desired Protection | **IMPLEMENTED / CLOSED** | `position_protection.desired*`; `P10_R2_DESIRED_PROTECTION_IMPLEMENTATION.md`; dormant desired generation/state + Redis CAS | R3 / P10-D3D-1D conditional alias writeback |
 | R3 / P10-D3D-1D Conditional Writeback | **IMPLEMENTED / CLOSED** | `position_protection.writeback*`; `P10_R3_CONDITIONAL_ALIAS_WRITEBACK_IMPLEMENTATION.md`; atomic claim/desired/projection ACK writeback | R4 active producer wiring |
-| R4 Active Producer Wiring | READY_AFTER_R3 | native/migrated producer identity and V3 enqueue wiring | controlled isolated V2 wiring after R3 QA |
+| R4 Active Producer Wiring | IN_PROGRESS | native/migrated/replacement producer identity and V3 enqueue wiring | R4A native open closed; remaining producers pending |
+| R4A Native Active Open | **IMPLEMENTED / CLOSED** | `position_protection.handoff*`; `P10_R4A_NATIVE_OPEN_PRODUCER_IMPLEMENTATION.md`; atomic three-record handoff + configured active-open V3 enqueue | R4A-CLOSE canonical close-to-FLAT gate |
+| R4A-CLOSE Canonical Close Finalization | READY_AFTER_R4A | generation-fenced ACTIVE-to-FLAT authority transition after confirmed flatness | required before same-slot reopen or migrated producer rollout |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -76,8 +78,8 @@ it does not mean the production behavior was implemented.
 13. P10-D3D-1C worker validation/mutation claim after D3D-1B (implemented/closed).
 14. R1 canonical live projection/revision and dormant legacy guard (implemented/closed).
 15. R2 / P10-D2A durable desired-protection record after R1 (implemented/closed).
-16. R3 / P10-D3D-1D conditional protection alias writeback (implemented/closed).
-17. R4 active producer wiring after R3.
+17. R4A native active-open producer wiring (implemented/closed); next complete R4A-CLOSE, then migrated and replacement producers.
+17. R4A native active-open producer wiring (implemented/closed); continue R4B migrated then replacement producers.
 18. Remaining behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
@@ -220,9 +222,9 @@ schema, journal, replay, or production behavior changed. See
 P10-07 resolves the former D5A decisions: explicit configured principal;
 controlled adoption when strict evidence/CAS passes and quarantine otherwise;
 automatic reconstructed authority only as `RECONSTRUCTED_QUARANTINED`.
-D5A foundation and D3D-1B/C are complete. R1 canonical live-projection revision/CAS is implemented and closed as dormant infrastructure. R2 durable desired-protection generation is implemented and closed as dormant infrastructure. R3 / D3D-1D conditional writeback is implemented and closed on isolated V2; R4 active producer wiring is the next isolated V2 step.
+D5A foundation and D3D-1B/C are complete. R1 canonical live-projection revision/CAS is implemented and closed as dormant infrastructure. R2 durable desired-protection generation is implemented and closed as dormant infrastructure. R3 / D3D-1D conditional writeback is implemented and closed on isolated V2; R4A native active-open wiring is implemented; R4B migrated and replacement producers remain.
 
-P10-D3D-1 is design-complete; implementation proceeds with R4 active producer wiring. Current
+P10-D3D-1 is design-complete; implementation proceeds through the remaining R4 producers after R4A. Current
 `position_id` is `TEMPORARY_FENCE_ONLY`, never canonical authority. See
 `docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md`.
 
@@ -238,6 +240,6 @@ P10-07B, P10-07C, and P10-07D implemented the dormant D5A foundation without
 wiring active open, close, position state, queue, worker, monitor, reconcile,
 marker, or startup behavior.
 
-P10-D5A, P10-D3D-1B/C, R1, and R2 are `IMPLEMENTED / CLOSED`; P10-D3D-1D is `IMPLEMENTED / CLOSED` through R3; R4 is `READY_AFTER_R3`. The execution order is maintained in `docs/v2/V2_UPGRADE_MASTER_PLAN.md`.
+P10-D5A, P10-D3D-1B/C, R1, and R2 are `IMPLEMENTED / CLOSED`; P10-D3D-1D is `IMPLEMENTED / CLOSED` through R3; R4 is `IN_PROGRESS`, with R4A native active open implemented/closed. The execution order is maintained in `docs/v2/V2_UPGRADE_MASTER_PLAN.md`.
 See
 `docs/v2/P10_D5A_EPISODE_AUTHORITY_READINESS.md`.

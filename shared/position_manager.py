@@ -37,11 +37,12 @@ from position_protection import service as pp_service
 from position_protection.claim import ClaimReleaseCode
 from position_protection.claim_redis import RedisProtectionMutationClaimAdapter
 from position_protection.fence import ProtectionTaskFence
+from position_protection.handoff_redis import RedisNativeOpenHandoffAdapter
 from position_protection.writeback_redis import RedisConditionalAliasWritebackAdapter
 from position_protection.task import (
     AlgoProtectionTask, ConditionalWritebackProtectionTask,
 )
-from position_identity import RedisSlotAuthorityAdapter
+from position_identity import ExchangePositionKey, RedisSlotAuthorityAdapter
 
 from position_monitoring import service as _mon_svc
 from position_monitoring import deps as _mon_deps
@@ -289,6 +290,43 @@ def _algo_execute_fenced_task(task: AlgoProtectionTask):
         if released.code is not ClaimReleaseCode.RELEASED:
             _pmlog(f'[AlgoClaimRelease] symbol={task.symbol} '
                    f'reason={released.code.value}')
+
+
+def _algo_enqueue_native_open(
+        symbol: str, side: str, trigger_price: float, qty: float, *,
+        account_principal_id: str, environment: str, position_side: str,
+        system: str, entry_price: float, opened_at: float,
+        open_order_alias: str):
+    """Atomically establish native identity, then enqueue one V3 task."""
+    slot = ExchangePositionKey.one_way(
+        account_principal_id=account_principal_id,
+        environment=environment, symbol=symbol)
+    episode_id = str(uuid.uuid4())
+    operation_id = f'native-open:{open_order_alias}'
+    handoff = RedisNativeOpenHandoffAdapter(
+        redis_get=_strict_redis_get, redis_eval=_strict_redis_eval).open_native(
+            exchange_position_key=slot,
+            candidate_episode_id=episode_id,
+            desired_intent_id=f'stop:{open_order_alias}',
+            trigger_price=trigger_price, covered_quantity=qty,
+            closing_side=side, position_side=position_side, system=system,
+            entry_price=entry_price, opened_at=opened_at,
+            operation_id=operation_id, now=time.time())
+    if not handoff.applied:
+        _pmlog(f'[NativeProtectionHandoffDrop] symbol={symbol} '
+               f'reason={handoff.code.value}')
+        return handoff
+    authority = handoff.authority
+    projection = handoff.projection
+    desired = handoff.desired
+    _algo_enqueue(
+        symbol, side, trigger_price, qty,
+        exchange_position_key=slot, episode_id=authority.episode_id,
+        slot_generation=authority.slot_generation,
+        protection_generation=desired.protection_generation,
+        desired_revision=desired.revision,
+        projection_revision=projection.state_revision)
+    return handoff
 
 
 def _algo_enqueue(

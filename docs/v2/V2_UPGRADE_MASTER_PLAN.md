@@ -13,9 +13,10 @@
 - D3D-1B immutable protection queue identity 与 legacy drop；
 - D3D-1C worker V1/V2 authority preflight 和 Redis mutation claim。
 
-当前 V2 **不可部署**：active producers 仍发送 legacy 四元任务；
-`pm:positions` 没有 canonical identity/revision；V3 写回、durable desired
-protection、restart replay 均未实现。
+当前 V2 **不可部署**：R4A native active-open producer 已可通过显式 principal
+使用原子三记录 handoff 和 V3 task；canonical close-to-FLAT、migrated、
+break-even、trailing、legacy lifecycle producers 仍未接线，durable restart
+replay 也未实现。
 
 ## 2. 固定实施原则
 
@@ -35,7 +36,7 @@ D5A + D3D-1B/C（已完成）
   -> R1 canonical live projection + revision
   -> R2 durable desired-protection record/generation
   -> D3D-1D V3 conditional alias writeback
-  -> R3 active producer/episode wiring
+  -> R4 active producer/episode wiring
   -> D2B/C/D durable protection handoff + UNKNOWN recovery
   -> D5D/D3D-3 marker fencing + D3D-4 reconcile CAS
   -> D1 open idempotency
@@ -102,7 +103,7 @@ required/no-fallback；exchange `algoId` 只是 alias。
 ### R3 — P10-D3D-1D V3 Conditional Writeback
 
 状态：**IMPLEMENTED / CLOSED（isolated V2）**。实现证据见
-`P10_R3_CONDITIONAL_ALIAS_WRITEBACK_IMPLEMENTATION.md`；R4 producer wiring 尚未开始。
+`P10_R3_CONDITIONAL_ALIAS_WRITEBACK_IMPLEMENTATION.md`；R4A 已完成，R4 其余 producer 尚未接线。
 
 前置：R1、R2。
 
@@ -112,12 +113,16 @@ slot generation、protection generation、projection revision 做原子 CAS。�
 
 ### R4 — Active Producer And Episode Wiring
 
-按顺序接线：
+状态：**IN_PROGRESS**。R4A native active open 已实现/关闭，证据见
+`P10_R4A_NATIVE_OPEN_PRODUCER_IMPLEMENTATION.md`；其余 producer 尚未接线。
 
-1. native active open；
-2. controlled migrated position；
-3. break-even replacement；
-4. trailing replacement；
+按顺序接线：
+1. native active open（R4A：IMPLEMENTED / CLOSED）；
+2. canonical close-to-FLAT finalization（R4A-CLOSE：READY_AFTER_R4A）；
+3. controlled migrated position；
+4. break-even replacement；
+5. trailing replacement；
+6. legacy lifecycle path仅在确认仍需支持后接线。
 5. legacy lifecycle path仅在确认仍需支持后接线。
 
 每个 producer 必须从已经 ACK 的 authority/desired record 获取 identity，禁止

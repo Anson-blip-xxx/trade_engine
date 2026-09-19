@@ -107,7 +107,11 @@ def test_only_protection_runtime_calls_authority_store():
                 or 'SlotAuthority' in source \
                 or 'authority_redis' in source:
             callers.append(str(relative))
-    assert callers == ['shared/position_manager.py']
+    assert set(callers) == {
+        'position_protection/handoff.py',
+        'position_protection/handoff_redis.py',
+        'shared/position_manager.py',
+    }
 
 
 def test_protection_queue_identity_is_extended_but_authority_unwired():
@@ -130,14 +134,13 @@ def test_legacy_position_payload_has_no_episode_authority_fields():
         assert token not in cache
 
 
-def test_active_startup_still_does_not_require_principal_config():
-    for path in (
-        'strategies/S6.py', 'strategies/S8.py',
-        'strategies/shared_executor.py', 'shared/position_manager.py',
-    ):
-        source = (ROOT / path).read_text()
-        assert 'ACCOUNT_PRINCIPAL_ID' not in source
-        assert 'resolve_account_principal' not in source
+def test_r4_principal_config_is_optional_and_explicit():
+    source = (ROOT / 'strategies/shared_executor.py').read_text()
+    assert "_ACCOUNT_PRINCIPAL_ID = ''" in source
+    assert "k == 'ACCOUNT_PRINCIPAL_ID'" in source
+    assert 'if _ACCOUNT_PRINCIPAL_ID:' in source
+    for path in ('strategies/S6.py', 'strategies/S8.py'):
+        assert 'ACCOUNT_PRINCIPAL_ID' not in (ROOT / path).read_text()
 
 
 def test_authority_schema_contains_no_secret_or_wallet_material():

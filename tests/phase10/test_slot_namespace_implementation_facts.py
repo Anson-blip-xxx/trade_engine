@@ -87,6 +87,8 @@ def test_only_protection_fence_modules_call_identity_package():
         'position_protection/desired.py',
         'position_protection/desired_redis.py',
         'position_protection/fence.py',
+        'position_protection/handoff.py',
+        'position_protection/handoff_redis.py',
         'position_protection/task.py',
         'shared/position_manager.py',
     }
@@ -131,18 +133,14 @@ def test_worker_parser_delegates_to_fenced_executor():
         assert token not in worker
 
 
-def test_active_startup_does_not_require_principal_config():
-    for path in (
-        'strategies/S6.py',
-        'strategies/S8.py',
-        'strategies/shared_executor.py',
-        'shared/binance_api.py',
-        'shared/position_manager.py',
-    ):
-        source = (ROOT / path).read_text()
-        assert 'ACCOUNT_PRINCIPAL_ID' not in source
-        assert 'resolve_account_principal' not in source
-        assert 'ExchangePositionKey' not in source
+def test_r4_native_open_uses_explicit_optional_principal():
+    executor = (ROOT / 'strategies/shared_executor.py').read_text()
+    assert "_ACCOUNT_PRINCIPAL_ID = ''" in executor
+    assert "k == 'ACCOUNT_PRINCIPAL_ID'" in executor
+    assert 'if _ACCOUNT_PRINCIPAL_ID:' in executor
+    assert '_algo_enqueue_native_open(' in executor
+    pm = (ROOT / 'shared/position_manager.py').read_text()
+    assert 'ExchangePositionKey.one_way(' in pm
 
 
 def test_implementation_doc_and_backlog_close_d5a1_only():

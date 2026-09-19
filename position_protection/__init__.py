@@ -10,6 +10,10 @@ from position_protection.desired import (
     ProtectionStatus,
 )
 from position_protection.desired_redis import RedisDesiredProtectionAdapter
+from position_protection.handoff import (
+    NativeOpenHandoffCode, NativeOpenHandoffResult,
+)
+from position_protection.handoff_redis import RedisNativeOpenHandoffAdapter
 from position_protection.task import ConditionalWritebackProtectionTask
 from position_protection.writeback import WritebackCode, WritebackResult
 from position_protection.writeback_redis import (
@@ -25,8 +29,11 @@ __all__ = [
     'DesiredWriteResult',
     'ConditionalWritebackProtectionTask',
     'ProtectionStatus',
+    'NativeOpenHandoffCode',
+    'NativeOpenHandoffResult',
     'RedisConditionalAliasWritebackAdapter',
     'RedisDesiredProtectionAdapter',
+    'RedisNativeOpenHandoffAdapter',
     'WritebackCode',
     'WritebackResult',
 ]
