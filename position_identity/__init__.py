@@ -77,6 +77,13 @@ from position_identity.slot import (
     SlotSide,
     slot_side_for_strategy,
 )
+from position_identity.snapshot_fence import (
+    CanonicalSnapshotRead,
+    LegacySnapshotWritePlan,
+    SnapshotFenceCode,
+    SnapshotFenceReason,
+    plan_legacy_snapshot_write,
+)
 
 __all__ = [
     'ACCOUNT_PRINCIPAL_CONFIG_KEY',
@@ -94,6 +101,7 @@ __all__ = [
     'AuthorityStatus',
     'CanonicalCloseFence',
     'CanonicalCloseFinalizer',
+    'CanonicalSnapshotRead',
     'ClassificationDecision',
     'CloseCaptureCode',
     'CloseCaptureResult',
@@ -106,6 +114,7 @@ __all__ = [
     'LegacyProjectionCode',
     'LegacyProjectionReason',
     'LegacyProjectionResult',
+    'LegacySnapshotWritePlan',
     'LegacyWriterDecision',
     'LivePositionProjection',
     'OnboardingResult',
@@ -124,12 +133,15 @@ __all__ = [
     'SlotAuthority',
     'SlotEnvironment',
     'SlotSide',
+    'SnapshotFenceCode',
+    'SnapshotFenceReason',
     'apply_legacy_adoption',
     'apply_reconstructed_episode',
     'can_mutate_async',
     'classify_legacy_active',
     'classify_reconstructed_exposure',
     'legacy_snapshot_write_decision',
+    'plan_legacy_snapshot_write',
     'prepare_legacy_adoption',
     'prepare_legacy_projection',
     'prepare_reconstructed_episode',
