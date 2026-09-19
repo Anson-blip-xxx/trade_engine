@@ -166,8 +166,9 @@ generation fence now validates exact operation/authority/desired identity while
 keeping OPEN scale-in and external disposition behind explicit policy gates.
 Its injected read coordinator is also IMPLEMENTED / CLOSED (DORMANT): typed
 authority/desired outcomes remain distinct, concrete Redis adapters are not
-imported, and no mutation or runtime wiring is present. Exact pre-side-effect
-revalidation and executor composition remain.
+imported, and no mutation or runtime wiring is present. The exact canonical
+witness/second-read revalidation guard is also dormant and complete. Mutation
+ownership and executor composition remain.
 
 ### P1 — P10-D2C Exchange Algo API Characterization
 

@@ -109,6 +109,7 @@ def test_only_protection_runtime_calls_authority_store():
             callers.append(str(relative))
     assert set(callers) == {
         'operation_journal/generation_fence.py',
+        'operation_journal/generation_reader.py',
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
         'position_protection/verification.py',

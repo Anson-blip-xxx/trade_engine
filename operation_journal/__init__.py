@@ -15,6 +15,7 @@ from operation_journal.generation_reader import (
     DesiredReader,
     GenerationResolution,
     GenerationResolutionCode,
+    GenerationWitness,
     RecoveryGenerationReader,
 )
 from operation_journal.model import (
@@ -58,6 +59,7 @@ __all__ = [
     "GenerationFenceDecision",
     "GenerationResolution",
     "GenerationResolutionCode",
+    "GenerationWitness",
     "LeaseCode",
     "LeaseResult",
     "OperationRecord",

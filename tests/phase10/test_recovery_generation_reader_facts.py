@@ -39,6 +39,8 @@ def test_generation_reader_has_no_mutation_or_runtime_surface():
     assert "validate_recovery_generation" in source
     assert "AUTHORITY_UNAVAILABLE" in source
     assert "DESIRED_UNAVAILABLE" in source
+    assert "GenerationWitness" in source
+    assert "CANONICAL_CHANGED" in source
 
 
 def test_generation_reader_remains_explicitly_dormant_in_documentation():
@@ -46,4 +48,14 @@ def test_generation_reader_remains_explicitly_dormant_in_documentation():
     source = doc.read_text()
     assert "dormant read boundary" in source
     assert "does not\nauthorize" in source
-    assert "pre-effect revalidation" in source
+    assert "canonical witness/revalidation guard" in source
+
+
+def test_revalidation_doc_never_claims_exchange_atomicity_or_permission():
+    doc = (ROOT /
+           "docs/v2/P10_D3D_RECOVERY_PRE_EFFECT_REVALIDATION_IMPLEMENTATION.md")
+    source = doc.read_text()
+    assert "cannot eliminate" in source
+    assert "does not make" in source
+    assert "never standalone permission" in source
+    assert "mutation claim/fencing protocol" in source

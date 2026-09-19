@@ -6,6 +6,7 @@ import pytest
 from operation_journal import (
     GenerationFenceCode,
     GenerationResolutionCode,
+    GenerationWitness,
     OperationRecord,
     OperationStage,
     OperationType,
@@ -92,19 +93,23 @@ def test_non_protection_reads_authority_once_and_skips_desired():
         authority_reader, desired_reader).resolve(operation)
     assert result.code is GenerationResolutionCode.PASSED
     assert result.decision.code is GenerationFenceCode.CURRENT
+    assert result.witness.authority == _authority()
+    assert result.witness.desired is None
     assert authority_reader.keys == [KEY]
     assert desired_reader.keys == []
 
 
 def test_protection_reads_both_once_and_applies_exact_fence():
     operation = _operation(OperationType.PROTECTION_CREATE)
+    desired = _desired(operation)
     authority_reader = _Reader(AuthorityReadResult(
         AuthorityReadCode.FOUND, _authority()))
     desired_reader = _Reader(DesiredReadResult(
-        DesiredReadCode.FOUND, _desired(operation)))
+        DesiredReadCode.FOUND, desired))
     result = RecoveryGenerationReader(
         authority_reader, desired_reader).resolve(operation)
     assert result.code is GenerationResolutionCode.PASSED
+    assert result.witness.desired == desired
     assert authority_reader.keys == [KEY]
     assert desired_reader.keys == [KEY]
 
@@ -192,3 +197,75 @@ def test_reader_constructor_and_resolve_reject_untyped_inputs():
     reader = RecoveryGenerationReader(_Reader(None))
     with pytest.raises(TypeError, match="OperationRecord"):
         reader.resolve({})
+
+
+def test_revalidate_accepts_an_exact_unchanged_witness():
+    operation = _operation(OperationType.PROTECTION_CREATE)
+    authority_reader = _Reader(AuthorityReadResult(
+        AuthorityReadCode.FOUND, _authority()))
+    desired_reader = _Reader(DesiredReadResult(
+        DesiredReadCode.FOUND, _desired(operation)))
+    reader = RecoveryGenerationReader(authority_reader, desired_reader)
+    planned = reader.resolve(operation)
+
+    result = reader.revalidate(operation, planned.witness)
+
+    assert result.code is GenerationResolutionCode.PASSED
+    assert result.witness == planned.witness
+    assert authority_reader.keys == [KEY, KEY]
+    assert desired_reader.keys == [KEY, KEY]
+
+
+@pytest.mark.parametrize("changed_field", ["authority", "desired"])
+def test_revalidate_detects_any_canonical_record_change(changed_field):
+    operation = _operation(OperationType.PROTECTION_REPLACE)
+    authority_reader = _Reader(AuthorityReadResult(
+        AuthorityReadCode.FOUND, _authority()))
+    desired_reader = _Reader(DesiredReadResult(
+        DesiredReadCode.FOUND, _desired(operation)))
+    reader = RecoveryGenerationReader(authority_reader, desired_reader)
+    planned = reader.resolve(operation)
+    if changed_field == "authority":
+        authority_reader.result = AuthorityReadResult(
+            AuthorityReadCode.FOUND, replace(_authority(), revision=3))
+    else:
+        desired_reader.result = DesiredReadResult(
+            DesiredReadCode.FOUND,
+            replace(_desired(operation), revision=2),
+        )
+
+    result = reader.revalidate(operation, planned.witness)
+
+    assert result.code is GenerationResolutionCode.CANONICAL_CHANGED
+    assert result.decision.fence_passed
+    assert result.witness != planned.witness
+
+
+def test_revalidate_returns_current_failure_instead_of_changed():
+    operation = _operation()
+    authority_reader = _Reader(AuthorityReadResult(
+        AuthorityReadCode.FOUND, _authority()))
+    reader = RecoveryGenerationReader(authority_reader)
+    planned = reader.resolve(operation)
+    authority_reader.result = AuthorityReadResult(AuthorityReadCode.NOT_FOUND)
+
+    result = reader.revalidate(operation, planned.witness)
+
+    assert result.code is GenerationResolutionCode.AUTHORITY_NOT_FOUND
+    assert result.witness is None
+
+
+def test_revalidate_rejects_wrong_or_untyped_witness_without_reading():
+    operation = _operation()
+    authority_reader = _Reader(AuthorityReadResult(
+        AuthorityReadCode.FOUND, _authority()))
+    reader = RecoveryGenerationReader(authority_reader)
+    wrong = GenerationWitness(
+        operation_id=str(uuid4()), operation_type=operation.operation_type,
+        authority=_authority(), desired=None,
+    )
+    result = reader.revalidate(operation, wrong)
+    assert result.code is GenerationResolutionCode.INVALID_WITNESS
+    assert authority_reader.keys == []
+    with pytest.raises(TypeError, match="GenerationWitness"):
+        reader.revalidate(operation, object())

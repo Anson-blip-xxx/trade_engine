@@ -33,7 +33,8 @@ read before applying this decision. NOT_FOUND, MALFORMED, UNAVAILABLE, and
 invalid adapter responses remain distinct and fail closed. It imports no
 concrete Redis adapter and performs no write.
 
-Remaining D3D work is exact pre-side-effect revalidation and composition with
-directive executors.
+An exact canonical witness/revalidation read guard is now dormant and complete.
+Remaining D3D work is composition with mutation ownership and directive
+executors.
 
 **P10 D3D-RECOVERY-GENERATION-FENCE PASS.**

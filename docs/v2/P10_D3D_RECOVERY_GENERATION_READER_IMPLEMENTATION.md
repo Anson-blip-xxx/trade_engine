@@ -18,8 +18,9 @@ recovery generation fence through injected ports:
 
 `PASSED` only means the supplied canonical generations match. It does not
 authorize an exchange call, journal transition, Redis mutation, or any other
-side effect. The executor must still re-read/revalidate immediately before its
-effect and satisfy the lease, evidence, and directive gates.
+side effect. The canonical witness/revalidation guard can perform an exact
+second read, but the executor must still invoke it immediately before its
+effect and satisfy the mutation-claim, lease, evidence, and directive gates.
 
 ## QA boundary
 
@@ -30,7 +31,6 @@ and active runtime packages outside this module.
 
 ## Remaining work
 
-- define an exact pre-effect revalidation token/window;
 - compose it with directive-specific executor ports;
 - keep runtime activation default-off until D3C evidence and product policies
   are approved.

@@ -10,9 +10,17 @@ from operation_journal.generation_fence import (
     validate_recovery_generation,
 )
 from operation_journal.model import OperationRecord, OperationType
-from position_identity.authority import AuthorityReadCode, AuthorityReadResult
+from position_identity.authority import (
+    AuthorityReadCode,
+    AuthorityReadResult,
+    SlotAuthority,
+)
 from position_identity.slot import ExchangePositionKey
-from position_protection.desired import DesiredReadCode, DesiredReadResult
+from position_protection.desired import (
+    DesiredProtectionRecord,
+    DesiredReadCode,
+    DesiredReadResult,
+)
 
 
 class AuthorityReader(Protocol):
@@ -34,6 +42,18 @@ class GenerationResolutionCode(str, Enum):
     DESIRED_UNAVAILABLE = "DESIRED_UNAVAILABLE"
     DESIRED_MALFORMED = "DESIRED_MALFORMED"
     INVALID_RESPONSE = "INVALID_RESPONSE"
+    INVALID_WITNESS = "INVALID_WITNESS"
+    CANONICAL_CHANGED = "CANONICAL_CHANGED"
+
+
+@dataclass(frozen=True)
+class GenerationWitness:
+    """Exact canonical records observed by a successful generation read."""
+
+    operation_id: str
+    operation_type: OperationType
+    authority: SlotAuthority
+    desired: DesiredProtectionRecord | None
 
 
 @dataclass(frozen=True)
@@ -41,6 +61,7 @@ class GenerationResolution:
     code: GenerationResolutionCode
     decision: GenerationFenceDecision | None = None
     message: str = ""
+    witness: GenerationWitness | None = None
 
 
 _PROTECTION_TYPES = frozenset({
@@ -101,7 +122,43 @@ class RecoveryGenerationReader:
         decision = validate_recovery_generation(record, authority, desired)
         code = (GenerationResolutionCode.PASSED if decision.fence_passed
                 else GenerationResolutionCode.BLOCKED)
-        return GenerationResolution(code, decision)
+        witness = None
+        if code is GenerationResolutionCode.PASSED:
+            witness = GenerationWitness(
+                operation_id=record.operation_id,
+                operation_type=record.operation_type,
+                authority=authority,
+                desired=desired,
+            )
+        return GenerationResolution(code, decision, witness=witness)
+
+    def revalidate(
+            self,
+            record: OperationRecord,
+            expected: GenerationWitness,
+            ) -> GenerationResolution:
+        """Re-read canonical state and require exact witness equality."""
+        if not isinstance(record, OperationRecord):
+            raise TypeError("record must be OperationRecord")
+        if not isinstance(expected, GenerationWitness):
+            raise TypeError("expected must be GenerationWitness")
+        if (expected.operation_id != record.operation_id or
+                expected.operation_type is not record.operation_type):
+            return GenerationResolution(
+                GenerationResolutionCode.INVALID_WITNESS,
+                message="witness belongs to a different operation",
+            )
+        current = self.resolve(record)
+        if current.code is not GenerationResolutionCode.PASSED:
+            return current
+        if current.witness != expected:
+            return GenerationResolution(
+                GenerationResolutionCode.CANONICAL_CHANGED,
+                decision=current.decision,
+                message="canonical records changed since the planning read",
+                witness=current.witness,
+            )
+        return current
 
     @staticmethod
     def _authority_result(result):
@@ -160,4 +217,3 @@ class RecoveryGenerationReader:
                 message="desired FOUND response omitted record",
             )
         return result.record
-
