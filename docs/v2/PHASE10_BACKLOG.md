@@ -52,6 +52,7 @@ it does not mean the production behavior was implemented.
 | P10-D5A-3 Episode Onboarding | **IMPLEMENTED / CLOSED** | `position_identity.adoption`; `P10_D5A3_EPISODE_ONBOARDING_IMPLEMENTATION.md`; dormant controlled adoption + reconstructed quarantine | completes D5A foundation |
 | P10-D3D-1B Queue Identity | **IMPLEMENTED / CLOSED** | `position_protection.task`; `P10_D3D1B_QUEUE_IDENTITY_IMPLEMENTATION.md`; immutable payload + legacy drop parser | P10-D3D-1C worker preflight |
 | P10-D3D-1C Worker Preflight | **IMPLEMENTED / CLOSED** | `position_protection.fence*`; `P10_D3D1C_WORKER_PREFLIGHT_IMPLEMENTATION.md`; V1/V2 + Redis mutation claim | P10-D3D-1D conditional writeback |
+| R1 Canonical Live Projection | **IMPLEMENTED / CLOSED** | `position_identity.projection*`; `P10_R1_CANONICAL_LIVE_PROJECTION_IMPLEMENTATION.md`; dormant per-slot schema/CAS + legacy compatibility guard | R2 / P10-D2A desired-protection authority |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -70,8 +71,10 @@ it does not mean the production behavior was implemented.
 11. P10-07D D5A-3 controlled adoption and reconstructed quarantine foundation (implemented/closed).
 12. P10-D3D-1B immutable queue identity extension and legacy-item drop (implemented/closed).
 13. P10-D3D-1C worker validation/mutation claim after D3D-1B (implemented/closed).
-14. P10-D3D-1D conditional protection alias writeback after D3D-1C.
-15. Remaining behavior tickets only after their predecessor artifacts are approved.
+14. R1 canonical live projection/revision and dormant legacy guard (implemented/closed).
+15. R2 / P10-D2A durable desired-protection record after R1.
+16. P10-D3D-1D conditional protection alias writeback after R1 and R2.
+17. Remaining behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
 
@@ -207,15 +210,15 @@ schema, journal, replay, or production behavior changed. See
 | D5A / P10-D3D-1A | exchange-position-key namespace, episode field, slot generation, provenance, CAS | IMPLEMENTED / CLOSED through P10-07B/C/D | YES; dormant foundation only |
 | P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | IMPLEMENTED / CLOSED | NO; isolated V2 must not deploy alone |
 | P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED | NO; isolated V2 must not deploy alone |
-| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_R1_CANONICAL_PROJECTION_AND_D2A | NO |
+| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_D2A | NO |
 | P10-D3D-1E | controlled legacy adoption/quarantine and reconstructed provenance guard | IMPLEMENTED / CLOSED through P10-07D / D5A-3 | YES; dormant foundation only |
 
 P10-07 resolves the former D5A decisions: explicit configured principal;
 controlled adoption when strict evidence/CAS passes and quarantine otherwise;
 automatic reconstructed authority only as `RECONSTRUCTED_QUARANTINED`.
-D5A foundation and D3D-1B/C are complete. Implementation audit found D3D-1D blocked by canonical live-projection revision/CAS (R1) and D2A durable desired-protection generation.
+D5A foundation and D3D-1B/C are complete. R1 canonical live-projection revision/CAS is implemented and closed as dormant infrastructure. D3D-1D remains BLOCKED_BY_D2A durable desired-protection generation.
 
-P10-D3D-1 is design-complete; implementation proceeds with R1 and D2A before D3D-1D. Current
+P10-D3D-1 is design-complete; implementation proceeds with D2A before D3D-1D. Current
 `position_id` is `TEMPORARY_FENCE_ONLY`, never canonical authority. See
 `docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md`.
 
@@ -231,6 +234,6 @@ P10-07B, P10-07C, and P10-07D implemented the dormant D5A foundation without
 wiring active open, close, position state, queue, worker, monitor, reconcile,
 marker, or startup behavior.
 
-P10-D5A and P10-D3D-1B/C are `IMPLEMENTED / CLOSED`; P10-D3D-1D is blocked by R1 and D2A. The execution order is maintained in `docs/v2/V2_UPGRADE_MASTER_PLAN.md`.
+P10-D5A, P10-D3D-1B/C, and R1 are `IMPLEMENTED / CLOSED`; P10-D3D-1D is blocked by D2A. The execution order is maintained in `docs/v2/V2_UPGRADE_MASTER_PLAN.md`.
 See
 `docs/v2/P10_D5A_EPISODE_AUTHORITY_READINESS.md`.

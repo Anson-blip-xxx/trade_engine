@@ -52,6 +52,9 @@ unapproved product gate.
 
 ### R1 — Canonical Live Position Projection（新前置票）
 
+状态：**IMPLEMENTED / CLOSED（dormant V2 infrastructure）**。实现证据见
+`P10_R1_CANONICAL_LIVE_PROJECTION_IMPLEMENTATION.md`；active runtime behavior 未改变。
+
 目标：为当前 operational projection 增加可条件更新的身份和 revision，而不是
 继续依赖 symbol-only whole-snapshot save。
 

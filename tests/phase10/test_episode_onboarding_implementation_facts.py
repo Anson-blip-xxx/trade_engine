@@ -165,10 +165,10 @@ def test_implementation_doc_closes_d5a_and_records_d3d1c_progress():
         assert phrase in model
     assert 'P10-D5A-3 Episode Onboarding | **IMPLEMENTED / CLOSED**' \
         in backlog
-    assert 'P10-D5A and P10-D3D-1B/C are `IMPLEMENTED / CLOSED`' in backlog
+    assert 'P10-D5A, P10-D3D-1B/C, and R1 are `IMPLEMENTED / CLOSED`' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | IMPLEMENTED / CLOSED |' in backlog
     assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED |' in backlog
     assert 'P10-D3D-1C | worker V1/V2 validation' in backlog
     assert 'P10-D3D-1D | episode/generation/revision' in backlog
-    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_R1_CANONICAL_PROJECTION_AND_D2A |' in backlog
+    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_D2A |' in backlog
