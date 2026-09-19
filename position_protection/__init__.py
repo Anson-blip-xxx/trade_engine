@@ -26,6 +26,11 @@ from position_protection.handoff import (
     NativeOpenHandoffResult,
 )
 from position_protection.handoff_redis import RedisNativeOpenHandoffAdapter
+from position_protection.migrated_declaration import (
+    MigratedDeclarationCode,
+    MigratedDeclarationResult,
+    MigratedProtectionDeclarationService,
+)
 from position_protection.migrated_plan import (
     MigratedProtectionPlan,
     MigratedProtectionPlanCode,
@@ -86,6 +91,9 @@ __all__ = [
     'ExchangeExposureObservation',
     'ExchangeProtectionObservation',
     'InjectedBinanceVerificationQueryAdapter',
+    'MigratedDeclarationCode',
+    'MigratedDeclarationResult',
+    'MigratedProtectionDeclarationService',
     'MigratedProtectionPlan',
     'MigratedProtectionPlanCode',
     'NativeOpenHandoffCode',

@@ -128,6 +128,7 @@ slot generation、protection generation、projection revision 做原子 CAS。�
    - R4B-ACK-PROPAGATION continue-only-after-ack lifecycle boundary: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-RECOVERY-HANDOFF backend-neutral blocked-outcome durable port: IMPLEMENTED / CLOSED (DORMANT);
    - R4B acknowledged migrated-protection pure planner: IMPLEMENTED / CLOSED (DORMANT);
+   - R4B exact-ACK migrated desired declaration boundary: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-PROTECTION-VERIFY strict pure exchange-evidence core: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-PROTECTION-COMMIT verified ACTIVE three-token CAS: IMPLEMENTED / CLOSED (DORMANT);
    - D2C strict Binance observation normalization + bounded reverification: IMPLEMENTED / CLOSED (DORMANT);
