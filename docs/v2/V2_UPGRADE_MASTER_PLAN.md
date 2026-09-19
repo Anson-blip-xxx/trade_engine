@@ -151,14 +151,15 @@ enqueue 时临时推导。完成前 legacy 四元任务继续 drop。
 
 PostgreSQL owns durable operation stage/recovery; Redis strict authority owns
 current slot/projection/desired CAS; Binance owns physical truth. The dormant
-schema/domain foundation is IMPLEMENTED / CLOSED; lease/recovery scan, outbox,
-and rollout remain default-off. The injected create/read/version+owner
-CAS adapter is also IMPLEMENTED / CLOSED (DORMANT); it has no DSN, driver, or
-runtime wiring. DB-clock lease fencing is IMPLEMENTED / CLOSED (DORMANT).
+schema/domain foundation and injected create/read/version+owner CAS adapter are
+IMPLEMENTED / CLOSED (DORMANT); they have no DSN, driver, or runtime wiring.
+DB-clock lease fencing is also IMPLEMENTED / CLOSED (DORMANT).
 The schema/CAS/claim race passes an ephemeral PostgreSQL 16 integration test.
 Bounded one-per-slot recovery discovery/claim is IMPLEMENTED / CLOSED
-(DORMANT) and passes a two-worker PG16 race. The typed stage decision engine,
-extended fault/concurrency QA, and runtime activation gates remain.
+(DORMANT) and passes a two-worker PG16 race. The typed stage decision engine
+is also IMPLEMENTED / CLOSED (DORMANT), including query-only ambiguity and
+ghost/external policy guards. Directive executors, evidence resolvers, extended
+fault/concurrency QA, and runtime activation gates remain.
 
 ### P1 — P10-D2C Exchange Algo API Characterization
 

@@ -152,13 +152,29 @@ class OperationRecord:
             raise TypeError("stage must be OperationStage")
         if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
             raise ValueError("version must be a positive integer")
+        parsed_json = {}
         for field in ("input_json", "exchange_aliases_json", "effect_summary_json", "pending_requirements_json"):
             value = getattr(self, field)
             try:
                 parsed = json.loads(value)
             except (TypeError, json.JSONDecodeError) as exc:
                 raise ValueError(f"{field} must be valid JSON") from exc
+            parsed_json[field] = parsed
             object.__setattr__(self, field, canonical_json(parsed, field))
+        for field in ("input_json", "exchange_aliases_json", "effect_summary_json"):
+            if not isinstance(parsed_json[field], dict):
+                raise TypeError(f"{field} must contain a JSON object")
+        pending = parsed_json["pending_requirements_json"]
+        if not isinstance(pending, list):
+            raise TypeError("pending_requirements_json must contain a JSON array")
+        normalized_pending = tuple(
+            _text(value, "pending requirement") for value in pending)
+        if len(set(normalized_pending)) != len(normalized_pending):
+            raise ValueError("pending requirements must be unique")
+        object.__setattr__(
+            self, "pending_requirements_json",
+            canonical_json(list(normalized_pending), "pending_requirements_json"),
+        )
         created = _time(self.created_at, "created_at")
         updated = _time(self.updated_at, "updated_at")
         if updated < created:
@@ -179,6 +195,19 @@ class OperationRecord:
                 object.__setattr__(self, field, _time(value, field))
         if (self.owner_token is None) != (self.lease_expires_at is None):
             raise ValueError("owner_token and lease_expires_at must be present together")
+        if self.stage in {
+            OperationStage.FAILED_RETRYABLE, OperationStage.AUXILIARY_PENDING,
+        }:
+            if not normalized_pending:
+                raise ValueError(f"{self.stage.value} requires pending requirements")
+            if self.next_attempt_at is None:
+                raise ValueError(f"{self.stage.value} requires next_attempt_at")
+        if self.stage is OperationStage.COMPLETED and normalized_pending:
+            raise ValueError("COMPLETED cannot retain pending requirements")
+
+    @property
+    def pending_requirements(self) -> tuple[str, ...]:
+        return tuple(json.loads(self.pending_requirements_json))
 
     @classmethod
     def new(cls, *, operation_id, operation_type, exchange_position_key,

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
@@ -47,6 +48,8 @@ def test_unknown_never_becomes_failure_without_effect_absence_proof():
     recovered = record.transition(
         stage=OperationStage.FAILED_RETRYABLE, now=5,
         effect_absence_proven=True, next_attempt_at=6,
+        pending_requirements_json='["retry_exchange_query"]',
+        last_error="effect absent; query retry required",
     )
     assert recovered.next_attempt_at == 6
 
@@ -108,3 +111,22 @@ def test_times_are_postgres_microsecond_stable_and_monotonic():
     assert record.updated_at == 1.123457
     with pytest.raises(ValueError, match="cannot move backwards"):
         record.transition(stage=OperationStage.INTENT_DURABLE, now=1.123456)
+
+
+def test_pending_requirements_are_typed_unique_and_required_by_retry_stages():
+    record = _record().transition(stage=OperationStage.INTENT_DURABLE, now=2)
+    with pytest.raises(ValueError, match="requires pending requirements"):
+        record.transition(
+            stage=OperationStage.FAILED_RETRYABLE, now=3, next_attempt_at=4)
+    retry = record.transition(
+        stage=OperationStage.FAILED_RETRYABLE, now=3, next_attempt_at=4,
+        pending_requirements_json='[" retry_projection "]',
+    )
+    assert retry.pending_requirements == ("retry_projection",)
+    with pytest.raises(ValueError, match="must be unique"):
+        replace(
+            retry,
+            pending_requirements_json='["retry_projection","retry_projection"]',
+        )
+    with pytest.raises(TypeError, match="JSON object"):
+        replace(record, effect_summary_json="[]")

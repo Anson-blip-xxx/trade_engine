@@ -18,10 +18,13 @@ CREATE TABLE IF NOT EXISTS trade_operations (
     version BIGINT NOT NULL CHECK (version > 0),
     owner_token TEXT,
     lease_expires_at TIMESTAMPTZ,
-    input JSONB NOT NULL,
-    exchange_aliases JSONB NOT NULL DEFAULT '{}'::jsonb,
-    effect_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
-    pending_requirements JSONB NOT NULL DEFAULT '[]'::jsonb,
+    input JSONB NOT NULL CHECK (jsonb_typeof(input) = 'object'),
+    exchange_aliases JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(exchange_aliases) = 'object'),
+    effect_summary JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(effect_summary) = 'object'),
+    pending_requirements JSONB NOT NULL DEFAULT '[]'::jsonb
+        CHECK (jsonb_typeof(pending_requirements) = 'array'),
     last_error TEXT,
     next_attempt_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,

@@ -20,6 +20,12 @@ from operation_journal.postgres import (
     RecoveryClaimCode,
     RecoveryClaimResult,
 )
+from operation_journal.recovery import (
+    ExchangeAccess,
+    RecoveryDecision,
+    RecoveryDirective,
+    decide_recovery,
+)
 
 __all__ = [
     "OPERATION_SCHEMA_VERSION",
@@ -27,6 +33,7 @@ __all__ = [
     "CasResult",
     "CreateCode",
     "CreateResult",
+    "ExchangeAccess",
     "LeaseCode",
     "LeaseResult",
     "OperationRecord",
@@ -37,6 +44,9 @@ __all__ = [
     "ReadResult",
     "RecoveryClaimCode",
     "RecoveryClaimResult",
+    "RecoveryDecision",
+    "RecoveryDirective",
     "canonical_json",
+    "decide_recovery",
     "is_legal_transition",
 ]

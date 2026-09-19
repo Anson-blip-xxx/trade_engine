@@ -29,9 +29,8 @@ Opt-in tests against an ephemeral UTF-8 PostgreSQL 16 cluster verify the real
 schema and SQL, one-per-slot selection, direct-claim exclusion, and two
 concurrent recovery workers claiming four disjoint slots without duplicates.
 
-Remaining work is the typed recovery decision engine for each operation stage,
-bounded scheduler policy, exchange reconciliation adapters, fault injection,
-and default-off runtime activation gates.
+Remaining work is directive-specific execution ports, bounded scheduler policy,
+exchange reconciliation adapters, fault injection, and default-off runtime
+activation gates.
 
 **P10 D3A-PG-RECOVERY-CLAIM PASS.**
-
