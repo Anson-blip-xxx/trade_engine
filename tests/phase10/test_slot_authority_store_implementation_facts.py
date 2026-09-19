@@ -111,6 +111,7 @@ def test_only_protection_runtime_calls_authority_store():
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
         'position_protection/verification.py',
+        'position_protection/verification_commit.py',
         'position_state/fenced_snapshot.py',
         'shared/position_manager.py',
     }

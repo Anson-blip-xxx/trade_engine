@@ -23,6 +23,11 @@ from position_protection.verification import (
     ProtectionVerificationResult,
     verify_current_protection,
 )
+from position_protection.verification_commit import (
+    RedisVerifiedActiveCommitAdapter,
+    VerifiedActiveCommitCode,
+    VerifiedActiveCommitResult,
+)
 from position_protection.writeback import WritebackCode, WritebackResult
 from position_protection.writeback_redis import (
     RedisConditionalAliasWritebackAdapter,
@@ -46,6 +51,9 @@ __all__ = [
     'RedisConditionalAliasWritebackAdapter',
     'RedisDesiredProtectionAdapter',
     'RedisNativeOpenHandoffAdapter',
+    'RedisVerifiedActiveCommitAdapter',
+    'VerifiedActiveCommitCode',
+    'VerifiedActiveCommitResult',
     'WritebackCode',
     'WritebackResult',
     'verify_current_protection',
