@@ -84,6 +84,8 @@ def test_only_protection_fence_modules_call_identity_package():
             callers.append(str(relative))
     assert set(callers) == {
         'position_protection/claim.py',
+        'position_protection/desired.py',
+        'position_protection/desired_redis.py',
         'position_protection/fence.py',
         'position_protection/task.py',
         'shared/position_manager.py',

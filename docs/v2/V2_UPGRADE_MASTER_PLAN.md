@@ -82,6 +82,9 @@ reconstructed exposure。
 
 ### R2 — P10-D2A Durable Desired Protection
 
+状态：**IMPLEMENTED / CLOSED（dormant V2 infrastructure）**。实现证据见
+`P10_R2_DESIRED_PROTECTION_IMPLEMENTATION.md`；active runtime behavior 未改变。
+
 目标：建立同一 episode 内真正权威的 protection generation。
 
 最小记录：

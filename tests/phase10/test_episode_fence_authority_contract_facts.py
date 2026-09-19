@@ -174,4 +174,4 @@ def test_episode_authority_document_and_backlog_readiness():
         in backlog
     assert '| P10-D3D-1 | protection queue episode fence' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension' in backlog
-    assert 'BLOCKED_BY_D2A' in backlog
+    assert 'READY_AFTER_R2' in backlog
