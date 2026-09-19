@@ -2,7 +2,6 @@
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / 'docs/v2/P10_D4_PERSISTENCE_FAILURE_POLICY.md'
 BACKLOG = ROOT / 'docs/v2/PHASE10_BACKLOG.md'
@@ -112,11 +111,15 @@ def test_pg_episode_ack_is_discarded_before_ch_fanout():
         settle.index("self._ch_insert('default.trade_history', row)")
 
 
-def test_no_durable_operation_journal_or_transactional_outbox_schema():
+def test_operation_foundation_is_separate_and_outbox_is_still_deferred():
     schema = (ROOT / 'db/postgres_schema.sql').read_text().lower()
+    operation_schema = (
+        ROOT / 'db/postgres_operation_journal_schema.sql').read_text().lower()
     recorder = (ROOT / 'journal/recorder.py').read_text()
     assert 'operation_journal' not in schema
     assert 'outbox' not in schema
+    assert 'create table if not exists trade_operations' in operation_schema
+    assert 'outbox' not in operation_schema
     assert 'class NullJournalRecorder' in recorder
     assert '_default_recorder: JournalRecorder = NullJournalRecorder()' in recorder
 

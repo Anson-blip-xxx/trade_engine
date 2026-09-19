@@ -2,7 +2,6 @@
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / 'docs/v2/P10_D3_CRASH_CONSISTENCY_MODEL.md'
 BACKLOG = ROOT / 'docs/v2/PHASE10_BACKLOG.md'
@@ -20,11 +19,15 @@ def _method(module_path, class_name, method_name):
                 if isinstance(node, ast.FunctionDef) and node.name == method_name)
 
 
-def test_no_durable_operation_journal_or_outbox_exists():
+def test_dormant_operation_journal_foundation_has_no_runtime_or_outbox():
     schema = (ROOT / 'db/postgres_schema.sql').read_text().lower()
+    operation_schema = (
+        ROOT / 'db/postgres_operation_journal_schema.sql').read_text().lower()
     recorder = (ROOT / 'journal/recorder.py').read_text()
     assert 'operation_journal' not in schema
     assert 'transactional_outbox' not in schema
+    assert 'create table if not exists trade_operations' in operation_schema
+    assert not (ROOT / 'operation_journal/postgres.py').exists()
     assert 'class NullJournalRecorder' in recorder
     assert '_default_recorder: JournalRecorder = NullJournalRecorder()' in recorder
 

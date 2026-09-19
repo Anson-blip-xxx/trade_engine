@@ -147,6 +147,13 @@ enqueue 时临时推导。完成前 legacy 四元任务继续 drop。
 
 ## 5. Wave P — Protection 完整可靠性
 
+### D3A — PostgreSQL Operation Journal
+
+PostgreSQL owns durable operation stage/recovery; Redis strict authority owns
+current slot/projection/desired CAS; Binance owns physical truth. The dormant
+schema/domain foundation is IMPLEMENTED / CLOSED; adapter, lease/recovery scan,
+outbox and rollout remain default-off.
+
 ### P1 — P10-D2C Exchange Algo API Characterization
 
 冻结 create timeout、duplicate、query、cancel、terminal status、client identity
