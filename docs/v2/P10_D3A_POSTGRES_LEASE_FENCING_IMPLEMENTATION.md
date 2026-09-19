@@ -29,8 +29,8 @@ isolated-database confirmation. Against an ephemeral UTF-8 PostgreSQL 16
 cluster it validates the real schema, create/lease/stage CAS round trip, and a
 two-worker claim race with exactly one winner.
 
-Remaining D3A work is bounded recovery discovery/claim, fault-injection and
-longer concurrency QA, migration/backup/rollback preparation, and default-off
-runtime composition.
+Remaining D3A work is the recovery decision engine, fault-injection and longer
+concurrency QA, migration/backup/rollback preparation, and default-off runtime
+composition.
 
 **P10 D3A-PG-LEASE-FENCING PASS.**

@@ -56,6 +56,12 @@ class LeaseCode(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class RecoveryClaimCode(str, Enum):
+    CLAIMED = "CLAIMED"
+    EMPTY = "EMPTY"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class CreateResult:
     code: CreateCode
@@ -80,6 +86,12 @@ class LeaseResult:
     record: OperationRecord | None = None
 
 
+@dataclass(frozen=True)
+class RecoveryClaimResult:
+    code: RecoveryClaimCode
+    records: tuple[OperationRecord, ...] = ()
+
+
 ConnectionFactory = Callable[[], object]
 
 _COLUMNS = (
@@ -100,6 +112,8 @@ RETURNING operation_id::text, schema_version, operation_type, slot_digest,
           EXTRACT(EPOCH FROM next_attempt_at), EXTRACT(EPOCH FROM created_at),
           EXTRACT(EPOCH FROM updated_at)
 """
+_RETURNING_TARGET = _RETURNING.replace(
+    "RETURNING operation_id::text", "RETURNING target.operation_id::text")
 
 _SELECT = """
 SELECT operation_id::text, schema_version, operation_type, slot_digest,
@@ -155,16 +169,36 @@ WHERE operation_id = %(operation_id)s
 """ + _RETURNING
 
 _CLAIM_LEASE = """
-UPDATE trade_operations SET
+WITH candidate AS MATERIALIZED (
+    SELECT slot_digest
+    FROM trade_operations
+    WHERE operation_id = %(operation_id)s
+      AND version = %(expected_version)s
+    FOR UPDATE
+), slot_lock AS MATERIALIZED (
+    SELECT 1 AS granted
+    FROM candidate
+    WHERE pg_try_advisory_xact_lock(hashtextextended(slot_digest, 0))
+)
+UPDATE trade_operations AS target SET
     owner_token = %(owner_token)s,
     lease_expires_at = clock_timestamp() + make_interval(secs => %(lease_seconds)s),
     version = version + 1,
     updated_at = GREATEST(updated_at, clock_timestamp())
+FROM slot_lock
 WHERE operation_id = %(operation_id)s
   AND version = %(expected_version)s
   AND stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
   AND (owner_token IS NULL OR lease_expires_at <= clock_timestamp())
-""" + _RETURNING
+  AND NOT EXISTS (
+      SELECT 1 FROM trade_operations AS active
+      WHERE active.slot_digest = target.slot_digest
+        AND active.operation_id <> target.operation_id
+        AND active.stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+        AND active.owner_token IS NOT NULL
+        AND active.lease_expires_at > clock_timestamp()
+  )
+""" + _RETURNING_TARGET
 
 _RENEW_LEASE = """
 UPDATE trade_operations SET
@@ -189,6 +223,56 @@ WHERE operation_id = %(operation_id)s
   AND owner_token = %(owner_token)s
   AND lease_expires_at > clock_timestamp()
 """ + _RETURNING
+
+_CLAIM_RECOVERY_BATCH = """
+WITH ranked AS MATERIALIZED (
+    SELECT candidate.operation_id, candidate.slot_digest,
+           row_number() OVER (
+               PARTITION BY candidate.slot_digest
+               ORDER BY COALESCE(candidate.next_attempt_at, candidate.updated_at),
+                        candidate.updated_at, candidate.operation_id
+           ) AS slot_rank
+    FROM trade_operations AS candidate
+    WHERE candidate.stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+      AND (candidate.next_attempt_at IS NULL
+           OR candidate.next_attempt_at <= clock_timestamp())
+      AND (candidate.owner_token IS NULL
+           OR candidate.lease_expires_at <= clock_timestamp())
+      AND NOT EXISTS (
+          SELECT 1 FROM trade_operations AS active
+          WHERE active.slot_digest = candidate.slot_digest
+            AND active.operation_id <> candidate.operation_id
+            AND active.stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+            AND active.owner_token IS NOT NULL
+            AND active.lease_expires_at > clock_timestamp()
+      )
+), candidates AS MATERIALIZED (
+    SELECT target.operation_id, target.slot_digest
+    FROM trade_operations AS target
+    JOIN ranked ON ranked.operation_id = target.operation_id
+    WHERE ranked.slot_rank = 1
+    ORDER BY COALESCE(target.next_attempt_at, target.updated_at),
+             target.updated_at, target.operation_id
+    LIMIT %(limit)s
+    FOR UPDATE OF target SKIP LOCKED
+), locked AS MATERIALIZED (
+    SELECT operation_id
+    FROM candidates
+    WHERE pg_try_advisory_xact_lock(hashtextextended(slot_digest, 0))
+)
+UPDATE trade_operations AS target SET
+    owner_token = %(owner_token)s,
+    lease_expires_at = clock_timestamp() + make_interval(secs => %(lease_seconds)s),
+    version = version + 1,
+    updated_at = GREATEST(target.updated_at, clock_timestamp())
+FROM locked
+WHERE target.operation_id = locked.operation_id
+  AND target.stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+  AND (target.next_attempt_at IS NULL
+       OR target.next_attempt_at <= clock_timestamp())
+  AND (target.owner_token IS NULL
+       OR target.lease_expires_at <= clock_timestamp())
+""" + _RETURNING_TARGET
 
 
 def _json(value):
@@ -265,22 +349,31 @@ def _lease_params(operation_id, expected_version, owner_token,
     if (isinstance(expected_version, bool) or
             not isinstance(expected_version, int) or expected_version < 1):
         raise ValueError("expected_version must be a positive integer")
-    if (not isinstance(owner_token, str) or not owner_token or
-            owner_token != owner_token.strip() or
-            any(ord(char) < 32 or ord(char) == 127 for char in owner_token)):
-        raise ValueError("owner_token must be normalized nonempty text")
+    owner_token = _validated_owner_token(owner_token)
     params = {
         "operation_id": operation_id,
         "expected_version": expected_version,
         "owner_token": owner_token,
     }
     if lease_seconds is not None:
-        if (isinstance(lease_seconds, bool) or
-                not isinstance(lease_seconds, (int, float)) or
-                not math.isfinite(lease_seconds) or lease_seconds <= 0):
-            raise ValueError("lease_seconds must be finite and positive")
-        params["lease_seconds"] = float(lease_seconds)
+        params["lease_seconds"] = _validated_lease_seconds(lease_seconds)
     return params
+
+
+def _validated_owner_token(owner_token):
+    if (not isinstance(owner_token, str) or not owner_token or
+            owner_token != owner_token.strip() or
+            any(ord(char) < 32 or ord(char) == 127 for char in owner_token)):
+        raise ValueError("owner_token must be normalized nonempty text")
+    return owner_token
+
+
+def _validated_lease_seconds(lease_seconds):
+    if (isinstance(lease_seconds, bool) or
+            not isinstance(lease_seconds, (int, float)) or
+            not math.isfinite(lease_seconds) or lease_seconds <= 0):
+        raise ValueError("lease_seconds must be finite and positive")
+    return float(lease_seconds)
 
 
 class PostgresOperationJournal:
@@ -377,6 +470,35 @@ class PostgresOperationJournal:
             _RELEASE_LEASE, params, LeaseCode.RELEASED, LeaseCode.EXPIRED,
             classify_owner=True,
         )
+
+    def claim_recovery_batch(self, owner_token: str, lease_seconds: float,
+                             limit: int) -> RecoveryClaimResult:
+        """Claim a bounded due batch, conservatively serialized per slot."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
+        params = {
+            "owner_token": _validated_owner_token(owner_token),
+            "lease_seconds": _validated_lease_seconds(lease_seconds),
+            "limit": limit,
+        }
+        try:
+            with self._connection_factory() as conn, conn.cursor() as cur:
+                cur.execute(_CLAIM_RECOVERY_BATCH, params)
+                records = tuple(_record(row) for row in cur.fetchall())
+            if not records:
+                return RecoveryClaimResult(RecoveryClaimCode.EMPTY)
+            records = tuple(sorted(
+                records,
+                key=lambda record: (
+                    record.next_attempt_at
+                    if record.next_attempt_at is not None else record.updated_at,
+                    record.updated_at,
+                    record.operation_id,
+                ),
+            ))
+            return RecoveryClaimResult(RecoveryClaimCode.CLAIMED, records)
+        except Exception:  # noqa: BLE001 - batch claim commit may be ambiguous
+            return RecoveryClaimResult(RecoveryClaimCode.UNKNOWN)
 
     def _lease_write(self, sql, params, success_code, condition_code,
                      *, classify_owner=False, block_terminal=False):

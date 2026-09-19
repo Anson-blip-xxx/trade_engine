@@ -33,9 +33,7 @@ bound episode or generation reference before issuing SQL.
 
 ## Remaining activation gates
 
-1. bounded recovery discovery using `FOR UPDATE SKIP LOCKED` or an approved
-   equivalent;
-2. schema migration, backup/restore, capacity, observability, and rollback;
-3. default-off runtime composition and shadow-mode reconciliation.
+1. schema migration, backup/restore, capacity, observability, and rollback;
+2. default-off runtime composition and shadow-mode reconciliation.
 
 **P10 D3A-PG-CAS-ADAPTER PASS.**

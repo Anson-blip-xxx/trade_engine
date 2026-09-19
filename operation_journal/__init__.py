@@ -17,6 +17,8 @@ from operation_journal.postgres import (
     PostgresOperationJournal,
     ReadCode,
     ReadResult,
+    RecoveryClaimCode,
+    RecoveryClaimResult,
 )
 
 __all__ = [
@@ -33,6 +35,8 @@ __all__ = [
     "PostgresOperationJournal",
     "ReadCode",
     "ReadResult",
+    "RecoveryClaimCode",
+    "RecoveryClaimResult",
     "canonical_json",
     "is_legal_transition",
 ]

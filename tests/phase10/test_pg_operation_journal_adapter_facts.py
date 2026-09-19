@@ -41,7 +41,7 @@ def test_sql_cas_fences_version_and_owner_and_returns_authoritative_row():
     assert "CasCode.UNKNOWN" in source
 
 
-def test_lease_uses_database_clock_and_recovery_scan_is_still_deferred():
+def test_lease_and_bounded_recovery_use_database_clock_and_slot_fencing():
     source = ADAPTER.read_text().lower()
     assert "def claim_lease" in source
     assert "def renew_lease" in source
@@ -49,5 +49,9 @@ def test_lease_uses_database_clock_and_recovery_scan_is_still_deferred():
     assert "lease_expires_at > clock_timestamp()" in source
     assert "lease_expires_at <= clock_timestamp()" in source
     assert "version = version + 1" in source
-    assert "skip locked" not in source
-    assert "def recovery" not in source
+    assert "def claim_recovery_batch" in source
+    assert "for update of target skip locked" in source
+    assert "partition by candidate.slot_digest" in source
+    assert "pg_try_advisory_xact_lock" in source
+    assert "hashtextextended(slot_digest, 0)" in source
+    assert "limit %(limit)s" in source

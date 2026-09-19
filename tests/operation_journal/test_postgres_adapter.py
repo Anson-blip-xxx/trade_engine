@@ -13,19 +13,20 @@ from operation_journal import (
     OperationType,
     PostgresOperationJournal,
     ReadCode,
+    RecoveryClaimCode,
 )
 from position_identity.slot import ExchangePositionKey
 
 
-def _operation(operation_id=None):
+def _operation(operation_id=None, *, symbol="ETHUSDT", now=10):
     return OperationRecord.new(
         operation_id=operation_id or str(uuid4()),
         operation_type=OperationType.OPEN,
         exchange_position_key=ExchangePositionKey.one_way(
             account_principal_id="journal-adapter", environment="SANDBOX",
-            symbol="ETHUSDT",
+            symbol=symbol,
         ),
-        normalized_input={"quantity": 1}, now=10, request_id="request-7",
+        normalized_input={"quantity": 1}, now=now, request_id="request-7",
     )
 
 
@@ -59,6 +60,7 @@ class _Cursor:
     def __init__(self, database):
         self.database = database
         self.result = None
+        self.results = []
 
     def __enter__(self):
         return self
@@ -70,27 +72,77 @@ class _Cursor:
         if self.database.fail_execute:
             raise OSError("database unavailable")
         normalized = " ".join(sql.split()).upper()
-        operation_id = params["operation_id"]
+        operation_id = params.get("operation_id")
         if normalized.startswith("INSERT"):
             if operation_id in self.database.rows:
                 self.result = None
             else:
                 self.result = _row(params)
                 self.database.rows[operation_id] = self.result
-        elif normalized.startswith("UPDATE") and "VERSION = VERSION + 1" in normalized:
+        elif normalized.startswith("WITH RANKED AS MATERIALIZED"):
+            nonterminal = {"COMPLETED", "FAILED_TERMINAL"}
+            active_slots = {
+                row["slot_digest"] for row in self.database.rows.values()
+                if row["stage"] not in nonterminal and
+                row["owner_token"] is not None and
+                row["lease_expires_at"] > self.database.now
+            }
+            eligible = [
+                row for row in self.database.rows.values()
+                if row["stage"] not in nonterminal and
+                (row["next_attempt_at"] is None or
+                 row["next_attempt_at"] <= self.database.now) and
+                (row["owner_token"] is None or
+                 row["lease_expires_at"] <= self.database.now) and
+                row["slot_digest"] not in active_slots
+            ]
+            eligible.sort(key=lambda row: (
+                row["next_attempt_at"]
+                if row["next_attempt_at"] is not None else row["updated_at"],
+                row["updated_at"], row["operation_id"],
+            ))
+            selected = []
+            seen_slots = set()
+            for row in eligible:
+                if row["slot_digest"] not in seen_slots:
+                    selected.append(row)
+                    seen_slots.add(row["slot_digest"])
+                if len(selected) == params["limit"]:
+                    break
+            self.results = []
+            for current in selected:
+                result = dict(current)
+                result["owner_token"] = params["owner_token"]
+                result["lease_expires_at"] = (
+                    self.database.now + params["lease_seconds"])
+                result["version"] += 1
+                result["updated_at"] = max(
+                    current["updated_at"], self.database.now)
+                self.database.rows[result["operation_id"]] = result
+                self.results.append(result)
+        elif ((normalized.startswith("UPDATE") and
+               "VERSION = VERSION + 1" in normalized) or
+              normalized.startswith("WITH CANDIDATE AS MATERIALIZED")):
             current = self.database.rows.get(operation_id)
             matches = current is not None and current["version"] == params["expected_version"]
             is_release = "OWNER_TOKEN = NULL" in normalized
-            is_claim = normalized.startswith(
-                "UPDATE TRADE_OPERATIONS SET OWNER_TOKEN = %(OWNER_TOKEN)S")
+            is_claim = normalized.startswith("WITH CANDIDATE AS MATERIALIZED")
             terminal = current is not None and current["stage"] in {
                 "COMPLETED", "FAILED_TERMINAL",
             }
             if is_claim:
+                slot_busy = any(
+                    row["operation_id"] != operation_id and
+                    row["slot_digest"] == current["slot_digest"] and
+                    row["stage"] not in {"COMPLETED", "FAILED_TERMINAL"} and
+                    row["owner_token"] is not None and
+                    row["lease_expires_at"] > self.database.now
+                    for row in self.database.rows.values()
+                ) if current is not None else False
                 matches = matches and not terminal and (
                     current["owner_token"] is None or
                     current["lease_expires_at"] <= self.database.now
-                )
+                ) and not slot_busy
             else:
                 matches = matches and current["owner_token"] == params["owner_token"]
                 matches = matches and current["lease_expires_at"] > self.database.now
@@ -132,6 +184,11 @@ class _Cursor:
         if self.result is not None and self.database.tuple_rows:
             return tuple(self.result.values())
         return self.result
+
+    def fetchall(self):
+        if self.database.tuple_rows:
+            return [tuple(row.values()) for row in self.results]
+        return self.results
 
 
 class _Connection:
@@ -336,3 +393,57 @@ def test_lease_terminal_missing_invalid_and_commit_unknown_outcomes():
     ambiguous = store.claim_lease(fresh.operation_id, 1, "owner", 10)
     assert ambiguous.code is LeaseCode.UNKNOWN
     assert database.rows[fresh.operation_id]["owner_token"] == "owner"
+
+
+def test_recovery_batch_is_due_bounded_and_one_operation_per_slot():
+    store, database = _store()
+    oldest = _operation(symbol="ETHUSDT", now=10)
+    same_slot = _operation(symbol="ETHUSDT", now=20)
+    other_slot = _operation(symbol="BTCUSDT", now=15)
+    future = replace(
+        _operation(symbol="SOLUSDT", now=12), next_attempt_at=200)
+    for operation in (oldest, same_slot, other_slot, future):
+        assert store.create(operation).code is CreateCode.CREATED
+
+    claimed = store.claim_recovery_batch("recovery-a", 30, 10)
+    assert claimed.code is RecoveryClaimCode.CLAIMED
+    assert {record.operation_id for record in claimed.records} == {
+        oldest.operation_id, other_slot.operation_id,
+    }
+    assert all(record.owner_token == "recovery-a" for record in claimed.records)
+    assert all(record.version == 2 for record in claimed.records)
+
+    blocked = store.claim_recovery_batch("recovery-b", 30, 10)
+    assert blocked.code is RecoveryClaimCode.EMPTY
+    direct = store.claim_lease(same_slot.operation_id, 1, "direct", 30)
+    assert direct.code is LeaseCode.BUSY
+
+    old_claim = next(
+        record for record in claimed.records
+        if record.operation_id == oldest.operation_id)
+    terminal = old_claim.transition(
+        stage=OperationStage.FAILED_TERMINAL, now=101)
+    assert store.compare_and_swap(
+        old_claim, terminal).code is CasCode.APPLIED
+    assert store.release_lease(
+        terminal.operation_id, terminal.version, "recovery-a"
+    ).code is LeaseCode.RELEASED
+    next_batch = store.claim_recovery_batch("recovery-b", 30, 1)
+    assert next_batch.code is RecoveryClaimCode.CLAIMED
+    assert [record.operation_id for record in next_batch.records] == [
+        same_slot.operation_id]
+    assert database.rows[future.operation_id]["owner_token"] is None
+
+
+def test_recovery_batch_validates_inputs_and_write_failure_is_unknown():
+    store, database = _store()
+    operation = _operation()
+    store.create(operation)
+    with pytest.raises(ValueError, match="limit"):
+        store.claim_recovery_batch("owner", 10, 0)
+    with pytest.raises(ValueError, match="owner_token"):
+        store.claim_recovery_batch(" owner ", 10, 1)
+    database.fail_commit = True
+    result = store.claim_recovery_batch("owner", 10, 1)
+    assert result.code is RecoveryClaimCode.UNKNOWN
+    assert database.rows[operation.operation_id]["owner_token"] == "owner"
