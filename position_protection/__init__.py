@@ -36,6 +36,10 @@ from position_protection.migrated_plan import (
     MigratedProtectionPlanCode,
     plan_migrated_protection,
 )
+from position_protection.migrated_verification import (
+    MigratedProtectionVerificationService,
+    MigratedVerificationResult,
+)
 from position_protection.task import ConditionalWritebackProtectionTask
 from position_protection.verification import (
     ExchangeExposureObservation,
@@ -96,6 +100,8 @@ __all__ = [
     'MigratedProtectionDeclarationService',
     'MigratedProtectionPlan',
     'MigratedProtectionPlanCode',
+    'MigratedProtectionVerificationService',
+    'MigratedVerificationResult',
     'NativeOpenHandoffCode',
     'NativeOpenHandoffResult',
     'ProtectionStatus',
