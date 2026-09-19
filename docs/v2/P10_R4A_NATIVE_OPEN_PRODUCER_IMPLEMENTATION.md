@@ -62,9 +62,8 @@ logged and never falls back to legacy enqueue.
   enqueueing the in-memory task. Durable handoff/restart replay remains P2.
 - ACK of Algo creation still leaves desired status `SUBMITTING`; D2C/D2D must
   verify exchange-active protection.
-- Canonical close finalization is not wired yet. Until close transitions the slot
-  authority to `FLAT`, same-slot reopen remains blocked and this branch must not
-  be deployed.
+- Canonical close finalization is implemented by R4A-CLOSE; native slots are released only after exchange-flat evidence with episode/generation/revision CAS.
+  Migrated and replacement producer policies remain pending, so this branch must not be deployed.
 - Controlled migrated, break-even, trailing, and legacy lifecycle producers
   remain legacy/unwired and are the remaining R4 work.
 - This branch was not deployed and did not touch the running main services or

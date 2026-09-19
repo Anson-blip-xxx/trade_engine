@@ -117,6 +117,23 @@ class PositionLifecycleService:
     #  close（marker-first / save 序不对称，逐字）
     # ═════════════════════════════════════════════════════════════════
 
+    def _capture_close_fence(self, symbol, pos):
+        if self.action.sandbox() or not callable(self.state.ccap):
+            return None
+        try:
+            return self.state.ccap(symbol, pos)
+        except Exception as exc:
+            self.runtime.log(f'[CanonicalCloseCaptureDrop] {symbol}: {exc}')
+            return None
+
+    def _finalize_close_fence(self, symbol, fence):
+        if fence is None or not callable(self.state.cfin):
+            return
+        try:
+            self.state.cfin(fence)
+        except Exception as exc:
+            self.runtime.log(f'[CanonicalCloseFinalizeDrop] {symbol}: {exc}')
+
     def close_position(self, symbol: str, reason: str) -> bool:
         """外部调用平仓（经注入 close_fn 保留 pm seam）。"""
         positions = self.state.load()
@@ -138,6 +155,7 @@ class PositionLifecycleService:
         if not force and self.state.wcr(symbol):
             self.runtime.log(f'[平仓跳过] {symbol} 近期已处理，防止重复平仓 ({reason})')
             return False
+        close_fence = self._capture_close_fence(symbol, pos)
         self.state.mc(symbol)
         _, fapi_post, _, _, _, _, _, record_trade = self.action.s6()
 
@@ -228,6 +246,7 @@ class PositionLifecycleService:
                     'qty': close_qty, 'realized_pnl': pnl_u,
                     'payload': {'reason': reason},
                 })
+                self._finalize_close_fence(symbol, close_fence)
                 positions.pop(symbol, None)
                 self.state.save(positions)
                 return True
@@ -366,6 +385,7 @@ class PositionLifecycleService:
                      final_close=True)
 
         # 删记录
+        self._finalize_close_fence(symbol, close_fence)
         positions.pop(symbol, None)
         self.state.save(positions)
         return True

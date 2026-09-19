@@ -79,7 +79,7 @@ def test_legacy_compatibility_is_controlled_and_fail_closed():
         assert forbidden not in source
 
 
-def test_only_r4_handoff_imports_projection_implementation():
+def test_only_r4_handoff_and_close_boundary_import_projection_implementation():
     callers = []
     needles = (
         'RedisLivePositionProjectionAdapter',
@@ -97,6 +97,7 @@ def test_only_r4_handoff_imports_projection_implementation():
     assert set(callers) == {
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
+        'shared/position_manager.py',
     }
 
 

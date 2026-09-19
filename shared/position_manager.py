@@ -21,7 +21,7 @@ from shared.redis_store import get as _rget, set as _rset
 from shared.redis_store import strict_eval as _strict_redis_eval
 from shared.redis_store import strict_get as _strict_redis_get
 from shared.redis_store import lock_acquire as _lock_acquire, lock_release as _lock_release
-from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID
+from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID, CFG as _BINANCE_CFG
 from shared.postgres_client import record_trade_event as _pg_record_event
 from shared.exit_factors import (
     should_exit_on_1h_reversal, early_loss_momentum_weak, is_stagnant_profit,
@@ -42,7 +42,10 @@ from position_protection.writeback_redis import RedisConditionalAliasWritebackAd
 from position_protection.task import (
     AlgoProtectionTask, ConditionalWritebackProtectionTask,
 )
-from position_identity import ExchangePositionKey, RedisSlotAuthorityAdapter
+from position_identity import (
+    CanonicalCloseFinalizer, ExchangePositionKey,
+    RedisLivePositionProjectionAdapter, RedisSlotAuthorityAdapter,
+)
 
 from position_monitoring import service as _mon_svc
 from position_monitoring import deps as _mon_deps
@@ -766,6 +769,55 @@ def _get_cfg(pos: dict) -> dict:
 #  开仓
 # ═══════════════════════════════════════════════════════════════════════
 
+def _canonical_close_service():
+    return CanonicalCloseFinalizer(
+        authority_store=RedisSlotAuthorityAdapter(
+            redis_get=_strict_redis_get, redis_eval=_strict_redis_eval),
+        projection_store=RedisLivePositionProjectionAdapter(
+            redis_get=_strict_redis_get, redis_eval=_strict_redis_eval))
+
+
+def _canonical_close_slot(symbol: str):
+    principal = str(_BINANCE_CFG.get('ACCOUNT_PRINCIPAL_ID', '')).strip()
+    if not principal:
+        return None
+    environment = ('DEMO' if str(_BINANCE_CFG.get(
+        'BINANCE_TESTNET', '')).strip().lower() == 'true' else 'PROD')
+    return ExchangePositionKey.one_way(
+        account_principal_id=principal, environment=environment, symbol=symbol)
+
+
+def _capture_canonical_close(symbol: str, pos: dict):
+    try:
+        slot = _canonical_close_slot(symbol)
+        if slot is None:
+            return None
+        captured = _canonical_close_service().capture(
+            slot, local_position=pos)
+        if not captured.captured:
+            _pmlog(f'[CanonicalCloseCaptureDrop] symbol={symbol} '
+                   f'reason={captured.code.value}')
+            return None
+        return captured.fence
+    except Exception as exc:
+        _pmlog(f'[CanonicalCloseCaptureDrop] symbol={symbol} error={exc}')
+        return None
+
+
+def _finalize_canonical_close(fence):
+    if fence is None:
+        return None
+    try:
+        result = _canonical_close_service().finalize(fence, now=time.time())
+    except Exception as exc:
+        _pmlog(f'[CanonicalCloseFinalizeDrop] error={exc}')
+        return None
+    if not result.applied:
+        _pmlog(f'[CanonicalCloseFinalizeDrop] '
+               f'reason={result.code.value}')
+    return result
+
+
 def _lifecycle_service():
     """P7-07B 晚绑定 factory（P8-05B1：factory-time 构建新鲜 5 bundle
     → 新 LifecycleService；monkeypatch seam 保留；无 cached/singleton deps）。"""
@@ -777,7 +829,9 @@ def _lifecycle_service():
         state=_lc_deps.LifecycleStateDeps(
             load=_load, save=_save,
             wcr=_was_closed_recently, mc=_mark_closed,
-            clr=_clear_closed_marker, posid=_position_id, rq=_round_qty),
+            clr=_clear_closed_marker, posid=_position_id, rq=_round_qty,
+            ccap=_capture_canonical_close,
+            cfin=_finalize_canonical_close),
         protection=_lc_deps.LifecycleProtectionDeps(
             wkr=_algo_start_worker, enq=_algo_enqueue,
             acx=_algo_cancel, cxa=_cancel_all_algo),
@@ -827,7 +881,9 @@ def _reconcile_service():
         state=_rc_deps.ReconcileStateDeps(
             load=_load, save=_save,
             wcr=_was_closed_recently, mc=_mark_closed,
-            posid=_position_id, rq=_round_qty),
+            posid=_position_id, rq=_round_qty,
+            ccap=_capture_canonical_close,
+            cfin=_finalize_canonical_close),
         coordination=_rc_deps.ReconcileCoordinationDeps(
             lacq=_lock_acquire, lrel=_lock_release,
             rdget=_rget, rdset=_rset,

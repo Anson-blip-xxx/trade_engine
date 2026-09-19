@@ -27,6 +27,8 @@ class ReconcileStateDeps:
     mc: object       # mark_closed
     posid: object
     rq: object
+    ccap: object = None
+    cfin: object = None
 
 
 @dataclass(frozen=True)

@@ -49,7 +49,7 @@ def test_ack_does_not_claim_active_or_protected():
     assert "ACK proves `PROTECTED`" in model
 
 
-def test_r4_native_open_is_the_only_v3_producer_boundary():
+def test_r4_native_open_and_close_are_only_projection_revision_consumers():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -58,7 +58,10 @@ def test_r4_native_open_is_the_only_v3_producer_boundary():
         source = path.read_text()
         if 'desired_revision=' in source or 'projection_revision=' in source:
             callers.append(str(relative))
-    assert callers == ['shared/position_manager.py']
+    assert set(callers) == {
+        'position_identity/close_finalizer.py',
+        'shared/position_manager.py',
+    }
     executor = (ROOT / 'strategies/shared_executor.py').read_text()
     assert '_algo_enqueue_native_open(' in executor
 

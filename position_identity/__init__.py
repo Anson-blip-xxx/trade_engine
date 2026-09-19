@@ -1,7 +1,7 @@
-"""Pure position-slot identity primitives.
+"""Position-slot identity primitives and strict Redis boundary adapters.
 
-This package is intentionally dormant: it performs no IO and is not wired into
-the active trading runtime.
+Runtime wiring is limited to explicitly configured V2 native open and canonical
+close paths; importing this package performs no IO.
 """
 
 from position_identity.adoption import (
@@ -32,6 +32,10 @@ from position_identity.authority import (
     SlotAuthority,
 )
 from position_identity.authority_redis import RedisSlotAuthorityAdapter
+from position_identity.close_finalizer import (
+    CanonicalCloseFence, CanonicalCloseFinalizer, CloseCaptureCode,
+    CloseCaptureResult, CloseFinalizeCode, CloseFinalizeResult,
+)
 from position_identity.principal import (
     ACCOUNT_PRINCIPAL_CONFIG_KEY,
     AccountPrincipal,
@@ -80,6 +84,12 @@ __all__ = [
     'AuthorityReadResult',
     'AuthorityStatus',
     'ClassificationDecision',
+    'CanonicalCloseFence',
+    'CanonicalCloseFinalizer',
+    'CloseCaptureCode',
+    'CloseCaptureResult',
+    'CloseFinalizeCode',
+    'CloseFinalizeResult',
     'Exchange',
     'ExchangePositionKey',
     'LegacyProjectionCode',

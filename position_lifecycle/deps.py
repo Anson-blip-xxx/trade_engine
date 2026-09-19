@@ -32,6 +32,8 @@ class LifecycleStateDeps:
     clr: object
     posid: object
     rq: object
+    ccap: object = None
+    cfin: object = None
 
 
 @dataclass(frozen=True)

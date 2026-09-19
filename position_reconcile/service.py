@@ -115,6 +115,27 @@ class PositionReconcileService:
     @property
     def rq(self): return self.state.rq
 
+    def _capture_close_fence(self, symbol: str, pos: dict):
+        if self.action.sandbox() or not callable(self.state.ccap):
+            return None
+        try:
+            return self.state.ccap(symbol, pos)
+        except Exception as exc:
+            self.runtime.lgt(
+                f"[CanonicalCloseCaptureDrop] {symbol}: {exc}"
+            )
+            return None
+
+    def _finalize_close_fence(self, symbol: str, fence) -> None:
+        if fence is None or not callable(self.state.cfin):
+            return
+        try:
+            self.state.cfin(fence)
+        except Exception as exc:
+            self.runtime.lgt(
+                f"[CanonicalCloseFinalizeDrop] {symbol}: {exc}"
+            )
+
     def ghost_cleanup(self, positions: dict, system_filter: str = '') -> list:
         """幽灵仓清理：对比 Binance positionRisk，清除并记录 trade。
         沙盘模式跳过（行为逐字冻结）。"""
@@ -145,6 +166,8 @@ class PositionReconcileService:
                         continue
                     # WS 领导者已通过 closed 标记记录过，避免双进程重复记账
                     if self.state.wcr(sym):
+                        close_fence = self._capture_close_fence(sym, pos)
+                        self._finalize_close_fence(sym, close_fence)
                         positions.pop(sym, None)
                         continue
                     # 只清理属于自己系统的幽灵仓，不碰对方进程的仓位
@@ -155,6 +178,8 @@ class PositionReconcileService:
                     lock_key = f'pm:ghost_close:{sym}'
                     if not self.coordination.lacq(lock_key, owner, ttl=60):
                         continue
+                    close_fence = self._capture_close_fence(sym, pos)
+                    self._finalize_close_fence(sym, close_fence)
                     try:
                         self.ghost_cleanup_one(sym, pos, positions,
                                                record_trade, closed)
@@ -279,6 +304,10 @@ class PositionReconcileService:
         # PM有但Binance无
         for sym in list(positions.keys()):
             if sym not in real_positions:
+                close_fence = self._capture_close_fence(
+                    sym, positions[sym]
+                )
+                self._finalize_close_fence(sym, close_fence)
                 self.runtime.lgt(f'[对账] 幽灵仓清除: {sym} '
                          f'entry={positions[sym].get("entry")}'
                          '（state有但交易所无）')

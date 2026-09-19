@@ -13,9 +13,8 @@
 - D3D-1B immutable protection queue identity 与 legacy drop；
 - D3D-1C worker V1/V2 authority preflight 和 Redis mutation claim。
 
-当前 V2 **不可部署**：R4A native active-open producer 已可通过显式 principal
-使用原子三记录 handoff 和 V3 task；canonical close-to-FLAT、migrated、
-break-even、trailing、legacy lifecycle producers 仍未接线，durable restart
+当前 V2 **不可部署**：R4A native active-open producer 和 R4A-CLOSE canonical close-to-FLAT 已完成；
+migrated、break-even、trailing、legacy lifecycle producers 仍未接线，durable restart
 replay 也未实现。
 
 ## 2. 固定实施原则
@@ -114,16 +113,16 @@ slot generation、protection generation、projection revision 做原子 CAS。�
 ### R4 — Active Producer And Episode Wiring
 
 状态：**IN_PROGRESS**。R4A native active open 已实现/关闭，证据见
-`P10_R4A_NATIVE_OPEN_PRODUCER_IMPLEMENTATION.md`；其余 producer 尚未接线。
+`P10_R4A_NATIVE_OPEN_PRODUCER_IMPLEMENTATION.md`；R4A-CLOSE 也已实现/关闭，证据见
+`P10_R4A_CLOSE_FINALIZATION_IMPLEMENTATION.md`；其余 producer 尚未接线。
 
 按顺序接线：
 1. native active open（R4A：IMPLEMENTED / CLOSED）；
-2. canonical close-to-FLAT finalization（R4A-CLOSE：READY_AFTER_R4A）；
+2. canonical close-to-FLAT finalization（R4A-CLOSE：IMPLEMENTED / CLOSED）；
 3. controlled migrated position；
 4. break-even replacement；
 5. trailing replacement；
 6. legacy lifecycle path仅在确认仍需支持后接线。
-5. legacy lifecycle path仅在确认仍需支持后接线。
 
 每个 producer 必须从已经 ACK 的 authority/desired record 获取 identity，禁止
 enqueue 时临时推导。完成前 legacy 四元任务继续 drop。

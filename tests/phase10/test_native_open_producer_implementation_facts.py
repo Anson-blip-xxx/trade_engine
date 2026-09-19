@@ -51,7 +51,7 @@ def test_remaining_replacement_producers_are_not_claimed_complete():
     model = MODEL.read_text()
     assert "break-even, trailing" in model
     assert "remain legacy/unwired" in model
-    assert "close finalization is not wired" in model
+    assert "Canonical close finalization is implemented by R4A-CLOSE" in model
 
 
 def test_docs_mark_only_r4a_closed():
