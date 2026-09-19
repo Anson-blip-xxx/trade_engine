@@ -116,7 +116,7 @@ def test_backlog_closes_d2a_only_and_advances_d3d1d():
     assert 'R2 / P10-D2A Desired Protection | **IMPLEMENTED / CLOSED**' \
         in backlog
     assert '| P10-D3D-1D | episode/generation/revision conditional' in backlog
-    assert 'READY_AFTER_R2' in backlog
+    assert 'IMPLEMENTED / CLOSED through R3' in backlog
     for still_open in (
         'P10-D2B | durable handoff',
         'P10-D2C | exchange Algo ACK',

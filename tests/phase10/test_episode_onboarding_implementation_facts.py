@@ -171,4 +171,4 @@ def test_implementation_doc_closes_d5a_and_records_d3d1c_progress():
     assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED |' in backlog
     assert 'P10-D3D-1C | worker V1/V2 validation' in backlog
     assert 'P10-D3D-1D | episode/generation/revision' in backlog
-    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | READY_AFTER_R2 |' in backlog
+    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | IMPLEMENTED / CLOSED through R3 |' in backlog

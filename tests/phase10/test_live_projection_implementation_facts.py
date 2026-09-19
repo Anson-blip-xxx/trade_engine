@@ -120,4 +120,4 @@ def test_doc_and_backlog_close_r1_without_claiming_r2_or_wiring():
         assert phrase in model
     assert 'R1 Canonical Live Projection | **IMPLEMENTED / CLOSED**' in backlog
     assert 'P10-D3D-1D | episode/generation/revision conditional' in backlog
-    assert 'READY_AFTER_R2' in backlog
+    assert 'IMPLEMENTED / CLOSED through R3' in backlog

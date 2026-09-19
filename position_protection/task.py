@@ -75,6 +75,21 @@ class AlgoProtectionTask:
 
 
 @dataclass(frozen=True)
+class ConditionalWritebackProtectionTask(AlgoProtectionTask):
+    """V3 task carrying revisions required for conditional ACK writeback."""
+
+    desired_revision: int
+    projection_revision: int
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        object.__setattr__(self, 'desired_revision', _positive_int(
+            self.desired_revision, 'desired_revision'))
+        object.__setattr__(self, 'projection_revision', _positive_int(
+            self.projection_revision, 'projection_revision'))
+
+
+@dataclass(frozen=True)
 class QueueTaskParseResult:
     classification: QueueTaskClassification
     task: AlgoProtectionTask | None = None

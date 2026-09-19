@@ -37,7 +37,10 @@ from position_protection import service as pp_service
 from position_protection.claim import ClaimReleaseCode
 from position_protection.claim_redis import RedisProtectionMutationClaimAdapter
 from position_protection.fence import ProtectionTaskFence
-from position_protection.task import AlgoProtectionTask
+from position_protection.writeback_redis import RedisConditionalAliasWritebackAdapter
+from position_protection.task import (
+    AlgoProtectionTask, ConditionalWritebackProtectionTask,
+)
 from position_identity import RedisSlotAuthorityAdapter
 
 from position_monitoring import service as _mon_svc
@@ -259,9 +262,27 @@ def _algo_execute_fenced_task(task: AlgoProtectionTask):
                        f'reason=V2_{validation.code.value}')
             return validation.allowed
 
+        ack_writeback = None
+        if isinstance(task, ConditionalWritebackProtectionTask):
+            adapter = RedisConditionalAliasWritebackAdapter(
+                redis_eval=_strict_redis_eval)
+
+            def ack_writeback(alias):
+                return adapter.writeback(
+                    claim=claim,
+                    expected_desired_revision=task.desired_revision,
+                    expected_projection_revision=task.projection_revision,
+                    exchange_algo_alias=str(alias),
+                    operation_id=(
+                        f"algo-ack:{task.episode_id}:"
+                        f"{task.protection_generation}:{alias}"),
+                    now=time.time(),
+                )
+
         return _algo_place_sl_inner(
             task.symbol, task.side, task.trigger_price, task.qty,
-            before_create=before_create,
+            before_create=before_create, ack_writeback=ack_writeback,
+            legacy_writeback=False,
         )
     finally:
         released = fence.release(claim)
@@ -273,7 +294,8 @@ def _algo_execute_fenced_task(task: AlgoProtectionTask):
 def _algo_enqueue(
         symbol: str, side: str, trigger_price: float, qty: float, *,
         exchange_position_key=None, episode_id=None,
-        slot_generation=None, protection_generation=None):
+        slot_generation=None, protection_generation=None,
+        desired_revision=None, projection_revision=None):
     """Enqueue immutable identity when complete; preserve legacy shape only for drop."""
     identity = (exchange_position_key, episode_id, slot_generation,
                 protection_generation)
@@ -282,12 +304,23 @@ def _algo_enqueue(
     elif any(value is None for value in identity):
         raise ValueError('queue identity fields must all be supplied')
     else:
-        task = AlgoProtectionTask(
+        revisions = (desired_revision, projection_revision)
+        if (any(value is None for value in revisions)
+                and not all(value is None for value in revisions)):
+            raise ValueError('V3 revisions must both be supplied')
+        task_type = (ConditionalWritebackProtectionTask
+                     if all(value is not None for value in revisions)
+                     else AlgoProtectionTask)
+        task_kwargs = dict(
             symbol=symbol, side=side, trigger_price=trigger_price, qty=qty,
             exchange_position_key=exchange_position_key, episode_id=episode_id,
             slot_generation=slot_generation,
-            protection_generation=protection_generation,
-        )
+            protection_generation=protection_generation)
+        if task_type is ConditionalWritebackProtectionTask:
+            task_kwargs.update(
+                desired_revision=desired_revision,
+                projection_revision=projection_revision)
+        task = task_type(**task_kwargs)
     with _ALGO_QUEUE_LOCK:
         _ALGO_QUEUE.append(task)
     _pmlog(f'[AlgoEnqueue] {symbol} side={side} '
@@ -295,7 +328,8 @@ def _algo_enqueue(
 
 def _algo_place_sl_inner(symbol: str, side: str,
                           trigger_price: float, qty: float, *,
-                          before_create=None) -> dict:
+                          before_create=None, ack_writeback=None,
+                          legacy_writeback=True) -> dict:
     """
     实际调用 Binance API 下 Algo 条件止损单（无限速检查，由调用者保证）。
     使用轻量 API 调用，不依赖 s6_auto_trader。
@@ -342,16 +376,19 @@ def _algo_place_sl_inner(symbol: str, side: str,
         })
         if isinstance(result, dict) and 'algoId' in result:
             _pmlog(f'[AlgoSL成功] {symbol} 止损{trigger_price} id={result["algoId"]}')
-            # 更新 PM 状态的 algo_sl_id（写入 JSON）
-            try:
-                positions = _load()
-                if symbol in positions:
-                    positions[symbol]['algo_sl_id'] = result['algoId']
-                    _save(positions)
-            except Exception:
-                pass
-            except Exception:
-                pass
+            if ack_writeback is not None:
+                writeback = ack_writeback(result['algoId'])
+                if not writeback.applied:
+                    _pmlog(f'[AlgoWritebackDrop] symbol={symbol} '
+                           f'reason={writeback.code.value}')
+            elif legacy_writeback:
+                try:
+                    positions = _load()
+                    if symbol in positions:
+                        positions[symbol]['algo_sl_id'] = result['algoId']
+                        _save(positions)
+                except Exception:
+                    pass
         else:
             _pmlog(f'[AlgoSL失败] {symbol}: {result}')
         return result

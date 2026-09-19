@@ -37,7 +37,8 @@ def test_task_is_frozen_leaf_with_complete_identity():
 def test_enqueue_never_derives_partial_identity():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
-    assert 'AlgoProtectionTask(' in enqueue
+    assert 'else AlgoProtectionTask' in enqueue
+    assert 'ConditionalWritebackProtectionTask' in enqueue
     assert "raise ValueError('queue identity fields must all be supplied')" \
         in enqueue
     for forbidden in ('_load(', '_rget(', 'position_id', 'uuid.'):

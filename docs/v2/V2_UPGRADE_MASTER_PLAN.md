@@ -101,6 +101,9 @@ required/no-fallback；exchange `algoId` 只是 alias。
 
 ### R3 — P10-D3D-1D V3 Conditional Writeback
 
+状态：**IMPLEMENTED / CLOSED（isolated V2）**。实现证据见
+`P10_R3_CONDITIONAL_ALIAS_WRITEBACK_IMPLEMENTATION.md`；R4 producer wiring 尚未开始。
+
 前置：R1、R2。
 
 流程：exchange ACK 后，在 mutation claim 仍有效时，对 expected slot、episode、

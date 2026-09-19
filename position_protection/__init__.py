@@ -10,6 +10,11 @@ from position_protection.desired import (
     ProtectionStatus,
 )
 from position_protection.desired_redis import RedisDesiredProtectionAdapter
+from position_protection.task import ConditionalWritebackProtectionTask
+from position_protection.writeback import WritebackCode, WritebackResult
+from position_protection.writeback_redis import (
+    RedisConditionalAliasWritebackAdapter,
+)
 
 __all__ = [
     'DESIRED_PROTECTION_SCHEMA_VERSION',
@@ -18,6 +23,10 @@ __all__ = [
     'DesiredReadResult',
     'DesiredWriteCode',
     'DesiredWriteResult',
+    'ConditionalWritebackProtectionTask',
     'ProtectionStatus',
+    'RedisConditionalAliasWritebackAdapter',
     'RedisDesiredProtectionAdapter',
+    'WritebackCode',
+    'WritebackResult',
 ]
