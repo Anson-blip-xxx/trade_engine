@@ -91,6 +91,7 @@ def test_only_protection_fence_modules_call_identity_package():
         'position_protection/fence.py',
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
+        'position_protection/migrated_plan.py',
         'position_protection/task.py',
         'position_protection/verification.py',
         'position_protection/verification_commit.py',

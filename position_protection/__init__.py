@@ -26,6 +26,11 @@ from position_protection.handoff import (
     NativeOpenHandoffResult,
 )
 from position_protection.handoff_redis import RedisNativeOpenHandoffAdapter
+from position_protection.migrated_plan import (
+    MigratedProtectionPlan,
+    MigratedProtectionPlanCode,
+    plan_migrated_protection,
+)
 from position_protection.task import ConditionalWritebackProtectionTask
 from position_protection.verification import (
     ExchangeExposureObservation,
@@ -81,6 +86,8 @@ __all__ = [
     'ExchangeExposureObservation',
     'ExchangeProtectionObservation',
     'InjectedBinanceVerificationQueryAdapter',
+    'MigratedProtectionPlan',
+    'MigratedProtectionPlanCode',
     'NativeOpenHandoffCode',
     'NativeOpenHandoffResult',
     'ProtectionStatus',
@@ -108,5 +115,6 @@ __all__ = [
     'assess_verification_activation',
     'decide_verification_retry',
     'normalize_binance_verification_snapshot',
+    'plan_migrated_protection',
     'verify_current_protection',
 ]
