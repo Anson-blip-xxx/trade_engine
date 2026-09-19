@@ -1,5 +1,10 @@
 """Position protection services and dormant reliability primitives."""
 
+from position_protection.binance_observation import (
+    BinanceObservationCode,
+    BinanceObservationResult,
+    normalize_binance_verification_snapshot,
+)
 from position_protection.desired import (
     DESIRED_PROTECTION_SCHEMA_VERSION,
     DesiredProtectionRecord,
@@ -28,6 +33,12 @@ from position_protection.verification_commit import (
     VerifiedActiveCommitCode,
     VerifiedActiveCommitResult,
 )
+from position_protection.verification_retry import (
+    VerificationRetryAction,
+    VerificationRetryDecision,
+    VerificationRetryPolicy,
+    decide_verification_retry,
+)
 from position_protection.writeback import WritebackCode, WritebackResult
 from position_protection.writeback_redis import (
     RedisConditionalAliasWritebackAdapter,
@@ -35,6 +46,8 @@ from position_protection.writeback_redis import (
 
 __all__ = [
     'DESIRED_PROTECTION_SCHEMA_VERSION',
+    'BinanceObservationCode',
+    'BinanceObservationResult',
     'ConditionalWritebackProtectionTask',
     'DesiredProtectionRecord',
     'DesiredReadCode',
@@ -52,9 +65,14 @@ __all__ = [
     'RedisDesiredProtectionAdapter',
     'RedisNativeOpenHandoffAdapter',
     'RedisVerifiedActiveCommitAdapter',
+    'VerificationRetryAction',
+    'VerificationRetryDecision',
+    'VerificationRetryPolicy',
     'VerifiedActiveCommitCode',
     'VerifiedActiveCommitResult',
     'WritebackCode',
     'WritebackResult',
+    'decide_verification_retry',
+    'normalize_binance_verification_snapshot',
     'verify_current_protection',
 ]
