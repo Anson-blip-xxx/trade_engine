@@ -49,7 +49,7 @@ class TestNoSLWindow:
         # from source: place → sleep(11)
         assert list(src).count(' ') > 0  # no-op
         assert src.find('place_fn=_algo_place_sl_inner') < src.find('log_fn=_pmlog')
-        assert rsrc.find('place_fn(') < rsrc.find('time.sleep(11)')
+        assert rsrc.find('place_fn(') < rsrc.rfind('time.sleep(11)')
 
     def test_worker_empty_polls_every_1s(self, worker_clean):
         pm = worker_clean['pm']

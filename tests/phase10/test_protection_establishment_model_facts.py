@@ -21,13 +21,13 @@ def test_active_open_publishes_state_and_external_io_before_enqueue():
     assert body.index('_algo_enqueue(') < body.index('return True')
 
 
-def test_queue_is_unbounded_process_memory_without_generation():
+def test_queue_is_unbounded_process_memory_with_identity():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
     assert '_ALGO_QUEUE = []' in source
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
+    assert '_ALGO_QUEUE.append(task)' in enqueue
     assert 'maxsize' not in enqueue and 'len(_ALGO_QUEUE)' not in enqueue
-    for token in ('position_id', 'generation', 'request_id', '_rset'):
+    for token in ('position_id', 'request_id', '_rset'):
         assert token not in enqueue
 
 
@@ -38,7 +38,7 @@ def test_worker_pacing_is_after_attempt_and_has_no_retry_or_health():
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
     names = [call.func.id for call in calls if isinstance(call.func, ast.Name)]
     assert names.count('place_fn') == 1
-    assert worker.index('place_fn(') < worker.index('time.sleep(11)')
+    assert worker.index('place_fn(') < worker.rindex('time.sleep(11)')
     assert 'queue.pop(0)' in worker and 'time.sleep(1)' in worker
     assert 'queue.append' not in worker
     for token in ('heartbeat', 'is_alive'):

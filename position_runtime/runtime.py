@@ -1,8 +1,8 @@
 """thread/runtime coordination glue（P8-06B；C7；无ната backing owner）。
 
 只承载 thread/start mechanics：
-- algo worker loop（pop(0)→place→sleep(11) / idle→sleep(1)），
-  FIFO, no retry / no requeue（行为逐字）
+- algo worker loop（pop(0)→classify→place-or-drop→sleep(11) / idle→sleep(1)），
+  FIFO, no retry / no requeue
 - algo start（singleton flag gate / daemon=True / name='algo-worker'）
 - WS boot（PM_NO_WS guard → Thread(target=connect_loop_fn, daemon=True)）；
   `_WS_THREAD` backing 仍由 PM 持有（经 get/set callable 操作）
@@ -15,12 +15,17 @@ from __future__ import annotations
 import threading
 import time
 
+from position_protection.task import (
+    QueueTaskClassification,
+    classify_queue_task,
+)
+
 
 def algo_worker_loop(queue: list, lock, place_fn, log_fn) -> None:
-    """后台循环（行为逐字 from PM `_algo_worker_loop`）。
+    """Consume immutable tasks and fail closed on legacy/malformed shapes.
 
-    冻结：FIFO pop(0)；task → sleep(11)；idle → sleep(1)；无 retry；
-    无 requeue；异常 log continue。
+    冻结：FIFO pop(0)；task place/drop → sleep(11)；idle → sleep(1)；
+    无 retry；无 requeue；异常 log continue。
     """
     while True:
         task = None
@@ -28,9 +33,22 @@ def algo_worker_loop(queue: list, lock, place_fn, log_fn) -> None:
             if queue:
                 task = queue.pop(0)
         if task:
-            symbol, side, trigger_price, qty = task
+            parsed = classify_queue_task(task)
+            if parsed.classification is not QueueTaskClassification.FENCED:
+                log_fn(
+                    '[AlgoWorkerDrop] '
+                    f'symbol={parsed.symbol or "?"} '
+                    f'reason={parsed.classification.value}'
+                )
+                time.sleep(11)
+                continue
+            fenced_task = parsed.task
+            symbol = fenced_task.symbol
             try:
-                place_fn(symbol, side, trigger_price, qty)
+                place_fn(
+                    symbol, fenced_task.side, fenced_task.trigger_price,
+                    fenced_task.qty,
+                )
             except Exception as e:
                 log_fn(f'[AlgoWorker异常] {symbol}: {e}')
             time.sleep(11)  # 限速间隔

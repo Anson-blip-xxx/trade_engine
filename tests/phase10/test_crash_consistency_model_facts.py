@@ -71,15 +71,15 @@ def test_position_projection_has_no_revision_cas_or_ack():
     assert 'except Exception:\n        pass' in body
 
 
-def test_protection_handoff_is_process_memory_without_replay_identity():
+def test_protection_handoff_is_process_memory_without_replay():
     pm = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(pm, '_algo_enqueue(', '_algo_place_sl_inner(')
     worker = (ROOT / 'position_runtime/runtime.py').read_text()
     loop = _function(worker, 'algo_worker_loop(', 'start_algo_worker(')
     assert '_ALGO_QUEUE = []' in pm
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
+    assert '_ALGO_QUEUE.append(task)' in enqueue
     assert 'queue.pop(0)' in loop and 'queue.append' not in loop
-    for token in ('operation_id', 'position_episode_id', 'generation',
+    for token in ('operation_id', 'position_episode_id',
                   'attempt_count'):
         assert token not in enqueue
         assert token not in loop
@@ -121,7 +121,7 @@ def test_close_coordination_is_symbol_scoped_not_operation_owned():
     marker = _function(state, 'mark_closed(', 'was_closed_recently(')
     assert "f'pm:ghost_close:{sym}'" in ghost
     assert "self.MARKER_PREFIX + symbol" in marker
-    for token in ('operation_id', 'position_episode_id', 'generation',
+    for token in ('operation_id', 'position_episode_id',
                   'owner_token'):
         assert token not in ghost
         assert token not in marker

@@ -31,10 +31,21 @@ class ProtectionAdapter:
         self._cancel_id = cancel_algo_id
         self._cancel_all = cancel_all_algo
 
-    def enqueue_algo_sl(self, symbol: str, side: str, trigger: float,
-                        qty: float) -> None:
-        """逐字委托（参数原样，无返回值）。"""
-        self._enqueue(symbol, side, trigger, qty)
+    def enqueue_algo_sl(
+            self, symbol: str, side: str, trigger: float, qty: float, *,
+            exchange_position_key=None, episode_id=None,
+            slot_generation=None, protection_generation=None) -> None:
+        """Forward legacy or complete immutable identity unchanged."""
+        identity = {
+            'exchange_position_key': exchange_position_key,
+            'episode_id': episode_id,
+            'slot_generation': slot_generation,
+            'protection_generation': protection_generation,
+        }
+        if all(value is None for value in identity.values()):
+            self._enqueue(symbol, side, trigger, qty)
+            return
+        self._enqueue(symbol, side, trigger, qty, **identity)
 
     def start_algo_worker(self) -> None:
         """逐字委托（线程所有权保持 PM 实现，不新建）。"""

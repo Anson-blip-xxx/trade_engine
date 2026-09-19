@@ -84,22 +84,23 @@ def test_current_execution_contract_assumes_one_way_both_slot():
     assert 'positionSide' not in parser
 
 
-def test_queue_still_has_no_slot_episode_or_generation_identity():
+def test_queue_carries_slot_episode_and_generation_identity():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
+    assert '_ALGO_QUEUE.append(task)' in enqueue
     for token in ('exchange_position_key', 'episode_id', 'slot_generation',
                   'protection_generation'):
-        assert token not in enqueue
+        assert token in enqueue
 
 
-def test_worker_has_no_episode_authority_validation():
+def test_worker_parses_identity_without_authority_validation():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
-    assert 'symbol, side, trigger_price, qty = task' in worker
-    assert 'place_fn(symbol, side, trigger_price, qty)' in worker
-    for token in ('exchange_position_key', 'episode_id', 'slot_generation',
-                  'protection_generation', 'validate', 'current_position'):
+    assert 'parsed = classify_queue_task(task)' in worker
+    assert 'fenced_task = parsed.task' in worker
+    assert 'place_fn(' in worker
+    for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
+                  'can_mutate_async', 'current_position'):
         assert token not in worker
 
 

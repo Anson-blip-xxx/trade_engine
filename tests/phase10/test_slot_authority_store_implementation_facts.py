@@ -110,14 +110,14 @@ def test_no_active_runtime_module_calls_authority_store():
     assert callers == []
 
 
-def test_protection_queue_and_worker_remain_four_field_unwired_contracts():
+def test_protection_queue_identity_is_extended_but_authority_unwired():
     pm = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(pm, '_algo_enqueue(', '_algo_place_sl_inner(')
     worker_source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(worker_source, 'algo_worker_loop(', 'start_algo_worker(')
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
-    assert 'symbol, side, trigger_price, qty = task' in worker
-    for token in ('SlotAuthority', 'slot_generation', 'authority_redis'):
+    assert '_ALGO_QUEUE.append(task)' in enqueue
+    assert 'parsed = classify_queue_task(task)' in worker
+    for token in ('SlotAuthority', 'authority_redis'):
         assert token not in enqueue
         assert token not in worker
 
@@ -137,7 +137,7 @@ def test_active_startup_still_does_not_require_principal_or_authority():
     ):
         source = (ROOT / path).read_text()
         for token in ('ACCOUNT_PRINCIPAL_ID', 'RedisSlotAuthorityAdapter',
-                      'SlotAuthority', 'slot_generation'):
+                      'SlotAuthority'):
             assert token not in source
 
 

@@ -1,5 +1,4 @@
-"""P10-06A characterization of unfenced stale AlgoSL work."""
-import copy
+"""P10-D3D-1B fail-closed handling of unfenced AlgoSL work."""
 import threading
 
 import pytest
@@ -32,9 +31,9 @@ def _run_one_task(monkeypatch):
         )
 
 
-def test_old_episode_task_cancels_creates_and_writes_into_reopened_episode(
+def test_old_episode_task_is_dropped_before_reopened_episode_mutation(
         monkeypatch):
-    """Episode A's four-tuple cannot distinguish same-symbol episode B."""
+    """Episode A's legacy tuple cannot cancel/create/write into episode B."""
     monkeypatch.setattr(pm, '_ALGO_QUEUE', [])
     monkeypatch.setattr(pm, '_pmlog', lambda message: None)
     monkeypatch.setattr(requests, 'get', lambda *args, **kwargs: _NoExchangeInfo())
@@ -74,18 +73,13 @@ def test_old_episode_task_cancels_creates_and_writes_into_reopened_episode(
     _run_one_task(monkeypatch)
 
     assert pm._ALGO_QUEUE == []
-    assert events[0] == ('cancel_all', 'BTCUSDT')
-    assert events[1][0:2] == ('place', '/fapi/v1/algoOrder')
-    assert events[1][2]['side'] == 'SELL'
-    assert events[1][2]['triggerPrice'] == 90.0
-    assert events[1][2]['quantity'] == 2.0
-    assert saved[-1]['BTCUSDT']['position_id'] == 'episode-B'
-    assert saved[-1]['BTCUSDT']['algo_sl_id'] == 303
+    assert events == []
+    assert saved == []
 
 
-def test_old_task_blindly_mutates_exchange_when_position_is_missing(
+def test_old_task_is_dropped_when_position_is_missing(
         monkeypatch):
-    """Missing local position skips writeback, not cancel/create."""
+    """Legacy identity is rejected without consulting current symbol state."""
     monkeypatch.setattr(pm, '_ALGO_QUEUE', [])
     monkeypatch.setattr(pm, '_pmlog', lambda message: None)
     monkeypatch.setattr(requests, 'get', lambda *args, **kwargs: _NoExchangeInfo())
@@ -108,8 +102,5 @@ def test_old_task_blindly_mutates_exchange_when_position_is_missing(
 
     _run_one_task(monkeypatch)
 
-    assert events == [
-        ('cancel_all', 'BTCUSDT'),
-        ('place', '/fapi/v1/algoOrder'),
-    ]
+    assert events == []
     assert saved == []

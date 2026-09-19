@@ -6,7 +6,7 @@ monkeypatch seam 保留）。**无线程、无 queue backing 独立副本、无 
 （worker 的 Thread spawn 由 caller 注入的 thread_factory 决定）。
 
 冻结语义（P7-04A/P4-03-01-D4）：
-- FIFO `(sym, side, trigger, qty)` 4 元组（无 dict/dataclass）
+- immutable `AlgoProtectionTask` identity payload; legacy 4-tuple is drop-only
 - `_ALGO_WORKER_STARTED` singleton flag gate——重复 start 静默 no-op
 - sleep(11) after task / sleep(1) when empty
 - daemon=True name='algo-worker'
@@ -42,10 +42,21 @@ class ProtectionService:
 
     # ── Port-compatible方法（= P4-03-01-D4 ProtectionPort 5 方法面） ─────
 
-    def enqueue_algo_sl(self, symbol: str, side: str,
-                        trigger: float, qty: float) -> None:
-        """加入 algo SL 队列（FIFO 元组；不启动线程、不 place）。"""
-        self._enqueue_fn(symbol, side, trigger, qty)
+    def enqueue_algo_sl(
+            self, symbol: str, side: str, trigger: float, qty: float, *,
+            exchange_position_key=None, episode_id=None,
+            slot_generation=None, protection_generation=None) -> None:
+        """Enqueue legacy shape or a complete immutable identity payload."""
+        identity = {
+            'exchange_position_key': exchange_position_key,
+            'episode_id': episode_id,
+            'slot_generation': slot_generation,
+            'protection_generation': protection_generation,
+        }
+        if all(value is None for value in identity.values()):
+            self._enqueue_fn(symbol, side, trigger, qty)
+            return
+        self._enqueue_fn(symbol, side, trigger, qty, **identity)
 
     def start_algo_worker(self) -> None:
         self._start_worker_fn()

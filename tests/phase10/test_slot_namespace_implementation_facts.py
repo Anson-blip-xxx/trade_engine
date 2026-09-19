@@ -74,7 +74,7 @@ def test_serialization_is_deterministic_and_not_repr_or_runtime_hash():
     assert 'hashlib.sha256(' in digest
 
 
-def test_no_existing_production_module_calls_identity_package():
+def test_only_d3d1b_task_module_calls_identity_package():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -82,7 +82,7 @@ def test_no_existing_production_module_calls_identity_package():
             continue
         if 'position_identity' in path.read_text():
             callers.append(str(relative))
-    assert callers == []
+    assert callers == ['position_protection/task.py']
 
 
 def test_no_slot_authority_redis_key_or_adapter_exists_yet():
@@ -104,21 +104,23 @@ def test_active_position_schema_still_has_no_episode_fields():
         assert token not in cache
 
 
-def test_protection_queue_schema_is_unchanged():
+def test_protection_queue_schema_carries_canonical_identity():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
-    for token in ('exchange_position_key', 'episode_id', 'slot_generation'):
-        assert token not in enqueue
+    assert '_ALGO_QUEUE.append(task)' in enqueue
+    for token in ('exchange_position_key', 'episode_id', 'slot_generation',
+                  'protection_generation'):
+        assert token in enqueue
 
 
-def test_worker_contract_is_unchanged_and_unwired():
+def test_worker_parser_is_wired_without_authority_lookup():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
-    assert 'symbol, side, trigger_price, qty = task' in worker
-    assert 'place_fn(symbol, side, trigger_price, qty)' in worker
-    for token in ('position_identity', 'ExchangePositionKey',
-                  'account_principal', 'episode_id', 'slot_generation'):
+    assert 'parsed = classify_queue_task(task)' in worker
+    assert 'fenced_task = parsed.task' in worker
+    assert 'place_fn(' in worker
+    for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
+                  'account_principal', 'can_mutate_async'):
         assert token not in worker
 
 

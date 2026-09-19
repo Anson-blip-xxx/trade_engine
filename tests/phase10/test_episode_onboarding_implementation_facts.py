@@ -142,7 +142,7 @@ def test_startup_monitor_reconcile_and_worker_have_no_onboarding_wiring():
         assert 'position_identity.adoption' not in imported
 
 
-def test_position_payload_and_queue_contracts_remain_unchanged():
+def test_position_payload_unchanged_and_queue_identity_extended():
     executor = (ROOT / 'strategies/shared_executor.py').read_text()
     cache = executor.split('def _update_pos_cache(', 1)[1].split(
         'def _get_positions(', 1)[0]
@@ -150,11 +150,11 @@ def test_position_payload_and_queue_contracts_remain_unchanged():
         assert token not in cache
     pm = (ROOT / 'shared/position_manager.py').read_text()
     runtime = (ROOT / 'position_runtime/runtime.py').read_text()
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in pm
-    assert 'symbol, side, trigger_price, qty = task' in runtime
+    assert '_ALGO_QUEUE.append(task)' in pm
+    assert 'parsed = classify_queue_task(task)' in runtime
 
 
-def test_implementation_doc_closes_d5a_and_readies_only_d3d1b():
+def test_implementation_doc_closes_d5a_and_advances_to_d3d1c():
     model = MODEL.read_text()
     backlog = BACKLOG.read_text()
     for phrase in (
@@ -167,7 +167,8 @@ def test_implementation_doc_closes_d5a_and_readies_only_d3d1b():
         in backlog
     assert 'P10-D5A is `IMPLEMENTED / CLOSED`' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension' in backlog
-    assert '| READY_FOR_IMPLEMENTATION | NO |' in backlog
+    assert '| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | IMPLEMENTED / CLOSED |' in backlog
+    assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | READY_FOR_IMPLEMENTATION |' in backlog
     assert 'P10-D3D-1C | worker V1/V2 validation' in backlog
     assert 'P10-D3D-1D | episode/generation/revision' in backlog
-    assert 'BLOCKED_BY_OTHER_TICKET (P10-D3D-1B)' in backlog
+    assert 'BLOCKED_BY_OTHER_TICKET (P10-D3D-1C)' in backlog

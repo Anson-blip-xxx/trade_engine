@@ -32,6 +32,7 @@ from position_state import service as ps_service
 from position_state.service import parse_position_risk as _ext_pos_parse
 
 from position_protection import service as pp_service
+from position_protection.task import AlgoProtectionTask
 
 from position_monitoring import service as _mon_svc
 from position_monitoring import deps as _mon_deps
@@ -188,7 +189,7 @@ _last_api_call = {}  # {symbol: timestamp}
 _last_algo_update = {}  # {symbol: timestamp} AlgoSL 更新节流
 
 # Algo Order API 限速：队列消费，后台线程以 11s 间隔依次处理
-_ALGO_QUEUE = []           # [(symbol, side, trigger_price, qty), ...]
+_ALGO_QUEUE = []           # [AlgoProtectionTask | legacy 4-tuple, ...]
 _ALGO_QUEUE_LOCK = threading.Lock()
 _ALGO_WORKER_STARTED = False
 
@@ -226,11 +227,28 @@ def _algo_worker_loop():
                          place_fn=_algo_place_sl_inner, log_fn=_pmlog)
 
 
-def _algo_enqueue(symbol: str, side: str, trigger_price: float, qty: float):
-    """将 Algo 止损任务加入队列"""
+def _algo_enqueue(
+        symbol: str, side: str, trigger_price: float, qty: float, *,
+        exchange_position_key=None, episode_id=None,
+        slot_generation=None, protection_generation=None):
+    """Enqueue immutable identity when complete; preserve legacy shape only for drop."""
+    identity = (exchange_position_key, episode_id, slot_generation,
+                protection_generation)
+    if all(value is None for value in identity):
+        task = (symbol, side, trigger_price, qty)
+    elif any(value is None for value in identity):
+        raise ValueError('queue identity fields must all be supplied')
+    else:
+        task = AlgoProtectionTask(
+            symbol=symbol, side=side, trigger_price=trigger_price, qty=qty,
+            exchange_position_key=exchange_position_key, episode_id=episode_id,
+            slot_generation=slot_generation,
+            protection_generation=protection_generation,
+        )
     with _ALGO_QUEUE_LOCK:
-        _ALGO_QUEUE.append((symbol, side, trigger_price, qty))
-    _pmlog(f'[AlgoEnqueue] {symbol} side={side} trigger={trigger_price} qty={qty} 已入队')
+        _ALGO_QUEUE.append(task)
+    _pmlog(f'[AlgoEnqueue] {symbol} side={side} '
+           f'trigger={trigger_price} qty={qty} 已入队')
 
 def _algo_place_sl_inner(symbol: str, side: str,
                           trigger_price: float, qty: float) -> dict:

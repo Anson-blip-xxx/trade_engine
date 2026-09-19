@@ -20,9 +20,11 @@ from typing import Protocol, runtime_checkable
 class ProtectionPort(Protocol):
     """Algo 保护单能力端口（structural typing，5 个真实 seam 逐字镜像）。"""
 
-    def enqueue_algo_sl(self, symbol: str, side: str, trigger: float,
-                        qty: float) -> None:
-        """入队一个 Algo SL 任务（FIFO；不执行、不启动线程）。"""
+    def enqueue_algo_sl(
+            self, symbol: str, side: str, trigger: float, qty: float, *,
+            exchange_position_key=None, episode_id=None,
+            slot_generation=None, protection_generation=None) -> None:
+        """入队 legacy shape 或完整 immutable identity task。"""
         ...
 
     def start_algo_worker(self) -> None:

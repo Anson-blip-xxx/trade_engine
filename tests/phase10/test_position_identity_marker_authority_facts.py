@@ -85,11 +85,14 @@ def test_marker_malformed_and_stale_values_fail_open_without_cleanup():
     assert '_marker_delete' not in recent
 
 
-def test_protection_task_has_no_episode_or_generation_identity():
+def test_protection_task_has_canonical_episode_and_generation_identity():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
-    for token in ('position_id', 'episode', 'generation', 'request_id'):
+    assert '_ALGO_QUEUE.append(task)' in enqueue
+    for token in ('exchange_position_key', 'episode_id',
+                  'slot_generation', 'protection_generation'):
+        assert token in enqueue
+    for token in ('position_id', 'request_id'):
         assert token not in enqueue
 
 

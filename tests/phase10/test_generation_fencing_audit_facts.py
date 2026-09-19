@@ -20,22 +20,25 @@ def _method(source, class_name, method_name):
                 if isinstance(node, ast.FunctionDef) and node.name == method_name)
 
 
-def test_queue_payload_lacks_episode_and_protection_generation():
+def test_queue_payload_carries_episode_and_protection_generation():
     source = (ROOT / 'shared/position_manager.py').read_text()
     enqueue = _function(source, '_algo_enqueue(', '_algo_place_sl_inner(')
-    assert '_ALGO_QUEUE.append((symbol, side, trigger_price, qty))' in enqueue
-    for token in ('position_id', 'episode_id', 'episode_token',
-                  'protection_generation', 'request_id'):
+    assert '_ALGO_QUEUE.append(task)' in enqueue
+    for token in ('exchange_position_key', 'episode_id',
+                  'slot_generation', 'protection_generation'):
+        assert token in enqueue
+    for token in ('position_id', 'episode_token', 'request_id'):
         assert token not in enqueue
 
 
-def test_worker_pops_fifo_without_reloading_current_identity():
+def test_worker_pops_fifo_and_parses_without_loading_authority():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
     assert 'task = queue.pop(0)' in worker
-    assert 'symbol, side, trigger_price, qty = task' in worker
+    assert 'parsed = classify_queue_task(task)' in worker
     assert worker.index('queue.pop(0)') < worker.index('place_fn(')
-    for token in ('load', 'position_id', 'episode', 'generation', 'current'):
+    for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
+                  'can_mutate_async', 'current_position'):
         assert token not in worker
 
 
