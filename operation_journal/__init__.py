@@ -10,6 +10,13 @@ from operation_journal.generation_fence import (
     GenerationFenceDecision,
     validate_recovery_generation,
 )
+from operation_journal.generation_reader import (
+    AuthorityReader,
+    DesiredReader,
+    GenerationResolution,
+    GenerationResolutionCode,
+    RecoveryGenerationReader,
+)
 from operation_journal.model import (
     OPERATION_SCHEMA_VERSION,
     OperationRecord,
@@ -40,13 +47,17 @@ from operation_journal.recovery import (
 
 __all__ = [
     "OPERATION_SCHEMA_VERSION",
+    "AuthorityReader",
     "CasCode",
     "CasResult",
     "CreateCode",
     "CreateResult",
+    "DesiredReader",
     "ExchangeAccess",
     "GenerationFenceCode",
     "GenerationFenceDecision",
+    "GenerationResolution",
+    "GenerationResolutionCode",
     "LeaseCode",
     "LeaseResult",
     "OperationRecord",
@@ -61,6 +72,7 @@ __all__ = [
     "RecoveryClaimResult",
     "RecoveryDecision",
     "RecoveryDirective",
+    "RecoveryGenerationReader",
     "RecoveryWorkItem",
     "canonical_json",
     "decide_recovery",

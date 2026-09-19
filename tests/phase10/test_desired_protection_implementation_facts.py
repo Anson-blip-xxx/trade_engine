@@ -85,7 +85,10 @@ def test_only_dormant_recovery_fence_imports_desired_outside_protection():
         source = path.read_text()
         if any(needle in source for needle in needles):
             callers.append(str(relative))
-    assert callers == ['operation_journal/generation_fence.py']
+    assert set(callers) == {
+        'operation_journal/generation_fence.py',
+        'operation_journal/generation_reader.py',
+    }
 
 
 def test_active_queue_still_has_no_desired_generation_or_durable_handoff():

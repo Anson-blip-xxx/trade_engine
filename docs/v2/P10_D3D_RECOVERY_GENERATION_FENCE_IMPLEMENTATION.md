@@ -27,8 +27,13 @@ It is not side-effect authorization. A caller must also satisfy the typed
 recovery decision, current lease, exchange evidence, and directive-specific
 executor gate.
 
-Remaining D3D work is an injected authority/desired read coordinator, exact
-pre-side-effect revalidation, and composition with directive executors.
+The injected `RecoveryGenerationReader` now performs one typed canonical
+authority read and, for protection operations only, one typed desired-state
+read before applying this decision. NOT_FOUND, MALFORMED, UNAVAILABLE, and
+invalid adapter responses remain distinct and fail closed. It imports no
+concrete Redis adapter and performs no write.
+
+Remaining D3D work is exact pre-side-effect revalidation and composition with
+directive executors.
 
 **P10 D3D-RECOVERY-GENERATION-FENCE PASS.**
-
