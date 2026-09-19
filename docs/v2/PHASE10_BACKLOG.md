@@ -207,15 +207,15 @@ schema, journal, replay, or production behavior changed. See
 | D5A / P10-D3D-1A | exchange-position-key namespace, episode field, slot generation, provenance, CAS | IMPLEMENTED / CLOSED through P10-07B/C/D | YES; dormant foundation only |
 | P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | IMPLEMENTED / CLOSED | NO; isolated V2 must not deploy alone |
 | P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED | NO; isolated V2 must not deploy alone |
-| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | READY_FOR_IMPLEMENTATION | NO |
+| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_R1_CANONICAL_PROJECTION_AND_D2A | NO |
 | P10-D3D-1E | controlled legacy adoption/quarantine and reconstructed provenance guard | IMPLEMENTED / CLOSED through P10-07D / D5A-3 | YES; dormant foundation only |
 
 P10-07 resolves the former D5A decisions: explicit configured principal;
 controlled adoption when strict evidence/CAS passes and quarantine otherwise;
 automatic reconstructed authority only as `RECONSTRUCTED_QUARANTINED`.
-D5A foundation and D3D-1B/C are complete. D3D-1D is `READY_FOR_IMPLEMENTATION`; D3D-2 still owns durable desired-protection generation.
+D5A foundation and D3D-1B/C are complete. Implementation audit found D3D-1D blocked by canonical live-projection revision/CAS (R1) and D2A durable desired-protection generation.
 
-P10-D3D-1 is design-complete; implementation proceeds with D3D-1D. Current
+P10-D3D-1 is design-complete; implementation proceeds with R1 and D2A before D3D-1D. Current
 `position_id` is `TEMPORARY_FENCE_ONLY`, never canonical authority. See
 `docs/v2/P10_D3D1_EPISODE_FENCE_AUTHORITY.md`.
 
@@ -231,6 +231,6 @@ P10-07B, P10-07C, and P10-07D implemented the dormant D5A foundation without
 wiring active open, close, position state, queue, worker, monitor, reconcile,
 marker, or startup behavior.
 
-P10-D5A and P10-D3D-1B/C are `IMPLEMENTED / CLOSED`; P10-D3D-1D is `READY_FOR_IMPLEMENTATION`.
+P10-D5A and P10-D3D-1B/C are `IMPLEMENTED / CLOSED`; P10-D3D-1D is blocked by R1 and D2A. The execution order is maintained in `docs/v2/V2_UPGRADE_MASTER_PLAN.md`.
 See
 `docs/v2/P10_D5A_EPISODE_AUTHORITY_READINESS.md`.

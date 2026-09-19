@@ -78,4 +78,4 @@ def test_model_closes_d3d1c_and_advances_d3d1d():
     ):
         assert phrase in model
     assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED |' in backlog
-    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | READY_FOR_IMPLEMENTATION |' in backlog
+    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | BLOCKED_BY_R1_CANONICAL_PROJECTION_AND_D2A |' in backlog
