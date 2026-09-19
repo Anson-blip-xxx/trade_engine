@@ -108,6 +108,7 @@ def test_only_protection_runtime_calls_authority_store():
                 or 'authority_redis' in source:
             callers.append(str(relative))
     assert set(callers) == {
+        'operation_journal/generation_fence.py',
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
         'position_protection/verification.py',

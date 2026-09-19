@@ -81,6 +81,7 @@ it does not mean the production behavior was implemented.
 | D3A PostgreSQL Recovery Claim | **IMPLEMENTED / CLOSED (DORMANT)** | bounded due batch; one-per-slot; active-slot exclusion; row + advisory locks; `SKIP LOCKED`; concurrent PG16 QA | directive executors + scheduler/runtime gates |
 | D3A Typed Recovery Decision | **IMPLEMENTED / CLOSED (DORMANT)** | exhaustive stage directives; exchange-access ceilings; ambiguity proof and special-operation policy gates | directive ports/executors + evidence resolvers + scheduler |
 | D3B Recovery Batch Coordinator Boundary | **IMPLEMENTED / CLOSED (DORMANT)** | claim-result validation; UNKNOWN/invariant fail-closed; automatic vs gated immutable work plans | D3C/D3D + directive executors + scheduler/runtime wiring |
+| D3D Recovery Generation Fence | **IMPLEMENTED / CLOSED (DORMANT)** | operation vs canonical authority/desired exact episode+slot+protection generation decision; OPEN/external policy gates | injected reads + pre-effect revalidation + executor composition |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 

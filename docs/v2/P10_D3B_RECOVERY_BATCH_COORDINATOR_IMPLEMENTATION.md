@@ -22,8 +22,7 @@ and no terminal operations. A `CLAIMED` result with no records and an
 
 The planner deliberately does not turn a decision into a side effect. D3B
 runtime work remains blocked on directive-specific ports/executors, D3C
-exchange evidence resolution, D3D generation validation, scheduling policy,
-and activation gates.
+exchange evidence resolution, D3D authority-read/revalidation composition,
+scheduling policy, and activation gates.
 
 **P10 D3B-RECOVERY-BATCH-BOUNDARY PASS.**
-

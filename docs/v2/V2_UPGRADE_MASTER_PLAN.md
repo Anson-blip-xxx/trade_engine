@@ -161,7 +161,9 @@ is also IMPLEMENTED / CLOSED (DORMANT), including query-only ambiguity and
 ghost/external policy guards. Directive executors, evidence resolvers, extended
 fault/concurrency QA, and runtime activation gates remain. A pure D3B batch
 boundary now composes claims and decisions while failing closed on journal
-UNKNOWN or claim invariant violations; it is not runtime-wired.
+UNKNOWN or claim invariant violations; it is not runtime-wired. A pure D3D
+generation fence now validates exact operation/authority/desired identity while
+keeping OPEN scale-in and external disposition behind explicit policy gates.
 
 ### P1 — P10-D2C Exchange Algo API Characterization
 

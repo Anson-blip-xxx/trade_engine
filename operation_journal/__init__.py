@@ -5,6 +5,11 @@ from operation_journal.coordinator import (
     RecoveryWorkItem,
     plan_recovery_batch,
 )
+from operation_journal.generation_fence import (
+    GenerationFenceCode,
+    GenerationFenceDecision,
+    validate_recovery_generation,
+)
 from operation_journal.model import (
     OPERATION_SCHEMA_VERSION,
     OperationRecord,
@@ -40,6 +45,8 @@ __all__ = [
     "CreateCode",
     "CreateResult",
     "ExchangeAccess",
+    "GenerationFenceCode",
+    "GenerationFenceDecision",
     "LeaseCode",
     "LeaseResult",
     "OperationRecord",
@@ -59,4 +66,5 @@ __all__ = [
     "decide_recovery",
     "is_legal_transition",
     "plan_recovery_batch",
+    "validate_recovery_generation",
 ]

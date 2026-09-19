@@ -71,7 +71,7 @@ def test_adapter_has_no_ttl_delete_file_snapshot_or_client_fallback():
         assert token not in source
 
 
-def test_no_active_runtime_imports_desired_authority():
+def test_only_dormant_recovery_fence_imports_desired_outside_protection():
     callers = []
     needles = (
         'RedisDesiredProtectionAdapter',
@@ -85,7 +85,7 @@ def test_no_active_runtime_imports_desired_authority():
         source = path.read_text()
         if any(needle in source for needle in needles):
             callers.append(str(relative))
-    assert callers == []
+    assert callers == ['operation_journal/generation_fence.py']
 
 
 def test_active_queue_still_has_no_desired_generation_or_durable_handoff():
