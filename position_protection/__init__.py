@@ -5,6 +5,12 @@ from position_protection.binance_observation import (
     BinanceObservationResult,
     normalize_binance_verification_snapshot,
 )
+from position_protection.binance_query import (
+    BinanceQueryErrorCode,
+    BinanceVerificationEndpoints,
+    BinanceVerificationQueryError,
+    InjectedBinanceVerificationQueryAdapter,
+)
 from position_protection.desired import (
     DESIRED_PROTECTION_SCHEMA_VERSION,
     DesiredProtectionRecord,
@@ -55,6 +61,9 @@ __all__ = [
     'DESIRED_PROTECTION_SCHEMA_VERSION',
     'BinanceObservationCode',
     'BinanceObservationResult',
+    'BinanceQueryErrorCode',
+    'BinanceVerificationEndpoints',
+    'BinanceVerificationQueryError',
     'BinanceVerificationSnapshot',
     'ConditionalWritebackProtectionTask',
     'DesiredProtectionRecord',
@@ -64,6 +73,7 @@ __all__ = [
     'DesiredWriteResult',
     'ExchangeExposureObservation',
     'ExchangeProtectionObservation',
+    'InjectedBinanceVerificationQueryAdapter',
     'NativeOpenHandoffCode',
     'NativeOpenHandoffResult',
     'ProtectionStatus',

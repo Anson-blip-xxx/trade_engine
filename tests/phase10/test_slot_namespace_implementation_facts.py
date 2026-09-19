@@ -84,6 +84,7 @@ def test_only_protection_fence_modules_call_identity_package():
             callers.append(str(relative))
     assert set(callers) == {
         'position_protection/binance_observation.py',
+        'position_protection/binance_query.py',
         'position_protection/claim.py',
         'position_protection/desired.py',
         'position_protection/desired_redis.py',
