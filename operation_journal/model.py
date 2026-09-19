@@ -105,7 +105,7 @@ def _time(value, field):
     value = float(value)
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"{field} must be finite and nonnegative")
-    return value
+    return round(value, 6)
 
 
 def canonical_json(value, field):
@@ -195,6 +195,9 @@ class OperationRecord:
             raise TypeError("stage must be OperationStage")
         if not is_legal_transition(self.stage, stage):
             raise ValueError(f"illegal operation transition {self.stage.value}->{stage.value}")
+        now = _time(now, "now")
+        if now < self.updated_at:
+            raise ValueError("transition time cannot move backwards")
         if (self.stage, stage) in _ABSENCE_PROOF_REQUIRED and effect_absence_proven is not True:
             raise ValueError("failure after submission ambiguity requires effect-absence proof")
         immutable = {"operation_id", "operation_type", "exchange_position_key", "input_json", "request_id", "created_at", "schema_version"}

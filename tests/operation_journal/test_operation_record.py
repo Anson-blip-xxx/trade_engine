@@ -96,3 +96,15 @@ def test_episode_and_generation_references_bind_once():
         record.transition(
             stage=OperationStage.SUBMITTING, now=3, lifecycle_generation=2,
         )
+
+
+def test_times_are_postgres_microsecond_stable_and_monotonic():
+    record = OperationRecord.new(
+        operation_id=str(uuid4()), operation_type=OperationType.OPEN,
+        exchange_position_key=_record().exchange_position_key,
+        normalized_input={}, now=1.123456789,
+    )
+    assert record.created_at == 1.123457
+    assert record.updated_at == 1.123457
+    with pytest.raises(ValueError, match="cannot move backwards"):
+        record.transition(stage=OperationStage.INTENT_DURABLE, now=1.123456)

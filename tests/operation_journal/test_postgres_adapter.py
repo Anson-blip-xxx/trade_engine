@@ -7,6 +7,7 @@ import pytest
 from operation_journal import (
     CasCode,
     CreateCode,
+    LeaseCode,
     OperationRecord,
     OperationStage,
     OperationType,
@@ -76,11 +77,46 @@ class _Cursor:
             else:
                 self.result = _row(params)
                 self.database.rows[operation_id] = self.result
+        elif normalized.startswith("UPDATE") and "VERSION = VERSION + 1" in normalized:
+            current = self.database.rows.get(operation_id)
+            matches = current is not None and current["version"] == params["expected_version"]
+            is_release = "OWNER_TOKEN = NULL" in normalized
+            is_claim = normalized.startswith(
+                "UPDATE TRADE_OPERATIONS SET OWNER_TOKEN = %(OWNER_TOKEN)S")
+            terminal = current is not None and current["stage"] in {
+                "COMPLETED", "FAILED_TERMINAL",
+            }
+            if is_claim:
+                matches = matches and not terminal and (
+                    current["owner_token"] is None or
+                    current["lease_expires_at"] <= self.database.now
+                )
+            else:
+                matches = matches and current["owner_token"] == params["owner_token"]
+                matches = matches and current["lease_expires_at"] > self.database.now
+                if not is_release:
+                    matches = matches and not terminal
+            if matches:
+                self.result = dict(current)
+                self.result["version"] += 1
+                self.result["updated_at"] = max(
+                    current["updated_at"], self.database.now)
+                if is_release:
+                    self.result["owner_token"] = None
+                    self.result["lease_expires_at"] = None
+                else:
+                    self.result["owner_token"] = params["owner_token"]
+                    self.result["lease_expires_at"] = (
+                        self.database.now + params["lease_seconds"])
+                self.database.rows[operation_id] = self.result
+            else:
+                self.result = None
         elif normalized.startswith("UPDATE"):
             current = self.database.rows.get(operation_id)
             matches = current is not None and (
                 current["version"] == params["expected_version"] and
-                current["owner_token"] == params["expected_owner_token"]
+                current["owner_token"] == params["expected_owner_token"] and
+                current["lease_expires_at"] > self.database.now
             )
             if matches:
                 self.result = _row(params)
@@ -112,6 +148,7 @@ class _Database:
         self.fail_execute = False
         self.fail_commit = False
         self.tuple_rows = False
+        self.now = 100.0
 
     @contextmanager
     def connection(self):
@@ -164,12 +201,10 @@ def test_cas_applies_one_transition_with_version_and_owner_fencing():
     store, _ = _store()
     new = _operation()
     store.create(new)
-    operation = new.transition(
-        stage=OperationStage.INTENT_DURABLE, now=11,
-        owner_token="owner-a", lease_expires_at=30,
-    )
-    assert store.compare_and_swap(new, operation).code is CasCode.APPLIED
-    desired = operation.transition(stage=OperationStage.SUBMITTING, now=12)
+    claimed = store.claim_lease(new.operation_id, 1, "owner-a", 30).record
+    operation = claimed.transition(stage=OperationStage.INTENT_DURABLE, now=101)
+    assert store.compare_and_swap(claimed, operation).code is CasCode.APPLIED
+    desired = operation.transition(stage=OperationStage.SUBMITTING, now=102)
     applied = store.compare_and_swap(operation, desired)
     assert applied.code is CasCode.APPLIED
     assert applied.record == desired
@@ -183,19 +218,16 @@ def test_cas_distinguishes_owner_mismatch_and_not_found():
     store, _ = _store()
     new = _operation()
     store.create(new)
-    operation = new.transition(
-        stage=OperationStage.INTENT_DURABLE, now=11,
-        owner_token="owner-a", lease_expires_at=30,
-    )
-    assert store.compare_and_swap(new, operation).code is CasCode.APPLIED
+    operation = store.claim_lease(new.operation_id, 1, "owner-a", 30).record
     wrong_owner = replace(operation, owner_token="owner-b")
-    desired = wrong_owner.transition(stage=OperationStage.SUBMITTING, now=12)
+    desired = wrong_owner.transition(stage=OperationStage.INTENT_DURABLE, now=101)
     result = store.compare_and_swap(wrong_owner, desired)
     assert result.code is CasCode.OWNER_MISMATCH
     assert result.record == operation
 
-    missing = _operation().transition(stage=OperationStage.INTENT_DURABLE, now=11)
-    wanted = missing.transition(stage=OperationStage.SUBMITTING, now=12)
+    missing = replace(
+        _operation(), owner_token="owner", lease_expires_at=130)
+    wanted = missing.transition(stage=OperationStage.INTENT_DURABLE, now=101)
     assert store.compare_and_swap(missing, wanted).code is CasCode.NOT_FOUND
 
 
@@ -208,8 +240,8 @@ def test_write_exception_is_unknown_even_if_effect_may_have_committed():
     assert operation.operation_id in database.rows
 
     database.fail_commit = False
-    current = store.read(operation.operation_id).record
-    desired = current.transition(stage=OperationStage.INTENT_DURABLE, now=11)
+    current = store.claim_lease(operation.operation_id, 1, "owner", 30).record
+    desired = current.transition(stage=OperationStage.INTENT_DURABLE, now=101)
     database.fail_commit = True
     cas = store.compare_and_swap(current, desired)
     assert cas.code is CasCode.UNKNOWN
@@ -236,3 +268,71 @@ def test_create_rejects_pre_advanced_record():
     with pytest.raises(ValueError, match="NEW version-1"):
         store.create(advanced)
     assert database.rows == {}
+
+
+def test_lease_claim_renew_expiry_takeover_and_release_are_fenced():
+    store, database = _store()
+    operation = _operation()
+    store.create(operation)
+
+    claimed = store.claim_lease(operation.operation_id, 1, "owner-a", 30)
+    assert claimed.code is LeaseCode.CLAIMED
+    assert claimed.record.version == 2
+    assert claimed.record.owner_token == "owner-a"
+    assert claimed.record.lease_expires_at == 130
+
+    busy = store.claim_lease(operation.operation_id, 2, "owner-b", 30)
+    assert busy.code is LeaseCode.BUSY
+    wrong = store.renew_lease(operation.operation_id, 2, "owner-b", 30)
+    assert wrong.code is LeaseCode.OWNER_MISMATCH
+
+    renewed = store.renew_lease(operation.operation_id, 2, "owner-a", 40)
+    assert renewed.code is LeaseCode.RENEWED
+    assert renewed.record.version == 3
+    assert renewed.record.lease_expires_at == 140
+    stale = store.release_lease(operation.operation_id, 2, "owner-a")
+    assert stale.code is LeaseCode.STALE_VERSION
+
+    database.now = 141
+    desired = renewed.record.transition(
+        stage=OperationStage.INTENT_DURABLE, now=141)
+    assert store.compare_and_swap(
+        renewed.record, desired).code is CasCode.LEASE_EXPIRED
+    expired = store.renew_lease(operation.operation_id, 3, "owner-a", 20)
+    assert expired.code is LeaseCode.EXPIRED
+    takeover = store.claim_lease(operation.operation_id, 3, "owner-b", 20)
+    assert takeover.code is LeaseCode.CLAIMED
+    assert takeover.record.version == 4
+    assert takeover.record.owner_token == "owner-b"
+
+    released = store.release_lease(operation.operation_id, 4, "owner-b")
+    assert released.code is LeaseCode.RELEASED
+    assert released.record.version == 5
+    assert released.record.owner_token is None
+    assert released.record.lease_expires_at is None
+
+
+def test_lease_terminal_missing_invalid_and_commit_unknown_outcomes():
+    store, database = _store()
+    operation = _operation()
+    store.create(operation)
+    claimed = store.claim_lease(operation.operation_id, 1, "owner", 10).record
+    terminal = claimed.transition(stage=OperationStage.FAILED_TERMINAL, now=101)
+    assert store.compare_and_swap(claimed, terminal).code is CasCode.APPLIED
+    result = store.claim_lease(terminal.operation_id, 3, "owner", 10)
+    assert result.code is LeaseCode.TERMINAL
+
+    missing = _operation()
+    assert store.claim_lease(
+        missing.operation_id, 1, "owner", 10).code is LeaseCode.NOT_FOUND
+    with pytest.raises(ValueError, match="owner_token"):
+        store.claim_lease(operation.operation_id, 2, " owner ", 10)
+    with pytest.raises(ValueError, match="lease_seconds"):
+        store.claim_lease(operation.operation_id, 2, "owner", float("nan"))
+
+    fresh = _operation()
+    store.create(fresh)
+    database.fail_commit = True
+    ambiguous = store.claim_lease(fresh.operation_id, 1, "owner", 10)
+    assert ambiguous.code is LeaseCode.UNKNOWN
+    assert database.rows[fresh.operation_id]["owner_token"] == "owner"

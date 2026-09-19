@@ -37,12 +37,17 @@ def test_sql_cas_fences_version_and_owner_and_returns_authoritative_row():
     assert "RETURNING operation_id::text" in source
     assert "CasCode.STALE_VERSION" in source
     assert "CasCode.OWNER_MISMATCH" in source
+    assert "CasCode.LEASE_EXPIRED" in source
     assert "CasCode.UNKNOWN" in source
 
 
-def test_adapter_does_not_claim_lease_or_recovery_scan_implementation():
+def test_lease_uses_database_clock_and_recovery_scan_is_still_deferred():
     source = ADAPTER.read_text().lower()
+    assert "def claim_lease" in source
+    assert "def renew_lease" in source
+    assert "def release_lease" in source
+    assert "lease_expires_at > clock_timestamp()" in source
+    assert "lease_expires_at <= clock_timestamp()" in source
+    assert "version = version + 1" in source
     assert "skip locked" not in source
-    assert "def acquire" not in source
-    assert "def renew" not in source
     assert "def recovery" not in source

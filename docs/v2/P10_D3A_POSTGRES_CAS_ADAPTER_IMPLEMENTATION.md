@@ -33,12 +33,9 @@ bound episode or generation reference before issuing SQL.
 
 ## Remaining activation gates
 
-1. lease acquire/renew/release and expired-owner takeover semantics;
-2. bounded recovery discovery using `FOR UPDATE SKIP LOCKED` or an approved
+1. bounded recovery discovery using `FOR UPDATE SKIP LOCKED` or an approved
    equivalent;
-3. real isolated PostgreSQL transaction/rollback/concurrency QA;
-4. schema migration, backup/restore, capacity, observability, and rollback;
-5. default-off runtime composition and shadow-mode reconciliation.
+2. schema migration, backup/restore, capacity, observability, and rollback;
+3. default-off runtime composition and shadow-mode reconciliation.
 
 **P10 D3A-PG-CAS-ADAPTER PASS.**
-

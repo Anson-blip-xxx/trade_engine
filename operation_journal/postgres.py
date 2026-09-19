@@ -6,9 +6,11 @@ Runtime wiring must inject a transaction-scoped connection factory.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from uuid import UUID
 
 from operation_journal.model import (
     OperationRecord,
@@ -37,6 +39,20 @@ class CasCode(str, Enum):
     NOT_FOUND = "NOT_FOUND"
     STALE_VERSION = "STALE_VERSION"
     OWNER_MISMATCH = "OWNER_MISMATCH"
+    LEASE_EXPIRED = "LEASE_EXPIRED"
+    UNKNOWN = "UNKNOWN"
+
+
+class LeaseCode(str, Enum):
+    CLAIMED = "CLAIMED"
+    RENEWED = "RENEWED"
+    RELEASED = "RELEASED"
+    NOT_FOUND = "NOT_FOUND"
+    STALE_VERSION = "STALE_VERSION"
+    OWNER_MISMATCH = "OWNER_MISMATCH"
+    BUSY = "BUSY"
+    EXPIRED = "EXPIRED"
+    TERMINAL = "TERMINAL"
     UNKNOWN = "UNKNOWN"
 
 
@@ -55,6 +71,12 @@ class ReadResult:
 @dataclass(frozen=True)
 class CasResult:
     code: CasCode
+    record: OperationRecord | None = None
+
+
+@dataclass(frozen=True)
+class LeaseResult:
+    code: LeaseCode
     record: OperationRecord | None = None
 
 
@@ -129,6 +151,43 @@ UPDATE trade_operations SET
 WHERE operation_id = %(operation_id)s
   AND version = %(expected_version)s
   AND owner_token IS NOT DISTINCT FROM %(expected_owner_token)s
+  AND lease_expires_at > clock_timestamp()
+""" + _RETURNING
+
+_CLAIM_LEASE = """
+UPDATE trade_operations SET
+    owner_token = %(owner_token)s,
+    lease_expires_at = clock_timestamp() + make_interval(secs => %(lease_seconds)s),
+    version = version + 1,
+    updated_at = GREATEST(updated_at, clock_timestamp())
+WHERE operation_id = %(operation_id)s
+  AND version = %(expected_version)s
+  AND stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+  AND (owner_token IS NULL OR lease_expires_at <= clock_timestamp())
+""" + _RETURNING
+
+_RENEW_LEASE = """
+UPDATE trade_operations SET
+    lease_expires_at = clock_timestamp() + make_interval(secs => %(lease_seconds)s),
+    version = version + 1,
+    updated_at = GREATEST(updated_at, clock_timestamp())
+WHERE operation_id = %(operation_id)s
+  AND version = %(expected_version)s
+  AND stage NOT IN ('COMPLETED', 'FAILED_TERMINAL')
+  AND owner_token = %(owner_token)s
+  AND lease_expires_at > clock_timestamp()
+""" + _RETURNING
+
+_RELEASE_LEASE = """
+UPDATE trade_operations SET
+    owner_token = NULL,
+    lease_expires_at = NULL,
+    version = version + 1,
+    updated_at = GREATEST(updated_at, clock_timestamp())
+WHERE operation_id = %(operation_id)s
+  AND version = %(expected_version)s
+  AND owner_token = %(owner_token)s
+  AND lease_expires_at > clock_timestamp()
 """ + _RETURNING
 
 
@@ -200,6 +259,30 @@ def _record(row) -> OperationRecord:
     )
 
 
+def _lease_params(operation_id, expected_version, owner_token,
+                  lease_seconds=None):
+    operation_id = str(UUID(operation_id))
+    if (isinstance(expected_version, bool) or
+            not isinstance(expected_version, int) or expected_version < 1):
+        raise ValueError("expected_version must be a positive integer")
+    if (not isinstance(owner_token, str) or not owner_token or
+            owner_token != owner_token.strip() or
+            any(ord(char) < 32 or ord(char) == 127 for char in owner_token)):
+        raise ValueError("owner_token must be normalized nonempty text")
+    params = {
+        "operation_id": operation_id,
+        "expected_version": expected_version,
+        "owner_token": owner_token,
+    }
+    if lease_seconds is not None:
+        if (isinstance(lease_seconds, bool) or
+                not isinstance(lease_seconds, (int, float)) or
+                not math.isfinite(lease_seconds) or lease_seconds <= 0):
+            raise ValueError("lease_seconds must be finite and positive")
+        params["lease_seconds"] = float(lease_seconds)
+    return params
+
+
 class PostgresOperationJournal:
     """Transaction-scoped operation create/read/CAS with explicit outcomes."""
 
@@ -260,9 +343,65 @@ class PostgresOperationJournal:
                 current = _record(current_row)
                 if current.version != expected.version:
                     return CasResult(CasCode.STALE_VERSION, current)
-                return CasResult(CasCode.OWNER_MISMATCH, current)
+                if current.owner_token != expected.owner_token:
+                    return CasResult(CasCode.OWNER_MISMATCH, current)
+                return CasResult(CasCode.LEASE_EXPIRED, current)
         except Exception:  # noqa: BLE001 - every write error is ambiguous
             return CasResult(CasCode.UNKNOWN)
+
+    def claim_lease(self, operation_id: str, expected_version: int,
+                    owner_token: str, lease_seconds: float) -> LeaseResult:
+        """Claim an unowned or database-clock-expired operation."""
+        params = _lease_params(
+            operation_id, expected_version, owner_token, lease_seconds)
+        return self._lease_write(
+            _CLAIM_LEASE, params, LeaseCode.CLAIMED, LeaseCode.BUSY,
+            block_terminal=True,
+        )
+
+    def renew_lease(self, operation_id: str, expected_version: int,
+                    owner_token: str, lease_seconds: float) -> LeaseResult:
+        """Renew only an unexpired lease owned at the expected version."""
+        params = _lease_params(
+            operation_id, expected_version, owner_token, lease_seconds)
+        return self._lease_write(
+            _RENEW_LEASE, params, LeaseCode.RENEWED, LeaseCode.EXPIRED,
+            classify_owner=True, block_terminal=True,
+        )
+
+    def release_lease(self, operation_id: str, expected_version: int,
+                      owner_token: str) -> LeaseResult:
+        """Release only an unexpired lease owned at the expected version."""
+        params = _lease_params(operation_id, expected_version, owner_token)
+        return self._lease_write(
+            _RELEASE_LEASE, params, LeaseCode.RELEASED, LeaseCode.EXPIRED,
+            classify_owner=True,
+        )
+
+    def _lease_write(self, sql, params, success_code, condition_code,
+                     *, classify_owner=False, block_terminal=False):
+        try:
+            with self._connection_factory() as conn, conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+                if row is not None:
+                    return LeaseResult(success_code, _record(row))
+                cur.execute(_SELECT, {"operation_id": params["operation_id"]})
+                current_row = cur.fetchone()
+                if current_row is None:
+                    return LeaseResult(LeaseCode.NOT_FOUND)
+                current = _record(current_row)
+                if current.version != params["expected_version"]:
+                    return LeaseResult(LeaseCode.STALE_VERSION, current)
+                if block_terminal and current.stage in {
+                    OperationStage.COMPLETED, OperationStage.FAILED_TERMINAL,
+                }:
+                    return LeaseResult(LeaseCode.TERMINAL, current)
+                if classify_owner and current.owner_token != params["owner_token"]:
+                    return LeaseResult(LeaseCode.OWNER_MISMATCH, current)
+                return LeaseResult(condition_code, current)
+        except Exception:  # noqa: BLE001 - every lease write error is ambiguous
+            return LeaseResult(LeaseCode.UNKNOWN)
 
     @staticmethod
     def _validate_cas(expected: OperationRecord,
@@ -273,6 +412,11 @@ class PostgresOperationJournal:
             raise ValueError("CAS desired version must advance exactly once")
         if not is_legal_transition(expected.stage, desired.stage):
             raise ValueError("CAS stage transition is illegal")
+        if expected.owner_token is None:
+            raise ValueError("CAS requires an owned lease")
+        if (desired.owner_token != expected.owner_token or
+                desired.lease_expires_at != expected.lease_expires_at):
+            raise ValueError("CAS cannot mutate lease ownership")
         immutable = (
             "operation_type", "exchange_position_key", "input_json",
             "request_id", "created_at", "schema_version",
