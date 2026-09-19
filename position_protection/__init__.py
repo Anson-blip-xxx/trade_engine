@@ -34,6 +34,13 @@ from position_protection.verification import (
     ProtectionVerificationResult,
     verify_current_protection,
 )
+from position_protection.verification_activation import (
+    VerificationActivationBlocker,
+    VerificationActivationCode,
+    VerificationActivationDecision,
+    VerificationActivationManifest,
+    assess_verification_activation,
+)
 from position_protection.verification_commit import (
     RedisVerifiedActiveCommitAdapter,
     VerifiedActiveCommitCode,
@@ -84,6 +91,10 @@ __all__ = [
     'RedisDesiredProtectionAdapter',
     'RedisNativeOpenHandoffAdapter',
     'RedisVerifiedActiveCommitAdapter',
+    'VerificationActivationBlocker',
+    'VerificationActivationCode',
+    'VerificationActivationDecision',
+    'VerificationActivationManifest',
     'VerificationCoordinatorCode',
     'VerificationCoordinatorResult',
     'VerificationRetryAction',
@@ -94,6 +105,7 @@ __all__ = [
     'VerifiedActiveCommitResult',
     'WritebackCode',
     'WritebackResult',
+    'assess_verification_activation',
     'decide_verification_retry',
     'normalize_binance_verification_snapshot',
     'verify_current_protection',
