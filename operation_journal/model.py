@@ -83,6 +83,12 @@ _ABSENCE_PROOF_REQUIRED = frozenset(
 )
 
 
+def is_legal_transition(source: OperationStage, target: OperationStage) -> bool:
+    if not isinstance(source, OperationStage) or not isinstance(target, OperationStage):
+        raise TypeError("source and target must be OperationStage")
+    return target in _LEGAL[source]
+
+
 def _text(value, field, *, optional=False):
     if optional and value is None:
         return None
@@ -187,11 +193,16 @@ class OperationRecord:
     def transition(self, *, stage, now, effect_absence_proven=False, **changes):
         if not isinstance(stage, OperationStage):
             raise TypeError("stage must be OperationStage")
-        if stage not in _LEGAL[self.stage]:
+        if not is_legal_transition(self.stage, stage):
             raise ValueError(f"illegal operation transition {self.stage.value}->{stage.value}")
         if (self.stage, stage) in _ABSENCE_PROOF_REQUIRED and effect_absence_proven is not True:
             raise ValueError("failure after submission ambiguity requires effect-absence proof")
         immutable = {"operation_id", "operation_type", "exchange_position_key", "input_json", "request_id", "created_at", "schema_version"}
         if immutable.intersection(changes):
             raise ValueError("immutable operation fields cannot change")
+        for field in ("position_episode_id", "lifecycle_generation",
+                      "protection_generation"):
+            if (field in changes and getattr(self, field) is not None and
+                    changes[field] != getattr(self, field)):
+                raise ValueError(f"bound {field} cannot change")
         return replace(self, stage=stage, version=self.version + 1, updated_at=now, **changes)

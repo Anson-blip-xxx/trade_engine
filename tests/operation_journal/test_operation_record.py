@@ -78,3 +78,21 @@ def test_owner_and_lease_are_all_or_nothing_and_json_rejects_nan():
         _record().transition(
             stage=OperationStage.INTENT_DURABLE, now=2, owner_token="worker"
         )
+
+
+def test_episode_and_generation_references_bind_once():
+    episode = str(uuid4())
+    record = _record().transition(
+        stage=OperationStage.INTENT_DURABLE, now=2,
+        position_episode_id=episode, lifecycle_generation=1,
+        protection_generation=2,
+    )
+    with pytest.raises(ValueError, match="bound position_episode_id"):
+        record.transition(
+            stage=OperationStage.SUBMITTING, now=3,
+            position_episode_id=str(uuid4()),
+        )
+    with pytest.raises(ValueError, match="bound lifecycle_generation"):
+        record.transition(
+            stage=OperationStage.SUBMITTING, now=3, lifecycle_generation=2,
+        )

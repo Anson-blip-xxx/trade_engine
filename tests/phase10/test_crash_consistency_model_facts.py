@@ -27,7 +27,9 @@ def test_dormant_operation_journal_foundation_has_no_runtime_or_outbox():
     assert 'operation_journal' not in schema
     assert 'transactional_outbox' not in schema
     assert 'create table if not exists trade_operations' in operation_schema
-    assert not (ROOT / 'operation_journal/postgres.py').exists()
+    adapter = (ROOT / 'operation_journal/postgres.py').read_text().lower()
+    assert 'connection_factory' in adapter
+    assert 'import psycopg' not in adapter
     assert 'class NullJournalRecorder' in recorder
     assert '_default_recorder: JournalRecorder = NullJournalRecorder()' in recorder
 
