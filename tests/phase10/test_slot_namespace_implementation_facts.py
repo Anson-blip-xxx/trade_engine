@@ -90,6 +90,7 @@ def test_only_protection_fence_modules_call_identity_package():
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
         'position_protection/task.py',
+        'position_state/fenced_snapshot.py',
         'shared/position_manager.py',
     }
 

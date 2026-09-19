@@ -62,6 +62,7 @@ it does not mean the production behavior was implemented.
 | R4B-WRITER Legacy Snapshot Fence | **IMPLEMENTED / CLOSED (DORMANT)** | `position_identity.snapshot_fence`; `P10_R4B_WRITER_FENCE_IMPLEMENTATION.md`; per-symbol batch filtering + fail-closed canonical read validation | typed save ACK + canonical mutation CAS before runtime wiring |
 | R4B-MUTATION Projection Reduction CAS | **IMPLEMENTED / CLOSED (DORMANT)** | `position_identity.projection_mutation`; `P10_R4B_PROJECTION_MUTATION_IMPLEMENTATION.md`; authority+projection fenced strict quantity reduction | lifecycle wiring + typed save ACK |
 | R4B-STATE-ACK Typed Snapshot CAS | **IMPLEMENTED / CLOSED (DORMANT)** | `position_state.strict_snapshot`; `P10_R4B_TYPED_SNAPSHOT_IMPLEMENTATION.md`; strict raw-token CAS + typed ACK/STALE/UNKNOWN | compose with canonical fence + propagate caller ACK |
+| R4B-COMPOSE Atomic Fenced Snapshot Commit | **IMPLEMENTED / CLOSED (DORMANT)** | `position_state.fenced_snapshot`; `P10_R4B_FENCED_SNAPSHOT_COMMIT_IMPLEMENTATION.md`; one Lua fence over snapshot + every canonical raw token | propagate caller ACK + lifecycle wiring + protection verification |
 | P10-D4 Persistence Failure Policy | **DESIGN AUDITED** | `P10_D4_PERSISTENCE_FAILURE_POLICY.md`; sink roles + acknowledgement + required/best-effort/retry/UNKNOWN + D3 input contract | C1, C2, PMB-23A, B2, T12-C design |
 | P10-D5 Position Identity And Marker Authority | **DESIGN AUDITED** | `P10_D5_POSITION_IDENTITY_MARKER_AUTHORITY.md`; identity taxonomy + episode/reopen semantics + marker authority/migration/fencing model | POS-ID, PMB-4, D2 generation, T12/D3 replay identity |
 
@@ -83,7 +84,7 @@ it does not mean the production behavior was implemented.
 14. R1 canonical live projection/revision and dormant legacy guard (implemented/closed).
 15. R2 / P10-D2A durable desired-protection record after R1 (implemented/closed).
 16. R3 conditional writeback (implemented/closed).
-17. R4A native active-open and R4A-CLOSE finalization (implemented/closed); R4B-IDENTITY dormant handoff implemented, then complete writer/protection gates before active R4B producer.
+17. R4A native active-open and R4A-CLOSE finalization (implemented/closed); R4B dormant identity, writer, mutation, state-ACK, and atomic composition nodes implemented, then complete caller ACK propagation, lifecycle wiring, and protection verification before active R4B producer.
 18. Remaining behavior tickets only after their predecessor artifacts are approved.
 
 No imported backlog ticket is implementation-ready at P10-00.
@@ -226,7 +227,7 @@ schema, journal, replay, or production behavior changed. See
 P10-07 resolves the former D5A decisions: explicit configured principal;
 controlled adoption when strict evidence/CAS passes and quarantine otherwise;
 automatic reconstructed authority only as `RECONSTRUCTED_QUARANTINED`.
-D5A foundation and D3D-1B/C are complete. R1 canonical live-projection revision/CAS is implemented and closed as dormant infrastructure. R2 durable desired-protection generation is implemented and closed as dormant infrastructure. R3 / D3D-1D conditional writeback is implemented and closed on isolated V2; R4A native active-open and R4A-CLOSE finalization are implemented; R4B migrated and replacement producers remain.
+D5A foundation and D3D-1B/C are complete. R1 canonical live-projection revision/CAS is implemented and closed as dormant infrastructure. R2 durable desired-protection generation is implemented and closed as dormant infrastructure. R3 / D3D-1D conditional writeback is implemented and closed on isolated V2; R4A native active-open and R4A-CLOSE finalization are implemented; R4B atomic snapshot fence/CAS composition is implemented and dormant, while migrated and replacement producers remain.
 
 P10-D3D-1 is design-complete; implementation proceeds through the remaining R4 producers after R4A. Current
 `position_id` is `TEMPORARY_FENCE_ONLY`, never canonical authority. See

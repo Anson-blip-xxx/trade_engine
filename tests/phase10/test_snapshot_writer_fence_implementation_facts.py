@@ -64,7 +64,7 @@ def test_planner_remains_dormant_and_docs_preserve_active_gate():
             continue
         if "plan_legacy_snapshot_write" in path.read_text():
             callers.append(str(relative))
-    assert callers == []
+    assert callers == ["position_state/fenced_snapshot.py"]
     model = MODEL.read_text()
     backlog = BACKLOG.read_text()
     assert "not wired into `pm:positions` writes" in model
