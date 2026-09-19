@@ -97,6 +97,7 @@ def test_only_r4_handoff_and_close_boundary_import_projection_implementation():
     assert set(callers) == {
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
+        'position_protection/verification.py',
         'position_state/fenced_snapshot.py',
         'shared/position_manager.py',
     }

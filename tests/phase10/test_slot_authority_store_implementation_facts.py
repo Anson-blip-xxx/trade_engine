@@ -110,6 +110,7 @@ def test_only_protection_runtime_calls_authority_store():
     assert set(callers) == {
         'position_protection/handoff.py',
         'position_protection/handoff_redis.py',
+        'position_protection/verification.py',
         'position_state/fenced_snapshot.py',
         'shared/position_manager.py',
     }

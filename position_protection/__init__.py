@@ -11,10 +11,18 @@ from position_protection.desired import (
 )
 from position_protection.desired_redis import RedisDesiredProtectionAdapter
 from position_protection.handoff import (
-    NativeOpenHandoffCode, NativeOpenHandoffResult,
+    NativeOpenHandoffCode,
+    NativeOpenHandoffResult,
 )
 from position_protection.handoff_redis import RedisNativeOpenHandoffAdapter
 from position_protection.task import ConditionalWritebackProtectionTask
+from position_protection.verification import (
+    ExchangeExposureObservation,
+    ExchangeProtectionObservation,
+    ProtectionVerificationCode,
+    ProtectionVerificationResult,
+    verify_current_protection,
+)
 from position_protection.writeback import WritebackCode, WritebackResult
 from position_protection.writeback_redis import (
     RedisConditionalAliasWritebackAdapter,
@@ -22,18 +30,23 @@ from position_protection.writeback_redis import (
 
 __all__ = [
     'DESIRED_PROTECTION_SCHEMA_VERSION',
+    'ConditionalWritebackProtectionTask',
     'DesiredProtectionRecord',
     'DesiredReadCode',
     'DesiredReadResult',
     'DesiredWriteCode',
     'DesiredWriteResult',
-    'ConditionalWritebackProtectionTask',
-    'ProtectionStatus',
+    'ExchangeExposureObservation',
+    'ExchangeProtectionObservation',
     'NativeOpenHandoffCode',
     'NativeOpenHandoffResult',
+    'ProtectionStatus',
+    'ProtectionVerificationCode',
+    'ProtectionVerificationResult',
     'RedisConditionalAliasWritebackAdapter',
     'RedisDesiredProtectionAdapter',
     'RedisNativeOpenHandoffAdapter',
     'WritebackCode',
     'WritebackResult',
+    'verify_current_protection',
 ]

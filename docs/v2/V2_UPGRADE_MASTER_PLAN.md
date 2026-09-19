@@ -125,6 +125,7 @@ slot generation、protection generation、projection revision 做原子 CAS。�
    - R4B-STATE-ACK strict typed snapshot CAS: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-COMPOSE atomic canonical-token + legacy-snapshot commit: IMPLEMENTED / CLOSED (DORMANT);
    - R4B-ACK-POLICY typed non-swallowing caller decision service: IMPLEMENTED / CLOSED (DORMANT);
+   - R4B-PROTECTION-VERIFY strict pure exchange-evidence core: IMPLEMENTED / CLOSED (DORMANT);
    - active migration remains gated by caller acknowledgement propagation, lifecycle mutation wiring, and exchange protection verification.
 3. controlled migrated position；
 4. break-even replacement；
