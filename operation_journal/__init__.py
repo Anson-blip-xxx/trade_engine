@@ -1,4 +1,10 @@
 """Durable trading-operation journal domain."""
+from operation_journal.coordinator import (
+    RecoveryBatchDisposition,
+    RecoveryBatchPlan,
+    RecoveryWorkItem,
+    plan_recovery_batch,
+)
 from operation_journal.model import (
     OPERATION_SCHEMA_VERSION,
     OperationRecord,
@@ -42,11 +48,15 @@ __all__ = [
     "PostgresOperationJournal",
     "ReadCode",
     "ReadResult",
+    "RecoveryBatchDisposition",
+    "RecoveryBatchPlan",
     "RecoveryClaimCode",
     "RecoveryClaimResult",
     "RecoveryDecision",
     "RecoveryDirective",
+    "RecoveryWorkItem",
     "canonical_json",
     "decide_recovery",
     "is_legal_transition",
+    "plan_recovery_batch",
 ]

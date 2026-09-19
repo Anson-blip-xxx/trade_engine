@@ -159,7 +159,9 @@ Bounded one-per-slot recovery discovery/claim is IMPLEMENTED / CLOSED
 (DORMANT) and passes a two-worker PG16 race. The typed stage decision engine
 is also IMPLEMENTED / CLOSED (DORMANT), including query-only ambiguity and
 ghost/external policy guards. Directive executors, evidence resolvers, extended
-fault/concurrency QA, and runtime activation gates remain.
+fault/concurrency QA, and runtime activation gates remain. A pure D3B batch
+boundary now composes claims and decisions while failing closed on journal
+UNKNOWN or claim invariant violations; it is not runtime-wired.
 
 ### P1 — P10-D2C Exchange Algo API Characterization
 

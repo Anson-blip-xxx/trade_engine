@@ -30,9 +30,9 @@ and `AUXILIARY_PENDING` require both named work and `next_attempt_at`;
 `COMPLETED` cannot retain pending work. Matching JSON-type checks exist in the
 dormant PostgreSQL schema.
 
-Remaining work is directive-specific ports/executors, exchange evidence
-resolvers, generation-fence validation, durable scheduler policy, and runtime
-activation gates.
+The dormant fail-closed batch coordinator now composes claim results with these
+decisions. Remaining work is directive-specific ports/executors, exchange
+evidence resolvers, generation-fence validation, durable scheduler policy, and
+runtime activation gates.
 
 **P10 D3A-RECOVERY-DECISION PASS.**
-
