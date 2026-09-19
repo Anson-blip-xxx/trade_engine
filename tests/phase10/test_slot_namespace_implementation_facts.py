@@ -96,6 +96,7 @@ def test_only_protection_fence_modules_call_identity_package():
         'position_protection/verification_commit.py',
         'position_protection/verification_coordinator.py',
         'position_state/fenced_snapshot.py',
+        'position_state/lifecycle_ack.py',
         'position_state/snapshot_ack.py',
         'shared/position_manager.py',
     }

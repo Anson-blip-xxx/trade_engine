@@ -5,6 +5,10 @@ from position_state.fenced_snapshot import (
     FencedSnapshotCommitResult,
     RedisFencedSnapshotCommitAdapter,
 )
+from position_state.lifecycle_ack import (
+    AcknowledgedSnapshotLifecycleService,
+    SnapshotLifecycleResult,
+)
 from position_state.snapshot_ack import (
     FencedSnapshotCommitService,
     SnapshotCommitAcknowledgement,
@@ -20,12 +24,14 @@ from position_state.strict_snapshot import (
 )
 
 __all__ = [
+    "AcknowledgedSnapshotLifecycleService",
     "FencedSnapshotCommitCode",
     "FencedSnapshotCommitResult",
     "FencedSnapshotCommitService",
     "RedisFencedSnapshotCommitAdapter",
     "SnapshotCommitAcknowledgement",
     "SnapshotCommitAction",
+    "SnapshotLifecycleResult",
     "StrictRedisPositionSnapshotAdapter",
     "StrictSnapshotRead",
     "StrictSnapshotReadCode",
