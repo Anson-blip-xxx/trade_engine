@@ -93,15 +93,23 @@ def test_queue_carries_slot_episode_and_generation_identity():
         assert token in enqueue
 
 
-def test_worker_parses_identity_without_authority_validation():
-    source = (ROOT / 'position_runtime/runtime.py').read_text()
-    worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
+def test_worker_delegates_identity_and_pm_enforces_v1_v2():
+    runtime = (ROOT / 'position_runtime/runtime.py').read_text()
+    worker = _function(runtime, 'algo_worker_loop(', 'start_algo_worker(')
     assert 'parsed = classify_queue_task(task)' in worker
-    assert 'fenced_task = parsed.task' in worker
-    assert 'place_fn(' in worker
+    assert 'execute_fn(fenced_task)' in worker
     for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
-                  'can_mutate_async', 'current_position'):
+                  'can_mutate_async'):
         assert token not in worker
+
+    pm = (ROOT / 'shared/position_manager.py').read_text()
+    execute = _function(pm, '_algo_execute_fenced_task(', '_algo_enqueue(')
+    place = _function(pm, '_algo_place_sl_inner(', '_algo_cancel(')
+    assert execute.index('fence.acquire(task)') < execute.index(
+        '_algo_place_sl_inner(')
+    assert place.index('_cancel_all_algo(symbol)') < place.index(
+        'before_create()') < place.index(
+        "_light_fapi_post('/fapi/v1/algoOrder'")
 
 
 def test_algo_alias_writeback_is_symbol_only_without_cas():

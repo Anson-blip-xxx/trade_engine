@@ -33,10 +33,10 @@ The only consumer remains `position_runtime.runtime.algo_worker_loop`; queue
 backing and lock remain owned by `shared.position_manager`.
 
 The existing producers do not yet possess active canonical authority and still
-emit the legacy four-argument shape. That shape is now deliberately drop-only.
-Consequently this isolated V2 commit must not be deployed by itself. D3D-1C
-must bind supported producers to current authority and perform worker preflight
-before V2 is promoted to the running environment.
+emit the legacy four-argument shape. That shape is deliberately drop-only.
+Consequently D3D-1B and its isolated follow-ups must not be deployed by
+themselves. D3D-1C adds worker preflight but does not synthesize producer
+authority; producer integration remains an explicit later rollout boundary.
 
 ## 3. Immutable Payload
 

@@ -48,8 +48,8 @@ class TestNoSLWindow:
         # place → sleep order within worker loop
         # from source: place → sleep(11)
         assert list(src).count(' ') > 0  # no-op
-        assert src.find('place_fn=_algo_place_sl_inner') < src.find('log_fn=_pmlog')
-        assert rsrc.find('place_fn(') < rsrc.rfind('time.sleep(11)')
+        assert src.find('execute_fn=_algo_execute_fenced_task') < src.find('log_fn=_pmlog')
+        assert rsrc.find('execute_fn(') < rsrc.rfind('time.sleep(11)')
 
     def test_worker_empty_polls_every_1s(self, worker_clean):
         pm = worker_clean['pm']

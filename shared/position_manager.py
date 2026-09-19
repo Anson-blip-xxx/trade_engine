@@ -18,6 +18,8 @@ import time, json, threading, hmac, hashlib, os, uuid, requests
 from pathlib import Path
 from urllib.parse import urlencode
 from shared.redis_store import get as _rget, set as _rset
+from shared.redis_store import strict_eval as _strict_redis_eval
+from shared.redis_store import strict_get as _strict_redis_get
 from shared.redis_store import lock_acquire as _lock_acquire, lock_release as _lock_release
 from shared.binance_api import FAPI as _FAPI, TG_TOKEN as _TG_TOKEN, TG_CHAT_ID as _TG_CHAT_ID
 from shared.postgres_client import record_trade_event as _pg_record_event
@@ -32,7 +34,11 @@ from position_state import service as ps_service
 from position_state.service import parse_position_risk as _ext_pos_parse
 
 from position_protection import service as pp_service
+from position_protection.claim import ClaimReleaseCode
+from position_protection.claim_redis import RedisProtectionMutationClaimAdapter
+from position_protection.fence import ProtectionTaskFence
 from position_protection.task import AlgoProtectionTask
+from position_identity import RedisSlotAuthorityAdapter
 
 from position_monitoring import service as _mon_svc
 from position_monitoring import deps as _mon_deps
@@ -224,7 +230,44 @@ def _algo_worker_loop():
     """后台循环：每 11s 从队列取一个任务执行（P8-06B：thin delegation；队列/锁
     backing 本 module 单 owner）。"""
     _rt.algo_worker_loop(queue=_ALGO_QUEUE, lock=_ALGO_QUEUE_LOCK,
-                         place_fn=_algo_place_sl_inner, log_fn=_pmlog)
+                         execute_fn=_algo_execute_fenced_task, log_fn=_pmlog)
+
+
+def _algo_task_fence():
+    authority_reader = RedisSlotAuthorityAdapter(
+        redis_get=_strict_redis_get, redis_eval=_strict_redis_eval)
+    claim_store = RedisProtectionMutationClaimAdapter(
+        redis_eval=_strict_redis_eval)
+    return ProtectionTaskFence(
+        authority_reader=authority_reader, claim_store=claim_store)
+
+
+def _algo_execute_fenced_task(task: AlgoProtectionTask):
+    """Acquire V1 permission and require V2 immediately before create."""
+    fence = _algo_task_fence()
+    admission = fence.acquire(task)
+    if not admission.allowed:
+        _pmlog(f'[AlgoWorkerDrop] symbol={task.symbol} '
+               f'reason=V1_{admission.code.value}')
+        return {'error': admission.code.value}
+    claim = admission.claim
+    try:
+        def before_create():
+            validation = fence.validate(claim)
+            if not validation.allowed:
+                _pmlog(f'[AlgoWorkerDrop] symbol={task.symbol} '
+                       f'reason=V2_{validation.code.value}')
+            return validation.allowed
+
+        return _algo_place_sl_inner(
+            task.symbol, task.side, task.trigger_price, task.qty,
+            before_create=before_create,
+        )
+    finally:
+        released = fence.release(claim)
+        if released.code is not ClaimReleaseCode.RELEASED:
+            _pmlog(f'[AlgoClaimRelease] symbol={task.symbol} '
+                   f'reason={released.code.value}')
 
 
 def _algo_enqueue(
@@ -251,7 +294,8 @@ def _algo_enqueue(
            f'trigger={trigger_price} qty={qty} 已入队')
 
 def _algo_place_sl_inner(symbol: str, side: str,
-                          trigger_price: float, qty: float) -> dict:
+                          trigger_price: float, qty: float, *,
+                          before_create=None) -> dict:
     """
     实际调用 Binance API 下 Algo 条件止损单（无限速检查，由调用者保证）。
     使用轻量 API 调用，不依赖 s6_auto_trader。
@@ -280,6 +324,9 @@ def _algo_place_sl_inner(symbol: str, side: str,
 
         # 下单前先取消该币所有活跃条件单（防止重启积累重复单）
         _cancel_all_algo(symbol)
+
+        if before_create is not None and not before_create():
+            return {'error': 'PROTECTION_FENCE_REJECTED_BEFORE_CREATE'}
 
         result = _light_fapi_post('/fapi/v1/algoOrder', {
             'symbol': symbol,

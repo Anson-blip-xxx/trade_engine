@@ -96,7 +96,7 @@ def test_authority_adapter_accepts_exchange_position_key_not_bare_slot_parts():
         assert token not in source
 
 
-def test_no_active_runtime_module_calls_authority_store():
+def test_only_protection_runtime_calls_authority_store():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -107,7 +107,7 @@ def test_no_active_runtime_module_calls_authority_store():
                 or 'SlotAuthority' in source \
                 or 'authority_redis' in source:
             callers.append(str(relative))
-    assert callers == []
+    assert callers == ['shared/position_manager.py']
 
 
 def test_protection_queue_identity_is_extended_but_authority_unwired():
@@ -130,15 +130,14 @@ def test_legacy_position_payload_has_no_episode_authority_fields():
         assert token not in cache
 
 
-def test_active_startup_still_does_not_require_principal_or_authority():
+def test_active_startup_still_does_not_require_principal_config():
     for path in (
         'strategies/S6.py', 'strategies/S8.py',
         'strategies/shared_executor.py', 'shared/position_manager.py',
     ):
         source = (ROOT / path).read_text()
-        for token in ('ACCOUNT_PRINCIPAL_ID', 'RedisSlotAuthorityAdapter',
-                      'SlotAuthority'):
-            assert token not in source
+        assert 'ACCOUNT_PRINCIPAL_ID' not in source
+        assert 'resolve_account_principal' not in source
 
 
 def test_authority_schema_contains_no_secret_or_wallet_material():

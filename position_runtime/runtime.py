@@ -21,7 +21,7 @@ from position_protection.task import (
 )
 
 
-def algo_worker_loop(queue: list, lock, place_fn, log_fn) -> None:
+def algo_worker_loop(queue: list, lock, execute_fn, log_fn) -> None:
     """Consume immutable tasks and fail closed on legacy/malformed shapes.
 
     冻结：FIFO pop(0)；task place/drop → sleep(11)；idle → sleep(1)；
@@ -45,10 +45,7 @@ def algo_worker_loop(queue: list, lock, place_fn, log_fn) -> None:
             fenced_task = parsed.task
             symbol = fenced_task.symbol
             try:
-                place_fn(
-                    symbol, fenced_task.side, fenced_task.trigger_price,
-                    fenced_task.qty,
-                )
+                execute_fn(fenced_task)
             except Exception as e:
                 log_fn(f'[AlgoWorker异常] {symbol}: {e}')
             time.sleep(11)  # 限速间隔

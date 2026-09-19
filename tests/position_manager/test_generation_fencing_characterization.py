@@ -1,4 +1,5 @@
 """P10-D3D-1B fail-closed handling of unfenced AlgoSL work."""
+import copy
 import threading
 
 import pytest
@@ -26,7 +27,7 @@ def _run_one_task(monkeypatch):
         rt.algo_worker_loop(
             queue=pm._ALGO_QUEUE,
             lock=threading.Lock(),
-            place_fn=pm._algo_place_sl_inner,
+            execute_fn=pm._algo_execute_fenced_task,
             log_fn=lambda message: None,
         )
 

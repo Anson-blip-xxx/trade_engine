@@ -116,7 +116,7 @@ def test_no_active_production_caller_imports_onboarding():
         source = path.read_text()
         if any(symbol in source for symbol in symbols):
             callers.append(str(relative))
-    assert callers == []
+    assert callers == ['position_protection/fence.py']
 
 
 def test_emergency_close_paths_remain_authority_independent():
@@ -154,7 +154,7 @@ def test_position_payload_unchanged_and_queue_identity_extended():
     assert 'parsed = classify_queue_task(task)' in runtime
 
 
-def test_implementation_doc_closes_d5a_and_advances_to_d3d1c():
+def test_implementation_doc_closes_d5a_and_records_d3d1c_progress():
     model = MODEL.read_text()
     backlog = BACKLOG.read_text()
     for phrase in (
@@ -165,10 +165,10 @@ def test_implementation_doc_closes_d5a_and_advances_to_d3d1c():
         assert phrase in model
     assert 'P10-D5A-3 Episode Onboarding | **IMPLEMENTED / CLOSED**' \
         in backlog
-    assert 'P10-D5A is `IMPLEMENTED / CLOSED`' in backlog
+    assert 'P10-D5A and P10-D3D-1B/C are `IMPLEMENTED / CLOSED`' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension' in backlog
     assert '| P10-D3D-1B | immutable queue identity extension and four-tuple legacy drop parser | IMPLEMENTED / CLOSED |' in backlog
-    assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | READY_FOR_IMPLEMENTATION |' in backlog
+    assert '| P10-D3D-1C | worker V1/V2 validation and mutation claim before cancel/create | IMPLEMENTED / CLOSED |' in backlog
     assert 'P10-D3D-1C | worker V1/V2 validation' in backlog
     assert 'P10-D3D-1D | episode/generation/revision' in backlog
-    assert 'BLOCKED_BY_OTHER_TICKET (P10-D3D-1C)' in backlog
+    assert '| P10-D3D-1D | episode/generation/revision conditional `algo_sl_id` writeback | READY_FOR_IMPLEMENTATION |' in backlog

@@ -31,28 +31,25 @@ def test_queue_payload_carries_episode_and_protection_generation():
         assert token not in enqueue
 
 
-def test_worker_pops_fifo_and_parses_without_loading_authority():
+def test_worker_pops_fifo_and_delegates_to_fenced_executor():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
     assert 'task = queue.pop(0)' in worker
     assert 'parsed = classify_queue_task(task)' in worker
-    assert worker.index('queue.pop(0)') < worker.index('place_fn(')
-    for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
-                  'can_mutate_async', 'current_position'):
-        assert token not in worker
+    assert worker.index('queue.pop(0)') < worker.index(
+        'execute_fn(fenced_task)')
 
 
-def test_place_does_not_compare_identity_before_cancel_or_create():
+def test_place_validates_v2_after_cancel_and_before_create():
     source = (ROOT / 'shared/position_manager.py').read_text()
     place = _function(source, '_algo_place_sl_inner(', '_algo_cancel(')
     before_cancel = place.split('_cancel_all_algo(symbol)', 1)[0]
     assert '_load()' not in before_cancel
     assert place.index('_cancel_all_algo(symbol)') < place.index(
+        'before_create()') < place.index(
         "_light_fapi_post('/fapi/v1/algoOrder'")
     assert place.index("_light_fapi_post('/fapi/v1/algoOrder'") < \
         place.index('positions = _load()')
-    for token in ('position_id', 'episode', 'generation'):
-        assert token not in place
 
 
 def test_cancel_all_uses_symbol_as_its_only_task_ownership_key():

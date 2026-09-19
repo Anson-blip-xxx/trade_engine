@@ -37,8 +37,8 @@ def test_worker_pacing_is_after_attempt_and_has_no_retry_or_health():
     tree = ast.parse('def algo_worker_loop(' + worker)
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
     names = [call.func.id for call in calls if isinstance(call.func, ast.Name)]
-    assert names.count('place_fn') == 1
-    assert worker.index('place_fn(') < worker.rindex('time.sleep(11)')
+    assert names.count('execute_fn') == 1
+    assert worker.index('execute_fn(fenced_task)') < worker.rindex('time.sleep(11)')
     assert 'queue.pop(0)' in worker and 'time.sleep(1)' in worker
     assert 'queue.append' not in worker
     for token in ('heartbeat', 'is_alive'):

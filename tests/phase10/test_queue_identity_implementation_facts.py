@@ -44,10 +44,11 @@ def test_enqueue_never_derives_partial_identity():
         assert forbidden not in enqueue
 
 
-def test_worker_drops_legacy_before_place_without_authority_lookup():
+def test_worker_drops_legacy_before_fenced_execution():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
-    assert worker.index('classify_queue_task(task)') < worker.index('place_fn(')
+    assert worker.index('classify_queue_task(task)') < worker.index(
+        'execute_fn(fenced_task)')
     assert 'QueueTaskClassification.FENCED' in worker
     assert 'reason={parsed.classification.value}' in worker
     for forbidden in (
@@ -70,7 +71,7 @@ def test_model_records_scope_and_next_ticket():
     model = MODEL.read_text()
     backlog = BACKLOG.read_text()
     for phrase in (
-        'LEGACY_UNFENCED', 'drop-only', 'must not be deployed by itself',
+        'LEGACY_UNFENCED', 'drop-only', 'must not be deployed',
         'D3D-1C', 'D3D-1D', '**P10-D3D-1B PASS.**',
     ):
         assert phrase in model

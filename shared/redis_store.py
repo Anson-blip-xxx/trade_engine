@@ -112,6 +112,21 @@ def _conn():
         _REDIS = _redis.Redis(host='127.0.0.1', port=6379, db=0, decode_responses=True)
     return _REDIS
 
+
+def strict_get(key: str):
+    """Read a dedicated authority key with no file fallback."""
+    if not _check_redis():
+        raise ConnectionError('Redis authority backend unavailable')
+    return _conn().get(key)
+
+
+def strict_eval(script: str, numkeys: int, *keys_and_args):
+    """Execute an authority Lua command with no file fallback."""
+    if not _check_redis():
+        raise ConnectionError('Redis authority backend unavailable')
+    return _conn().eval(script, numkeys, *keys_and_args)
+
+
 def migrate_all():
     """启动时调用：从 JSON 文件重建 Redis（JSON 始终是最新的，通过双写保障）"""
     if not _check_redis():

@@ -74,7 +74,7 @@ def test_serialization_is_deterministic_and_not_repr_or_runtime_hash():
     assert 'hashlib.sha256(' in digest
 
 
-def test_only_d3d1b_task_module_calls_identity_package():
+def test_only_protection_fence_modules_call_identity_package():
     callers = []
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
@@ -82,7 +82,12 @@ def test_only_d3d1b_task_module_calls_identity_package():
             continue
         if 'position_identity' in path.read_text():
             callers.append(str(relative))
-    assert callers == ['position_protection/task.py']
+    assert set(callers) == {
+        'position_protection/claim.py',
+        'position_protection/fence.py',
+        'position_protection/task.py',
+        'shared/position_manager.py',
+    }
 
 
 def test_no_slot_authority_redis_key_or_adapter_exists_yet():
@@ -113,12 +118,12 @@ def test_protection_queue_schema_carries_canonical_identity():
         assert token in enqueue
 
 
-def test_worker_parser_is_wired_without_authority_lookup():
+def test_worker_parser_delegates_to_fenced_executor():
     source = (ROOT / 'position_runtime/runtime.py').read_text()
     worker = _function(source, 'algo_worker_loop(', 'start_algo_worker(')
     assert 'parsed = classify_queue_task(task)' in worker
     assert 'fenced_task = parsed.task' in worker
-    assert 'place_fn(' in worker
+    assert 'execute_fn(fenced_task)' in worker
     for token in ('get_slot_authority', 'RedisSlotAuthorityAdapter',
                   'account_principal', 'can_mutate_async'):
         assert token not in worker

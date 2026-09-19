@@ -44,7 +44,7 @@ def _task(**overrides):
     return AlgoProtectionTask(**values)
 
 
-def _run_one(monkeypatch, queue, place_fn, logs):
+def _run_one(monkeypatch, queue, execute_fn, logs):
     def stop_after_task(delay):
         assert delay == 11
         raise _StopWorker
@@ -54,7 +54,7 @@ def _run_one(monkeypatch, queue, place_fn, logs):
         rt.algo_worker_loop(
             queue=queue,
             lock=threading.Lock(),
-            place_fn=place_fn,
+            execute_fn=execute_fn,
             log_fn=logs.append,
         )
 
@@ -118,14 +118,14 @@ def test_pm_enqueue_rejects_partial_identity_without_queueing(monkeypatch):
     assert pm._ALGO_QUEUE == []
 
 
-def test_worker_executes_fenced_shape_without_authority_validation(monkeypatch):
-    placed = []
+def test_worker_delegates_fenced_shape_to_authorized_executor(monkeypatch):
+    executed = []
     logs = []
     _run_one(
         monkeypatch, [_task()],
-        lambda *args: placed.append(args), logs,
+        executed.append, logs,
     )
-    assert placed == [('BTCUSDT', 'SELL', 90.0, 2.0)]
+    assert executed == [_task()]
     assert logs == []
 
 

@@ -56,7 +56,7 @@ def test_algo_queue_is_process_memory_and_sleep_is_after_attempt():
     assert '_ALGO_QUEUE = []' in pm
     assert '_ALGO_QUEUE.append' in enqueue
     assert '_rset' not in enqueue and 'postgres' not in enqueue
-    assert worker.index('place_fn(') < worker.rindex('time.sleep(11)')
+    assert worker.index('execute_fn(fenced_task)') < worker.rindex('time.sleep(11)')
     assert 'queue.pop(0)' in worker and 'time.sleep(1)' in worker
 
 
