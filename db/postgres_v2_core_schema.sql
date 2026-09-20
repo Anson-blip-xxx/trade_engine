@@ -173,6 +173,71 @@ CREATE TRIGGER v2_cash_immutable BEFORE UPDATE OR DELETE ON v2_cash_adjustments
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE INDEX v2_cash_episode ON v2_cash_adjustments(episode_id);
 
+-- Unallocated external income must survive process restarts independently of PnL.
+CREATE TABLE v2_income_imports (
+    run_id UUID PRIMARY KEY,
+    scope JSONB NOT NULL CHECK (jsonb_typeof(scope)='object'),
+    start_ms BIGINT NOT NULL CHECK (start_ms>=0), end_ms BIGINT NOT NULL CHECK (end_ms>=start_ms),
+    status TEXT NOT NULL CHECK (status IN ('RUNNING','FETCHED','PARTIAL','FAILED')),
+    pages BIGINT NOT NULL DEFAULT 0 CHECK (pages>=0), row_count BIGINT NOT NULL DEFAULT 0 CHECK (row_count>=0),
+    error_code TEXT,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE FUNCTION v2_guard_income_import() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status <> 'RUNNING' OR
+       (NEW.run_id,NEW.scope,NEW.start_ms,NEW.end_ms,NEW.started_at) IS DISTINCT FROM
+       (OLD.run_id,OLD.scope,OLD.start_ms,OLD.end_ms,OLD.started_at) OR
+       NEW.pages < OLD.pages OR NEW.row_count < OLD.row_count THEN
+        RAISE EXCEPTION 'immutable import identity or terminal result';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER v2_income_import_guard BEFORE UPDATE ON v2_income_imports
+FOR EACH ROW EXECUTE FUNCTION v2_guard_income_import();
+CREATE TRIGGER v2_income_import_no_delete BEFORE DELETE ON v2_income_imports
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TABLE v2_exchange_income (
+    income_id UUID PRIMARY KEY,
+    exchange TEXT NOT NULL, account_id TEXT NOT NULL, environment TEXT NOT NULL, product TEXT NOT NULL,
+    income_type TEXT NOT NULL, source_id TEXT NOT NULL, symbol TEXT NOT NULL,
+    amount NUMERIC(38,18) NOT NULL, currency TEXT NOT NULL,
+    occurred_at_ms BIGINT NOT NULL CHECK (occurred_at_ms >= 0),
+    evidence JSONB NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+    received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE(exchange,account_id,environment,product,income_type,source_id)
+);
+CREATE TRIGGER v2_income_immutable BEFORE UPDATE OR DELETE ON v2_exchange_income
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE INDEX v2_income_scope_time ON v2_exchange_income(exchange,account_id,environment,product,occurred_at_ms);
+CREATE TABLE v2_income_allocations (
+    income_id UUID PRIMARY KEY REFERENCES v2_exchange_income(income_id),
+    episode_id UUID NOT NULL REFERENCES v2_episodes(episode_id),
+    adjustment_key TEXT NOT NULL UNIQUE REFERENCES v2_cash_adjustments(adjustment_key),
+    evidence JSONB NOT NULL CHECK (jsonb_typeof(evidence)='object')
+);
+CREATE TRIGGER v2_income_allocation_immutable BEFORE UPDATE OR DELETE ON v2_income_allocations
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE FUNCTION v2_guard_income_allocation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM v2_exchange_income i JOIN v2_cash_adjustments c ON c.adjustment_key=NEW.adjustment_key
+        JOIN v2_trade_intents t ON t.intent_id=c.episode_id
+        WHERE i.income_id=NEW.income_id AND c.episode_id=NEW.episode_id AND i.income_type='FUNDING_FEE'
+        AND c.kind='FUNDING' AND c.amount=i.amount AND c.currency=i.currency AND c.occurred_at_ms=i.occurred_at_ms
+        AND (i.exchange,i.account_id,i.environment,i.product,i.symbol)=
+            (t.exchange,t.account_id,t.environment,t.product,t.payload->>'symbol')
+    ) THEN
+        RAISE EXCEPTION 'income allocation must match original financial fact and owner';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER v2_income_allocation_owner BEFORE INSERT ON v2_income_allocations
+FOR EACH ROW EXECUTE FUNCTION v2_guard_income_allocation();
+
 -- Historical valuation, not an assertion of a currency exchange transaction.
 CREATE TABLE v2_fx_valuations (
     episode_id UUID NOT NULL REFERENCES v2_episodes(episode_id),

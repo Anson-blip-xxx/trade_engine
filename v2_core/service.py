@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from uuid import UUID
 
 from v2_core.evidence import EvidenceStore
+from v2_core.income import IncomeJournal
 from v2_core.intents import Admission, AdmissionCode, IntentStore
 from v2_core.ledger import Ledger
 from v2_core.orders import Orders
@@ -22,6 +23,7 @@ class TradingData:
         self.ledger = Ledger(connection_factory)
         self.state = BusinessState(connection_factory)
         self.signals = Signals(connection_factory)
+        self.income = IncomeJournal(connection_factory)
         self.valuations = Valuations(connection_factory)
 
     def accept(self, intent, evidence):
@@ -102,6 +104,13 @@ class TradingData:
                 ORDER BY p.fill_key,p.evidence_digest""",
                 (intent_id,),
             ).fetchall()
+            income_allocations = conn.execute(
+                """SELECT i.income_id::text,i.income_type,i.source_id,
+                i.amount::text,i.currency,i.occurred_at_ms,i.evidence,a.evidence
+                FROM v2_income_allocations a JOIN v2_exchange_income i USING(income_id)
+                WHERE a.episode_id=%s ORDER BY i.occurred_at_ms,i.income_id""",
+                (intent_id,),
+            ).fetchall()
             valuations = conn.execute(
                 """SELECT fact_kind,fact_key,source_currency,target_currency,
                 version,rate::text,quote_at_ms,request_key,evidence FROM v2_fx_valuations
@@ -110,6 +119,25 @@ class TradingData:
             ).fetchall()
         return {
             "intent_id": intent[0],
+            "income_allocations": [
+                dict(
+                    zip(
+                        (
+                            "income_id",
+                            "income_type",
+                            "source_id",
+                            "amount",
+                            "currency",
+                            "occurred_at_ms",
+                            "source_evidence",
+                            "allocation_evidence",
+                        ),
+                        row,
+                        strict=True,
+                    )
+                )
+                for row in income_allocations
+            ],
             "valuations": [
                 dict(
                     zip(

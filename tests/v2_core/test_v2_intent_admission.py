@@ -666,6 +666,332 @@ def test_proven_not_submitted_is_terminal_without_manual_recovery(database):
     assert trace["episode"]["status"] == "ABORTED"
 
 
+def income_fact(**changes):
+    return {
+        "income_type": "FUNDING_FEE",
+        "source_id": "123",
+        "symbol": "BTCUSDT",
+        "amount_text": "-0.003",
+        "currency": "USDT",
+        "occurred_at_ms": 150,
+        "evidence": {"source": "binance-income", "trade_id": ""},
+        **changes,
+    }
+
+
+def income_scope(account="test-account"):
+    from v2_core.income import IncomeScope
+
+    return IncomeScope("BINANCE", account, "SANDBOX", "FUTURES")
+
+
+def test_income_scope_dedup_and_unallocated_facts_survive_replay(database):
+    from v2_core.income import IncomeJournal
+
+    journal = IncomeJournal(database)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        identities = list(
+            pool.map(
+                lambda _: journal.ingest(income_scope(), **income_fact()), range(4)
+            )
+        )
+    assert len(set(identities)) == 1
+    assert (
+        journal.ingest(income_scope(), **income_fact(amount_text="-0.0030"))
+        == identities[0]
+    )
+    with pytest.raises(ValueError, match="conflict"):
+        journal.ingest(income_scope(), **income_fact(amount_text="-0.004"))
+    other = journal.ingest(income_scope("other"), **income_fact())
+    different_type = journal.ingest(
+        income_scope(), **income_fact(income_type="COMMISSION")
+    )
+    assert len({other, different_type, identities[0]}) == 3
+    assert len(IncomeJournal(database).pending(income_scope())) == 2
+    assert len(journal.pending(income_scope(), income_type="FUNDING_FEE")) == 1
+    assert len(journal.pending(income_scope("other"))) == 1
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_cash_adjustments").fetchone() == (
+            0,
+        )
+
+
+def closed_for_income(database):
+    from v2_core.ledger import Ledger
+
+    original, orders, opening, _client = opened(database)
+    ledger = Ledger(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    record(ledger, opening, "entry", "100", fee="0")
+    orders.transition(
+        opening, expected_version=2, status="FILLED", evidence={"source": "test"}
+    )
+    closing, _ = orders.prepare(original.intent_id, leg="CLOSE")
+    orders.transition(closing, expected_version=1, status="SUBMITTING", evidence={})
+    ledger.record_fill(
+        order_id=closing,
+        exchange_fill_id="exit",
+        quantity="0.01",
+        price="110",
+        fee="0",
+        fee_currency="USDT",
+        occurred_at_ms=200,
+        evidence={"source": "test"},
+    )
+    orders.transition(
+        closing, expected_version=2, status="FILLED", evidence={"source": "test"}
+    )
+    return original
+
+
+def test_income_allocation_commits_cash_audit_and_outbox_once(database):
+    from decimal import Decimal
+
+    from v2_core.service import TradingData
+
+    original = closed_for_income(database)
+    data = TradingData(database)
+    identity = data.income.ingest(income_scope(), **income_fact())
+    args = {
+        "expected_revision": 2,
+        "evidence": {"source": "query", "fills_complete": True},
+    }
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(
+            pool.map(
+                lambda _: data.income.assign_funding(
+                    identity, original.intent_id, **args
+                ),
+                range(4),
+            )
+        )
+    assert sum(results) == 1
+    assert data.income.pending(income_scope()) == []
+    trace = data.trace(original.intent_id)
+    assert len(trace["cash"]) == len(trace["income_allocations"]) == 1
+    report = data.ledger.report(original.intent_id, settlement_currency="USDT")
+    assert Decimal(report["net_pnl"]) == Decimal("0.097")
+    assert report["accounting_revision"] == 3
+    assert (
+        len([e for e in trace["domain_events"] if e["kind"].startswith("CASH:")]) == 1
+    )
+    with pytest.raises(ValueError, match="conflict"):
+        data.income.assign_funding(
+            identity, original.intent_id, expected_revision=3, evidence=args["evidence"]
+        )
+
+
+@pytest.mark.parametrize(
+    "changes,reason",
+    [
+        ({"income_type": "COMMISSION"}, "only funding"),
+        ({"income_type": "REALIZED_PNL"}, "only funding"),
+        ({"symbol": "ETHUSDT"}, "account and symbol"),
+        ({"occurred_at_ms": 100}, "unambiguous"),
+        ({"occurred_at_ms": 200}, "unambiguous"),
+        ({"occurred_at_ms": 201}, "unambiguous"),
+    ],
+)
+def test_income_not_blindly_counted_or_attributed(database, changes, reason):
+    from v2_core.service import TradingData
+
+    original = closed_for_income(database)
+    data = TradingData(database)
+    identity = data.income.ingest(income_scope(), **income_fact(**changes))
+    with pytest.raises(ValueError, match=reason):
+        data.income.assign_funding(
+            identity,
+            original.intent_id,
+            expected_revision=2,
+            evidence={"source": "query", "fills_complete": True},
+        )
+    assert len(data.income.pending(income_scope())) == 1
+    assert data.trace(original.intent_id)["cash"] == []
+
+
+def test_income_assignment_failure_rolls_back_accounting_and_event(database):
+    from v2_core.service import TradingData
+
+    original = closed_for_income(database)
+    data = TradingData(database)
+    identity = data.income.ingest(income_scope(), **income_fact())
+    before = data.trace(original.intent_id)
+    with database() as conn:
+        conn.execute("""CREATE FUNCTION fail_income_assignment() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected failure'; END; $$;
+            CREATE TRIGGER fail_income_assignment BEFORE INSERT ON v2_income_allocations
+            FOR EACH ROW EXECUTE FUNCTION fail_income_assignment();""")
+    with pytest.raises(Exception, match="injected failure"):
+        data.income.assign_funding(
+            identity,
+            original.intent_id,
+            expected_revision=2,
+            evidence={"source": "query", "fills_complete": True},
+        )
+    assert data.trace(original.intent_id) == before
+    assert len(data.income.pending(income_scope())) == 1
+
+
+def income_row(identity=123, **changes):
+    return {
+        "tranId": identity,
+        "incomeType": "FUNDING_FEE",
+        "symbol": "BTCUSDT",
+        "income": "-0.003",
+        "asset": "USDT",
+        "time": 150,
+        "tradeId": "",
+        **changes,
+    }
+
+
+def test_income_import_replays_windows_and_retains_failed_page_progress(database):
+    from v2_core.binance_income import BinanceIncomeImporter
+    from v2_core.income import IncomeJournal
+
+    calls = []
+
+    def request(method, path, params):
+        assert method == "GET" and path == "/fapi/v1/income"
+        calls.append(params)
+        if params["page"] == 1:
+            return [income_row(i) for i in range(1000)]
+        raise TimeoutError("private details")
+
+    importer = BinanceIncomeImporter(
+        database,
+        request,
+        account_id="test-account",
+        environment="SANDBOX",
+        clock_ms=lambda: 1000,
+    )
+    result = importer.import_window(start_ms=100, end_ms=200)
+    assert (
+        result["status"],
+        result["pages"],
+        result["rows"],
+        result["error_code"],
+    ) == ("FAILED", 1, 1000, "TimeoutError")
+    assert len(IncomeJournal(database).pending(income_scope(), limit=1000)) == 1000
+    importer.request = lambda method, path, params: (
+        [income_row(i) for i in range(1000)] if params["page"] == 1 else []
+    )
+    assert importer.import_window(start_ms=100, end_ms=200)["status"] == "FETCHED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_exchange_income").fetchone() == (
+            1000,
+        )
+        assert conn.execute(
+            "SELECT status,error_code FROM v2_income_imports WHERE run_id=%s",
+            (result["run_id"],),
+        ).fetchone() == ("FAILED", "TimeoutError")
+
+
+@pytest.mark.parametrize("mode", ["limit", "duplicate", "bad-row"])
+def test_income_import_never_labels_truncated_or_invalid_pages_fetched(database, mode):
+    from v2_core.binance_income import BinanceIncomeImporter
+
+    page = (
+        [income_row(i) for i in range(1000)]
+        if mode == "limit"
+        else [income_row(), income_row()]
+    )
+    if mode == "bad-row":
+        page[1] = income_row(124, time=201)
+    importer = BinanceIncomeImporter(
+        database,
+        lambda *_: page,
+        account_id="test-account",
+        environment="SANDBOX",
+        clock_ms=lambda: 1000,
+        max_pages=1,
+    )
+    result = importer.import_window(start_ms=100, end_ms=200)
+    assert result["status"] == ("FAILED" if mode == "bad-row" else "PARTIAL")
+    if mode == "bad-row":
+        with database() as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM v2_exchange_income"
+            ).fetchone() == (0,)
+
+
+def test_income_page_commit_ack_loss_reports_durable_progress(database):
+    from v2_core.binance_income import BinanceIncomeImporter
+
+    calls = 0
+
+    @contextmanager
+    def lost_ack():
+        nonlocal calls
+        calls += 1
+        with database() as conn:
+            yield conn
+        if calls == 2:  # start committed, page committed, then acknowledgement lost
+            raise ConnectionError("simulated commit reply lost")
+
+    importer = BinanceIncomeImporter(
+        lost_ack,
+        lambda *_: [income_row()],
+        account_id="test-account",
+        environment="SANDBOX",
+        clock_ms=lambda: 1000,
+    )
+    result = importer.import_window(start_ms=100, end_ms=200)
+    assert (result["status"], result["pages"], result["rows"]) == ("FAILED", 1, 1)
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_exchange_income").fetchone() == (
+            1,
+        )
+    importer._connect = database
+    assert importer.import_window(start_ms=100, end_ms=200)["status"] == "FETCHED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_exchange_income").fetchone() == (
+            1,
+        )
+    with pytest.raises(Exception, match="terminal result"), database() as conn:
+        conn.execute(
+            "UPDATE v2_income_imports SET status='RUNNING' WHERE run_id=%s",
+            (result["run_id"],),
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"start_ms": True, "end_ms": 200},
+        {"start_ms": 0, "end_ms": 1001},
+        {"start_ms": 201, "end_ms": 200},
+    ],
+)
+def test_income_window_validation_precedes_network_and_database(changes):
+    from v2_core.binance_income import BinanceIncomeImporter
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid window must not perform I/O")
+
+    importer = BinanceIncomeImporter(
+        forbidden,
+        forbidden,
+        account_id="qa",
+        environment="SANDBOX",
+        clock_ms=lambda: 1000,
+    )
+    with pytest.raises(ValueError):
+        importer.import_window(**changes)
+
+
+def test_income_journal_financial_facts_are_immutable(database):
+    from v2_core.income import IncomeJournal
+
+    journal = IncomeJournal(database)
+    identity = journal.ingest(income_scope(), **income_fact())
+    with pytest.raises(Exception, match="immutable"), database() as conn:
+        conn.execute(
+            "UPDATE v2_exchange_income SET amount=0 WHERE income_id=%s", (identity,)
+        )
+    assert journal.pending(income_scope())[0]["income_id"] == identity
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 
@@ -1769,6 +2095,17 @@ def test_backup_restore_preserves_trace_ledger_and_cache_rebuild(database, tmp_p
         },
     )
     before = service.trace(request.intent_id)
+    from v2_core.binance_income import BinanceIncomeImporter
+
+    importer = BinanceIncomeImporter(
+        database,
+        lambda *_: [income_row()],
+        account_id="test-account",
+        environment="SANDBOX",
+        clock_ms=lambda: 1000,
+    )
+    imported = importer.import_window(start_ms=100, end_ms=200)
+    pending_income = service.income.pending(income_scope())
     with database() as conn:
         schema = conn.execute("SELECT current_schema()").fetchone()[0]
     archive = tmp_path / "qa-trade-backup.dump"
@@ -1807,6 +2144,12 @@ def test_backup_restore_preserves_trace_ledger_and_cache_rebuild(database, tmp_p
             timeout=30,
         )
         restored = connection_factory(restored_dsn, schema=schema)
+        assert TradingData(restored).income.pending(income_scope()) == pending_income
+        with restored() as conn:
+            assert conn.execute(
+                "SELECT status,row_count FROM v2_income_imports WHERE run_id=%s",
+                (imported["run_id"],),
+            ).fetchone() == ("FETCHED", 1)
         assert TradingData(restored).trace(request.intent_id) == before
         after_report = TradingData(restored).ledger.report(
             request.intent_id, settlement_currency="USDT"

@@ -175,3 +175,33 @@ missing_valuations 和 PENDING，不把未知费用当零。生产历史报价�
 episode；相同意图不能复活。POST 已尝试后的超时、5xx、解析失败仍保留 UNKNOWN。
 本轮所有测试均使用隔离数据库或假交易所连接；测试服务退出时已停止。
 整项数据架构迁移仍未达到发布门禁，不能把这些回归结果视为全策略接线验收。
+
+## 资金流水持久入口
+
+`BinanceIncomeImporter` 只调用 GET `/fapi/v1/income`，要求明确的账户、环境和
+历史时间窗。协议依据：[Binance 官方 Income History](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/account)。
+流水身份以账户范围 + incomeType + tranId 去重，而不是只用时间戳或流水号。
+本实现保守限制单窗七天、最近八十天；更早数据需要独立归档导入流程。
+这是代码导入策略，不是交易所接口的时间窗限制。
+
+- `v2_exchange_income`：不可变原币事实和规范化来源证据，不直接等于交易盈亏。
+  没有把自由文本 info 当作必要账务身份，也不会把凭据写进证据。
+- `v2_income_imports`：RUNNING/FETCHED/PARTIAL/FAILED 与已提交页数/行数。
+  本页事实和进度同事务；页面错误整页回滚，前页保留。提交回执丢失后从 PG
+  读取实际进度。进程中断留下 RUNNING；新运行从第一页重放即可去重，不跳时间游标。
+  页数耗尽、重复/移动分页不会被标为 FETCHED。生产调度必须重叠回扫迟到流水。
+- FETCHED 仅表示本轮分页取完，不证明未来不会迟到、不等于 cash_complete，
+  不自动触发 settle。终结运行结果和查询范围不可改写。
+- `TradingData.income.pending(scope, income_type="FUNDING_FEE")` 查询待分配资金费；
+  不设置过滤则保留所有待核验类型。此接口是有限查询，不是自动分配调度器。
+- `assign_funding` 要求相同账户/环境/产品/合约、当前 accounting_revision 和对账
+  来源证据；订单必须终态、交易已闭合、费用时刻可证实有持仓。与成交同毫秒的
+  边界归属拒绝猜测。非 FUNDING_FEE 禁止入资金费账，避免佣金/价差重复统计。
+- 分配标记、现金账本、会计版本和 outbox 同事务。失败全部回滚；并发分配只记
+  一次。trace 返回来源和分配证据；迟到资金费会使旧结算版本失效。
+  这是给自动对账器使用的内部契约，不要求用户逐笔人工审批。
+
+本轮全仓 QA：3087 passed、10 skipped、1 个既有 warning；新核心 Ruff 通过。
+包括分页中断/重放、提交回执丢失、财务重复计账防护、跨账户隔离、并发分配、
+事务故障回滚及含未分配流水/导入进度的真实 PG 备份恢复。
+没有连接实际交易所；生产定时采集、自动归属器与完整账户核对仍需后续接线。

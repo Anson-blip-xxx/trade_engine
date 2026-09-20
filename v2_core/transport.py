@@ -19,7 +19,12 @@ class ExchangeTransportError(RuntimeError):
 class BinanceSignedTransport:
     _HOSTS: ClassVar = {"LIVE": "fapi.binance.com", "SANDBOX": "demo-fapi.binance.com"}
     _READS = frozenset(
-        {"/fapi/v1/order", "/fapi/v1/userTrades", "/fapi/v1/positionSide/dual"}
+        {
+            "/fapi/v1/order",
+            "/fapi/v1/userTrades",
+            "/fapi/v1/positionSide/dual",
+            "/fapi/v1/income",
+        }
     )
 
     def __init__(
