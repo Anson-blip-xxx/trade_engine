@@ -20,9 +20,11 @@ expiry on every record, unique operation IDs, at most one operation per slot,
 and no terminal operations. A `CLAIMED` result with no records and an
 `EMPTY`/`UNKNOWN` result with records are rejected fail-closed.
 
-The planner deliberately does not turn a decision into a side effect. D3B
-runtime work remains blocked on directive-specific ports/executors, D3C
-exchange evidence resolution, D3D authority-read/revalidation composition,
-scheduling policy, and activation gates.
+The planner deliberately does not turn a decision into a side effect. A dormant
+D3B/D3D admission coordinator now composes its work items with generation
+reads/revalidation and still refuses conditional mutation without ownership.
+D3B runtime work remains blocked on directive-specific ports/executors, D3C
+exchange evidence resolution, mutation ownership, scheduling policy, and
+activation gates.
 
 **P10 D3B-RECOVERY-BATCH-BOUNDARY PASS.**

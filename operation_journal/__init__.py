@@ -1,4 +1,10 @@
 """Durable trading-operation journal domain."""
+from operation_journal.admission import (
+    GenerationResolver,
+    RecoveryAdmission,
+    RecoveryAdmissionCode,
+    RecoveryAdmissionCoordinator,
+)
 from operation_journal.coordinator import (
     RecoveryBatchDisposition,
     RecoveryBatchPlan,
@@ -59,6 +65,7 @@ __all__ = [
     "GenerationFenceDecision",
     "GenerationResolution",
     "GenerationResolutionCode",
+    "GenerationResolver",
     "GenerationWitness",
     "LeaseCode",
     "LeaseResult",
@@ -68,6 +75,9 @@ __all__ = [
     "PostgresOperationJournal",
     "ReadCode",
     "ReadResult",
+    "RecoveryAdmission",
+    "RecoveryAdmissionCode",
+    "RecoveryAdmissionCoordinator",
     "RecoveryBatchDisposition",
     "RecoveryBatchPlan",
     "RecoveryClaimCode",

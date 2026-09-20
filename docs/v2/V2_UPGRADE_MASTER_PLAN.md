@@ -170,6 +170,12 @@ imported, and no mutation or runtime wiring is present. The exact canonical
 witness/second-read revalidation guard is also dormant and complete. Mutation
 ownership and executor composition remain.
 
+A dormant D3B/D3D recovery admission coordinator now re-derives every work-item
+decision, composes generation reads, and partitions policy, stale-generation,
+dependency-unknown, and invariant failures. Query/local directives may be
+marked ready for a future executor; conditional mutation always remains
+`MUTATION_OWNERSHIP_REQUIRED`. It has no executor or runtime wiring.
+
 ### P1 — P10-D2C Exchange Algo API Characterization
 
 冻结 create timeout、duplicate、query、cancel、terminal status、client identity
