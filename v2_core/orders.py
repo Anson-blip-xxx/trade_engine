@@ -1,6 +1,7 @@
 """PG-owned order identity and audited state transitions. No exchange calls."""
 
 import json
+from decimal import localcontext
 from uuid import UUID, uuid4, uuid5
 
 from v2_core.evidence import canonical
@@ -22,7 +23,18 @@ class Orders:
     def __init__(self, connection_factory):
         self._connect = connection_factory
 
-    def prepare(self, intent_id, *, leg="OPEN", quantity=None, request_key="initial"):
+    def prepare(
+        self,
+        intent_id,
+        *,
+        leg="OPEN",
+        quantity=None,
+        request_key="initial",
+        order_type="MARKET",
+        limit_price=None,
+        time_in_force=None,
+        evidence=None,
+    ):
         intent_id = str(UUID(intent_id))
         if leg not in {"OPEN", "CLOSE"}:
             raise ValueError("invalid order leg")
@@ -32,8 +44,23 @@ class Orders:
             or request_key != request_key.strip()
         ):
             raise ValueError("normalized order request key required")
-        if leg == "OPEN" and request_key != "initial":
-            raise ValueError("scale-in is not enabled")
+        encoded = canonical({} if evidence is None else evidence)
+        if (
+            leg == "OPEN"
+            and request_key != "initial"
+            and not json.loads(encoded).get("reason")
+        ):
+            raise ValueError("additional opening order requires decision reason")
+        if order_type == "MARKET":
+            if limit_price is not None or time_in_force is not None:
+                raise ValueError(
+                    "market order cannot carry a limit price or time-in-force"
+                )
+            price = None
+        elif order_type == "LIMIT" and time_in_force in {"GTC", "IOC", "FOK"}:
+            price = amount(limit_price, positive=True)
+        else:
+            raise ValueError("unsupported order type or time-in-force")
         order_id = str(uuid5(_NAMESPACE, json.dumps([intent_id, leg, request_key])))
         client_id = "v2" + UUID(order_id).hex
         with self._connect() as conn:
@@ -42,16 +69,29 @@ class Orders:
                 payload,status FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE""",
                 (intent_id,),
             ).fetchone()
-            if row is None or row[5] in {"REJECTED", "EXPIRED", "CANCELLED"}:
+            if row is None:
                 raise ValueError("intent is missing or terminal")
             payload = row[4]
             requested = amount(
                 payload["quantity"] if quantity is None else quantity, positive=True
             )
-            if leg == "OPEN" and requested != amount(
-                payload["quantity"], positive=True
-            ):
-                raise ValueError("opening quantity must match admitted intent")
+            existing = conn.execute(
+                """SELECT quantity,order_type,limit_price,time_in_force,request_evidence
+                FROM v2_orders WHERE order_id=%s""",
+                (order_id,),
+            ).fetchone()
+            if existing:
+                if existing != (
+                    requested,
+                    order_type,
+                    price,
+                    time_in_force,
+                    json.loads(encoded),
+                ):
+                    raise ValueError("order request content conflict")
+                return order_id, client_id
+            if row[5] in {"REJECTED", "EXPIRED", "CANCELLED"}:
+                raise ValueError("intent is missing or terminal")
             slot = json.dumps([*row[:4], payload["symbol"]], separators=(",", ":"))
             if leg == "OPEN":
                 conn.execute(
@@ -65,23 +105,23 @@ class Orders:
             ).fetchone()
             if episode != ("ACTIVE",):
                 raise ValueError("episode is not active")
-            existing = conn.execute(
-                """SELECT quantity FROM v2_orders WHERE order_id=%s""", (order_id,)
-            ).fetchone()
-            if existing:
-                if existing[0] != requested:
-                    raise ValueError("order request content conflict")
-                return order_id, client_id
-            if leg == "CLOSE":
-                opening = conn.execute(
-                    """SELECT status FROM v2_orders
-                    WHERE episode_id=%s AND leg='OPEN' """,
+            if leg == "OPEN":
+                allocated = conn.execute(
+                    """SELECT COALESCE(sum(CASE WHEN status IN ('CANCELLED','REJECTED')
+                        THEN filled ELSE quantity END),0) FROM (
+                        SELECT o.order_id,o.status,o.quantity,COALESCE(sum(f.quantity),0) AS filled
+                        FROM v2_orders o LEFT JOIN v2_fills f USING(order_id)
+                        WHERE o.episode_id=%s AND o.leg='OPEN' GROUP BY o.order_id
+                    ) allocations""",
                     (intent_id,),
-                ).fetchone()
-                if opening is None or opening[0] not in {"FILLED", "CANCELLED"}:
-                    raise ValueError(
-                        "opening order must be terminal before close preparation"
-                    )
+                ).fetchone()[0]
+                with localcontext() as ctx:
+                    ctx.prec = 80
+                    if allocated + requested > amount(
+                        payload["quantity"], positive=True
+                    ):
+                        raise ValueError("opening allocation exceeds admitted quantity")
+            else:
                 opened = conn.execute(
                     """SELECT COALESCE(sum(f.quantity),0)
                     FROM v2_fills f JOIN v2_orders o USING(order_id)
@@ -103,28 +143,47 @@ class Orders:
                     GROUP BY o.order_id) reservations""",
                     (intent_id,),
                 ).fetchone()[0]
-                from decimal import localcontext
-
                 with localcontext() as ctx:
                     ctx.prec = 80
                     available = opened - closed - reserved
                 if requested > available:
                     raise ValueError("close quantity exceeds confirmed fills")
             conn.execute(
-                """INSERT INTO v2_orders(order_id,episode_id,leg,client_order_id,quantity,request_key)
-                VALUES (%s,%s,%s,%s,%s,%s)""",
-                (order_id, intent_id, leg, client_id, requested, request_key),
+                """INSERT INTO v2_orders(order_id,episode_id,leg,client_order_id,quantity,request_key,
+                order_type,limit_price,time_in_force,request_evidence)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                (
+                    order_id,
+                    intent_id,
+                    leg,
+                    client_id,
+                    requested,
+                    request_key,
+                    order_type,
+                    price,
+                    time_in_force,
+                    encoded,
+                ),
             )
             conn.execute(
                 """INSERT INTO v2_order_events(event_id,order_id,version,status,evidence)
-                VALUES (%s,%s,1,'PREPARED','{}')""",
-                (str(uuid4()), order_id),
+                VALUES (%s,%s,1,'PREPARED',%s::jsonb)""",
+                (str(uuid4()), order_id, encoded),
             )
             emit(
                 conn,
                 intent_id,
                 "ORDER_PREPARED:" + order_id,
-                {"order_id": order_id, "client_order_id": client_id, "leg": leg},
+                {
+                    "order_id": order_id,
+                    "client_order_id": client_id,
+                    "leg": leg,
+                    "quantity": str(requested),
+                    "order_type": order_type,
+                    "limit_price": None if price is None else str(price),
+                    "time_in_force": time_in_force,
+                    "evidence": json.loads(encoded),
+                },
             )
         return order_id, client_id
 
@@ -172,6 +231,13 @@ class Orders:
                 ).fetchone()
                 if quantities[0] != quantities[1]:
                     raise ValueError("FILLED requires complete durable fill evidence")
+            if (
+                status == "REJECTED"
+                and conn.execute(
+                    "SELECT 1 FROM v2_fills WHERE order_id=%s LIMIT 1", (order_id,)
+                ).fetchone()
+            ):
+                raise ValueError("cannot reject an order with confirmed fills")
             conn.execute(
                 """UPDATE v2_orders SET status=%s,version=version+1,
                 exchange_order_id=COALESCE(exchange_order_id,%s),updated_at=clock_timestamp()
@@ -184,29 +250,38 @@ class Orders:
                 (str(uuid4()), order_id, expected_version + 1, status, encoded),
             )
             if row[4] == "OPEN":
-                intent_status = {
-                    "SUBMITTING": "EXECUTING",
-                    "UNKNOWN": "UNKNOWN",
-                    "ACKNOWLEDGED": "EXECUTING",
-                    "FILLED": "FILLED",
-                    "CANCELLED": "CANCELLED",
-                    "REJECTED": "REJECTED",
-                }[status]
-                if status in {"CANCELLED", "REJECTED"}:
-                    filled = conn.execute(
-                        "SELECT 1 FROM v2_fills WHERE order_id=%s LIMIT 1", (order_id,)
-                    ).fetchone()
-                    if filled:
-                        if status == "REJECTED":
-                            raise ValueError(
-                                "cannot reject an order with confirmed fills"
-                            )
-                        intent_status = "PARTIALLY_FILLED"
-                    else:
-                        conn.execute(
-                            "UPDATE v2_episodes SET status='ABORTED' WHERE episode_id=%s",
-                            (row[2],),
-                        )
+                states = {
+                    s[0]
+                    for s in conn.execute(
+                        "SELECT status FROM v2_orders WHERE episode_id=%s AND leg='OPEN'",
+                        (row[2],),
+                    ).fetchall()
+                }
+                filled = conn.execute(
+                    """SELECT COALESCE(sum(f.quantity),0) FROM v2_fills f
+                    JOIN v2_orders o USING(order_id) WHERE o.episode_id=%s AND o.leg='OPEN'""",
+                    (row[2],),
+                ).fetchone()[0]
+                budget = conn.execute(
+                    "SELECT (payload->>'quantity')::numeric FROM v2_trade_intents WHERE intent_id=%s",
+                    (row[2],),
+                ).fetchone()[0]
+                if "UNKNOWN" in states:
+                    intent_status = "UNKNOWN"
+                elif states & {"SUBMITTING", "ACKNOWLEDGED"}:
+                    intent_status = "EXECUTING"
+                elif "PREPARED" in states:
+                    intent_status = "RECEIVED" if filled == 0 else "PARTIALLY_FILLED"
+                elif filled > 0:
+                    intent_status = "FILLED" if filled == budget else "PARTIALLY_FILLED"
+                else:
+                    intent_status = (
+                        "REJECTED" if states == {"REJECTED"} else "CANCELLED"
+                    )
+                    conn.execute(
+                        "UPDATE v2_episodes SET status='ABORTED' WHERE episode_id=%s",
+                        (row[2],),
+                    )
                 conn.execute(
                     "UPDATE v2_trade_intents SET status=%s,version=version+1 WHERE intent_id=%s",
                     (intent_status, row[2]),

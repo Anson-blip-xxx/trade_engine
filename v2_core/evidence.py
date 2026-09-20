@@ -3,6 +3,19 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from uuid import UUID
+
+_CREDENTIAL_FIELDS = {
+    "secret",
+    "password",
+    "apikey",
+    "apisecret",
+    "privatekey",
+    "authorization",
+    "bottoken",
+    "accesstoken",
+    "refreshtoken",
+}
 
 
 def canonical(value):
@@ -14,6 +27,11 @@ def canonical(value):
                 validate(child)
             return
         if isinstance(item, dict) and all(isinstance(k, str) for k in item):
+            if any(
+                "".join(c for c in key.lower() if c.isalnum()) in _CREDENTIAL_FIELDS
+                for key in item
+            ):
+                raise ValueError("credential secrets must not enter business records")
             for child in item.values():
                 validate(child)
             return
@@ -65,6 +83,8 @@ class DecisionEvidence:
                 raise ValueError(f"{key} is required")
         if not isinstance(snapshot["features"], dict):
             raise TypeError("features must be an object")
+        if "signal_id" in snapshot:
+            snapshot["signal_id"] = str(UUID(snapshot["signal_id"]))
         object.__setattr__(self, "config_json", config)
         object.__setattr__(self, "snapshot_json", canonical(snapshot))
 

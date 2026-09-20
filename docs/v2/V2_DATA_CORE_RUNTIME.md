@@ -54,12 +54,42 @@ SETTLED 需要明确的交易所平仓、订单终态、成交完整、资金完
 迟到资金费新增账本 revision；旧结算保留，新 revision 重新核验。
 财务分解可核验；策略理由是当时的决策证据，不可声称其证明盈利的因果关系。
 
-当前只支持单 slot 活动 episode、一次开仓、多次部分平仓，以及 Binance 线性
-USDT/USDC 结算。网格加仓、Polymarket、币本位及 FX 换算尚未完成，禁止据此上线。
+当前每个 slot 保持一个活动 episode；同一 episode 可分配多笔 MARKET/LIMIT 开仓，
+累计已成交加待成交预留不得超过意图 quantity。quantity 是本周期累计开仓上限，
+不是可无限重复使用的净仓上限。部分平仓只使用已确认成交量并扣除其他平仓预留。
+取消一笔挂单不能释放仍有持仓或其他挂单的 slot；订单价格、类型、有效方式和
+逐单理由不可变。网格策略的实际生产入口接线仍未完成。
+
+盈亏目前限 Binance 线性 USDT/USDC 结算。未在本仓库发现 Polymarket 适配代码，
+这里的 pm 指持仓管理模块；没有新增 Polymarket 或币本位支持。非结算币种费用
+尚需带证据的换算，当前明确保留 PENDING。
+
+## 信号、策略状态及恢复入口
+
+- `Signals` 把规范化信号存入 PG，不保存 webhook secret；来源/环境/请求键固定身份。
+  同键不同内容拒绝。市场逐笔原始数据仍属于行情层/CH，不能全部挤入交易信号表。
+- `TradingData.accept_signal` 将证据、意图、outbox 和消费者回执原子提交。
+  同一账户/环境/产品/策略对同一信号最多一个意图；更换请求键也不能绕过数据库约束。
+  信号驱动意图使用 `signal:<signal_id>` 请求键。被忽略/过期的消费结果不可复活。
+- `BusinessState` 用于非账务策略状态：账户范围、版本 CAS、请求键幂等、不可变变更历史、
+  删除留存 tombstone。提交时数据库检查当前版本必须有历史记录。它不是账户资金预留
+  的替代品；涉及资金和订单的关联操作必须放在同一领域事务内。
+- `DataRuntime.accept_open` 分开登记与提交，`prepare_initial=False` 可登记网格计划后
+  再分配子订单。`expires_at_ms` 属于不可变决策证据；入队和发单前都检查有效期。
+- `DataRuntime.tick` 顺序执行过期清理、查询恢复、超时事件和投影；不会提交新订单。
+  PREPARED 可过期取消；SUBMITTING/UNKNOWN 只查询，不能因超时假定没有成交。
+- `RecoveryAttention` 每个订单版本生成一次持久告警事件。`AttentionNotifications`
+  注入通知接口，过时事件不再提示；通知带事件 ID，不带可直接执行的审批指令。
+  TG 传输尚未配置；确认丢失时通知可能重复，不能承诺 exactly-once。
+- `connection_factory` 强制独立 schema、同步提交、连接/锁/语句超时；CLI 使用只读事务。
+  `V2_POSTGRES_SCHEMA` 缺省 `trade_v2`，拒绝 public/系统 schema；`--pnl-currency USDT`
+  可只读查询财务报告。数据库角色最小权限仍须在部署阶段配置。
 
 ## 依赖与只读排查
 
-- Python 3.12（本次 QA 环境）、psycopg 3、PostgreSQL 16。
+- Python 3.12、psycopg 3.3.6、PostgreSQL 16；已测试的顶层依赖固定在
+  `requirements-v2-data.txt`，测试依赖在 `requirements-v2-data-qa.txt`。
+  这不是完整的跨平台传递依赖 hash lock，生产镜像仍需固定系统包/镜像摘要。
 - Redis Lua CAS；本次 QA 使用独立 Unix socket，无持久化。
 - ClickHouse 本地隔离测试验证 FINAL 去重；没有连接生产分析库。
 - SQL 在 `db/postgres_v2_core_schema.sql`、`db/clickhouse_v2_schema.sql`。
@@ -75,12 +105,14 @@ USDT/USDC 结算。网格加仓、Polymarket、币本位及 FX 换算尚未完�
 socket 的一次性 PG/Redis 并在退出时停止；不使用已有服务 DSN。
 运行 `bash scripts/qa_v2_data_core.sh -q` 执行全仓测试。临时诊断目录保留，
 无自动清理生产路径；要求 PostgreSQL 16、Redis、ClickHouse 和 Python 测试依赖。
+可用 `V2_QA_PYTHON=/path/to/venv/bin/python3` 明确选择测试解释器。
 
 默认 `PM_NO_WS=1 pytest -q` 不运行显式启用的数据库集成测试。
 在专门创建的一次性 PostgreSQL 实例中，用独立 Unix socket DSN 设置
 `V2_CORE_TEST_DSN` 和 `V2_CORE_TEST_ISOLATED=YES`；Redis 使用
 `V2_REDIS_TEST_SOCKET`。然后运行 `pytest -q tests/v2_core` 或全仓回归。
 每项 PG 测试创建随机 schema 并在 finally 清理，只允许一次性实例 DSN。
+允许的 socket 路径仅 `/tmp/v2-data-qa.*` 或本任务早期 `/tmp/codex-v2-data-qa.*`。
 测试进程禁止 Python TCP/UDP 外连；这不是操作系统级 sandbox，C 扩展和子进程
 仍需隔离环境与专用 DSN，不能把生产凭据放进 QA。
 
@@ -89,6 +121,14 @@ socket 的一次性 PG/Redis 并在退出时停止；不使用已有服务 DSN�
 过期对账证据、outbox 重投/失败隔离、Redis 大整数版本和重建、CH 去重。
 基础测试通过不替代真实协议接线和完整新运行环境端到端测试。
 
+新增恢复演练：pg_dump/pg_restore 到另一临时数据库后，轨迹、账本与缓存重建一致；
+只针对脚本创建且 `cluster_name=v2_isolated_qa`、fsync=on 的临时实例执行崩溃重启。
+已提交交易保留，未提交交易消失，恢复后不盲目重发。崩溃测试仅串行运行。
+
 2026-09-20 检查点：启用隔离 PG/Redis/ClickHouse 的全仓回归
 2984 passed、10 skipped、1 个既有测试返回值 warning；新核心 Ruff 通过。
 修正了旧测试未替换真实 Redis/交易所读接口的隔离缺口，未放宽业务失败断言。
+
+后续检查点：新核心 74 passed；全仓 3011 passed、10 skipped、同一既有 warning。
+在独立 virtualenv 中安装 psycopg 3.3.6 后，全仓结果一致。初次系统环境驱动为
+3.1.17，不符合旧 requirements-postgres.txt 的 >=3.2 要求，未修改系统安装。

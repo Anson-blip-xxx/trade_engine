@@ -22,6 +22,21 @@ class ExchangeObservation:
     evidence: dict | None = None
 
 
+@dataclass(frozen=True)
+class RiskVerdict:
+    allowed: bool
+    reason: str
+    evidence: dict | None = None
+
+    def __post_init__(self):
+        if (
+            type(self.allowed) is not bool
+            or not isinstance(self.reason, str)
+            or not self.reason.strip()
+        ):
+            raise ValueError("explicit risk verdict and reason required")
+
+
 class ExecutionRunner:
     def __init__(self, connection_factory, *, submit, query, risk_check):
         if not all(callable(port) for port in (submit, query, risk_check)):
@@ -36,7 +51,8 @@ class ExecutionRunner:
             row = conn.execute(
                 """SELECT o.order_id::text,o.client_order_id,o.leg,
                 o.quantity::text,o.status,o.version,i.exchange,i.account_id,
-                i.environment,i.product,i.payload,o.exchange_order_id FROM v2_orders o
+                i.environment,i.product,i.payload,o.exchange_order_id,
+                o.order_type,o.limit_price::text,o.time_in_force,o.request_evidence FROM v2_orders o
                 JOIN v2_trade_intents i ON i.intent_id=o.episode_id
                 WHERE o.order_id=%s""",
                 (order_id,),
@@ -58,6 +74,10 @@ class ExecutionRunner:
                     "product",
                     "intent",
                     "exchange_order_id",
+                    "order_type",
+                    "limit_price",
+                    "time_in_force",
+                    "request_evidence",
                 ),
                 row,
                 strict=True,
@@ -75,14 +95,20 @@ class ExecutionRunner:
         before = self.snapshot(order_id)
         if before["status"] != "PREPARED":
             return self.recover(order_id)
-        if self.risk_check(deepcopy(before)) is not True:
-            self.orders.transition(
+        verdict = self.risk_check(deepcopy(before))
+        allowed = (
+            verdict.allowed if isinstance(verdict, RiskVerdict) else verdict is True
+        )
+        if not allowed:
+            cancelled = self.orders.transition(
                 order_id,
                 expected_version=before["version"],
                 status="CANCELLED",
-                evidence={"reason": "risk policy denied"},
+                evidence={"reason": verdict.reason, "risk": verdict.evidence or {}}
+                if isinstance(verdict, RiskVerdict)
+                else {"reason": "risk policy denied"},
             )
-            return "DENIED"
+            return "DENIED" if cancelled else "RACE_LOST"
         # If transaction commit raises, this function exits before exchange I/O.
         if not self.orders.transition(
             order_id,

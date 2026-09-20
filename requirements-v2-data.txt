@@ -1,0 +1,4 @@
+# Tested V2 data-core runtime dependencies (Python 3.12).
+psycopg[binary]==3.3.6
+redis==8.0.1
+clickhouse-connect==1.6.0

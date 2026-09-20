@@ -60,6 +60,11 @@ def database():
         pytest.skip("requires explicit isolated QA database")
     import psycopg
     from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict
+
+    host = conninfo_to_dict(dsn).get("host", "")
+    if not host.startswith(("/tmp/v2-data-qa.", "/tmp/codex-v2-data-qa.")):
+        pytest.fail("V2 database QA requires a dedicated temporary Unix socket")
 
     name = "v2_core_test_" + uuid4().hex
     ddl = (
@@ -790,3 +795,754 @@ def test_late_commit_is_not_lost_by_consumer_high_water(database):
         Projector(database, "late-commit", sink).run_scheduled_batch()["delivered"] == 1
     )
     assert delivered == {first.intent_id, second.intent_id}
+
+
+def test_runtime_expires_stale_decisions_without_submission(database):
+    import json
+
+    from v2_core.evidence import canonical
+    from v2_core.runtime import DataRuntime
+
+    clock = [5]
+    calls = []
+    runtime = DataRuntime(
+        database,
+        submit=lambda request: calls.append(request),
+        query=lambda _: None,
+        risk_check=lambda _: True,
+        clock_ms=lambda: clock[0],
+    )
+    old = intent()
+    assert runtime.accept_open(old, evidence())["status"] == "EXPIRED"
+    assert (
+        runtime.accept_open(replace(old, intent_id=str(uuid4())), evidence())[
+            "intent_id"
+        ]
+        == old.intent_id
+    )
+    fresh_evidence = DecisionEvidence(
+        "strategy-v1",
+        evidence().config_json,
+        canonical(dict(json.loads(evidence().snapshot_json), expires_at_ms=10)),
+    )
+    fresh = replace(
+        intent(),
+        evidence_ref=fresh_evidence.evidence_ref,
+        config_digest=fresh_evidence.config_digest,
+    )
+    accepted = runtime.accept_open(fresh, fresh_evidence)
+    assert accepted["status"] == "PREPARED"
+    assert (
+        runtime.accept_open(replace(fresh, intent_id=str(uuid4())), fresh_evidence)[
+            "status"
+        ]
+        == "PREPARED"
+    )
+    clock[0] = 10
+    assert runtime.execution.dispatch(accepted["order_id"]) == "DENIED"
+    assert calls == []
+    trace = runtime.data.trace(fresh.intent_id)
+    assert (
+        trace["timeline"][-1]["evidence"]["reason"]
+        == "decision expired before dispatch"
+    )
+    assert trace["status"] == "CANCELLED"
+
+
+def test_runtime_acceptance_does_not_submit_and_preserves_risk_reason(database):
+    import json
+
+    from v2_core.evidence import canonical
+    from v2_core.runner import RiskVerdict
+    from v2_core.runtime import DataRuntime
+
+    calls = []
+    runtime = DataRuntime(
+        database,
+        submit=lambda r: calls.append(r),
+        query=lambda _: None,
+        risk_check=lambda _: RiskVerdict(
+            False, "account exposure limit", {"rule": "max-notional"}
+        ),
+        clock_ms=lambda: 5,
+    )
+    proof = DecisionEvidence(
+        "strategy-v1",
+        evidence().config_json,
+        canonical(dict(json.loads(evidence().snapshot_json), expires_at_ms=10)),
+    )
+    request = replace(
+        intent(), evidence_ref=proof.evidence_ref, config_digest=proof.config_digest
+    )
+    accepted = runtime.accept_open(request, proof)
+    assert accepted["status"] == "PREPARED"
+    assert calls == []
+    assert runtime.execution.dispatch(accepted["order_id"]) == "DENIED"
+    assert calls == []
+    assert (
+        runtime.data.trace(request.intent_id)["timeline"][-1]["evidence"]["reason"]
+        == "account exposure limit"
+    )
+
+
+def test_business_state_concurrent_writers_and_tombstone(database):
+    from v2_core.state import BusinessState, StateKey
+
+    store = BusinessState(database)
+    key = StateKey("BINANCE", "qa", "SANDBOX", "FUTURES", "s6:cooldown", "BTCUSDT")
+    assert store.read(key) is None
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(
+            pool.map(
+                lambda n: store.change(
+                    key,
+                    expected_version=0,
+                    request_key=str(n),
+                    payload={"until_ms": 100},
+                    reason="loss cooldown",
+                ),
+                range(6),
+            )
+        )
+    assert [r.code for r in results].count("APPLIED") == 1
+    assert [r.code for r in results].count("STALE") == 5
+    assert (
+        store.change(
+            key,
+            expected_version=1,
+            request_key="delete",
+            payload={},
+            deleted=True,
+            reason="cooldown elapsed",
+        ).version
+        == 2
+    )
+    assert store.read(key).deleted is True
+    assert (
+        store.change(
+            key,
+            expected_version=0,
+            request_key="stale-process",
+            payload={"until_ms": 200},
+            reason="old snapshot",
+        ).code
+        == "STALE"
+    )
+    assert store.read(key).version == 2
+    assert (
+        store.change(
+            key,
+            expected_version=2,
+            request_key="new-cycle",
+            payload={"until_ms": 300},
+            reason="new loss cooldown",
+        ).version
+        == 3
+    )
+    assert store.read(replace(key, account_id="other")) is None
+
+
+def test_business_state_commit_ack_loss_and_request_conflict(database):
+    from v2_core.state import BusinessState, StateKey
+
+    key = StateKey("BINANCE", "qa", "SANDBOX", "FUTURES", "strategy:s8", "cursor")
+
+    @contextmanager
+    def ambiguous():
+        with database() as conn:
+            yield conn
+        raise OSError("commit acknowledgement lost")
+
+    args = {
+        "expected_version": 0,
+        "request_key": "signal-1",
+        "payload": {"cursor": 12},
+        "reason": "processed signal",
+    }
+    with pytest.raises(OSError):
+        BusinessState(ambiguous).change(key, **args)
+    assert BusinessState(database).change(key, **args).code == "ALREADY_APPLIED"
+    with pytest.raises(ValueError, match="content conflict"):
+        BusinessState(database).change(key, **dict(args, payload={"cursor": 13}))
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_state_history WHERE state_id=%s", (key.identity,)
+        ).fetchone() == (1,)
+
+
+def test_business_state_cannot_commit_without_audit_history(database):
+    import psycopg
+
+    from v2_core.state import BusinessState, StateKey
+
+    key = StateKey("BINANCE", "qa", "SANDBOX", "FUTURES", "s7:grid", "generation")
+    BusinessState(database).change(
+        key, expected_version=0, request_key="init", payload={}, reason="initialize"
+    )
+    with pytest.raises(psycopg.errors.ForeignKeyViolation), database() as conn:
+        conn.execute(
+            "UPDATE v2_business_state SET version=version+1 WHERE state_id=%s",
+            (key.identity,),
+        )
+    assert BusinessState(database).read(key).version == 1
+
+
+def test_runtime_sweeper_never_expires_submitted_unknown(database):
+    from v2_core.runtime import DataRuntime
+
+    runtime = DataRuntime(
+        database,
+        submit=lambda _: None,
+        query=lambda _: None,
+        risk_check=lambda _: True,
+        clock_ms=lambda: 100,
+    )
+    unstarted = intent()
+    IntentStore(database).admit(unstarted)
+    prepared, orders, opening, _client = opened(database)
+    assert runtime.expire_once() == {
+        unstarted.intent_id: "EXPIRED",
+        prepared.intent_id: "EXPIRED",
+    }
+    original, orders, opening, _client = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    orders.transition(opening, expected_version=2, status="UNKNOWN", evidence={})
+    assert runtime.expire_once() == {}
+    assert runtime.data.trace(original.intent_id)["status"] == "UNKNOWN"
+
+
+def test_recovery_attention_is_durable_deduplicated_and_superseded(database):
+    import time
+
+    from v2_core.attention import AttentionNotifications, RecoveryAttention
+    from v2_core.service import TradingData
+
+    original, orders, opening, _client = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    orders.transition(opening, expected_version=2, status="UNKNOWN", evidence={})
+    watcher = RecoveryAttention(database)
+    now = int(time.time() * 1000) + 10000
+    assert watcher.scan(now_ms=now, overdue_ms=1000) == 1
+    assert watcher.scan(now_ms=now, overdue_ms=1000) == 0
+    trace = TradingData(database).trace(original.intent_id)
+    event = next(
+        e for e in trace["domain_events"] if e["kind"].startswith("ATTENTION_REQUIRED:")
+    )
+    assert event["payload"]["fallback"] == "QUERY_ONLY"
+    sent = []
+
+    def send(text):
+        sent.append(text)
+        return True
+
+    notifications = AttentionNotifications(database, send)
+    assert notifications(
+        event["event_id"], original.intent_id, event["kind"], event["payload"]
+    )
+    assert event["event_id"] in sent[0]
+    orders.transition(
+        opening,
+        expected_version=3,
+        status="REJECTED",
+        evidence={"source": "verified exchange response"},
+    )
+    assert notifications(
+        event["event_id"], original.intent_id, event["kind"], event["payload"]
+    )
+    assert len(sent) == 1
+    assert watcher.scan(now_ms=now, overdue_ms=1000) == 0
+
+
+def test_explicit_connection_factory_enforces_readonly_and_durability(database):
+    import psycopg
+
+    from v2_core.database import connection_factory
+    from v2_core.service import TradingData
+
+    with database() as conn:
+        schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    dsn = os.environ["V2_CORE_TEST_DSN"]
+    writable = connection_factory(dsn, schema=schema)
+    original = intent()
+    assert IntentStore(writable).admit(original).code is Code.ACCEPTED
+    readonly = connection_factory(dsn, schema=schema, read_only=True)
+    assert (
+        TradingData(readonly).trace(original.intent_id)["scope"]["account_id"]
+        == original.account_id
+    )
+    with readonly() as conn:
+        assert conn.execute("SHOW synchronous_commit").fetchone() == ("on",)
+        assert conn.execute("SHOW transaction_read_only").fetchone() == ("on",)
+    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction), readonly() as conn:
+        conn.execute("UPDATE v2_trade_intents SET version=version+1")
+
+
+@pytest.mark.parametrize(
+    "schema", ["public", "pg_catalog", "pg_temp", "bad;DROP SCHEMA public", ""]
+)
+def test_connection_factory_rejects_shared_or_unsafe_schemas(schema):
+    from v2_core.database import connection_factory
+
+    with pytest.raises(ValueError, match="dedicated"):
+        connection_factory("unused-dsn", schema=schema)
+
+
+def test_grid_orders_reserve_budget_preserve_identity_and_partial_close(database):
+    from decimal import Decimal
+
+    from v2_core.ledger import Ledger
+    from v2_core.orders import Orders
+    from v2_core.runner import ExecutionRunner
+    from v2_core.service import TradingData
+
+    original = replace(intent(), producer="s7")
+    IntentStore(database).admit(original)
+    orders, ledger = Orders(database), Ledger(database)
+    first_args = {
+        "quantity": "0.004",
+        "request_key": "grid-1",
+        "order_type": "LIMIT",
+        "limit_price": "100",
+        "time_in_force": "GTC",
+        "evidence": {"reason": "grid lower level"},
+    }
+    first, client = orders.prepare(original.intent_id, **first_args)
+    second, _ = orders.prepare(
+        original.intent_id,
+        quantity="0.006",
+        request_key="grid-2",
+        evidence={"reason": "grid second level"},
+    )
+    assert orders.prepare(original.intent_id, **first_args) == (first, client)
+    with pytest.raises(ValueError, match="content conflict"):
+        orders.prepare(original.intent_id, **dict(first_args, limit_price="99"))
+    with pytest.raises(ValueError, match="exceeds"):
+        orders.prepare(
+            original.intent_id,
+            quantity="0.001",
+            request_key="over-budget",
+            evidence={"reason": "grid excess"},
+        )
+    orders.transition(first, expected_version=1, status="SUBMITTING", evidence={})
+    ledger.record_fill(
+        order_id=first,
+        exchange_fill_id="grid-fill",
+        quantity="0.004",
+        price="100",
+        fee="0",
+        fee_currency="USDT",
+        occurred_at_ms=100,
+        evidence={"source": "query"},
+    )
+    orders.transition(
+        first, expected_version=2, status="FILLED", evidence={"source": "query"}
+    )
+    assert (
+        TradingData(database).trace(original.intent_id)["status"] == "PARTIALLY_FILLED"
+    )
+    # Cancelling the unfilled sibling cannot release the slot holding real fills.
+    orders.transition(
+        second,
+        expected_version=1,
+        status="CANCELLED",
+        evidence={"reason": "grid refresh"},
+    )
+    assert (
+        TradingData(database).trace(original.intent_id)["episode"]["status"] == "ACTIVE"
+    )
+    replacement, _ = orders.prepare(
+        original.intent_id,
+        quantity="0.006",
+        request_key="grid-replace",
+        evidence={"reason": "refreshed grid"},
+    )
+    # Reduce only the confirmed fill; the sibling may still be waiting to open.
+    closing, _ = orders.prepare(
+        original.intent_id,
+        leg="CLOSE",
+        quantity="0.004",
+        request_key="grid-tp",
+        evidence={"reason": "grid take profit"},
+    )
+    runner = ExecutionRunner(
+        database, submit=lambda _: None, query=lambda _: None, risk_check=lambda _: True
+    )
+    assert runner.snapshot(closing)["reduce_only"] is True
+    assert runner.snapshot(closing)["side"] == "SELL"
+    assert runner.snapshot(first)["order_type"] == "LIMIT"
+    assert Decimal(runner.snapshot(first)["limit_price"]) == Decimal(100)
+    orders.transition(
+        replacement,
+        expected_version=1,
+        status="CANCELLED",
+        evidence={"reason": "end grid cycle"},
+    )
+    orders.transition(closing, expected_version=1, status="SUBMITTING", evidence={})
+    ledger.record_fill(
+        order_id=closing,
+        exchange_fill_id="grid-exit",
+        quantity="0.004",
+        price="110",
+        fee="0",
+        fee_currency="USDT",
+        occurred_at_ms=200,
+        evidence={"source": "query"},
+    )
+    orders.transition(
+        closing, expected_version=2, status="FILLED", evidence={"source": "query"}
+    )
+    report = ledger.report(original.intent_id, settlement_currency="USDT")
+    assert Decimal(report["net_pnl"]) == Decimal("0.04")
+    ledger.settle(
+        original.intent_id,
+        currency="USDT",
+        evidence={
+            "exchange_flat": True,
+            "orders_terminal": True,
+            "fills_complete": True,
+            "cash_complete": True,
+            "observed_at_ms": 200,
+            "source": "query",
+            "ledger_revision": report["accounting_revision"],
+        },
+    )
+    assert orders.prepare(original.intent_id, **first_args) == (first, client)
+
+
+def test_concurrent_grid_allocations_cannot_exceed_intent_budget(database):
+    from v2_core.orders import Orders
+
+    original = intent()
+    IntentStore(database).admit(original)
+
+    def allocate(n):
+        try:
+            Orders(database).prepare(
+                original.intent_id,
+                quantity="0.006",
+                request_key=f"level-{n}",
+                evidence={"reason": "grid level"},
+            )
+            return "PREPARED"
+        except ValueError as exc:
+            assert "exceeds" in str(exc)
+            return "DENIED"
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        outcomes = list(pool.map(allocate, range(4)))
+    assert outcomes.count("PREPARED") == 1
+    assert outcomes.count("DENIED") == 3
+
+
+def signal_request(database):
+    import json
+
+    from v2_core.evidence import canonical
+    from v2_core.service import TradingData
+
+    service = TradingData(database)
+    args = {
+        "source": "tv_bridge",
+        "environment": "SANDBOX",
+        "request_key": "alert-1",
+        "snapshot": {
+            "observed_at": 1,
+            "expires_at_ms": 10,
+            "symbol": "BTCUSDT",
+            "signal": "TREND_UP",
+            "features": {"price": "100"},
+        },
+    }
+    signal_id = service.signals.admit(**args)
+    assert service.signals.admit(**args) == signal_id
+    proof = DecisionEvidence(
+        "strategy-v1",
+        evidence().config_json,
+        canonical(
+            dict(
+                json.loads(evidence().snapshot_json),
+                signal_id=signal_id,
+                expires_at_ms=10,
+            )
+        ),
+    )
+    request = replace(
+        intent(),
+        request_key="signal:" + signal_id,
+        evidence_ref=proof.evidence_ref,
+        config_digest=proof.config_digest,
+    )
+    return service, request, proof, signal_id
+
+
+def test_signal_intent_receipt_is_atomic_and_cannot_bypass_dedup(database):
+    from v2_core.signals import signal_consumer
+
+    service, request, proof, signal_id = signal_request(database)
+    consumer = signal_consumer(request)
+    assert (
+        len(
+            service.signals.pending(
+                consumer=consumer, environment="SANDBOX", source="tv_bridge"
+            )
+        )
+        == 1
+    )
+    result = service.accept_signal(request, proof)
+    assert result.code is Code.ACCEPTED
+    replay = service.accept_signal(replace(request, intent_id=str(uuid4())), proof)
+    assert replay.code is Code.ALREADY_ACCEPTED and replay.intent_id == result.intent_id
+    assert (
+        service.signals.pending(
+            consumer=consumer, environment="SANDBOX", source="tv_bridge"
+        )
+        == []
+    )
+    assert (
+        service.intents.admit(
+            replace(request, intent_id=str(uuid4()), request_key="different-key")
+        ).code
+        is Code.CONFLICT
+    )
+    assert (
+        service.intents.admit(
+            replace(request, intent_id=str(uuid4()), environment="LIVE")
+        ).code
+        is Code.CONFLICT
+    )
+    assert counts(database) == (1, 1)
+    assert service.trace(request.intent_id)["signal"]["signal_id"] == signal_id
+    assert (
+        service.trace(request.intent_id)["signal"]["snapshot"]["features"]["price"]
+        == "100"
+    )
+
+
+def test_signal_receipt_failure_rolls_back_intent_and_outbox(database):
+    import psycopg
+
+    service, request, proof, _signal_id = signal_request(database)
+    with database() as conn:
+        conn.execute(
+            "ALTER TABLE v2_signal_receipts ADD CONSTRAINT qa_receipt_failure CHECK(outcome<>'INTENT')"
+        )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        service.accept_signal(request, proof)
+    assert counts(database) == (0, 0)
+
+
+def test_ignored_signal_cannot_be_revived_by_delayed_consumer(database):
+    from v2_core.signals import signal_consumer
+
+    service, request, proof, signal_id = signal_request(database)
+    assert service.signals.complete(
+        consumer=signal_consumer(request),
+        signal_id=signal_id,
+        outcome="EXPIRED",
+        reason="expired signal",
+    )
+    assert service.accept_signal(request, proof).code is Code.CONFLICT
+    assert counts(database) == (0, 0)
+
+
+def test_signal_inbox_rejects_secret_and_identity_conflicts(database):
+    service, _request, _proof, _signal_id = signal_request(database)
+    args = {
+        "source": "tv_bridge",
+        "environment": "SANDBOX",
+        "request_key": "alert-1",
+        "snapshot": {
+            "observed_at": 1,
+            "expires_at_ms": 10,
+            "symbol": "BTCUSDT",
+            "signal": "TREND_UP",
+            "features": {"price": "101"},
+        },
+    }
+    with pytest.raises(ValueError, match="content conflict"):
+        service.signals.admit(**args)
+    with pytest.raises(ValueError, match="secrets"):
+        service.signals.admit(
+            **dict(args, snapshot=dict(args["snapshot"], secret="do-not-store"))
+        )
+
+
+def test_backup_restore_preserves_trace_ledger_and_cache_rebuild(database, tmp_path):
+    import subprocess
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from v2_core.database import connection_factory
+    from v2_core.projections import RedisTraces
+    from v2_core.service import TradingData
+
+    service, request, proof, _signal_id = signal_request(database)
+    service.accept_signal(request, proof)
+    opening, _ = service.orders.prepare(request.intent_id)
+    service.orders.transition(
+        opening, expected_version=1, status="SUBMITTING", evidence={}
+    )
+    record(service.ledger, opening, "backup-open", "100")
+    service.orders.transition(
+        opening, expected_version=2, status="FILLED", evidence={"source": "query"}
+    )
+    closing, _ = service.orders.prepare(request.intent_id, leg="CLOSE")
+    service.orders.transition(
+        closing, expected_version=1, status="SUBMITTING", evidence={}
+    )
+    record(service.ledger, closing, "backup-close", "110")
+    service.orders.transition(
+        closing, expected_version=2, status="FILLED", evidence={"source": "query"}
+    )
+    report = service.ledger.report(request.intent_id, settlement_currency="USDT")
+    service.ledger.settle(
+        request.intent_id,
+        currency="USDT",
+        evidence={
+            "exchange_flat": True,
+            "orders_terminal": True,
+            "fills_complete": True,
+            "cash_complete": True,
+            "observed_at_ms": 100,
+            "source": "query",
+            "ledger_revision": report["accounting_revision"],
+        },
+    )
+    before = service.trace(request.intent_id)
+    with database() as conn:
+        schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    archive = tmp_path / "qa-trade-backup.dump"
+    dsn = os.environ["V2_CORE_TEST_DSN"]
+    pg_bin = Path(os.environ.get("V2_QA_POSTGRES_BIN", "/usr/lib/postgresql/16/bin"))
+    subprocess.run(
+        [
+            str(pg_bin / "pg_dump"),
+            "--dbname",
+            dsn,
+            "--schema",
+            schema,
+            "--format=custom",
+            "--file",
+            str(archive),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    restored_db = "v2_restore_test_" + uuid4().hex
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(restored_db)))
+    try:
+        restored_dsn = make_conninfo(dsn, dbname=restored_db)
+        subprocess.run(
+            [
+                str(pg_bin / "pg_restore"),
+                "--exit-on-error",
+                "--dbname",
+                restored_dsn,
+                str(archive),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        restored = connection_factory(restored_dsn, schema=schema)
+        assert TradingData(restored).trace(request.intent_id) == before
+        after_report = TradingData(restored).ledger.report(
+            request.intent_id, settlement_currency="USDT"
+        )
+        assert after_report["net_pnl"] == report["net_pnl"]
+        assert after_report["accounting_status"] == "SETTLED"
+        rebuilt = []
+
+        class Cache:
+            def put(self, identity, version, payload):
+                rebuilt.append(payload)
+                return True
+
+        assert RedisTraces(restored, Cache()).rebuild_batch()["count"] == 1
+        assert rebuilt == [before]
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("DROP DATABASE {}").format(sql.Identifier(restored_db))
+            )
+
+
+def test_isolated_pg_crash_preserves_committed_intent_and_never_resubmits(database):
+    import subprocess
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import conninfo_to_dict
+
+    from v2_core.runner import ExecutionRunner
+    from v2_core.service import TradingData
+
+    if os.environ.get("V2_QA_CLUSTER_RESTART") != "YES" or os.environ.get(
+        "PYTEST_XDIST_WORKER"
+    ):
+        pytest.skip("requires serial disposable-cluster QA runner")
+    dsn = os.environ["V2_CORE_TEST_DSN"]
+    host = Path(conninfo_to_dict(dsn)["host"])
+    with database() as conn:
+        data_dir = Path(conn.execute("SHOW data_directory").fetchone()[0])
+        assert data_dir.name == "pg" and data_dir.parent == host.parent
+        assert str(data_dir).startswith("/tmp/v2-data-qa.")
+        assert conn.execute("SHOW cluster_name").fetchone() == ("v2_isolated_qa",)
+        assert conn.execute("SHOW fsync").fetchone() == ("on",)
+        schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    original, orders, opening, _client = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    committed = TradingData(database).trace(original.intent_id)
+    uncommitted = intent()
+    conn = psycopg.connect(dsn)
+    conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+
+    @contextmanager
+    def borrowed():
+        yield conn
+
+    assert IntentStore(borrowed).admit(uncommitted).code is Code.ACCEPTED
+    pg_ctl = str(
+        Path(os.environ.get("V2_QA_POSTGRES_BIN", "/usr/lib/postgresql/16/bin"))
+        / "pg_ctl"
+    )
+    try:
+        subprocess.run(
+            [pg_ctl, "-D", str(data_dir), "-m", "immediate", "-w", "stop"],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+    finally:
+        conn.close()
+        subprocess.run(
+            [
+                pg_ctl,
+                "-D",
+                str(data_dir),
+                "-l",
+                str(data_dir.parent / "postgres.log"),
+                "-o",
+                f"-k {host} -p 55443 -c listen_addresses='' -c cluster_name=v2_isolated_qa",
+                "-w",
+                "start",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+    assert TradingData(database).trace(original.intent_id) == committed
+    assert TradingData(database).trace(uncommitted.intent_id) is None
+    submitted = []
+    runner = ExecutionRunner(
+        database,
+        submit=lambda r: submitted.append(r),
+        query=lambda _: None,
+        risk_check=lambda _: True,
+    )
+    assert runner.dispatch(opening) == "UNKNOWN"
+    assert submitted == []

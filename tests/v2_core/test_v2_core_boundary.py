@@ -3,6 +3,19 @@
 import ast
 from pathlib import Path
 
+import pytest
+
+from v2_core.evidence import canonical
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["secret", "API_KEY", "api-secret", "privateKey", "Authorization", "bot_token"],
+)
+def test_nested_credentials_are_not_persistable(field):
+    with pytest.raises(ValueError, match="secrets"):
+        canonical({"features": [{field: "not-a-real-secret"}]})
+
 
 def test_data_core_has_no_file_storage_or_legacy_runtime_imports():
     root = Path(__file__).resolve().parents[2] / "v2_core"

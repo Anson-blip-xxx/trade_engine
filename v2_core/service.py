@@ -1,9 +1,15 @@
 """Composition root for the new data core; no legacy storage imports."""
 
+import json
+from contextlib import nullcontext
+from uuid import UUID
+
 from v2_core.evidence import EvidenceStore
-from v2_core.intents import IntentStore
+from v2_core.intents import Admission, AdmissionCode, IntentStore
 from v2_core.ledger import Ledger
 from v2_core.orders import Orders
+from v2_core.signals import Signals, signal_consumer
+from v2_core.state import BusinessState
 
 
 class TradingData:
@@ -13,6 +19,8 @@ class TradingData:
         self.intents = IntentStore(connection_factory)
         self.orders = Orders(connection_factory)
         self.ledger = Ledger(connection_factory)
+        self.state = BusinessState(connection_factory)
+        self.signals = Signals(connection_factory)
 
     def accept(self, intent, evidence):
         if (
@@ -31,13 +39,21 @@ class TradingData:
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             intent = conn.execute(
                 """SELECT i.intent_id::text,i.status,i.version,
-                i.payload,e.config,e.snapshot,i.data_revision FROM v2_trade_intents i
+                i.payload,e.config,e.snapshot,i.data_revision,
+                i.exchange,i.account_id,i.environment,i.product,i.producer,i.request_key
+                FROM v2_trade_intents i
                 JOIN v2_decision_evidence e USING(evidence_ref)
                 WHERE i.intent_id=%s""",
                 (intent_id,),
             ).fetchone()
             if intent is None:
                 return None
+            signal = conn.execute(
+                """SELECT s.signal_id::text,s.source,s.environment,s.request_key,s.snapshot
+                FROM v2_inbound_signals s JOIN v2_trade_intents i USING(signal_id)
+                WHERE i.intent_id=%s""",
+                (intent_id,),
+            ).fetchone()
             episode = conn.execute(
                 "SELECT status,accounting_revision FROM v2_episodes WHERE episode_id=%s",
                 (intent_id,),
@@ -48,7 +64,8 @@ class TradingData:
                 (intent_id,),
             ).fetchall()
             orders = conn.execute(
-                """SELECT order_id::text,client_order_id,leg,status,version
+                """SELECT order_id::text,client_order_id,leg,status,version,
+                request_key,quantity::text,order_type,limit_price::text,time_in_force,request_evidence
                 FROM v2_orders WHERE episode_id=%s ORDER BY order_id""",
                 (intent_id,),
             ).fetchall()
@@ -78,9 +95,32 @@ class TradingData:
             ).fetchall()
         return {
             "intent_id": intent[0],
+            "signal": None
+            if signal is None
+            else dict(
+                zip(
+                    ("signal_id", "source", "environment", "request_key", "snapshot"),
+                    signal,
+                    strict=True,
+                )
+            ),
             "status": intent[1],
             "version": intent[2],
             "data_revision": intent[6],
+            "scope": dict(
+                zip(
+                    (
+                        "exchange",
+                        "account_id",
+                        "environment",
+                        "product",
+                        "producer",
+                        "request_key",
+                    ),
+                    intent[7:],
+                    strict=True,
+                )
+            ),
             "episode": None
             if episode is None
             else dict(zip(("status", "accounting_revision"), episode, strict=True)),
@@ -134,7 +174,19 @@ class TradingData:
             "orders": [
                 dict(
                     zip(
-                        ("order_id", "client_order_id", "leg", "status", "version"),
+                        (
+                            "order_id",
+                            "client_order_id",
+                            "leg",
+                            "status",
+                            "version",
+                            "request_key",
+                            "quantity",
+                            "order_type",
+                            "limit_price",
+                            "time_in_force",
+                            "request_evidence",
+                        ),
                         row,
                         strict=True,
                     )
@@ -152,3 +204,40 @@ class TradingData:
                 for row in events
             ],
         }
+
+    def accept_signal(self, intent, evidence):
+        """Atomically register signal consumption and its durable trade intent.
+
+        Caller must not dispatch before this transaction's commit is confirmed.
+        DB uniqueness also prevents a different request key bypassing signal dedup.
+        """
+        signal_id = str(UUID(json.loads(evidence.snapshot_json)["signal_id"]))
+        if intent.request_key != "signal:" + signal_id:
+            raise ValueError("signal-driven intent requires stable signal request key")
+        consumer = signal_consumer(intent)
+        with self._connect() as conn:
+            if (
+                conn.execute(
+                    "SELECT 1 FROM v2_inbound_signals WHERE signal_id=%s FOR UPDATE",
+                    (signal_id,),
+                ).fetchone()
+                is None
+            ):
+                raise ValueError("unknown signal")
+            receipt = conn.execute(
+                "SELECT outcome FROM v2_signal_receipts WHERE consumer=%s AND signal_id=%s",
+                (consumer, signal_id),
+            ).fetchone()
+            if receipt is not None and receipt != ("INTENT",):
+                return Admission(AdmissionCode.CONFLICT)
+            bound = TradingData(lambda: nullcontext(conn))
+            result = bound.accept(intent, evidence)
+            if result.code in {AdmissionCode.ACCEPTED, AdmissionCode.ALREADY_ACCEPTED}:
+                bound.signals.complete(
+                    consumer=consumer,
+                    signal_id=signal_id,
+                    outcome="INTENT",
+                    intent_id=result.intent_id,
+                    reason="signal admitted",
+                )
+        return result

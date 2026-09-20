@@ -99,11 +99,11 @@ class Admission:
 _INSERT = """
 INSERT INTO v2_trade_intents (
     intent_id, exchange, account_id, environment, product, producer,
-    request_key, payload, payload_digest, evidence_ref, config_digest, strategy_version
+    request_key, payload, payload_digest, evidence_ref, config_digest, strategy_version, signal_id
 ) VALUES (
     %(intent_id)s, %(exchange)s, %(account_id)s, %(environment)s,
     %(product)s, %(producer)s, %(request_key)s, %(payload)s::jsonb,
-    %(payload_digest)s, %(evidence_ref)s, %(config_digest)s, %(strategy_version)s
+    %(payload_digest)s, %(evidence_ref)s, %(config_digest)s, %(strategy_version)s, %(signal_id)s
 ) ON CONFLICT DO NOTHING RETURNING intent_id::text
 """
 _EXISTING = """
@@ -119,7 +119,9 @@ SELECT %(intent_id)s, %(intent_id)s, 'INTENT_ACCEPTED',
         'exchange', %(exchange)s::text, 'account_id', %(account_id)s::text,
         'environment', %(environment)s::text, 'product', %(product)s::text,
         'producer', %(producer)s::text, 'request_key', %(request_key)s::text,
-        'config', config, 'decision', snapshot)
+        'config', config, 'decision', snapshot,
+        'signal', (SELECT jsonb_build_object('signal_id',s.signal_id,'source',s.source,'snapshot',s.snapshot)
+            FROM v2_inbound_signals s WHERE s.signal_id=v2_decision_evidence.signal_id))
 FROM v2_decision_evidence WHERE evidence_ref = %(evidence_ref)s
 """
 
@@ -157,9 +159,7 @@ class IntentStore:
             if conn.execute(
                 "SELECT 1 FROM v2_orders WHERE episode_id=%s LIMIT 1", (intent_id,)
             ).fetchone():
-                raise ValueError(
-                    "prepared order must be cancelled through order lifecycle"
-                )
+                return False  # Preparation won the race; use order lifecycle.
             conn.execute(
                 "UPDATE v2_trade_intents SET status=%s,version=version+1 WHERE intent_id=%s",
                 (status, intent_id),
@@ -201,8 +201,9 @@ class IntentStore:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
-                    """SELECT snapshot->>'symbol' FROM v2_decision_evidence
-                    WHERE evidence_ref=%s AND config_digest=%s AND strategy_version=%s""",
+                    """SELECT e.snapshot->>'symbol',e.signal_id::text,s.environment,s.snapshot->>'symbol'
+                    FROM v2_decision_evidence e LEFT JOIN v2_inbound_signals s USING(signal_id)
+                    WHERE e.evidence_ref=%s AND e.config_digest=%s AND e.strategy_version=%s""",
                     (
                         intent.evidence_ref,
                         intent.config_digest,
@@ -210,8 +211,16 @@ class IntentStore:
                     ),
                 )
                 evidence_row = cur.fetchone()
-                if evidence_row != (intent.symbol,):
+                if (
+                    evidence_row is None
+                    or evidence_row[0] != intent.symbol
+                    or (
+                        evidence_row[1] is not None
+                        and evidence_row[2:] != (intent.environment, intent.symbol)
+                    )
+                ):
                     return Admission(AdmissionCode.CONFLICT)
+                params["signal_id"] = evidence_row[1]
                 cur.execute(_INSERT, params)
                 inserted = cur.fetchone()
                 if inserted:

@@ -82,14 +82,20 @@ CREATE TABLE v2_orders (
     client_order_id TEXT NOT NULL UNIQUE,
     request_key TEXT NOT NULL,
     quantity NUMERIC(38,18) NOT NULL CHECK (quantity > 0),
+    order_type TEXT NOT NULL DEFAULT 'MARKET' CHECK (order_type IN ('MARKET','LIMIT')),
+    limit_price NUMERIC(38,18),
+    time_in_force TEXT,
+    request_evidence JSONB NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(request_evidence)='object'),
     status TEXT NOT NULL DEFAULT 'PREPARED' CHECK (status IN (
         'PREPARED','SUBMITTING','UNKNOWN','ACKNOWLEDGED','FILLED','CANCELLED','REJECTED')),
     version BIGINT NOT NULL DEFAULT 1 CHECK (version > 0),
     exchange_order_id TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    UNIQUE (episode_id, leg, request_key)
+    UNIQUE (episode_id, leg, request_key),
+    CHECK ((order_type='MARKET' AND limit_price IS NULL AND time_in_force IS NULL)
+        OR (order_type='LIMIT' AND limit_price IS NOT NULL AND limit_price>0
+            AND time_in_force IS NOT NULL AND time_in_force IN ('GTC','IOC','FOK')))
 );
-CREATE UNIQUE INDEX v2_one_open_order ON v2_orders(episode_id) WHERE leg='OPEN';
 CREATE FUNCTION v2_guard_order_identity() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF (to_jsonb(NEW) - ARRAY['status','version','exchange_order_id','updated_at']) IS DISTINCT FROM
@@ -178,3 +184,77 @@ CREATE TABLE v2_settlements (
 );
 CREATE TRIGGER v2_settlement_immutable BEFORE UPDATE OR DELETE ON v2_settlements
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+-- Non-ledger strategy state. Every write is versioned, audited and idempotent.
+-- Financial mutations spanning these rows and orders require one transaction.
+CREATE TABLE v2_business_state (
+    state_id UUID PRIMARY KEY,
+    scope JSONB NOT NULL CHECK (jsonb_typeof(scope)='object'),
+    version BIGINT NOT NULL CHECK (version >= 0),
+    payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
+    deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE TABLE v2_state_history (
+    event_id UUID PRIMARY KEY,
+    state_id UUID NOT NULL REFERENCES v2_business_state(state_id),
+    request_key TEXT NOT NULL,
+    expected_version BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
+    deleted BOOLEAN NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (state_id,version),
+    UNIQUE (state_id,request_key)
+);
+CREATE TRIGGER v2_state_history_immutable BEFORE UPDATE OR DELETE ON v2_state_history
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+ALTER TABLE v2_business_state ADD CONSTRAINT v2_state_current_has_history
+FOREIGN KEY (state_id,version) REFERENCES v2_state_history(state_id,version)
+DEFERRABLE INITIALLY DEFERRED;
+CREATE FUNCTION v2_guard_state_version() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.state_id IS DISTINCT FROM OLD.state_id OR NEW.scope IS DISTINCT FROM OLD.scope THEN
+        RAISE EXCEPTION 'immutable business state identity';
+    END IF;
+    IF NEW.version <> OLD.version + 1 THEN
+        RAISE EXCEPTION 'business state requires next version';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER v2_state_version BEFORE UPDATE ON v2_business_state
+FOR EACH ROW EXECUTE FUNCTION v2_guard_state_version();
+CREATE TRIGGER v2_state_no_delete BEFORE DELETE ON v2_business_state
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+CREATE TABLE v2_inbound_signals (
+    signal_id UUID PRIMARY KEY,
+    source TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    request_key TEXT NOT NULL,
+    snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot)='object'),
+    received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE (source,environment,request_key)
+);
+CREATE TRIGGER v2_signals_immutable BEFORE UPDATE OR DELETE ON v2_inbound_signals
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TABLE v2_signal_receipts (
+    consumer TEXT NOT NULL,
+    signal_id UUID NOT NULL REFERENCES v2_inbound_signals(signal_id),
+    outcome TEXT NOT NULL CHECK (outcome IN ('INTENT','IGNORED','EXPIRED')),
+    intent_id UUID REFERENCES v2_trade_intents(intent_id),
+    reason TEXT NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (consumer,signal_id),
+    CHECK ((outcome='INTENT' AND intent_id IS NOT NULL) OR
+           (outcome<>'INTENT' AND intent_id IS NULL))
+);
+CREATE TRIGGER v2_signal_receipts_immutable BEFORE UPDATE OR DELETE ON v2_signal_receipts
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+ALTER TABLE v2_decision_evidence ADD COLUMN signal_id UUID
+GENERATED ALWAYS AS ((snapshot->>'signal_id')::uuid) STORED
+REFERENCES v2_inbound_signals(signal_id);
+ALTER TABLE v2_trade_intents ADD COLUMN signal_id UUID REFERENCES v2_inbound_signals(signal_id);
+CREATE UNIQUE INDEX v2_one_intent_per_signal_consumer ON v2_trade_intents
+(exchange,account_id,environment,product,producer,signal_id) WHERE signal_id IS NOT NULL;
