@@ -205,6 +205,11 @@ reconcile，不自动市价平仓；所有自动 emergency close 另票审批。
 → 暂停新开仓 → quarantine”升级，人工审批绑定版本且过期失效，自动市价平仓
 默认关闭。生产时限数值、durable scheduler、告警和 executor wiring 仍未启用。
 
+人工关注面采用 Telegram 通知 + Web Decision Center：TG 只负责提醒和安全
+deep link，Web 展示触发快照与当前状态 diff、倒计时、自动兜底、证据时间线和
+审计。先交付 durable inbox/outbox 与只读页面，再启用带 RBAC、重新认证、过期
+绑定和服务端二次校验的批准动作；任何 UI 不在线都不得阻塞自动安全兜底。
+
 ## 6. Wave I — Open Identity 与幂等
 
 1. D1C：Binance client-order-ID/query characterization；

@@ -70,3 +70,8 @@ also cannot be issued before the exchange evidence it references.
 - decimal quantity canonicalization for evidence construction.
 
 **V2-AUTONOMOUS-DELAYED-EVENT-POLICY PASS.**
+
+Operator attention and later approval UX is specified separately in
+`V2_OPERATOR_DECISION_CENTER_PRODUCT_NOTE.md`: Telegram alerts deep-link to a
+durable authenticated Web inbox, while automatic fallbacks continue without an
+online human.
