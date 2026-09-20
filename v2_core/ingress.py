@@ -170,6 +170,31 @@ class ContextProvider:
         for source, fact in facts.items():
             if not 0 <= now - fact["observed_at"] <= self.policy[source]["max_age_ms"]:
                 raise IntakeRejected("STALE_CONTEXT")
+        reference = signal.get("features", {}).get("producer_context")
+        if reference is not None:
+            if not isinstance(reference, dict) or set(reference) != {
+                "snapshot_id",
+                "source",
+                "environment",
+                "symbol",
+                "observed_at",
+            }:
+                raise IntakeRejected("INVALID_PRODUCER_CONTEXT")
+            if (
+                not isinstance(reference["source"], str)
+                or reference["source"] not in facts
+                or (reference["environment"], reference["symbol"])
+                != (self.environment, target)
+            ):
+                raise IntakeRejected("PRODUCER_CONTEXT_UNAVAILABLE")
+            milliseconds(reference["observed_at"])
+            identity(reference["snapshot_id"])
+            actual = facts[reference["source"]]
+            if actual["observed_at"] < reference["observed_at"] or (
+                actual["observed_at"] == reference["observed_at"]
+                and actual["snapshot_id"] != reference["snapshot_id"]
+            ):
+                raise IntakeRejected("PRODUCER_CONTEXT_UNAVAILABLE")
         context = {
             "assembled_at": now,
             "valid_until_ms": min(

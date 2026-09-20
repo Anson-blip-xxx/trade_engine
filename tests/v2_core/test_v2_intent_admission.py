@@ -2016,6 +2016,291 @@ def test_strategy_rechecks_context_scope_and_age_before_evaluation(database, cha
     assert worker.decision(result["signal_id"]) is None
 
 
+def producer_frame(**changes):
+    return {
+        "frame_id": "s3:frame:100",
+        "observed_at": 100,
+        "contexts": {"BTCUSDT": {"price": "100"}, "ETHUSDT": {"price": "200"}},
+        "events": [
+            {
+                "event_id": "s3:btc:100",
+                "symbol": "BTCUSDT",
+                "signal": "TREND_UP",
+                "features": {"strength": 70},
+            },
+            {
+                "event_id": "s3:eth:100",
+                "symbol": "ETHUSDT",
+                "signal": "TREND_UP",
+                "features": {"strength": 80},
+            },
+        ],
+        **changes,
+    }
+
+
+def producer(database, *, market=None, source="s3", now=None):
+    from v2_core.producer import ProducerPublisher
+
+    class Cache:
+        def __init__(self):
+            self.records = []
+
+        def put(self, envelope):
+            self.records.append(envelope)
+            return True
+
+    market = Cache() if market is None else market
+    return ProducerPublisher(
+        database,
+        source=source,
+        environment="SANDBOX",
+        market=market,
+        clock_ms=now or (lambda: 120),
+        max_age_ms=100,
+        lifetime_ms=100,
+    ), market
+
+
+def test_producer_concurrent_replay_commits_one_batch_and_no_duplicate_signals(
+    database,
+):
+    publisher, cache = producer(database)
+    with ThreadPoolExecutor(4) as pool:
+        results = list(
+            pool.map(lambda _: publisher.publish(**producer_frame()), range(4))
+        )
+    assert all(result == results[0] for result in results)
+    assert results[0]["market_status"] == "PROJECTED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_producer_batches").fetchone() == (
+            1,
+        )
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            2,
+        )
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+    assert len(cache.records) == 8
+
+
+def test_producer_bad_second_event_rolls_back_entire_batch_before_market_write(
+    database,
+):
+    publisher, cache = producer(database)
+    frame = producer_frame()
+    frame["events"][1]["signal"] = "invalid signal"
+    with pytest.raises(ValueError):
+        publisher.publish(**frame)
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_producer_batches").fetchone() == (
+            0,
+        )
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            0,
+        )
+    assert cache.records == []
+
+
+def test_producer_reused_event_id_rolls_back_new_events_and_frame(database):
+    publisher, cache = producer(database)
+    publisher.publish(**producer_frame())
+    later = producer_frame(frame_id="s3:later", observed_at=110)
+    later["events"][0]["event_id"] = "brand-new-id"
+    with pytest.raises(ValueError, match="conflict"):
+        publisher.publish(**later)
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_producer_batches").fetchone() == (
+            1,
+        )
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            2,
+        )
+        assert (
+            conn.execute(
+                "SELECT 1 FROM v2_inbound_signals WHERE request_key='brand-new-id'"
+            ).fetchone()
+            is None
+        )
+    assert len(cache.records) == 2
+
+
+def test_producer_frame_conflict_does_not_overwrite_cache_or_receipt(database):
+    publisher, cache = producer(database)
+    publisher.publish(**producer_frame())
+    with pytest.raises(ValueError, match="conflict"):
+        publisher.publish(
+            **producer_frame(
+                contexts={"BTCUSDT": {"price": "999"}, "ETHUSDT": {"price": "200"}}
+            )
+        )
+    assert len(cache.records) == 2
+    with pytest.raises(Exception, match="immutable"), database() as conn:
+        conn.execute("UPDATE v2_producer_batches SET observed_at_ms=200")
+
+
+def test_producer_failed_cache_replay_keeps_signal_identity_and_original_expiry(
+    database,
+):
+    class Failing:
+        def put(self, _):
+            raise ConnectionError("sensitive Redis detail")
+
+    publisher, _ = producer(database, market=Failing())
+    first = publisher.publish(**producer_frame())
+    assert first["market_status"] == "UNAVAILABLE"
+    assert first["market_errors"] == {
+        "BTCUSDT": "ConnectionError",
+        "ETHUSDT": "ConnectionError",
+    }
+    restarted, _ = producer(database, now=lambda: 999)
+    repaired = restarted.publish(**producer_frame())
+    assert repaired["signal_ids"] == first["signal_ids"]
+    assert repaired["market_status"] == "PROJECTED"
+    with database() as conn:
+        assert conn.execute(
+            "SELECT DISTINCT snapshot->>'expires_at_ms' FROM v2_inbound_signals"
+        ).fetchall() == [("200",)]
+    with pytest.raises(ValueError, match="stale"):
+        restarted.publish(**producer_frame(frame_id="new-after-expiry"))
+
+
+@pytest.mark.parametrize("commit_succeeded", [True, False])
+def test_producer_commit_fault_has_no_cache_side_effect_and_retries_same_batch(
+    database, commit_succeeded
+):
+    @contextmanager
+    def interrupted():
+        with database() as conn:
+            yield conn
+            if not commit_succeeded:
+                raise ConnectionError("rollback transaction")
+        raise ConnectionError("commit acknowledgement lost")
+
+    publisher, cache = producer(interrupted)
+    with pytest.raises(ConnectionError):
+        publisher.publish(**producer_frame())
+    assert cache.records == []
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_producer_batches").fetchone() == (
+            int(commit_succeeded),
+        )
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            2 * int(commit_succeeded),
+        )
+    restarted, _ = producer(database)
+    assert restarted.publish(**producer_frame())["market_status"] == "PROJECTED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            2,
+        )
+
+
+def test_s0_publisher_is_context_only_and_records_empty_batch(database):
+    from services.v2_market_publishers import S0Publisher
+
+    publisher, cache = producer(database, source="s0")
+    S0Publisher(publisher).publish_state(
+        {"regime": "range", "breadth": 0.52}, frame_id="s0:1", observed_at=100
+    )
+    assert cache.records[0]["symbol"] == "*"
+    assert cache.records[0]["features"]["breadth"] == "0.52"
+    with database() as conn:
+        assert conn.execute(
+            "SELECT signal_ids FROM v2_producer_batches"
+        ).fetchone() == ([],)
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            0,
+        )
+
+
+def test_s3_adapter_through_pg_redis_context_and_strategy(database):
+    import redis
+
+    from services.v2_market_publishers import S3Publisher
+    from v2_core.ingress import ContextProvider, IntakeRejected
+    from v2_core.producer import RedisMarketContext, market_envelope
+    from v2_core.scheduling import StrategyScheduler
+
+    socket = os.environ["V2_REDIS_TEST_SOCKET"]
+    assert socket.startswith("/tmp/v2-data-qa.")
+    client = redis.Redis(unix_socket_path=socket, decode_responses=True)
+    cache = RedisMarketContext(client, environment="SANDBOX")
+    key = "v2:market:SANDBOX:s3:BTCUSDT"
+    assert not client.exists(key)
+    try:
+        publisher, _ = producer(database, market=cache)
+        result = S3Publisher(publisher).publish_frame(
+            frame_id="s3:100",
+            observed_at=100,
+            windows={"BTCUSDT": {"1h": {"ema20": 99.0, "atr": 1.0}}},
+            events=[
+                {
+                    "event_id": "s3:btc:100:active",
+                    "symbol": "BTCUSDT",
+                    "type": "TREND_UP",
+                    "state": "ACTIVE",
+                    "strength": 70,
+                }
+            ],
+        )
+        signal_id = result["signal_ids"][0]
+        provider = ContextProvider(
+            environment="SANDBOX",
+            policy={"s3": {"scope": "SYMBOL", "max_age_ms": 100}},
+            read=cache.read,
+            clock_ms=lambda: 120,
+        )
+        worker, runtime = strategy_worker(database, now=lambda: 120)
+        worker.source = "s3"  # New test worker binding before any use.
+        assert StrategyScheduler(worker, context_provider=provider).run_once() == {
+            signal_id: "PREPARED"
+        }
+        trace = runtime.data.trace(worker.decision(signal_id)["decision_id"])
+        evidence = trace["decision"]["features"]["context"]["sources"]["s3"]
+        assert evidence["features"]["1h"]["ema20"] == "99.0"
+        assert (
+            trace["signal"]["snapshot"]["features"]["producer_context"]["snapshot_id"]
+            == evidence["snapshot_id"]
+        )
+        # Replayed old frames cannot overwrite newer observations.
+        newer = market_envelope("s3", "SANDBOX", "BTCUSDT", 110, {"price": "102"})
+        assert cache.put(newer)
+        assert cache.put(evidence)
+        assert cache.read("s3", "SANDBOX", "BTCUSDT") == newer
+        assert not cache.put(
+            market_envelope("s3", "SANDBOX", "BTCUSDT", 110, {"price": "999"})
+        )
+        # New signal's source context cannot be replaced by older but fresh cache.
+        newer_reference = {k: v for k, v in newer.items() if k != "features"}
+        client.delete(key)
+        assert cache.put(evidence)
+        with pytest.raises(IntakeRejected, match="PRODUCER_CONTEXT_UNAVAILABLE"):
+            provider(
+                {"symbol": "BTCUSDT", "features": {"producer_context": newer_reference}}
+            )
+        client.delete(key)
+        with pytest.raises(IntakeRejected, match="MISSING_CONTEXT"):
+            provider({"symbol": "BTCUSDT"})
+        # Lost cache is repairable by original producer frame (not business file).
+        assert (
+            publisher.publish(
+                frame_id="repair",
+                observed_at=110,
+                contexts={"BTCUSDT": {"price": "102"}},
+                events=[],
+            )["market_status"]
+            == "PROJECTED"
+        )
+        with pytest.raises(ValueError, match="binding"):
+            cache.read("s3", "LIVE", "BTCUSDT")
+        client.hset(key, "payload", '{"bad":"shape"}')
+        with pytest.raises(ValueError, match="cached context"):
+            cache.read("s3", "SANDBOX", "BTCUSDT")
+    finally:
+        client.delete(key)
+        client.close()
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

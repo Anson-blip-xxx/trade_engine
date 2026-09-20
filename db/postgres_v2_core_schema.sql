@@ -416,3 +416,17 @@ CREATE TABLE v2_strategy_tasks (
 );
 CREATE INDEX v2_strategy_tasks_due ON v2_strategy_tasks(consumer,next_attempt_at,signal_id)
 WHERE completed_at IS NULL;
+
+-- Immutable producer confirmation, not a market tick history store.
+CREATE TABLE v2_producer_batches (
+    source TEXT NOT NULL CHECK (source IN ('s0','s2','s3')),
+    environment TEXT NOT NULL CHECK (environment IN ('SANDBOX','LIVE')),
+    frame_id TEXT NOT NULL,
+    content_digest TEXT NOT NULL,
+    observed_at_ms BIGINT NOT NULL CHECK (observed_at_ms >= 0),
+    signal_ids JSONB NOT NULL CHECK (jsonb_typeof(signal_ids)='array'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (source,environment,frame_id)
+);
+CREATE TRIGGER v2_producer_batch_immutable BEFORE UPDATE OR DELETE ON v2_producer_batches
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();

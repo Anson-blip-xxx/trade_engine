@@ -90,7 +90,8 @@ valid_until_ms = min(各来源 observed_at + max_age_ms + 1)，供严格 `< dead
 - `s3/ports.py:S3RedisPublisher` 与 `strategies/s3_orderflow.py` 的生产输出仍需迁入
   持久信号及规范上下文。不能直接沿用吞错/latest-slot 覆盖语义。
 - s0 生产快照仍需输出显式环境、身份和时间封装；s2 实际生产端位置及映射需继续定位。
-- 上下文端口目前注入读源，并不代表 Redis 生产键/完整特征已接线。
+- 已新增 `RedisMarketContext` 的隔离行情读写和 S0/S3 输出适配器，见
+  [生产批次说明](V2_PRODUCER_PUBLICATION.md)；旧循环和持久生命周期仍未切换。
 - 现有低层 StrategyWorker 仍支持测试/内部简单上下文；未来生产 worker 必须绑定
   经过校验的 ContextProvider，不能用空字典跳过生产上下文要求。
 
