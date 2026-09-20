@@ -533,3 +533,49 @@ CREATE TABLE v2_operational_attempts (
 CREATE INDEX v2_operational_attempts_due ON v2_operational_attempts(consumer,next_attempt_at,event_id);
 CREATE VIEW v2_operational_sandbox_outbox AS SELECT * FROM v2_operational_outbox WHERE scope_id='SANDBOX';
 CREATE VIEW v2_operational_live_outbox AS SELECT * FROM v2_operational_outbox WHERE scope_id='LIVE';
+
+-- Reference-notional admission budget, not exchange margin or live mark exposure.
+CREATE TABLE v2_risk_accounts (
+    scope TEXT PRIMARY KEY,
+    version BIGINT NOT NULL CHECK(version>0),
+    last_reserved_at TIMESTAMPTZ
+);
+CREATE TABLE v2_risk_policies (
+    scope TEXT NOT NULL REFERENCES v2_risk_accounts(scope),
+    version BIGINT NOT NULL CHECK(version>0),
+    config JSONB NOT NULL CHECK(jsonb_typeof(config)='object'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY(scope,version)
+);
+ALTER TABLE v2_risk_accounts ADD FOREIGN KEY(scope,version) REFERENCES v2_risk_policies(scope,version) DEFERRABLE INITIALLY DEFERRED;
+CREATE TRIGGER v2_risk_policies_immutable BEFORE UPDATE OR DELETE ON v2_risk_policies
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TRIGGER v2_risk_accounts_no_delete BEFORE DELETE ON v2_risk_accounts
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TABLE v2_risk_reservations (
+    episode_id UUID PRIMARY KEY REFERENCES v2_episodes(episode_id),
+    scope TEXT NOT NULL,
+    policy_version BIGINT NOT NULL,
+    notional NUMERIC(38,18) NOT NULL CHECK(notional>0),
+    reference JSONB NOT NULL CHECK(jsonb_typeof(reference)='object'),
+    status TEXT NOT NULL DEFAULT 'HELD' CHECK(status IN ('HELD','RELEASED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    released_at TIMESTAMPTZ,
+    release_reason TEXT CHECK(release_reason IN ('ABORTED','SETTLED')),
+    FOREIGN KEY(scope,policy_version) REFERENCES v2_risk_policies(scope,version),
+    CHECK((status='HELD' AND released_at IS NULL AND release_reason IS NULL)
+       OR (status='RELEASED' AND released_at IS NOT NULL AND release_reason IS NOT NULL))
+);
+CREATE INDEX v2_risk_held ON v2_risk_reservations(scope,episode_id) WHERE status='HELD';
+CREATE FUNCTION v2_guard_risk_reservation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP='DELETE' THEN RAISE EXCEPTION 'risk reservation cannot be deleted'; END IF;
+    IF OLD.status<>'HELD' OR NEW.status<>'RELEASED' OR
+       (to_jsonb(NEW)-ARRAY['status','released_at','release_reason']) IS DISTINCT FROM
+       (to_jsonb(OLD)-ARRAY['status','released_at','release_reason']) THEN
+       RAISE EXCEPTION 'immutable risk reservation';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER v2_risk_reservations_guard BEFORE UPDATE OR DELETE ON v2_risk_reservations
+FOR EACH ROW EXECUTE FUNCTION v2_guard_risk_reservation();

@@ -507,6 +507,9 @@ class Ledger:
                 "UPDATE v2_episodes SET status='SETTLED' WHERE episode_id=%s",
                 (episode_id,),
             )
+            from v2_core.account_risk import release_terminal
+
+            release_terminal(conn, episode_id)
             emit(
                 conn,
                 episode_id,

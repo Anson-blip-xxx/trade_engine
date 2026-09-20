@@ -40,11 +40,16 @@ class RiskVerdict:
 
 
 class ExecutionRunner:
-    def __init__(self, connection_factory, *, submit, query, risk_check):
+    def __init__(
+        self, connection_factory, *, submit, query, risk_check, risk_reference=None
+    ):
         if not all(callable(port) for port in (submit, query, risk_check)):
             raise TypeError("explicit submit, query and risk ports required")
         self._connect = connection_factory
         self.submit, self.query, self.risk_check = submit, query, risk_check
+        if risk_reference is not None and not callable(risk_reference):
+            raise TypeError("explicit risk reference provider required")
+        self.risk_reference = risk_reference
         self.orders = Orders(connection_factory)
         self.ledger = Ledger(connection_factory)
 
@@ -111,24 +116,49 @@ class ExecutionRunner:
                 else {"reason": "risk policy denied"},
             )
             return "DENIED" if cancelled else "RACE_LOST"
+        # Reference I/O is outside DB locks; its age and the original decision
+        # deadline are checked again under the account lock before committing.
+        reference = (
+            self.risk_reference(deepcopy(before))
+            if before["leg"] == "OPEN" and self.risk_reference is not None
+            else None
+        )
+        from v2_core.account_risk import AccountRiskDenied
+
         # If transaction commit raises, this function exits before exchange I/O.
-        if not self.orders.transition(
-            order_id,
-            expected_version=before["version"],
-            status="SUBMITTING",
-            evidence={
-                "reason": "durable dispatch",
-                "risk": {
-                    "allowed": True,
-                    "reason": verdict.reason
-                    if isinstance(verdict, RiskVerdict)
-                    else "injected policy allowed",
-                    "evidence": (verdict.evidence or {})
-                    if isinstance(verdict, RiskVerdict)
-                    else {},
+        try:
+            permitted = self.orders.transition(
+                order_id,
+                expected_version=before["version"],
+                status="SUBMITTING",
+                risk_reference=reference,
+                require_account_risk=self.risk_reference is not None,
+                evidence={
+                    "reason": "durable dispatch",
+                    "risk": {
+                        "allowed": True,
+                        "reason": verdict.reason
+                        if isinstance(verdict, RiskVerdict)
+                        else "injected policy allowed",
+                        "evidence": (verdict.evidence or {})
+                        if isinstance(verdict, RiskVerdict)
+                        else {},
+                    },
                 },
-            },
-        ):
+            )
+        except AccountRiskDenied as exc:
+            cancelled = self.orders.transition(
+                order_id,
+                expected_version=before["version"],
+                status="CANCELLED",
+                evidence={
+                    "reason": "account risk denied",
+                    "account_risk_code": str(exc),
+                    "account_risk_evidence": exc.evidence,
+                },
+            )
+            return "DENIED" if cancelled else "RACE_LOST"
+        if not permitted:
             return "RACE_LOST"
         try:
             observation = self.submit(deepcopy(before))

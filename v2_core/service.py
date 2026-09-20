@@ -62,6 +62,13 @@ class TradingData:
                 "SELECT status,accounting_revision FROM v2_episodes WHERE episode_id=%s",
                 (intent_id,),
             ).fetchone()
+            risk = conn.execute(
+                """SELECT r.status,r.notional::text,r.reference,r.policy_version,p.config,
+                r.release_reason,r.released_at::text FROM v2_risk_reservations r
+                JOIN v2_risk_policies p ON p.scope=r.scope AND p.version=r.policy_version
+                WHERE r.episode_id=%s""",
+                (intent_id,),
+            ).fetchone()
             settlements = conn.execute(
                 """SELECT revision,currency,evidence FROM v2_settlements
                 WHERE episode_id=%s ORDER BY revision""",
@@ -119,6 +126,23 @@ class TradingData:
             ).fetchall()
         return {
             "intent_id": intent[0],
+            "account_risk": None
+            if risk is None
+            else dict(
+                zip(
+                    (
+                        "status",
+                        "notional",
+                        "reference",
+                        "policy_version",
+                        "policy",
+                        "release_reason",
+                        "released_at",
+                    ),
+                    risk,
+                    strict=True,
+                )
+            ),
             "income_allocations": [
                 dict(
                     zip(

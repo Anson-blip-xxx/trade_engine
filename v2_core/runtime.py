@@ -14,7 +14,15 @@ from v2_core.service import TradingData
 
 class DataRuntime:
     def __init__(
-        self, connection_factory, *, submit, query, risk_check, clock_ms, projectors=()
+        self,
+        connection_factory,
+        *,
+        submit,
+        query,
+        risk_check,
+        clock_ms,
+        projectors=(),
+        risk_reference=None,
     ):
         if not callable(clock_ms) or not callable(risk_check):
             raise TypeError("explicit clock and risk policy required")
@@ -22,8 +30,15 @@ class DataRuntime:
         self.clock_ms, self.risk_check = clock_ms, risk_check
         self.projectors = tuple(projectors)
         self.attention = RecoveryAttention(connection_factory)
+        from v2_core.account_risk import AccountRisk
+
+        self.account_risk = AccountRisk(connection_factory)
         self.execution = ExecutionRunner(
-            connection_factory, submit=submit, query=query, risk_check=self._risk
+            connection_factory,
+            submit=submit,
+            query=query,
+            risk_check=self._risk,
+            risk_reference=risk_reference,
         )
 
     def _now(self):
@@ -196,6 +211,7 @@ class DataRuntime:
         for name, action in (
             ("expiry", lambda: self.expire_once(limit)),
             ("recovery", lambda: self.recover_once(limit)),
+            ("risk_releases", lambda: self.account_risk.sweep_releases(limit)),
             (
                 "attention",
                 lambda: self.attention.scan(

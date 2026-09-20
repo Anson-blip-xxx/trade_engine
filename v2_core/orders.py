@@ -188,7 +188,15 @@ class Orders:
         return order_id, client_id
 
     def transition(
-        self, order_id, *, expected_version, status, evidence, exchange_order_id=None
+        self,
+        order_id,
+        *,
+        expected_version,
+        status,
+        evidence,
+        exchange_order_id=None,
+        risk_reference=None,
+        require_account_risk=False,
     ):
         order_id = str(UUID(order_id))
         if type(expected_version) is not int or expected_version < 1:
@@ -244,6 +252,17 @@ class Orders:
                 ).fetchone()
             ):
                 raise ValueError("cannot reject an order with confirmed fills")
+            if row[4] == "OPEN" and status == "SUBMITTING":
+                from v2_core.account_risk import reserve_open
+
+                proof = reserve_open(
+                    conn,
+                    order_id,
+                    reference=risk_reference,
+                    required=require_account_risk,
+                )
+                if proof is not None:
+                    encoded = canonical({**json.loads(encoded), "account_risk": proof})
             conn.execute(
                 """UPDATE v2_orders SET status=%s,version=version+1,
                 exchange_order_id=COALESCE(exchange_order_id,%s),updated_at=clock_timestamp()
@@ -302,6 +321,9 @@ class Orders:
                     "version": expected_version + 1,
                 },
             )
+            from v2_core.account_risk import release_terminal
+
+            release_terminal(conn, row[2])
         return True
 
     def recovery_candidates(self, limit=100):
