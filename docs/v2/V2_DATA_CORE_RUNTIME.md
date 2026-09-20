@@ -346,3 +346,16 @@ Ruff/格式/diff 检查通过；临时服务已停止，诊断 `/tmp/v2-data-qa.
 Ruff/格式/diff 检查通过，诊断 `/tmp/v2-data-qa.idS6UR`，临时服务已停止。
 没有真实交易、密钥访问或运行库变更。多账户维护扫描作用域、在线来源/权限、
 真实资金风控、策略和自动对账等门禁仍未关闭，不是可部署实盘版本。
+
+## 多账户维护作用域检查点
+
+受控工厂现在将 AccountScope 贯穿 DataRuntime、ExecutionRunner、RecoveryAttention
+及财务 Projector；恢复发现/领取、过期、告警、额度释放、投递均先过滤再 LIMIT。
+已有全局任务不会被其他账户领取，错误账户直接调用不取消对方订单；共享 consumer
+仍按不可变事件身份独立回执。scope=None 保留全局管理兼容，不替代 RLS/最小权限。
+详见 [账户维护隔离及底层能力边界](V2_ACCOUNT_MAINTENANCE.md)。
+
+新增 30 项 QA；全仓 **3528 passed、10 skipped、1 个既有 warning**，172.13 秒。
+Ruff/格式/diff 检查通过；临时服务已停止，诊断 `/tmp/v2-data-qa.1TD6Lu`。
+本阶段不改变策略规则或部署权限；真实策略、保证金、保护单、自动对账和实盘
+环境验收仍未完成。未执行真实交易、安装服务或更新运行环境。

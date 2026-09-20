@@ -19,6 +19,7 @@ from v2_core.account_risk import AccountRisk, RiskProvenance, RiskReference
 from v2_core.chunked_archive import ClickHouseChunkedArchive
 from v2_core.producer import ProducerPublisher
 from v2_core.runner import ExchangeObservation
+from v2_core.scoping import ScopeMismatch
 
 database = database_fixture
 
@@ -241,13 +242,14 @@ def test_corrupt_archive_prevents_reservation_and_send(database):
 def test_factory_prevents_cross_account_submit_and_recovery(database):
     source, _, _ = published(database)
     _, data, order, _ = prepare(database, account="other")
-    assert factory(database, source, enabled=True).execution.dispatch(order) == "DENIED"
+    with pytest.raises(ScopeMismatch):
+        factory(database, source, enabled=True).execution.dispatch(order)
     # Separate compatibility writer creates a foreign recoverable order.
     _, _, foreign, _ = prepare(database, account="other", symbol="ETHUSDT")
     data.orders.transition(
         foreign, expected_version=1, status="SUBMITTING", evidence={}
     )
-    with pytest.raises(ReferenceUnavailable, match="RECOVERY_REQUEST_SCOPE"):
+    with pytest.raises(ScopeMismatch):
         factory(
             database, source, query=lambda _: pytest.fail("foreign query")
         ).execution.recover(foreign)

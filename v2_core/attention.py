@@ -1,11 +1,13 @@
 """Durable unresolved-order alerts. Never substitutes timeout for exchange fact."""
 
 from v2_core.ledger import emit, lock_order_episode
+from v2_core.scoping import predicate, validate_scope
 
 
 class RecoveryAttention:
-    def __init__(self, connection_factory):
+    def __init__(self, connection_factory, *, scope=None):
         self._connect = connection_factory
+        self.scope = validate_scope(scope)
 
     def scan(self, *, now_ms, overdue_ms, limit=100):
         if (
@@ -19,16 +21,18 @@ class RecoveryAttention:
             )
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid limit")
+        condition, params = predicate(self.scope)
         with self._connect() as conn:
             candidates = conn.execute(
-                """SELECT order_id::text FROM v2_orders o
-                WHERE status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
+                f"""SELECT o.order_id::text FROM v2_orders o
+                JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+                WHERE {condition} AND o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
                   AND extract(epoch FROM updated_at)*1000 <= %s
                   AND NOT EXISTS (SELECT 1 FROM v2_domain_outbox e
                     WHERE e.intent_id=o.episode_id AND e.event_type=
                       'ATTENTION_REQUIRED:' || o.order_id::text || ':' || o.version::text)
                 ORDER BY updated_at,order_id LIMIT %s""",
-                (now_ms - overdue_ms, limit),
+                (*params, now_ms - overdue_ms, limit),
             ).fetchall()
         count = 0
         for (order_id,) in candidates:

@@ -13,6 +13,7 @@ from uuid import uuid4
 from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import Ledger, lock_order_episode
 from v2_core.orders import Orders
+from v2_core.scoping import predicate, require_scope, validate_scope
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,19 @@ class RiskVerdict:
 
 class ExecutionRunner:
     def __init__(
-        self, connection_factory, *, submit, query, risk_check, risk_reference=None
+        self,
+        connection_factory,
+        *,
+        submit,
+        query,
+        risk_check,
+        risk_reference=None,
+        scope=None,
     ):
         if not all(callable(port) for port in (submit, query, risk_check)):
             raise TypeError("explicit submit, query and risk ports required")
         self._connect = connection_factory
+        self.scope = validate_scope(scope)
         self.submit, self.query, self.risk_check = submit, query, risk_check
         if risk_reference is not None and not callable(risk_reference):
             raise TypeError("explicit risk reference provider required")
@@ -90,6 +99,7 @@ class ExecutionRunner:
                 strict=True,
             )
         )
+        require_scope(self.scope, data)
         data["symbol"] = data["intent"]["symbol"]
         side = data["intent"]["side"]
         data["side"] = (
@@ -257,25 +267,28 @@ class ExecutionRunner:
         ):
             raise ValueError("bounded recovery cadence and lease required")
         token = str(uuid4())
+        condition, params = predicate(self.scope)
         with self._connect() as conn:
             conn.execute(
-                """INSERT INTO v2_order_recovery(order_id)
-                SELECT o.order_id FROM v2_orders o WHERE o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
+                f"""INSERT INTO v2_order_recovery(order_id)
+                SELECT o.order_id FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+                WHERE {condition} AND o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
                 AND NOT EXISTS (SELECT 1 FROM v2_order_recovery r WHERE r.order_id=o.order_id)
                 ORDER BY o.updated_at,o.order_id LIMIT %s ON CONFLICT DO NOTHING""",
-                (limit,),
+                (*params, limit),
             )
             claimed = conn.execute(
-                """WITH due AS (
+                f"""WITH due AS (
                 SELECT r.order_id FROM v2_order_recovery r JOIN v2_orders o USING(order_id)
-                WHERE o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
+                JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+                WHERE {condition} AND o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
                 AND r.next_attempt_at<=clock_timestamp()
                 AND (r.lease_until IS NULL OR r.lease_until<clock_timestamp())
                 ORDER BY r.next_attempt_at,r.order_id LIMIT %s FOR UPDATE OF r SKIP LOCKED
                 ) UPDATE v2_order_recovery r SET attempts=attempts+1,lease_token=%s,
                 lease_until=clock_timestamp()+%s*interval '1 second'
                 FROM due WHERE r.order_id=due.order_id RETURNING r.order_id::text,r.attempts""",
-                (limit, token, lease_seconds),
+                (*params, limit, token, lease_seconds),
             ).fetchall()
         results = {}
         for order_id, attempt in claimed:

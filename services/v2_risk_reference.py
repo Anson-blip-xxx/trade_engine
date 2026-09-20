@@ -169,4 +169,5 @@ def create_guarded_runtime(
         clock_ms=clock_ms,
         projectors=projectors,
         risk_reference=provider,
+        scope=scope,
     )

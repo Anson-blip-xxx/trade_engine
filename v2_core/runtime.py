@@ -9,6 +9,7 @@ import json
 from v2_core.attention import RecoveryAttention
 from v2_core.intents import AdmissionCode
 from v2_core.runner import ExecutionRunner, RiskVerdict
+from v2_core.scoping import FIELDS, predicate, require_scope, validate_scope
 from v2_core.service import TradingData
 
 
@@ -23,13 +24,19 @@ class DataRuntime:
         clock_ms,
         projectors=(),
         risk_reference=None,
+        scope=None,
     ):
         if not callable(clock_ms) or not callable(risk_check):
             raise TypeError("explicit clock and risk policy required")
         self.data = TradingData(connection_factory)
+        self.scope = validate_scope(scope)
         self.clock_ms, self.risk_check = clock_ms, risk_check
         self.projectors = tuple(projectors)
-        self.attention = RecoveryAttention(connection_factory)
+        if self.scope is not None and any(
+            getattr(p, "scope", None) != self.scope for p in self.projectors
+        ):
+            raise ValueError("projectors must be bound to the runtime account scope")
+        self.attention = RecoveryAttention(connection_factory, scope=self.scope)
         from v2_core.account_risk import AccountRisk
 
         self.account_risk = AccountRisk(connection_factory)
@@ -39,6 +46,7 @@ class DataRuntime:
             query=query,
             risk_check=self._risk,
             risk_reference=risk_reference,
+            scope=self.scope,
         )
 
     def _now(self):
@@ -63,6 +71,7 @@ class DataRuntime:
         """
         if type(prepare_initial) is not bool:
             raise ValueError("explicit initial preparation flag required")
+        require_scope(self.scope, {field: getattr(intent, field) for field in FIELDS})
         snapshot = json.loads(evidence.snapshot_json)
         result = (
             self.data.accept_signal(intent, evidence)
@@ -156,16 +165,18 @@ class DataRuntime:
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid limit")
         now = self._now()
+        condition, params = predicate(self.scope)
         with self.data._connect() as conn:
             rows = conn.execute(
-                """SELECT i.intent_id::text,o.order_id::text,o.version
+                f"""SELECT i.intent_id::text,o.order_id::text,o.version
                 FROM v2_trade_intents i JOIN v2_decision_evidence e USING(evidence_ref)
                 LEFT JOIN v2_orders o ON o.episode_id=i.intent_id AND o.leg='OPEN'
                 WHERE ((i.status='RECEIVED' AND o.order_id IS NULL) OR o.status='PREPARED')
+                  AND {condition}
                   AND CASE WHEN jsonb_typeof(e.snapshot->'expires_at_ms')='number'
                       THEN (e.snapshot->>'expires_at_ms')::numeric <= %s ELSE TRUE END
                 ORDER BY i.created_at,i.intent_id LIMIT %s""",
-                (now, limit),
+                (*params, now, limit),
             ).fetchall()
         results = {}
         for intent_id, order_id, version in rows:
@@ -211,7 +222,10 @@ class DataRuntime:
         for name, action in (
             ("expiry", lambda: self.expire_once(limit)),
             ("recovery", lambda: self.recover_once(limit)),
-            ("risk_releases", lambda: self.account_risk.sweep_releases(limit)),
+            (
+                "risk_releases",
+                lambda: self.account_risk.sweep_releases(limit, scope=self.scope),
+            ),
             (
                 "attention",
                 lambda: self.attention.scan(

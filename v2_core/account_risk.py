@@ -196,7 +196,11 @@ class AccountRisk:
             "positions": positions,
         }
 
-    def sweep_releases(self, limit=100):
+    def sweep_releases(self, limit=100, *, scope=None):
+        from v2_core.scoping import validate_scope
+
+        validate_scope(scope)
+        scope_key = None if scope is None else scope.key
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("bounded release scan required")
         with self._connect() as conn:
@@ -204,8 +208,9 @@ class AccountRisk:
                 """SELECT r.episode_id::text FROM v2_risk_reservations r
                 JOIN v2_episodes e USING(episode_id)
                 WHERE r.status='HELD' AND e.status IN ('ABORTED','SETTLED')
+                AND (%s::text IS NULL OR r.scope=%s)
                 ORDER BY r.created_at,r.episode_id LIMIT %s""",
-                (limit,),
+                (scope_key, scope_key, limit),
             ).fetchall()
         released = 0
         for (episode_id,) in rows:
