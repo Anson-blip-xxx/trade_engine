@@ -5,6 +5,7 @@ No network calls under locks. Unknown outcomes never release capacity by timeout
 All numeric amounts are decimal strings; one quote currency per account scope.
 """
 
+import re
 from dataclasses import asdict, dataclass
 from decimal import ROUND_CEILING, Decimal, localcontext
 from uuid import UUID
@@ -69,18 +70,41 @@ class AccountPolicy:
 
 
 @dataclass(frozen=True)
+class RiskProvenance:
+    frame_id: str
+    archive_digest: str
+    input_digest: str
+
+    def __post_init__(self):
+        identity(self.frame_id)
+        for value in (self.archive_digest, self.input_digest):
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError("content-addressed risk provenance required")
+
+
+@dataclass(frozen=True)
 class RiskReference:
     environment: str
     symbol: str
     source: str
     price: str
     observed_at_ms: int
+    valid_until_ms: int | None = None
+    provenance: RiskProvenance | None = None
 
     def __post_init__(self):
         symbol(self.symbol)
         identity(self.source)
         amount(self.price, positive=True)
         milliseconds(self.observed_at_ms)
+        if self.valid_until_ms is not None:
+            milliseconds(self.valid_until_ms)
+            if self.valid_until_ms <= self.observed_at_ms:
+                raise ValueError("reference deadline must follow observation")
+        if self.provenance is not None and not isinstance(
+            self.provenance, RiskProvenance
+        ):
+            raise TypeError("typed immutable risk provenance required")
         if self.environment not in {"SANDBOX", "LIVE"}:
             raise ValueError("explicit reference environment required")
 
@@ -241,6 +265,8 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         (last, last, policy["cooldown_ms"]),
     ).fetchone()
     if not 0 <= now - reference.observed_at_ms < policy["max_reference_age_ms"]:
+        raise deny("RISK_REFERENCE_STALE")
+    if reference.valid_until_ms is not None and now >= reference.valid_until_ms:
         raise deny("RISK_REFERENCE_STALE")
     snapshot = row[6]
     if (

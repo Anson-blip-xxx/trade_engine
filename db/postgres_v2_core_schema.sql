@@ -467,6 +467,7 @@ CREATE TABLE v2_candle_deliveries (
     CHECK ((lease_token IS NULL)=(lease_until IS NULL))
 );
 CREATE INDEX v2_candle_deliveries_pending ON v2_candle_deliveries(environment,observed_at_ms,frame_id) WHERE status='PENDING';
+CREATE INDEX v2_candle_deliveries_latest ON v2_candle_deliveries(environment,observed_at_ms DESC,frame_id DESC);
 CREATE TABLE v2_candle_delivery_events (
     event_id UUID PRIMARY KEY,
     environment TEXT NOT NULL,
