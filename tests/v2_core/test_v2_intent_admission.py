@@ -2631,12 +2631,15 @@ def test_durable_source_ack_commit_loss_does_not_redeliver_completed_work(databa
 
 def test_durable_source_queue_commit_loss_can_be_reenqueued(database):
     source, _ = durable_source(database)
+    calls = []
 
     @contextmanager
     def lost_ack():
         with database() as conn:
             yield conn
-        raise RuntimeError("enqueue response lost")
+        calls.append(True)
+        if len(calls) == 2:
+            raise RuntimeError("enqueue response lost")
 
     source.publisher._connect = lost_ack
     with pytest.raises(RuntimeError):
@@ -2682,6 +2685,188 @@ def test_durable_source_existing_published_identity_conflict_is_terminal(
                 conn.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0]
                 == 0
             )
+
+
+def test_source_pending_capacity_is_atomic_and_replays_do_not_consume_capacity(
+    database,
+):
+    from market_fakes import candle_batch
+
+    from services.v2_s3_source import SourceBackpressure
+
+    source, _ = durable_source(database)
+    source.max_pending = 1
+
+    def enqueue(offset):
+        try:
+            return source.enqueue(candle_batch(offset))
+        except SourceBackpressure:
+            return "FULL"
+
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(enqueue, [0, 60000]))
+    assert results.count("FULL") == 1
+    accepted = 0 if results[0] != "FULL" else 60000
+    assert source.enqueue(candle_batch(accepted)) == results[accepted // 60000]
+    assert source.has_pending() and source.has_frame(results[accepted // 60000])
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0] == 1
+        )
+
+
+def test_public_rate_budget_concurrent_reservations_and_restart_cooldown(database):
+    from v2_core.public_market import PublicRateBudget
+
+    budget = PublicRateBudget(database, scope="test-egress", limit=20)
+    with ThreadPoolExecutor(8) as pool:
+        results = list(pool.map(lambda _: budget.permit(10), range(8)))
+    assert results.count(True) == 2
+    with database() as conn:
+        conn.execute("UPDATE v2_public_market_budgets SET window_id=0")
+    assert budget.permit(1)
+    budget.penalize(60)
+    assert not PublicRateBudget(database, scope="test-egress", limit=20).permit(1)
+    with pytest.raises(ValueError, match="configuration"):
+        PublicRateBudget(database, scope="test-egress", limit=21).permit(1)
+
+
+def test_public_quota_pg_commit_failure_prevents_http(database):
+    from market_fakes import MarketHTTP
+
+    from v2_core.public_market import BinancePublicMarket, PublicRateBudget
+
+    @contextmanager
+    def lost_commit():
+        with database() as conn:
+            yield conn
+            raise RuntimeError("PG failure")
+
+    http = MarketHTTP()
+    client = BinancePublicMarket(
+        environment="SANDBOX",
+        budget=PublicRateBudget(lost_commit, scope="qa-ip", limit=20),
+        enabled=True,
+        connection_factory=http,
+    )
+    with pytest.raises(RuntimeError):
+        client("/fapi/v1/time", {})
+    assert http.calls == []
+
+
+def test_market_pipeline_factory_collects_archives_publishes_acknowledges_and_skips_same_frame(
+    database,
+):
+    import redis
+    from market_fakes import ArchiveClient, MarketHTTP
+
+    from services.v2_market_pipeline import create_market_pipeline
+
+    socket = os.environ["V2_REDIS_TEST_SOCKET"]
+    assert socket.startswith("/tmp/v2-data-qa.")
+    client = redis.Redis(unix_socket_path=socket, decode_responses=True)
+    key = "v2:market:SANDBOX:s3:BTCUSDT"
+    assert not client.exists(key)
+    try:
+        http, archive, alerts = MarketHTTP(), ArchiveClient(), []
+        config = {
+            "environment": "SANDBOX",
+            "symbols": ["BTCUSDT"],
+            "egress_scope": "factory-egress",
+            "weight_limit": 100,
+            "max_pending": 2,
+            "max_age_ms": 90000,
+            "lifetime_ms": 120000,
+            "enabled": True,
+        }
+        factory = lambda: create_market_pipeline(
+            database,
+            clickhouse=archive,
+            redis_client=client,
+            config=config,
+            notify=lambda alert: alerts.append(alert) or True,
+            clock_ms=lambda: 86402001,
+            monotonic_ms=lambda: 0,
+            http_connection_factory=http,
+        )
+        service = factory()
+        result = service.run_once()
+        assert result["status"] == "ACKNOWLEDGED" and result["signal_ids"]
+        assert client.exists(key) and alerts == []
+        assert len(archive.tables["v2_candle_archive"]) == 24
+        assert factory().run_once() == {"status": "CURRENT"}
+        assert len(http.calls) == 3  # time + klines, then time only after restart.
+        with database() as conn:
+            assert conn.execute(
+                "SELECT status FROM v2_candle_deliveries"
+            ).fetchone() == ("ACKNOWLEDGED",)
+            assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 1
+            assert (
+                conn.execute("SELECT count(*) FROM v2_trade_intents").fetchone()[0] == 0
+            )
+    finally:
+        client.delete(key)
+        client.close()
+
+
+def test_market_supervisor_recovers_published_frame_without_fetching_new_candles(
+    database,
+):
+    from types import SimpleNamespace
+
+    from services.v2_market_pipeline import MarketSupervisor
+    from services.v2_s3_candles import build_frame
+    from services.v2_s3_runtime import S3Runtime
+
+    source, cache = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    batch = source.read()
+    runtime = S3Runtime(source.publisher)
+    runtime.process(**build_frame(batch, environment="SANDBOX"))
+    expire_source_lease(database)
+    source.publisher.clock_ms = lambda: 99999999
+    alerts = []
+    collector = SimpleNamespace(environment="SANDBOX", collect=lambda **kwargs: None)
+    service = MarketSupervisor(
+        source=source,
+        runtime=runtime,
+        collector=collector,
+        notify=lambda alert: alerts.append(alert) or True,
+    )
+    assert service.run_once() == {"status": "CURRENT"}
+    assert len(cache.records) == 2 and alerts == []
+    with database() as conn:
+        assert conn.execute("SELECT status FROM v2_candle_deliveries").fetchone() == (
+            "ACKNOWLEDGED",
+        )
+
+
+def test_rate_budget_clock_regression_cannot_refresh_capacity(database):
+    from v2_core.public_market import PublicRateBudget
+
+    budget = PublicRateBudget(database, scope="clock-guard", limit=10)
+    assert budget.permit(10)
+    with database() as conn:
+        conn.execute("UPDATE v2_public_market_budgets SET window_id=window_id+10")
+    assert not budget.permit(1)
+
+
+@pytest.mark.parametrize("policy", ["lifetime_ms", "max_age_ms"])
+def test_unpublished_source_policy_change_cannot_extend_old_frame_life(
+    database, policy
+):
+    from services.v2_s3_source import SourceQuarantined
+
+    source, _ = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    setattr(source.publisher, policy, 500)
+    with pytest.raises(SourceQuarantined):
+        source.read()
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome FROM v2_candle_delivery_events"
+        ).fetchone() == ("POLICY_CHANGED_UNPUBLISHED",)
+        assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 0
 
 
 def producer_frame(**changes):

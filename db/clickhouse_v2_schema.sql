@@ -17,3 +17,9 @@ CREATE TABLE v2_candle_archive (
     content_digest FixedString(64),
     payload String
 ) ENGINE = ReplacingMergeTree ORDER BY content_digest;
+
+CREATE TABLE v2_candle_manifests (
+    batch_digest FixedString(64),
+    payload String,
+    manifest_digest FixedString(64)
+) ENGINE = ReplacingMergeTree ORDER BY batch_digest;

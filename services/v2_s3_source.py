@@ -14,6 +14,10 @@ class SourceQuarantined(ValueError):
     """Audited terminal input failure; supervisor must alert without raw payload."""
 
 
+class SourceBackpressure(RuntimeError):
+    """Pending delivery capacity exhausted; stop collecting new snapshots."""
+
+
 def frame_digest(frame):
     return digest(
         canonical(
@@ -28,13 +32,16 @@ def frame_digest(frame):
 
 
 class DurableCandleSource:
-    def __init__(self, publisher, *, archive, lease_seconds=60):
+    def __init__(self, publisher, *, archive, lease_seconds=60, max_pending=100):
         if (
             publisher.source != "s3"
             or type(lease_seconds) is not int
             or not 1 <= lease_seconds <= 3600
         ):
             raise ValueError("S3 publisher and bounded source lease required")
+        if type(max_pending) is not int or not 1 <= max_pending <= 10000:
+            raise ValueError("bounded pending capacity required")
+        self.max_pending = max_pending
         self.publisher, self.archive, self.lease_seconds = (
             publisher,
             archive,
@@ -49,12 +56,16 @@ class DurableCandleSource:
         frozen = json.loads(encoded)
         frame = build_frame(frozen, environment=self.publisher.environment)
         content, expected = digest(encoded), frame_digest(frame)
+        with self.publisher._connect() as conn:
+            self.publisher.lock(conn)
+            self._capacity(conn, frame["frame_id"])
         # Archive confirmation precedes PG discovery. A crash here can leave an
         # unreferenced content-addressed object, never a falsely acknowledged row.
         if self.archive.put(content, encoded) is not True:
             raise RuntimeError("archive write not confirmed")
         with self.publisher._connect() as conn:
             self.publisher.lock(conn)
+            self._capacity(conn, frame["frame_id"])
             committed = conn.execute(
                 "SELECT input_digest FROM v2_s3_frames WHERE environment=%s AND frame_id=%s",
                 (self.publisher.environment, frame["frame_id"]),
@@ -63,7 +74,7 @@ class DurableCandleSource:
                 raise SignalConflict("published source frame content conflict")
             conn.execute(
                 """INSERT INTO v2_candle_deliveries(environment,frame_id,observed_at_ms,
-                expires_at_ms,archive_digest,input_digest) VALUES (%s,%s,%s,%s,%s,%s)
+                expires_at_ms,archive_digest,input_digest,max_age_ms) VALUES (%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT DO NOTHING""",
                 (
                     self.publisher.environment,
@@ -72,6 +83,7 @@ class DurableCandleSource:
                     frame["observed_at"] + self.publisher.lifetime_ms,
                     content,
                     expected,
+                    self.publisher.max_age_ms,
                 ),
             )
             row = conn.execute(
@@ -81,6 +93,42 @@ class DurableCandleSource:
             if row != (content, expected):
                 raise SignalConflict("source frame content conflict")
         return frame["frame_id"]
+
+    def _capacity(self, conn, frame_id=None):
+        if (
+            frame_id is not None
+            and conn.execute(
+                "SELECT 1 FROM v2_candle_deliveries WHERE environment=%s AND frame_id=%s",
+                (self.publisher.environment, frame_id),
+            ).fetchone()
+        ):
+            return
+        count = conn.execute(
+            "SELECT count(*) FROM v2_candle_deliveries WHERE environment=%s AND status='PENDING'",
+            (self.publisher.environment,),
+        ).fetchone()[0]
+        if count >= self.max_pending:
+            raise SourceBackpressure("source queue full")
+
+    def has_pending(self):
+        with self.publisher._connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM v2_candle_deliveries WHERE environment=%s AND status='PENDING' LIMIT 1",
+                    (self.publisher.environment,),
+                ).fetchone()
+                is not None
+            )
+
+    def has_frame(self, frame_id):
+        with self.publisher._connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM v2_candle_deliveries WHERE environment=%s AND frame_id=%s",
+                    (self.publisher.environment, frame_id),
+                ).fetchone()
+                is not None
+            )
 
     def _audit(self, conn, frame_id, outcome):
         conn.execute(
@@ -96,13 +144,13 @@ class DurableCandleSource:
             self.publisher.lock(conn)
             row = conn.execute(
                 """SELECT frame_id,archive_digest,input_digest,observed_at_ms,expires_at_ms,
-                COALESCE(lease_until>clock_timestamp(),FALSE) FROM v2_candle_deliveries
+                COALESCE(lease_until>clock_timestamp(),FALSE),max_age_ms FROM v2_candle_deliveries
                 WHERE environment=%s AND status='PENDING' ORDER BY observed_at_ms,frame_id LIMIT 1 FOR UPDATE""",
                 (self.publisher.environment,),
             ).fetchone()
             if row is None or row[5]:
                 return None
-            frame_id, archived, expected, observed, expires, _ = row
+            frame_id, archived, expected, observed, expires, _, max_age = row
             now = milliseconds(self.publisher.clock_ms())
             if observed > now:
                 return None
@@ -115,10 +163,15 @@ class DurableCandleSource:
                 (self.publisher.environment, observed, frame_id),
             ).fetchone()
             conflict = committed is not None and committed != (expected,)
+            policy_changed = (
+                expires - observed != self.publisher.lifetime_ms
+                or max_age != self.publisher.max_age_ms
+            )
             if conflict or (
                 committed is None
                 and (
-                    newer
+                    policy_changed
+                    or newer
                     or now >= expires
                     or now - observed > self.publisher.max_age_ms
                 )
@@ -133,6 +186,8 @@ class DurableCandleSource:
                     frame_id,
                     "PUBLISHED_INPUT_CONFLICT"
                     if conflict
+                    else "POLICY_CHANGED_UNPUBLISHED"
+                    if policy_changed
                     else "SUPERSEDED_UNPUBLISHED"
                     if newer
                     else "EXPIRED_UNPUBLISHED",

@@ -80,6 +80,9 @@ def test_clickhouse_candle_archive_survives_duplicate_delivery(tmp_path):
         INSERT INTO v2_candle_archive VALUES (lower(hex(SHA256('{}'))),'{}'),(lower(hex(SHA256('{}'))),'{}');
         SELECT payload FROM v2_candle_archive WHERE content_digest=lower(hex(SHA256('{}'))) LIMIT 1;
         SELECT count() FROM v2_candle_archive FINAL;
+        INSERT INTO v2_candle_manifests VALUES (repeat('a',64),'{}',lower(hex(SHA256('{}'))));
+        SELECT payload,manifest_digest=lower(hex(SHA256(payload))) FROM v2_candle_manifests WHERE batch_digest=repeat('a',64) LIMIT 1;
+        SELECT any(payload) FROM v2_candle_archive WHERE content_digest IN [lower(hex(SHA256('{}')))] GROUP BY content_digest;
     """
     )
     result = subprocess.run(
@@ -102,4 +105,4 @@ def test_clickhouse_candle_archive_survives_duplicate_delivery(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines() == ["{}", "1"]
+    assert result.stdout.strip().splitlines() == ["{}", "1", "{}\t1", "{}"]

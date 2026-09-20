@@ -52,3 +52,7 @@ runner 只有 PG 发布和 Redis 投影都完成后才调用 ack；source 还核
 
 本阶段新增 20 项 QA；最终全仓 **3342 passed、10 skipped、1 个既有 warning**，
 91.16 秒。Ruff/格式/diff 检查通过；隔离服务已停止，诊断目录 `/tmp/v2-data-qa.UpiG0T`。
+
+后续 [行情组合升级](V2_MARKET_PIPELINE.md) 已加入小时分块、待处理容量、只读采集、
+PG 限频/退避和监督工厂，并固定入队年龄策略。上述整批写放大已有分块缓解，
+但归档 GC/保留治理、持久告警和生产规模验收仍未完成。

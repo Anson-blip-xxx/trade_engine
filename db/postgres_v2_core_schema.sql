@@ -456,6 +456,7 @@ CREATE TABLE v2_candle_deliveries (
     frame_id TEXT NOT NULL,
     observed_at_ms BIGINT NOT NULL CHECK (observed_at_ms>=0),
     expires_at_ms BIGINT NOT NULL CHECK (expires_at_ms>observed_at_ms),
+    max_age_ms BIGINT NOT NULL CHECK (max_age_ms>0),
     archive_digest TEXT NOT NULL,
     input_digest TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACKNOWLEDGED','QUARANTINED')),
@@ -470,7 +471,7 @@ CREATE TABLE v2_candle_delivery_events (
     event_id UUID PRIMARY KEY,
     environment TEXT NOT NULL,
     frame_id TEXT NOT NULL,
-    outcome TEXT NOT NULL CHECK (outcome IN ('ACKNOWLEDGED','EXPIRED_UNPUBLISHED','SUPERSEDED_UNPUBLISHED','ARCHIVE_CORRUPT','PUBLISHED_INPUT_CONFLICT')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('ACKNOWLEDGED','EXPIRED_UNPUBLISHED','SUPERSEDED_UNPUBLISHED','ARCHIVE_CORRUPT','PUBLISHED_INPUT_CONFLICT','POLICY_CHANGED_UNPUBLISHED')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     FOREIGN KEY(environment,frame_id) REFERENCES v2_candle_deliveries(environment,frame_id)
 );
@@ -480,10 +481,18 @@ FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE FUNCTION v2_guard_candle_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP='DELETE' THEN RAISE EXCEPTION 'delivery history cannot be deleted'; END IF;
-    IF (NEW.environment,NEW.frame_id,NEW.observed_at_ms,NEW.expires_at_ms,NEW.archive_digest,NEW.input_digest)
-        IS DISTINCT FROM (OLD.environment,OLD.frame_id,OLD.observed_at_ms,OLD.expires_at_ms,OLD.archive_digest,OLD.input_digest)
+    IF (NEW.environment,NEW.frame_id,NEW.observed_at_ms,NEW.expires_at_ms,NEW.archive_digest,NEW.input_digest,NEW.max_age_ms)
+        IS DISTINCT FROM (OLD.environment,OLD.frame_id,OLD.observed_at_ms,OLD.expires_at_ms,OLD.archive_digest,OLD.input_digest,OLD.max_age_ms)
         OR OLD.status<>'PENDING' THEN RAISE EXCEPTION 'delivery identity and terminal state are immutable'; END IF;
     RETURN NEW;
 END $$;
 CREATE TRIGGER v2_candle_delivery_guard BEFORE UPDATE OR DELETE ON v2_candle_deliveries
 FOR EACH ROW EXECUTE FUNCTION v2_guard_candle_delivery();
+
+CREATE TABLE v2_public_market_budgets (
+    scope TEXT PRIMARY KEY,
+    weight_limit INTEGER NOT NULL CHECK (weight_limit>0),
+    window_id BIGINT NOT NULL DEFAULT 0,
+    used_weight INTEGER NOT NULL DEFAULT 0 CHECK (used_weight>=0),
+    blocked_until TIMESTAMPTZ NOT NULL DEFAULT '-infinity'
+);
