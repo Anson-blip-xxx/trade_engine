@@ -541,6 +541,106 @@ def test_valuation_cash_scope_freshness_and_concurrent_cas(database):
     assert report["accounting_status"] == "PENDING"  # no opening/closing fills
 
 
+def test_recovery_schedule_does_not_starve_later_orders(database):
+    from v2_core.orders import Orders
+    from v2_core.runner import ExecutionRunner
+
+    orders = Orders(database)
+    identities = []
+    for n in range(3):
+        request = replace(intent(), account_id=f"account-{n}")
+        assert IntentStore(database).admit(request).code is Code.ACCEPTED
+        identity, _client = orders.prepare(request.intent_id)
+        orders.transition(
+            identity, expected_version=1, status="SUBMITTING", evidence={}
+        )
+        identities.append(identity)
+    calls = []
+
+    def query(order):
+        calls.append(order["order_id"])
+        if order["order_id"] == identities[0]:
+            raise TimeoutError("sensitive transport detail")
+
+    runner = ExecutionRunner(
+        database,
+        submit=lambda _: pytest.fail("no submit"),
+        query=query,
+        risk_check=lambda _: True,
+    )
+    results = {}
+    for _ in range(3):
+        results.update(runner.recover_batch(1))
+    assert set(results) == set(identities) and len(calls) == 3
+    assert results[identities[0]] == "UNAVAILABLE"
+    assert runner.recover_batch(3) == {}
+    with database() as conn:
+        assert conn.execute(
+            "SELECT error_code FROM v2_order_recovery WHERE order_id=%s",
+            (identities[0],),
+        ).fetchone() == ("TimeoutError",)
+        conn.execute(
+            "UPDATE v2_order_recovery SET next_attempt_at=clock_timestamp()-interval '1 second'"
+        )
+    assert len(runner.recover_batch(3)) == 3
+
+
+def test_recovery_workers_claim_one_query_and_recover_abandoned_lease(database):
+    from v2_core.runner import ExecutionRunner
+
+    _original, orders, opening, _client = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    calls = []
+    runner = ExecutionRunner(
+        database,
+        submit=lambda _: pytest.fail("no submit"),
+        query=lambda order: calls.append(order["order_id"]),
+        risk_check=lambda _: True,
+    )
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: runner.recover_batch(1), range(4)))
+    assert sum(len(result) for result in results) == 1
+    assert calls == [opening]
+    with database() as conn:
+        conn.execute(
+            """UPDATE v2_order_recovery SET next_attempt_at=clock_timestamp()-interval '1 second',
+            lease_token=%s,lease_until=clock_timestamp()-interval '1 second'""",
+            (str(uuid4()),),
+        )
+    assert runner.recover_batch(1) == {opening: "UNKNOWN"}
+
+
+def test_approved_risk_evidence_is_committed_before_submission(database):
+    from v2_core.runner import ExchangeObservation, ExecutionRunner, RiskVerdict
+
+    _original, _orders, opening, client = opened(database)
+
+    def submit(_):
+        with database() as conn:
+            proof = conn.execute(
+                "SELECT evidence FROM v2_order_events WHERE order_id=%s AND status='SUBMITTING'",
+                (opening,),
+            ).fetchone()[0]
+        assert proof["risk"] == {
+            "allowed": True,
+            "reason": "within account limit",
+            "evidence": {"limit": "100"},
+        }
+        return ExchangeObservation(
+            client, "ACKNOWLEDGED", "123", evidence={"source": "test"}
+        )
+
+    runner = ExecutionRunner(
+        database,
+        submit=submit,
+        query=lambda _: None,
+        risk_check=lambda _: RiskVerdict(
+            True, "within account limit", {"limit": "100"}
+        ),
+    )
+    assert runner.dispatch(opening) == "ACKNOWLEDGED"
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

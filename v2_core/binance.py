@@ -5,6 +5,7 @@ environment are deployment bindings, never inferred from an incoming intent.
 Missing historical orders are ambiguous, not permission to submit again.
 """
 
+import re
 from decimal import Decimal, localcontext
 
 from v2_core.ledger import amount
@@ -23,6 +24,11 @@ class BinanceFutures:
             raise ValueError("explicit transport and account binding required")
         if type(max_pages) is not int or not 1 <= max_pages <= 100:
             raise ValueError("bounded pagination required")
+        if (
+            getattr(request, "account_id", account_id) != account_id
+            or getattr(request, "environment", environment) != environment
+        ):
+            raise ValueError("transport account binding mismatch")
         self.request = request
         self.account_id, self.environment = account_id, environment
         self.max_pages = max_pages
@@ -43,6 +49,14 @@ class BinanceFutures:
         if type(order["reduce_only"]) is not bool:
             raise ValueError("explicit reduce-only flag required")
         amount(order["quantity"], positive=True)
+        if not re.fullmatch(r"[A-Z0-9_]{1,40}", order["symbol"]) or not re.fullmatch(
+            r"[.A-Z:/a-z0-9_-]{1,36}", order["client_order_id"]
+        ):
+            raise ValueError("invalid venue symbol or client identity")
+        if order["order_type"] == "LIMIT":
+            amount(order["limit_price"], positive=True)
+            if order["time_in_force"] not in {"GTC", "IOC", "FOK"}:
+                raise ValueError("invalid limit time in force")
 
     def _order(self, order, raw):
         if not isinstance(raw, dict):

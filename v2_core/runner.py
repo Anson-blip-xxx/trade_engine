@@ -8,6 +8,7 @@ absence is never permission to resend a possibly accepted exchange request.
 from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
+from uuid import uuid4
 
 from v2_core.ledger import Ledger, lock_order_episode
 from v2_core.orders import Orders
@@ -114,7 +115,18 @@ class ExecutionRunner:
             order_id,
             expected_version=before["version"],
             status="SUBMITTING",
-            evidence={"reason": "durable dispatch"},
+            evidence={
+                "reason": "durable dispatch",
+                "risk": {
+                    "allowed": True,
+                    "reason": verdict.reason
+                    if isinstance(verdict, RiskVerdict)
+                    else "injected policy allowed",
+                    "evidence": (verdict.evidence or {})
+                    if isinstance(verdict, RiskVerdict)
+                    else {},
+                },
+            },
         ):
             return "RACE_LOST"
         try:
@@ -197,13 +209,62 @@ class ExecutionRunner:
         )
         return observation.status if applied else "RACE_LOST"
 
-    def recover_batch(self, limit=100):
-        results = {}
-        for order_id, _client, _status, _version in self.orders.recovery_candidates(
-            limit
+    def recover_batch(self, limit=100, *, interval_seconds=5, lease_seconds=300):
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("invalid recovery batch limit")
+        if any(
+            type(v) is not int or not 1 <= v <= 3600
+            for v in (interval_seconds, lease_seconds)
         ):
+            raise ValueError("bounded recovery cadence and lease required")
+        token = str(uuid4())
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO v2_order_recovery(order_id)
+                SELECT o.order_id FROM v2_orders o WHERE o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
+                AND NOT EXISTS (SELECT 1 FROM v2_order_recovery r WHERE r.order_id=o.order_id)
+                ORDER BY o.updated_at,o.order_id LIMIT %s ON CONFLICT DO NOTHING""",
+                (limit,),
+            )
+            claimed = conn.execute(
+                """WITH due AS (
+                SELECT r.order_id FROM v2_order_recovery r JOIN v2_orders o USING(order_id)
+                WHERE o.status IN ('SUBMITTING','UNKNOWN','ACKNOWLEDGED')
+                AND r.next_attempt_at<=clock_timestamp()
+                AND (r.lease_until IS NULL OR r.lease_until<clock_timestamp())
+                ORDER BY r.next_attempt_at,r.order_id LIMIT %s FOR UPDATE OF r SKIP LOCKED
+                ) UPDATE v2_order_recovery r SET attempts=attempts+1,lease_token=%s,
+                lease_until=clock_timestamp()+%s*interval '1 second'
+                FROM due WHERE r.order_id=due.order_id RETURNING r.order_id::text,r.attempts""",
+                (limit, token, lease_seconds),
+            ).fetchall()
+        results = {}
+        for order_id, attempt in claimed:
+            error = None
             try:
                 results[order_id] = self.recover(order_id)
-            except Exception:  # noqa: BLE001 - isolate unavailable query/persistence per order
+            except Exception as exc:  # noqa: BLE001 - isolate unavailable query/persistence per order
+                results[order_id] = "UNAVAILABLE"
+                error = type(exc).__name__
+            delay = (
+                interval_seconds
+                if error is None
+                else max(interval_seconds, min(300, 2 ** min(attempt, 9)))
+            )
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        """UPDATE v2_order_recovery SET next_attempt_at=clock_timestamp()+%s*interval '1 second',
+                        lease_token=NULL,lease_until=NULL,error_code=%s,attempts=%s
+                        WHERE order_id=%s AND lease_token=%s""",
+                        (
+                            delay,
+                            error,
+                            0 if error is None else attempt,
+                            order_id,
+                            token,
+                        ),
+                    )
+            except Exception:  # noqa: BLE001 - lease expiry recovers failed scheduling acknowledgement
                 results[order_id] = "UNAVAILABLE"
         return results

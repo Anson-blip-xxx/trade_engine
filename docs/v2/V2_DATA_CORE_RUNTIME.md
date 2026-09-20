@@ -154,3 +154,17 @@ missing_valuations 和 PENDING，不把未知费用当零。生产历史报价�
 每条估值使用 request_key 幂等和 expected_version CAS，修正只追加新版本；
 增加 accounting_revision，使旧结算证据失效。报告标注 HISTORICAL_MARK。
 原币金额和所有旧报价始终保留；数据库约束拒绝跨 episode/币种挂接。
+
+传输/恢复检查点：全仓 3067 passed、10 skipped、同一既有 warning。
+`BinanceSignedTransport` 提供 HMAC-SHA256 签名、固定环境域名、默认禁写、
+有限 socket 超时与响应大小限制；没有自动重试和重定向，错误信息不包含
+响应正文或签名 URL。必须注入共享限流许可，不能把各进程的独立计数当全局限流。
+依据：[Binance 官方 General Info](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info)。
+此处只用假连接测试签名和错误行为；没有真实请求，也没有生产启用。
+环境标签 SANDBOX 在该 transport 中是 Binance 测试网，而非无网络模拟器。
+测试模拟仍依赖注入假连接；不要给 QA 提供任何真实凭据。
+
+批量恢复使用 `v2_order_recovery` 持久排期、租约与失败退避，避免长期未知订单
+挡住队列后面的订单。租约过期可能重复查询，但不会产生重新下单许可；
+结果提交依旧依赖账本幂等与订单身份。风控通过证据在 SUBMITTING 提交时保存，
+提交成功后才调用交易所。完整跨账户风控预留策略仍属于实际入口接线门禁。

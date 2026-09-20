@@ -127,6 +127,16 @@ CREATE TABLE v2_order_events (
 CREATE TRIGGER v2_order_events_immutable BEFORE UPDATE OR DELETE ON v2_order_events
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 
+CREATE TABLE v2_order_recovery (
+    order_id UUID PRIMARY KEY REFERENCES v2_orders(order_id),
+    attempts BIGINT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    error_code TEXT
+);
+CREATE INDEX v2_recovery_due ON v2_order_recovery(next_attempt_at);
+
 CREATE TABLE v2_fills (
     fill_key TEXT PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES v2_orders(order_id),
