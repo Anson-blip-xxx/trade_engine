@@ -153,8 +153,8 @@ class TestWriteState:
         assert len(rdis.writes) == 1
         assert rdis.writes[0][0] == 'market:s0'
         assert rdis.writes[0][1]['market_state'] == 'range'
-        assert json.loads((tmp_path / 'market_state.json').read_text())[
-            'regime'] == 'weak_bull'   # bull+normal → weak_bull 非 range
+        assert not (tmp_path / 'market_state.json').exists()
+        assert rdis.writes[0][1]['regime'] == 'weak_bull'
         assert ch_rows[-1][0] == 'default.market_state_log'
 
     def test_redis_failure_file_and_ch_still(self, s0_env, g, rdis, ch_rows, tmp_path):
@@ -163,7 +163,7 @@ class TestWriteState:
         state = g.compute_state('bull', 'low', 0.02, False, False,
                                 'normal', 0.5)
         g.write_state(state)                     # redis 失败 → 吞错
-        assert (tmp / 'market_state.json').exists()
+        assert not (tmp / 'market_state.json').exists()
         assert ch_rows[0][0] == 'default.market_state_log'
 
     def test_ch_failure_after_file(self, s0_env, g, rdis, ch_rows, tmp_path, monkeypatch):
@@ -174,7 +174,7 @@ class TestWriteState:
         state = g.compute_state('bull', 'low', 0.02, False, False,
                                 'normal', 0.5)
         g.write_state(state)                     # CH 失败 → log warning 不抛
-        assert rdis.writes and tmp_path.joinpath('market_state.json').exists()
+        assert rdis.writes and not tmp_path.joinpath('market_state.json').exists()
 
 
 class TestMultiInstanceLastWriterWins:

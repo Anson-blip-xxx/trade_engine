@@ -83,7 +83,7 @@ class TestCallOrder:
             ch_insert=lambda t, r: order.append(('ch', t)),
             on_ch_error=lambda e: None)
         ad.publish_state(st)
-        assert order == [('redis', 'market:s0'), ('file',),
+        assert order == [('redis', 'market:s0'),
                          ('ch', 'default.market_state_log')]
 
 
@@ -95,7 +95,7 @@ class TestFailureMatrix:
         f, c = RecordingFile(), RecordingCH()
         ad = S0PublisherAdapter(r, f.write, c, c.on_error)
         ad.publish_state(dict(BASE))
-        assert len(r.calls) == 1 and f.states and c.rows    # 顺序照样执行
+        assert len(r.calls) == 1 and not f.states and c.rows
 
     def test_file_failure_raises_and_ch_skipped(self, tmp_path):
         """file 失败 → raise，CH 不执行（冻结行为）。"""
@@ -107,9 +107,8 @@ class TestFailureMatrix:
 
         ad = S0PublisherAdapter(RecordingRedis(), bad_write, RecordingCH(),
                                 lambda e: events.append(('ch-error', e)))
-        with pytest.raises(OSError):
-            ad.publish_state(dict(BASE))
-        assert events == ['file-fail']             # CH 跳过
+        ad.publish_state(dict(BASE))
+        assert events == []  # Deprecated file callback is never invoked.
 
     def test_ch_failure_no_raise(self, tmp_path):
         st = dict(BASE)
@@ -131,9 +130,8 @@ class TestAtomicFileSemantics:
         st = g.compute_state('bull', 'low', 0.02, False, False, 'normal', 0.5)
         g.write_state(st)
         expected = tmp_path / 'market_state.json'
-        assert expected.exists()
-        content = expected.read_text()
-        assert json.loads(content)['regime'] == 'weak_bull'
+        assert not expected.exists()
+        assert rdis.writes[0][1]['regime'] == 'weak_bull'
 
     def test_ch_row_shape_frozen(self, s0_env, g, rdis, ch_rows, tmp_path):
         st = g.compute_state('bull', 'low', 0.02, False, False, 'normal', 0.5)
@@ -169,7 +167,7 @@ class TestNoMutation:
         ad = S0PublisherAdapter(RecordingRedis(), file.write, ch, ch.on_error)
         st = dict(BASE)
         ad.publish_state(st)
-        assert file.states[0] is st                # aliasing 保持
+        assert file.states == []
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -185,8 +183,8 @@ def test_late_binding_state_file(s0_env, g, rdis, tmp_path):
     """晚绑定：调用间切换 STATE_FILE（monkeypatch 兼容）。"""
     st = g.compute_state('bull', 'low', 0.02, False, False, 'normal', 0.5)
     g.write_state(st)                              # 第一次写 base file
-    assert len(list(tmp_path.iterdir())) >= 1
+    assert list(tmp_path.iterdir()) == []
     f2 = tmp_path / 'other-state.json'
     g.STATE_FILE = f2                              # 切换路径（晚绑定验证）
     g.write_state(st)
-    assert json.loads(f2.read_text())['market_state'] == 'range'
+    assert not f2.exists()

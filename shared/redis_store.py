@@ -2,15 +2,13 @@
 Redis 统一存储 — 替代所有 JSON 文件 I/O
 所有数据存为 JSON 字符串，key 模式: trade:{category}:{name}
 
-Redis 不可用时自动降级为文件 I/O，每 30s 重试连接。
+V2 禁止本地文件业务存储。Redis 不可用时显式报错，不从旧文件回填。
 """
 
 import json, time, logging
-from pathlib import Path
 import redis as _redis
 
 _REDIS = None
-_BASE = Path(__file__).resolve().parent.parent.parent
 
 _REDIS_AVAILABLE = None  # None=未检查, True=可用, False=不可用
 _REDIS_RETRY_AFTER = 30  # 不可用时每 30s 重试一次
@@ -75,36 +73,14 @@ KEY_MAP = {
 }
 
 def _get_file(key: str) -> tuple:
-    """根据 key 获取对应的 JSON 文件路径，返回 (path, rel_path) 或 None"""
-    item = KEY_MAP.get(key)
-    if item is None:
-        return None
-    rel_path = item if isinstance(item, str) else item[0] if isinstance(item, tuple) else None
-    if rel_path:
-        fp = _BASE / rel_path
-        return (fp, rel_path) if fp.exists() else None
+    """Retired compatibility seam: business files are never resolved."""
     return None
 
 def _read_file(key: str):
-    """从文件读取数据"""
-    item = _get_file(key)
-    if item:
-        fp, _ = item
-        try:
-            return json.loads(fp.read_text())
-        except Exception:
-            return {}
-    return {}
+    raise RuntimeError('V2 business file storage is disabled')
 
 def _write_file(key: str, data: dict):
-    """双写文件"""
-    item = _get_file(key)
-    if item:
-        fp, _ = item
-        try:
-            fp.write_text(json.dumps(data, indent=2, default=str))
-        except Exception as e:
-            _logger.warning(f'[RedisFallback] 写文件 {key} 失败: {e}')
+    raise RuntimeError('V2 business file storage is disabled')
 
 def _conn():
     global _REDIS
@@ -128,87 +104,28 @@ def strict_eval(script: str, numkeys: int, *keys_and_args):
 
 
 def migrate_all():
-    """启动时调用：从 JSON 文件重建 Redis（JSON 始终是最新的，通过双写保障）"""
-    if not _check_redis():
-        print('[迁移] Redis 不可用，跳过迁移')
-        return 0
-    r = _conn()
-    count = 0
-    for key, rel_path in KEY_MAP.items():
-        if rel_path is None:
-            continue
-        fp = _BASE / rel_path
-        if fp.exists():
-            data = fp.read_text()
-            r.set(key, data)
-            print(f'[迁移] {key} ← {rel_path} ({len(data)} bytes)')
-            count += 1
-    return count
+    """No file adoption in the clean-start V2 architecture."""
+    raise RuntimeError('V2 file migration is disabled; rebuild projections from PostgreSQL')
 
 def get(key: str) -> dict:
-    """读取数据：优先 Redis，降级到文件"""
-    if _check_redis():
-        try:
-            r = _conn()
-            raw = r.get(key)
-            if raw:
-                return json.loads(raw)
-            # Redis 无数据时自动从文件补位
-            item = _get_file(key)
-            if item:
-                fp, _ = item
-                if fp.exists():
-                    data = json.loads(fp.read_text())
-                    r.set(key, fp.read_text())
-                    return data
-        except Exception as e:
-            _logger.warning(f'[RedisFallback] get({key}) Redis 失败: {e}，降级到文件')
-            _REDIS_AVAILABLE = False  # 标记不可用，下次重试
-    # Redis 不可用 → 文件降级
-    return _read_file(key)
+    raw = strict_get(key)
+    return {} if raw is None else json.loads(raw)
 
 def set(key: str, data: dict, *, double_write: bool = True):
-    """写入数据：优先 Redis，同时双写文件"""
-    encoded = json.dumps(data, indent=2, default=str)
-    if _check_redis():
-        try:
-            r = _conn()
-            r.set(key, encoded)
-        except Exception as e:
-            _logger.warning(f'[RedisFallback] set({key}) Redis 失败: {e}')
-            _REDIS_AVAILABLE = False
-    # 始终双写文件（数据保障）
-    if double_write:
-        _write_file(key, data)
+    """Legacy cache write only. double_write is ignored; never writes files."""
+    if not _check_redis():
+        raise ConnectionError('Redis backend unavailable')
+    return _conn().set(key, json.dumps(data, default=str, allow_nan=False))
 
 def delete(key: str):
-    """删除数据：优先 Redis，同步删文件"""
-    if _check_redis():
-        try:
-            r = _conn()
-            r.delete(key)
-        except Exception:
-            _REDIS_AVAILABLE = False
-    # 同时清文件
-    item = _get_file(key)
-    if item:
-        fp, _ = item
-        try:
-            fp.write_text('{}')
-        except Exception:
-            pass
+    if not _check_redis():
+        raise ConnectionError('Redis backend unavailable')
+    return _conn().delete(key)
 
 def exists(key: str) -> bool:
-    """检查键是否存在"""
-    if _check_redis():
-        try:
-            r = _conn()
-            return r.exists(key) > 0
-        except Exception:
-            _REDIS_AVAILABLE = False
-    # 降级到文件
-    item = _get_file(key)
-    return item is not None
+    if not _check_redis():
+        raise ConnectionError('Redis backend unavailable')
+    return _conn().exists(key) > 0
 
 def keys(pattern: str = '*') -> list:
     """列出键（Redis 不可用时返回空）"""

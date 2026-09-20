@@ -171,7 +171,7 @@ class TestPublisherE2E:
         key, val = rdis.writes[0]
         assert key == 'market:s0' and val is st         # latest slot 同引用
         # Atomic file
-        assert json.loads((tmp_path / 'market_state.json').read_text()) == st
+        assert not (tmp_path / 'market_state.json').exists()
         # CH 6-field row
         row = json.loads(ch_rows[0][1])
         assert set(row.keys()) == {'market_state', 'btc_trend', 'breadth',

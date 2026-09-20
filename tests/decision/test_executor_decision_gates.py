@@ -163,13 +163,7 @@ def test_normal_pass_full_flow(executor):
     assert executor['calls']['enqueue']
 
 
-def test_pause_open_file_rejected(executor):
-    """PAUSE_OPEN 文件存在 → False（含清理，防泄漏）。"""
-    from pathlib import Path
-    pause = Path(se.__file__).parent / 'config/PAUSE_OPEN'
-    try:
-        pause.touch()
-        assert _run(executor) is False
-    finally:
-        pause.unlink(missing_ok=True)
-    assert not pause.exists()
+def test_pause_open_configuration_rejected(executor, monkeypatch):
+    """V2 deployment pause does not depend on a local business-state file."""
+    monkeypatch.setenv('V2_PAUSE_OPEN', '1')
+    assert _run(executor) is False

@@ -142,6 +142,13 @@ class TestLifecycleParitySmoke:
         assert ok is True
 
     def test_close_full_through_bundles(self, fake_redis, monkeypatch):
+        # This smoke test must not query the real account while testing bundles.
+        monkeypatch.setattr(pm, '_s6api', lambda: (
+            lambda *a, **k: [{'symbol': 'AUSDT', 'positionAmt': '10'}],
+            lambda *a, **k: {}, lambda *a, **k: {}, lambda *a: 2.1,
+            lambda *a: (6, 6), lambda *a: (), lambda *a: 50,
+            lambda *a, **k: None,
+        ))
         monkeypatch.setattr(pm, '_rget', fake_redis.get)
         monkeypatch.setattr(pm, '_rset', fake_redis.set)
         monkeypatch.setattr('shared.redis_store.delete', fake_redis.delete)

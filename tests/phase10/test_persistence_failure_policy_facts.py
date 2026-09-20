@@ -55,14 +55,13 @@ def test_pm_positions_is_unacknowledged_operational_snapshot_state():
     assert 'return' not in save
 
 
-def test_file_fallback_write_is_after_redis_and_has_no_ack():
+def test_v2_removes_file_fallback_and_returns_cache_write_ack():
     source = (ROOT / 'shared/redis_store.py').read_text()
     set_body = _function(source, 'set(', 'delete(')
-    assert set_body.index('r.set(key, encoded)') < \
-        set_body.index('_write_file(key, data)')
-    assert 'return' not in set_body
-    get_file = _function(source, '_get_file(', '_read_file(')
-    assert 'if fp.exists() else None' in get_file
+    assert '_write_file(key, data)' not in set_body
+    assert 'return _conn().set' in set_body
+    assert 'write_text(' not in source
+    assert 'read_text(' not in source
 
 
 def test_notification_pending_and_seen_are_not_position_state():

@@ -1,5 +1,6 @@
 """pytest 共享夹具：mock Redis / Binance API / ClickHouse，避免触碰生产环境。"""
 import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -10,6 +11,21 @@ _BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BASE))
 
 import pytest
+
+
+def _reject_test_network(event, args):
+    """No test may accidentally use a local production Redis or exchange API.
+
+    Install before collection imports. Isolated integration DBs use Unix sockets;
+    TCP/UDP sockets are deliberately not an opt-out test capability.
+    """
+    if event in {"socket.connect", "socket.sendto"}:
+        sock = args[0]
+        if sock.family in {socket.AF_INET, socket.AF_INET6}:
+            raise RuntimeError("external network disabled during trade-engine tests")
+
+
+sys.addaudithook(_reject_test_network)
 
 
 class FakeRedis:
@@ -108,6 +124,21 @@ def patch_executor(monkeypatch, fake_redis):
     monkeypatch.setattr(se, '_rset', fake_redis.set)
     monkeypatch.setattr(se, '_log', lambda *a, **k: None)
 
+    def acquire(key, owner, ttl=30):
+        if fake_redis.exists(key):
+            return False
+        fake_redis.set(key, owner)
+        return True
+
+    def release(key, owner):
+        if fake_redis.get(key) != owner:
+            return False
+        fake_redis.delete(key)
+        return True
+
+    monkeypatch.setattr(se, '_lock_acquire', acquire)
+    monkeypatch.setattr(se, '_lock_release', release)
+
     def set_balance(bal):
         monkeypatch.setattr(se, '_get_balance', lambda: bal)
         monkeypatch.setattr(se, 'fapi_get',
@@ -134,7 +165,28 @@ def patch_executor(monkeypatch, fake_redis):
 
 
 @pytest.fixture(autouse=True)
-def _silence_external_sideeffects(monkeypatch):
+def _silence_external_sideeffects(monkeypatch, fake_redis):
     from shared import trade_recorder as _tr
+    from shared import position_manager as _pm
     # TG 通知静音（`import requests` 绕过模块级 seam → 函数级 stub）
     monkeypatch.setattr(_tr, '_send_and_pin', lambda *a, **k: None)
+    # Default business seams are isolated even in older tests that only mock
+    # exchange data. Per-test failure injections override these afterwards.
+    for module in (_tr, _pm):
+        monkeypatch.setattr(module, '_rget', fake_redis.get)
+        monkeypatch.setattr(module, '_rset', lambda key, value, **kw: fake_redis.set(key, value))
+
+    def acquire(key, owner, ttl=30):
+        if fake_redis.get(key) is not None:
+            return False
+        fake_redis.set(key, owner)
+        return True
+
+    def release(key, owner):
+        if fake_redis.get(key) != owner:
+            return False
+        fake_redis.delete(key)
+        return True
+
+    monkeypatch.setattr(_pm, '_lock_acquire', acquire)
+    monkeypatch.setattr(_pm, '_lock_release', release)

@@ -12,8 +12,7 @@ class TestFileWriteFailure:
         （write_state 不包文件 IO，外层 main catch）——真实失败行为冻结。"""
         monkeypatch.setattr(g, 'STATE_FILE', '/nonexistent-dir-x/y.json')
         state = g.compute_state('bull', 'low', 0.02, False, False, 'normal', 0.5)
-        with pytest.raises(OSError):
-            g.write_state(state)
+        g.write_state(state)  # File paths no longer participate in persistence.
 
 class TestCHFailureDocumented:
     def test_ch_failure_no_raise(self, s0_env, g, rdis, ch_rows, tmp_path, monkeypatch):
@@ -23,7 +22,7 @@ class TestCHFailureDocumented:
         monkeypatch.setattr('shared.clickhouse_client.insert', ch_boom)
         state = g.compute_state('bull', 'low', 0.02, False, False, 'normal', 0.5)
         g.write_state(state)   # 不抛
-        assert rdis.writes and (tmp_path / 'market_state.json').exists()
+        assert rdis.writes and not (tmp_path / 'market_state.json').exists()
 
 
 class TestComputeException:

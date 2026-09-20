@@ -136,11 +136,9 @@ def _sandbox_check():
     global _SANDBOX_ACTIVE
     if _SANDBOX_ACTIVE is not None:
         return _SANDBOX_ACTIVE
-    if os.environ.get('SANDBOX', '').strip() in ('1', 'true', 'TRUE'):
-        _SANDBOX_ACTIVE = True
-        return True
-    p = TRADE_DIR / 'strategies/config/SANDBOX_MODE'
-    _SANDBOX_ACTIVE = p.exists()
+    # Deployment configuration, never a local mutable business-state file.
+    # Missing/unknown values remain in sandbox mode.
+    _SANDBOX_ACTIVE = os.environ.get('SANDBOX', '1').strip().lower() not in ('0', 'false')
     return _SANDBOX_ACTIVE
 
 def _sandbox_post(path: str, params: dict) -> Optional[dict]:
@@ -913,9 +911,8 @@ def open_position(name: str, symbol: str, side: str, entry_price: float,
     if _was_closed_recently(symbol):
         _log(name, f'{symbol} 4h 内刚被平仓过，跳过重开')
         return False
-    # ── 全局暂停开仓（PAUSE_OPEN 文件存在时跳过所有开仓） ──
-    _pause_file = Path(__file__).parent / 'config/PAUSE_OPEN'
-    if _pause_file.exists():
+    # Static deployment pause; dynamic V2 risk decisions use the injected risk port.
+    if os.environ.get('V2_PAUSE_OPEN', '0').strip().lower() in ('1', 'true'):
         tg_fn and tg_fn(f'⏸ 全局暂停开仓中，{symbol} 跳过')
         return False
     try:
