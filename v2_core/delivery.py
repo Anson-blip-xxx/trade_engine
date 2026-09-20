@@ -9,6 +9,12 @@ from uuid import uuid4
 
 
 class Projector:
+    # Static SQL identifiers only; never derive these from runtime configuration.
+    _outbox = "v2_domain_outbox"
+    _receipts = "v2_consumer_receipts"
+    _attempts = "v2_delivery_attempts"
+    _subject = "intent_id"
+
     def __init__(self, connection_factory, consumer, sink):
         if not isinstance(consumer, str) or not consumer.strip():
             raise ValueError("consumer identity required")
@@ -21,9 +27,9 @@ class Projector:
             raise ValueError("invalid limit")
         with self._connect() as conn:
             events = conn.execute(
-                """SELECT e.event_id::text,e.intent_id::text,
-                e.event_type,e.payload FROM v2_domain_outbox e
-                WHERE NOT EXISTS (SELECT 1 FROM v2_consumer_receipts r
+                f"""SELECT e.event_id::text,e.{self._subject}::text,
+                e.event_type,e.payload FROM {self._outbox} e
+                WHERE NOT EXISTS (SELECT 1 FROM {self._receipts} r
                     WHERE r.consumer=%s AND r.event_id=e.event_id)
                 ORDER BY e.created_at,e.event_id LIMIT %s""",
                 (self.consumer, limit),
@@ -34,7 +40,7 @@ class Projector:
                 raise RuntimeError("projection was not acknowledged")
             with self._connect() as conn:
                 conn.execute(
-                    """INSERT INTO v2_consumer_receipts(consumer,event_id)
+                    f"""INSERT INTO {self._receipts}(consumer,event_id)
                     VALUES (%s,%s) ON CONFLICT DO NOTHING""",
                     (self.consumer, event_id),
                 )
@@ -54,31 +60,31 @@ class Projector:
         token = str(uuid4())
         with self._connect() as conn:
             conn.execute(
-                """INSERT INTO v2_delivery_attempts(consumer,event_id)
-                SELECT %s,e.event_id FROM v2_domain_outbox e
-                WHERE NOT EXISTS (SELECT 1 FROM v2_consumer_receipts r
+                f"""INSERT INTO {self._attempts}(consumer,event_id)
+                SELECT %s,e.event_id FROM {self._outbox} e
+                WHERE NOT EXISTS (SELECT 1 FROM {self._receipts} r
                     WHERE r.consumer=%s AND r.event_id=e.event_id)
-                  AND NOT EXISTS (SELECT 1 FROM v2_delivery_attempts a
+                  AND NOT EXISTS (SELECT 1 FROM {self._attempts} a
                     WHERE a.consumer=%s AND a.event_id=e.event_id)
                 ORDER BY e.created_at,e.event_id LIMIT %s ON CONFLICT DO NOTHING""",
                 (self.consumer, self.consumer, self.consumer, limit),
             )
             events = conn.execute(
-                """WITH due AS (
-                    SELECT a.event_id FROM v2_delivery_attempts a
+                f"""WITH due AS (
+                    SELECT a.event_id FROM {self._attempts} a
                     WHERE a.consumer=%s AND a.next_attempt_at<=clock_timestamp()
                       AND (a.lease_until IS NULL OR a.lease_until<clock_timestamp())
-                      AND NOT EXISTS (SELECT 1 FROM v2_consumer_receipts r
+                      AND NOT EXISTS (SELECT 1 FROM {self._receipts} r
                         WHERE r.consumer=a.consumer AND r.event_id=a.event_id)
                     ORDER BY a.next_attempt_at,a.event_id LIMIT %s
                     FOR UPDATE OF a SKIP LOCKED
                 ), claimed AS (
-                    UPDATE v2_delivery_attempts a SET attempts=attempts+1,
+                    UPDATE {self._attempts} a SET attempts=attempts+1,
                         lease_token=%s,lease_until=clock_timestamp()+%s*interval '1 second'
                     FROM due WHERE a.consumer=%s AND a.event_id=due.event_id
                     RETURNING a.event_id,a.attempts
-                ) SELECT e.event_id::text,e.intent_id::text,e.event_type,e.payload,c.attempts
-                FROM claimed c JOIN v2_domain_outbox e USING(event_id)""",
+                ) SELECT e.event_id::text,e.{self._subject}::text,e.event_type,e.payload,c.attempts
+                FROM claimed c JOIN {self._outbox} e USING(event_id)""",
                 (self.consumer, limit, token, lease_seconds, self.consumer),
             ).fetchall()
         result = {"claimed": len(events), "delivered": 0, "failed": 0, "superseded": 0}
@@ -92,7 +98,7 @@ class Projector:
                 failure = type(exc).__name__
             with self._connect() as conn:
                 owned = conn.execute(
-                    """SELECT 1 FROM v2_delivery_attempts
+                    f"""SELECT 1 FROM {self._attempts}
                     WHERE consumer=%s AND event_id=%s AND lease_token=%s FOR UPDATE""",
                     (self.consumer, event_id, token),
                 ).fetchone()
@@ -101,7 +107,7 @@ class Projector:
                     continue
                 if failure is None:
                     conn.execute(
-                        """INSERT INTO v2_consumer_receipts(consumer,event_id)
+                        f"""INSERT INTO {self._receipts}(consumer,event_id)
                         VALUES (%s,%s) ON CONFLICT DO NOTHING""",
                         (self.consumer, event_id),
                     )
@@ -109,7 +115,7 @@ class Projector:
                 else:
                     result["failed"] += 1
                 conn.execute(
-                    """UPDATE v2_delivery_attempts SET lease_until=NULL,lease_token=NULL,
+                    f"""UPDATE {self._attempts} SET lease_until=NULL,lease_token=NULL,
                     error_code=%s,next_attempt_at=clock_timestamp()+%s*interval '1 second'
                     WHERE consumer=%s AND event_id=%s""",
                     (failure, min(300, 2 ** min(attempt, 9)), self.consumer, event_id),

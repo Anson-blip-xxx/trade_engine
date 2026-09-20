@@ -477,6 +477,8 @@ CREATE TABLE v2_candle_delivery_events (
 );
 CREATE TRIGGER v2_candle_delivery_events_immutable BEFORE UPDATE OR DELETE ON v2_candle_delivery_events
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE INDEX v2_candle_quarantine_scan ON v2_candle_delivery_events(environment,created_at,event_id)
+WHERE outcome<>'ACKNOWLEDGED';
 
 CREATE FUNCTION v2_guard_candle_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -496,3 +498,38 @@ CREATE TABLE v2_public_market_budgets (
     used_weight INTEGER NOT NULL DEFAULT 0 CHECK (used_weight>=0),
     blocked_until TIMESTAMPTZ NOT NULL DEFAULT '-infinity'
 );
+
+-- Operational evidence is independent of financial intents. Delivery is at-least-once.
+CREATE TABLE v2_operational_outbox (
+    event_id UUID PRIMARY KEY,
+    scope_id TEXT NOT NULL CHECK (scope_id IN ('SANDBOX','LIVE')),
+    dedup_key TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED')),
+    payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    UNIQUE(scope_id,dedup_key)
+);
+CREATE TRIGGER v2_operational_outbox_immutable BEFORE UPDATE OR DELETE ON v2_operational_outbox
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TABLE v2_operational_receipts (
+    consumer TEXT NOT NULL,
+    event_id UUID NOT NULL REFERENCES v2_operational_outbox(event_id),
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY(consumer,event_id)
+);
+CREATE TRIGGER v2_operational_receipts_immutable BEFORE UPDATE OR DELETE ON v2_operational_receipts
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE TABLE v2_operational_attempts (
+    consumer TEXT NOT NULL,
+    event_id UUID NOT NULL REFERENCES v2_operational_outbox(event_id),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    attempts BIGINT NOT NULL DEFAULT 0 CHECK(attempts>=0),
+    error_code TEXT,
+    PRIMARY KEY(consumer,event_id),
+    CHECK ((lease_token IS NULL)=(lease_until IS NULL))
+);
+CREATE INDEX v2_operational_attempts_due ON v2_operational_attempts(consumer,next_attempt_at,event_id);
+CREATE VIEW v2_operational_sandbox_outbox AS SELECT * FROM v2_operational_outbox WHERE scope_id='SANDBOX';
+CREATE VIEW v2_operational_live_outbox AS SELECT * FROM v2_operational_outbox WHERE scope_id='LIVE';

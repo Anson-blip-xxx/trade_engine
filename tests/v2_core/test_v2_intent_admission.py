@@ -2794,7 +2794,15 @@ def test_market_pipeline_factory_collects_archives_publishes_acknowledges_and_sk
         assert result["status"] == "ACKNOWLEDGED" and result["signal_ids"]
         assert client.exists(key) and alerts == []
         assert len(archive.tables["v2_candle_archive"]) == 24
-        assert factory().run_once() == {"status": "CURRENT"}
+        assert factory().run_once() == {
+            "status": "CURRENT",
+            "alert_delivery": {
+                "claimed": 0,
+                "delivered": 0,
+                "failed": 0,
+                "superseded": 0,
+            },
+        }
         assert len(http.calls) == 3  # time + klines, then time only after restart.
         with database() as conn:
             assert conn.execute(

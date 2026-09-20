@@ -122,7 +122,7 @@ class BinanceCandleCollector:
 
 
 class MarketSupervisor:
-    def __init__(self, *, source, runtime, collector, notify):
+    def __init__(self, *, source, runtime, collector, notify, alerts=None):
         if (
             source.publisher is not runtime.processor.publisher
             or source.publisher.environment != collector.environment
@@ -130,10 +130,25 @@ class MarketSupervisor:
             raise ValueError("single bound market pipeline required")
         if not callable(notify):
             raise TypeError("explicit alert sink required")
+        if alerts is not None and alerts.environment != collector.environment:
+            raise ValueError("alert environment mismatch")
         self.source, self.collector, self.notify = source, collector, notify
+        self.alerts = alerts
         self.runner = S3CandleRunner(runtime, source=source)
 
     def run_once(self):
+        result = self._run_once()
+        if self.alerts is not None:
+            try:
+                result["alert_delivery"] = self.alerts.flush()
+            except Exception as exc:  # noqa: BLE001 - PG outage needs external monitoring
+                result["alert_delivery"] = {
+                    "status": "UNAVAILABLE",
+                    "error_code": type(exc).__name__,
+                }
+        return result
+
+    def _run_once(self):
         stage = "RECOVER"
         try:
             result = self.runner.run_once()
@@ -161,10 +176,15 @@ class MarketSupervisor:
 
     def _report(self, result):
         try:
-            acknowledged = self.notify(dict(result)) is True
+            acknowledged = (
+                self.alerts.record(dict(result))
+                if self.alerts is not None
+                else self.notify(dict(result))
+            ) is True
         except Exception:  # noqa: BLE001 - alert failure remains observable
             acknowledged = False
-        return {**result, "alert_status": "SENT" if acknowledged else "UNAVAILABLE"}
+        status = "QUEUED" if self.alerts is not None else "SENT"
+        return {**result, "alert_status": status if acknowledged else "UNAVAILABLE"}
 
     def serve(self, stop, *, interval_seconds=10):
         if type(interval_seconds) is not int or not 1 <= interval_seconds <= 60:
@@ -189,6 +209,7 @@ def create_market_pipeline(
     from services.v2_s3_runtime import S3Runtime
     from services.v2_s3_source import DurableCandleSource
     from v2_core.chunked_archive import ClickHouseChunkedArchive
+    from v2_core.operational import MarketAlerts
     from v2_core.producer import ProducerPublisher, RedisMarketContext
     from v2_core.public_market import BinancePublicMarket, PublicRateBudget
 
@@ -238,5 +259,9 @@ def create_market_pipeline(
         monotonic_ms=monotonic_ms,
     )
     return MarketSupervisor(
-        source=source, runtime=S3Runtime(publisher), collector=collector, notify=notify
+        source=source,
+        runtime=S3Runtime(publisher),
+        collector=collector,
+        notify=notify,
+        alerts=MarketAlerts(connect, environment=environment, notify=notify),
     )
