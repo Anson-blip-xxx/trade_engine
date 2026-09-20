@@ -1278,6 +1278,460 @@ def test_runtime_does_not_hide_unrelated_preparation_failure(database):
         worker.consume(signal_id, context={})
 
 
+def scheduler_signal(database, key, symbol="ETHUSDT", *, observed=1, expires=10):
+    from v2_core.signals import Signals
+
+    return Signals(database).admit(
+        source="tv_bridge",
+        environment="SANDBOX",
+        request_key=key,
+        snapshot={
+            "observed_at": observed,
+            "expires_at_ms": expires,
+            "symbol": symbol,
+            "signal": "TREND_UP",
+            "features": {},
+        },
+    )
+
+
+def scheduler_due(database):
+    with database() as conn:
+        conn.execute(
+            "UPDATE v2_strategy_tasks SET next_attempt_at=clock_timestamp()-interval '1 second'"
+        )
+
+
+def test_strategy_scheduler_failed_signal_does_not_starve_later_signal(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    bad = scheduler_signal(database, "bad", "BTCUSDT")
+    good = scheduler_signal(database, "good")
+    worker, _ = strategy_worker(database)
+
+    def context(snapshot):
+        if snapshot["symbol"] == "BTCUSDT":
+            raise ConnectionError("sensitive upstream error must not be persisted")
+        return {"price": "100"}
+
+    scheduler = StrategyScheduler(worker, context_provider=context)
+    assert scheduler.run_once(1) == {bad: "UNAVAILABLE"}
+    assert scheduler.run_once(1) == {good: "PREPARED"}
+    assert scheduler.run_once(1) == {}
+    with database() as conn:
+        rows = conn.execute(
+            "SELECT signal_id::text,error_code,completed_at IS NOT NULL FROM v2_strategy_tasks"
+        ).fetchall()
+    assert set(rows) == {(bad, "ConnectionError", False), (good, None, True)}
+
+
+def test_strategy_scheduler_recovers_capacity_wait_without_feed_and_expires(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    opened(database)
+    signal_id = scheduler_signal(database, "waiting", "BTCUSDT")
+    worker, _ = strategy_worker(database)
+    assert StrategyScheduler(worker, context_provider=lambda _: {}).run_once() == {
+        signal_id: "WAITING_CAPACITY"
+    }
+    with database() as conn:
+        assert conn.execute(
+            "SELECT completed_at FROM v2_strategy_tasks"
+        ).fetchone() == (None,)
+    scheduler_due(database)
+    restarted, runtime = strategy_worker(database, now=lambda: 20)
+    assert StrategyScheduler(
+        restarted,
+        context_provider=lambda _: pytest.fail("recovery cannot require fresh context"),
+    ).run_once() == {signal_id: "EXPIRED"}
+    assert (
+        runtime.data.trace(restarted.decision(signal_id)["decision_id"])["orders"] == []
+    )
+    assert StrategyScheduler(restarted, context_provider=lambda _: {}).run_once() == {}
+
+
+def test_strategy_scheduler_expiry_bypasses_failed_context_and_future_defers(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    expired = scheduler_signal(database, "expired", expires=2)
+    future = scheduler_signal(database, "future", observed=100, expires=200)
+    worker, _ = strategy_worker(database)
+    scheduler = StrategyScheduler(
+        worker,
+        context_provider=lambda _: pytest.fail("no context for expired/future signals"),
+    )
+    assert scheduler.run_once() == {expired: "EXPIRED", future: "DEFERRED"}
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_tasks WHERE completed_at IS NULL"
+        ).fetchone() == (1,)
+
+
+def test_strategy_scheduler_concurrent_workers_claim_once(database):
+    from v2_core.scheduling import StrategyScheduler
+    from v2_core.strategy import StrategyDecision
+
+    ids = {scheduler_signal(database, str(n)) for n in range(8)}
+    calls = []
+
+    def run(_):
+        worker, _ = strategy_worker(
+            database, decide=lambda *_: StrategyDecision("IGNORED", "filtered")
+        )
+        return StrategyScheduler(
+            worker, context_provider=lambda s: calls.append(s) or {}
+        ).run_once()
+
+    with ThreadPoolExecutor(4) as pool:
+        batches = list(pool.map(run, range(4)))
+    assert sum(len(batch) for batch in batches) == 8
+    assert set().union(*(set(batch) for batch in batches)) == ids
+    assert len(calls) == 8
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_tasks WHERE completed_at IS NOT NULL"
+        ).fetchone() == (8,)
+
+
+def test_strategy_scheduler_crashed_lease_is_reclaimed(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "crashed")
+    worker, _ = strategy_worker(database)
+    with database() as conn:
+        conn.execute(
+            """INSERT INTO v2_strategy_tasks(consumer,signal_id,lease_token,lease_until)
+                     VALUES (%s,%s,%s,clock_timestamp()+interval '1 hour')""",
+            (worker.scope.consumer, signal_id, str(uuid4())),
+        )
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {})
+    assert scheduler.run_once() == {}
+    with database() as conn:
+        conn.execute(
+            "UPDATE v2_strategy_tasks SET lease_until=clock_timestamp()-interval '1 second'"
+        )
+    assert scheduler.run_once() == {signal_id: "PREPARED"}
+
+
+def test_strategy_scheduler_stale_worker_cannot_ack_new_lease(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "stale")
+    worker, _ = strategy_worker(database)
+    new_token = str(uuid4())
+
+    def context(_):
+        with database() as conn:
+            conn.execute(
+                "UPDATE v2_strategy_tasks SET lease_token=%s,lease_until=clock_timestamp()+interval '1 hour'",
+                (new_token,),
+            )
+        return {}
+
+    assert StrategyScheduler(worker, context_provider=context).run_once() == {
+        signal_id: "PREPARED"
+    }
+    with database() as conn:
+        assert conn.execute(
+            "SELECT lease_token::text,completed_at FROM v2_strategy_tasks"
+        ).fetchone() == (new_token, None)
+
+
+def test_strategy_scheduler_admission_crash_recovers_frozen_decision(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "decision-crash")
+    worker, runtime = strategy_worker(database)
+
+    def fail(*_, **__):
+        raise ConnectionError("admission unavailable")
+
+    runtime.accept_open = fail
+    assert StrategyScheduler(
+        worker, context_provider=lambda _: {"price": "100"}
+    ).run_once() == {signal_id: "UNAVAILABLE"}
+    scheduler_due(database)
+    restarted, _ = strategy_worker(
+        database, decide=lambda *_: pytest.fail("decision already frozen")
+    )
+    assert StrategyScheduler(
+        restarted, context_provider=lambda _: pytest.fail("context already frozen")
+    ).run_once() == {signal_id: "PREPARED"}
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"limit": True}, {"limit": 0}, {"interval_seconds": 0}, {"lease_seconds": 3601}],
+)
+def test_strategy_scheduler_rejects_unbounded_options(database, options):
+    from v2_core.scheduling import StrategyScheduler
+
+    worker, _ = strategy_worker(database)
+    with pytest.raises(ValueError):
+        StrategyScheduler(worker, context_provider=lambda _: {}).run_once(**options)
+
+
+def test_strategy_scheduler_capacity_release_resumes_without_new_decision(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    _occupied, orders, opening, _ = opened(database)
+    signal_id = scheduler_signal(database, "waiting", "BTCUSDT")
+    worker, _ = strategy_worker(database)
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {"price": "100"})
+    assert scheduler.run_once() == {signal_id: "WAITING_CAPACITY"}
+    before = worker.decision(signal_id)
+    orders.transition(
+        opening,
+        expected_version=1,
+        status="CANCELLED",
+        evidence={"reason": "never submitted"},
+    )
+    scheduler_due(database)
+    scheduler.context_provider = lambda _: pytest.fail("must reuse original context")
+    assert scheduler.run_once() == {signal_id: "PREPARED"}
+    assert worker.decision(signal_id) == before
+
+
+@pytest.mark.parametrize("commit_succeeded", [True, False])
+def test_strategy_scheduler_ack_failure_replays_only_unfinished_task(
+    database, commit_succeeded
+):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "ack-failure")
+    worker, _ = strategy_worker(database)
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {})
+
+    @contextmanager
+    def interrupted_ack():
+        acknowledged = False
+        with database() as conn:
+
+            class Proxy:
+                def execute(self, sql, params=None):
+                    nonlocal acknowledged
+                    if "completed_at=CASE" in sql:
+                        acknowledged = True
+                        if not commit_succeeded:
+                            raise ConnectionError("ack failed before commit")
+                    return conn.execute(sql, params)
+
+            yield Proxy()
+        if acknowledged:
+            raise ConnectionError("commit response lost")
+
+    scheduler._connect = interrupted_ack
+    assert scheduler.run_once(1) == {signal_id: "UNAVAILABLE"}
+    before = worker.decision(signal_id)
+    scheduler._connect = database
+    scheduler.context_provider = lambda _: pytest.fail(
+        "no re-evaluation on ack recovery"
+    )
+    if not commit_succeeded:
+        assert scheduler.run_once(1) == {}
+        with database() as conn:
+            conn.execute(
+                "UPDATE v2_strategy_tasks SET lease_until=clock_timestamp()-interval '1 second'"
+            )
+        assert scheduler.run_once(1) == {signal_id: "PREPARED"}
+    assert scheduler.run_once(1) == {}
+    assert worker.decision(signal_id) == before
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (1,)
+
+
+def test_strategy_scheduler_scope_isolation(database):
+    from v2_core.scheduling import StrategyScheduler
+    from v2_core.signals import Signals
+    from v2_core.strategy import StrategyDecision
+
+    valid = scheduler_signal(database, "scoped")
+    Signals(database).admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key="wrong-source",
+        snapshot={
+            "observed_at": 1,
+            "expires_at_ms": 10,
+            "symbol": "BTCUSDT",
+            "signal": "TREND_UP",
+            "features": {},
+        },
+    )
+    Signals(database).admit(
+        source="tv_bridge",
+        environment="LIVE",
+        request_key="wrong-environment",
+        snapshot={
+            "observed_at": 1,
+            "expires_at_ms": 10,
+            "symbol": "BTCUSDT",
+            "signal": "TREND_UP",
+            "features": {},
+        },
+    )
+    for producer in ("s6", "s8"):
+        worker, _ = strategy_worker(
+            database,
+            producer=producer,
+            decide=lambda *_: StrategyDecision("IGNORED", "filtered"),
+        )
+        assert StrategyScheduler(worker, context_provider=lambda _: {}).run_once() == {
+            valid: "IGNORED"
+        }
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*),count(DISTINCT consumer) FROM v2_strategy_tasks"
+        ).fetchone() == (2, 2)
+
+
+@pytest.mark.parametrize(
+    "side,close_price,expected_pnl",
+    [("BUY", "110", "0.095"), ("SELL", "110", "-0.105")],
+)
+def test_signal_to_binance_protocol_ledger_and_cache_rebuild(
+    database, side, close_price, expected_pnl
+):
+    """Protocol-level simulation, NOT live venue or automated settlement QA."""
+    import json
+    from decimal import Decimal
+
+    import redis
+
+    from v2_core.binance import BinanceFutures
+    from v2_core.delivery import Projector
+    from v2_core.projections import RedisProjection, RedisTraces
+    from v2_core.runtime import DataRuntime
+    from v2_core.scheduling import StrategyScheduler
+    from v2_core.strategy import StrategyDecision, StrategyScope, StrategyWorker
+
+    socket = os.environ.get("V2_REDIS_TEST_SOCKET")
+    assert socket and socket.startswith("/tmp/v2-data-qa.")
+    submitted, venue_orders, venue_fills = [], {}, {}
+
+    def fake_request(method, path, params):
+        if path.endswith("/dual"):
+            return {"dualSidePosition": False}
+        if method == "POST":
+            client_id = params["newClientOrderId"]
+            assert client_id not in venue_orders, "duplicate external submission"
+            closing = params["reduceOnly"] == "true"
+            if closing:
+                assert params["side"] != side
+            identity = len(submitted) + 1
+            raw = {
+                "clientOrderId": client_id,
+                "symbol": params["symbol"],
+                "side": params["side"],
+                "positionSide": "BOTH",
+                "type": "MARKET",
+                "reduceOnly": closing,
+                "origQty": params["quantity"],
+                "executedQty": params["quantity"],
+                "orderId": identity,
+                "status": "FILLED",
+            }
+            venue_orders[client_id] = raw
+            venue_fills[identity] = {
+                "id": identity,
+                "orderId": identity,
+                "symbol": params["symbol"],
+                "side": params["side"],
+                "positionSide": "BOTH",
+                "qty": params["quantity"],
+                "price": close_price if closing else "100",
+                "commission": "0.001",
+                "commissionAsset": "USDT",
+                "time": 6 if closing else 4,
+            }
+            submitted.append(client_id)
+            if not closing:
+                raise TimeoutError("opening accepted, response lost")
+            return raw
+        if path.endswith("/userTrades"):
+            return [venue_fills[params["orderId"]]]
+        return venue_orders[params["origClientOrderId"]]
+
+    venue = BinanceFutures(
+        fake_request, account_id="test-account", environment="SANDBOX"
+    )
+    runtime = DataRuntime(
+        database,
+        submit=venue.submit,
+        query=venue.query,
+        risk_check=lambda _: True,
+        clock_ms=lambda: 3,
+    )
+    worker = StrategyWorker(
+        runtime,
+        StrategyScope("BINANCE", "test-account", "SANDBOX", "FUTURES", "s6"),
+        source="tv_bridge",
+        strategy_version="qa-rule",
+        config={"quantity": "0.01"},
+        decide=lambda *_: StrategyDecision("OPEN", "QA momentum", side, "0.01"),
+        max_delay_ms=5,
+    )
+    signal_id = scheduler_signal(database, "e2e", "BTCUSDT")
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {"price": "100"})
+    assert scheduler.run_once() == {signal_id: "PREPARED"}
+    identity = worker.decision(signal_id)["decision_id"]
+    opening = runtime.data.trace(identity)["orders"][0]["order_id"]
+    assert runtime.execution.dispatch(opening) == "UNKNOWN"
+    assert runtime.recover_once() == {opening: "FILLED"}
+    assert runtime.execution.dispatch(opening) == "FILLED"
+    closing, _ = runtime.data.orders.prepare(identity, leg="CLOSE")
+    assert runtime.execution.dispatch(closing) == "ACKNOWLEDGED"
+    assert runtime.recover_once() == {closing: "FILLED"}
+    assert len(submitted) == 2
+    assert scheduler.run_once() == {}
+    income_id = runtime.data.income.ingest(
+        income_scope(), **income_fact(occurred_at_ms=5)
+    )
+    assert runtime.data.income.assign_funding(
+        income_id,
+        identity,
+        expected_revision=2,
+        evidence={"source": "QA complete simulated fills", "fills_complete": True},
+    )
+    report = runtime.data.ledger.report(identity, settlement_currency="USDT")
+    assert Decimal(report["net_pnl"]) == Decimal(expected_pnl)
+    # Explicit synthetic proof: production authenticated reconciliation remains
+    # a release gate. This test checks the composition/financial invariants only.
+    runtime.data.ledger.settle(
+        identity,
+        currency="USDT",
+        evidence={
+            "exchange_flat": True,
+            "orders_terminal": True,
+            "fills_complete": True,
+            "cash_complete": True,
+            "observed_at_ms": 10,
+            "source": "QA simulation",
+            "ledger_revision": report["accounting_revision"],
+        },
+    )
+    trace = runtime.data.trace(identity)
+    assert trace["signal"]["signal_id"] == signal_id
+    assert len(trace["orders"]) == len(trace["fills"]) == 2
+    assert len(trace["income_allocations"]) == 1
+    assert trace["episode"]["status"] == "SETTLED"
+    namespace = "v2:qa:e2e:" + uuid4().hex
+    client = redis.Redis(unix_socket_path=socket, decode_responses=True)
+    cache = RedisTraces(database, RedisProjection(client, namespace))
+    try:
+        projection = Projector(database, "qa-e2e-cache", cache)
+        assert projection.run_scheduled_batch()["failed"] == 0
+        assert projection.run_scheduled_batch()["claimed"] == 0
+        key = namespace + ":" + identity
+        assert json.loads(client.hget(key, "payload")) == trace
+        client.delete(key)
+        assert cache.rebuild_batch()["count"] == 1
+        assert json.loads(client.hget(key, "payload")) == trace
+    finally:
+        client.delete(namespace + ":" + identity)
+        client.close()
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

@@ -400,3 +400,19 @@ CREATE TABLE v2_strategy_decisions (
 );
 CREATE TRIGGER v2_strategy_decisions_immutable BEFORE UPDATE OR DELETE ON v2_strategy_decisions
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+-- Scheduling is not a signal receipt: INTENT can still be waiting for capacity.
+CREATE TABLE v2_strategy_tasks (
+    consumer TEXT NOT NULL,
+    signal_id UUID NOT NULL REFERENCES v2_inbound_signals(signal_id),
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    attempts BIGINT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    error_code TEXT,
+    completed_at TIMESTAMPTZ,
+    PRIMARY KEY (consumer,signal_id),
+    CHECK ((lease_token IS NULL) = (lease_until IS NULL))
+);
+CREATE INDEX v2_strategy_tasks_due ON v2_strategy_tasks(consumer,next_attempt_at,signal_id)
+WHERE completed_at IS NULL;
