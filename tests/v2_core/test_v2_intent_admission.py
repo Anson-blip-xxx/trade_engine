@@ -2016,6 +2016,251 @@ def test_strategy_rechecks_context_scope_and_age_before_evaluation(database, cha
     assert worker.decision(result["signal_id"]) is None
 
 
+def lifecycle_frame(time=100, **changes):
+    return {
+        "frame_id": f"s3:{time}",
+        "observed_at": time,
+        "contexts": {"BTCUSDT": {"strength": 60}},
+        "raw_windows": {},
+        **changes,
+    }
+
+
+def lifecycle_processor(database, *, now=None, evaluate=None):
+    from v2_core.lifecycle import S3FrameProcessor
+
+    publisher, cache = producer(database, now=now)
+
+    def detect(contexts, raw, previous, observed):
+        return (
+            [
+                {"symbol": target, "type": "TREND_UP", "strength": features["strength"]}
+                for target, features in contexts.items()
+                if "strength" in features
+            ],
+            previous,
+        )
+
+    return S3FrameProcessor(
+        publisher,
+        evaluate=evaluate or detect,
+        detector_version="test-v1",
+        cooldown_ms=30,
+        absence_ms=300,
+    ), cache
+
+
+def test_s3_concurrent_frame_and_restart_replay_original_config(database):
+    processor, _cache = lifecycle_processor(database)
+    with ThreadPoolExecutor(4) as pool:
+        results = list(
+            pool.map(lambda _: processor.process(**lifecycle_frame()), range(4))
+        )
+    assert all(result == results[0] for result in results)
+    restarted, _ = lifecycle_processor(
+        database,
+        now=lambda: 9999,
+        evaluate=lambda *args: pytest.fail("replay must not evaluate"),
+    )
+    restarted.publisher.lifetime_ms = 500
+    restarted.config["detector_version"] = "changed"
+    assert restarted.process(**lifecycle_frame()) == results[0]
+    with database() as conn:
+        for table in (
+            "v2_s3_frames",
+            "v2_state_history",
+            "v2_producer_batches",
+            "v2_inbound_signals",
+        ):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 1
+
+
+def test_s3_restart_continues_cooldown_and_updates_last_seen(database):
+    first, _ = lifecycle_processor(database)
+    original = first.process(**lifecycle_frame())
+    restarted, _ = lifecycle_processor(database, now=lambda: 129)
+    assert restarted.process(**lifecycle_frame(129))["emitted_events"] == []
+    restarted.publisher.clock_ms = lambda: 130
+    updated = restarted.process(**lifecycle_frame(130))["emitted_events"][0]
+    assert updated["features"]["state"] == "UPDATE"
+    assert (
+        updated["features"]["episode_id"]
+        == original["emitted_events"][0]["features"]["episode_id"]
+    )
+    assert updated["features"]["revision"] == 2
+
+
+def test_s3_state_batch_signal_rollback_and_no_cache_on_failure(database, monkeypatch):
+    from v2_core.signals import Signals
+    from v2_core.state import BusinessState
+
+    processor, cache = lifecycle_processor(database)
+    original = Signals.admit
+
+    def failed(self, **kwargs):
+        original(self, **kwargs)
+        raise RuntimeError("after signal insert")
+
+    monkeypatch.setattr(Signals, "admit", failed)
+    with pytest.raises(RuntimeError):
+        processor.process(**lifecycle_frame())
+    assert cache.records == []
+    assert BusinessState(database).read(processor.key) is None
+    with database() as conn:
+        for table in (
+            "v2_s3_frames",
+            "v2_state_history",
+            "v2_producer_batches",
+            "v2_inbound_signals",
+        ):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+    monkeypatch.setattr(Signals, "admit", original)
+    assert (
+        processor.process(**lifecycle_frame())["emitted_events"][0]["features"]["state"]
+        == "ACTIVE"
+    )
+
+
+def test_s3_commit_ack_loss_replays_without_state_duplicate(database):
+    processor, cache = lifecycle_processor(database)
+
+    @contextmanager
+    def lost_ack():
+        with database() as conn:
+            yield conn
+        raise RuntimeError("commit ack lost")
+
+    processor.publisher._connect = lost_ack
+    with pytest.raises(RuntimeError):
+        processor.process(**lifecycle_frame())
+    assert not cache.records
+    restarted, _ = lifecycle_processor(
+        database, evaluate=lambda *args: pytest.fail("already committed")
+    )
+    result = restarted.process(**lifecycle_frame())
+    assert len(result["signal_ids"]) == 1
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_state_history").fetchone()[0] == 1
+
+
+def test_s3_rejects_reused_identity_and_regressing_observation(database):
+    from v2_core.signals import SignalConflict
+
+    processor, _ = lifecycle_processor(database)
+    processor.process(**lifecycle_frame())
+    with pytest.raises(SignalConflict):
+        processor.process(**lifecycle_frame(contexts={"BTCUSDT": {"strength": 80}}))
+    for time in (99, 100):
+        with pytest.raises(ValueError, match="monotonically"):
+            processor.process(**lifecycle_frame(time, frame_id=f"another:{time}"))
+
+
+def test_s3_missing_feed_then_explicit_removal_needs_no_market_or_strategy(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    processor, _ = lifecycle_processor(database)
+    processor.process(**lifecycle_frame())
+    processor.publisher.clock_ms = lambda: 999
+    assert (
+        processor.process(**lifecycle_frame(999, contexts={}))["emitted_events"] == []
+    )
+    processor.publisher.clock_ms = lambda: 1000
+    ended = processor.process(
+        **lifecycle_frame(1000, contexts={}, removed_symbols=["BTCUSDT"])
+    )
+    assert ended["emitted_events"][0]["signal"] == "EVENT_END"
+    worker, _ = strategy_worker(
+        database,
+        now=lambda: 1001,
+        decide=lambda *args: pytest.fail("END must never evaluate"),
+    )
+    worker.source = "s3"
+    result = StrategyScheduler(
+        worker, context_provider=lambda _: pytest.fail("END/expired needs no context")
+    ).run_once()
+    assert result[ended["signal_ids"][0]] == "IGNORED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_trade_intents").fetchone()[0] == 0
+
+
+def test_s3_actual_detector_breakout_restart_transaction(database):
+    from services.v2_s3_runtime import S3Runtime
+
+    publisher, _ = producer(database)
+    windows = {
+        "BTCUSDT": {
+            "15m": {"chg": 6, "vol_ratio": 2},
+            "1h": {"chg": 9},
+            "4h": {"chg": 3},
+            "24h": {"chg": 6},
+        }
+    }
+    raw = {
+        "BTCUSDT": {
+            "4h": [{"h": "100", "l": "90", "c": "95"}] * 3,
+            "15m": [{"h": "101", "l": "99", "c": "100"}] * 3,
+        }
+    }
+    first = S3Runtime(publisher).process(
+        frame_id="real:100", observed_at=100, windows=windows, raw_windows=raw
+    )
+    assert "PULSE_UP" in {e["signal"] for e in first["emitted_events"]}
+    second = S3Runtime(publisher).process(
+        frame_id="real:101", observed_at=101, windows=windows, raw_windows=raw
+    )
+    assert [e["signal"] for e in second["emitted_events"]] == ["FAILED_BREAKOUT"]
+
+
+def test_s3_cache_failure_repaired_without_new_signal_or_state(database):
+    processor, cache = lifecycle_processor(database)
+
+    def unavailable(_):
+        raise ConnectionError("offline")
+
+    put = cache.put
+    cache.put = unavailable
+    first = processor.process(**lifecycle_frame())
+    assert first["market_status"] == "UNAVAILABLE"
+    cache.put = put
+    processor.publisher.clock_ms = lambda: 9999
+    repaired = processor.process(**lifecycle_frame())
+    assert repaired["market_status"] == "PROJECTED"
+    assert repaired["signal_ids"] == first["signal_ids"]
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_state_history").fetchone()[0] == 1
+
+
+def test_s3_evaluator_failure_preserves_previous_committed_state(database):
+    from v2_core.state import BusinessState
+
+    processor, cache = lifecycle_processor(database)
+    processor.process(**lifecycle_frame())
+    before = BusinessState(database).read(processor.key)
+
+    def failed(*args):
+        raise ValueError("invalid frame")
+
+    processor.evaluate = failed
+    with pytest.raises(ValueError, match="invalid frame"):
+        processor.process(**lifecycle_frame(101))
+    assert BusinessState(database).read(processor.key) == before
+    assert len(cache.records) == 1
+
+
+def test_s3_changed_breakout_without_coverage_rejected(database):
+    from v2_core.state import BusinessState
+
+    processor, _ = lifecycle_processor(
+        database, evaluate=lambda *args: ([], {"BTCUSDT": {"state": "IDLE"}})
+    )
+    processor.process(**lifecycle_frame())
+    before = BusinessState(database).read(processor.key)
+    processor.evaluate = lambda *args: ([], {})
+    with pytest.raises(ValueError, match="uncovered"):
+        processor.process(**lifecycle_frame(101, contexts={}))
+    assert BusinessState(database).read(processor.key) == before
+
+
 def producer_frame(**changes):
     return {
         "frame_id": "s3:frame:100",

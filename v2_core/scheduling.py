@@ -80,6 +80,7 @@ class StrategyScheduler:
                 needs_context = (
                     stored is None
                     and receipt is None
+                    and snapshot["signal"] != "EVENT_END"
                     and snapshot["observed_at"] <= now < snapshot["expires_at_ms"]
                 )
                 context = (

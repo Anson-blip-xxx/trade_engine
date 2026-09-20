@@ -430,3 +430,22 @@ CREATE TABLE v2_producer_batches (
 );
 CREATE TRIGGER v2_producer_batch_immutable BEFORE UPDATE OR DELETE ON v2_producer_batches
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+-- Frame receipt binds lifecycle history and producer batch in one transaction.
+CREATE TABLE v2_s3_frames (
+    source TEXT NOT NULL DEFAULT 's3' CHECK (source='s3'),
+    environment TEXT NOT NULL CHECK (environment IN ('SANDBOX','LIVE')),
+    frame_id TEXT NOT NULL,
+    input_digest TEXT NOT NULL,
+    config JSONB NOT NULL CHECK (jsonb_typeof(config)='object'),
+    emitted_events JSONB NOT NULL CHECK (jsonb_typeof(emitted_events)='array'),
+    state_id UUID NOT NULL,
+    state_version BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (environment,frame_id),
+    FOREIGN KEY (state_id,state_version) REFERENCES v2_state_history(state_id,version),
+    FOREIGN KEY (source,environment,frame_id) REFERENCES v2_producer_batches(source,environment,frame_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TRIGGER v2_s3_frames_immutable BEFORE UPDATE OR DELETE ON v2_s3_frames
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();

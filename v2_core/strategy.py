@@ -148,6 +148,7 @@ class StrategyWorker:
             if len(context_json.encode()) > 1_000_000:
                 raise ValueError("decision context exceeds size limit")
             expired = now >= signal["expires_at_ms"]
+            ended = signal["signal"] == "EVENT_END"
             deadline = min(signal["expires_at_ms"], now + self.max_delay_ms)
             frozen_context = json.loads(context_json)
             context_fields = {
@@ -157,7 +158,11 @@ class StrategyWorker:
                 "symbol",
                 "sources",
             }
-            if not expired and context_fields.intersection(frozen_context):
+            if (
+                not expired
+                and not ended
+                and context_fields.intersection(frozen_context)
+            ):
                 if (
                     not context_fields <= frozen_context.keys()
                     or frozen_context["environment"] != self.scope.environment
@@ -178,6 +183,8 @@ class StrategyWorker:
             result = (
                 StrategyDecision("IGNORED", "signal expired before evaluation")
                 if expired
+                else StrategyDecision("IGNORED", "producer lifecycle ended")
+                if ended
                 else self.decide(
                     deepcopy(signal),
                     json.loads(context_json),

@@ -137,9 +137,24 @@ class ProducerPublisher:
         )
 
     def publish(self, *, frame_id, observed_at, contexts, events):
+        frozen, fingerprint = self.prepare(
+            frame_id=frame_id, observed_at=observed_at, contexts=contexts, events=events
+        )
+        with self._connect() as conn:
+            signal_ids = self.record(conn, frame_id, frozen, fingerprint)
+        return self.project(frozen, signal_ids)
+
+    def prepare(self, *, frame_id, observed_at, contexts, events, lifetime_ms=None):
         identity(frame_id)
         milliseconds(observed_at)
-        if not isinstance(contexts, dict) or not contexts or len(contexts) > 1000:
+        lifetime_ms = self.lifetime_ms if lifetime_ms is None else lifetime_ms
+        if type(lifetime_ms) is not int or not 1 <= lifetime_ms <= 86400000:
+            raise ValueError("bounded positive signal lifetime required")
+        if (
+            not isinstance(contexts, dict)
+            or (not contexts and self.source != "s3")
+            or len(contexts) > 1000
+        ):
             raise ValueError("bounded nonempty context frame required")
         if (
             not isinstance(events, list)
@@ -167,7 +182,9 @@ class ProducerPublisher:
                     "explicit stable event identity and normalized fields required"
                 )
             key = identity(event["event_id"])
-            if key in keys or event["symbol"] not in contexts:
+            if key in keys or (
+                event["symbol"] not in contexts and event["signal"] != "EVENT_END"
+            ):
                 raise ValueError("duplicate event ID or missing symbol context")
             keys.add(key)
             if (
@@ -177,15 +194,18 @@ class ProducerPublisher:
                 raise ValueError("producer context reference is reserved")
             reference = {
                 key: value
-                for key, value in by_symbol[event["symbol"]].items()
+                for key, value in by_symbol.get(event["symbol"], {}).items()
                 if key != "features"
             }
             normalized.append(
                 {
                     **event,
-                    "features": {**event["features"], "producer_context": reference},
+                    "features": {
+                        **event["features"],
+                        **({"producer_context": reference} if reference else {}),
+                    },
                     "observed_at": observed_at,
-                    "expires_at_ms": observed_at + self.lifetime_ms,
+                    "expires_at_ms": observed_at + lifetime_ms,
                 }
             )
         # Freeze the entire frame before any I/O; callers cannot mutate retries.
@@ -194,8 +214,18 @@ class ProducerPublisher:
         )
         if len(encoded.encode()) > 8_000_000:
             raise ValueError("producer batch exceeds size limit")
-        frozen, fingerprint = json.loads(encoded), digest(encoded)
-        with self._connect() as conn:
+        return json.loads(encoded), digest(encoded)
+
+    def lock(self, conn):
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+            (canonical({"source": self.source, "environment": self.environment}),),
+        )
+
+    def record(self, conn, frame_id, frozen, fingerprint):
+        """Record on caller-owned transaction; never project before its commit."""
+        observed_at = frozen["observed_at"]
+        with nullcontext(conn):
             # Producer-level ordering prevents opposite event ordering deadlocks
             # between batches. A hash collision only serializes unrelated writers.
             conn.execute(
@@ -239,6 +269,9 @@ class ProducerPublisher:
                         json.dumps(signal_ids),
                     ),
                 )
+        return signal_ids
+
+    def project(self, frozen, signal_ids):
         # Cache is non-authoritative. No market write if PG commit/ack failed.
         # After a successful commit, callers retry this same frame to repair cache.
         failures = {}
