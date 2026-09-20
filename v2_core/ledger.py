@@ -323,17 +323,38 @@ class Ledger:
                 "SELECT accounting_revision FROM v2_episodes WHERE episode_id=%s",
                 (episode_id,),
             ).fetchone()
-            fills = conn.execute(
-                """SELECT o.leg,f.quantity,f.price,f.fee,f.fee_currency
+            fill_rows = conn.execute(
+                """SELECT o.leg,f.quantity,f.price,f.fee,f.fee_currency,f.fill_key
                 FROM v2_fills f JOIN v2_orders o USING(order_id)
                 WHERE o.episode_id=%s""",
                 (episode_id,),
             ).fetchall()
-            adjustments = conn.execute(
-                """SELECT amount,currency FROM v2_cash_adjustments
+            cash_rows = conn.execute(
+                """SELECT amount,currency,adjustment_key FROM v2_cash_adjustments
                 WHERE episode_id=%s""",
                 (episode_id,),
             ).fetchall()
+            rates = {
+                (kind, key): rate
+                for kind, key, rate in conn.execute(
+                    """SELECT DISTINCT ON (fact_kind,fact_key) fact_kind,fact_key,rate
+                FROM v2_fx_valuations WHERE episode_id=%s AND target_currency=%s
+                ORDER BY fact_kind,fact_key,version DESC""",
+                    (episode_id, settlement_currency),
+                ).fetchall()
+            }
+        fills = [row[:5] for row in fill_rows]
+        missing = []
+
+        def converted(kind, key, value, currency):
+            if currency == settlement_currency or value == 0:
+                return value
+            rate = rates.get((kind, key))
+            if rate is None:
+                missing.append({"kind": kind, "fact_key": key, "currency": currency})
+                return Decimal(0)
+            return value * rate
+
         with localcontext() as ctx:
             ctx.prec = 100
             opened = sum((q for leg, q, p, f, c in fills if leg == "OPEN"), Decimal(0))
@@ -345,21 +366,21 @@ class Ledger:
                 (q * p for leg, q, p, f, c in fills if leg == "CLOSE"), Decimal(0)
             )
             complete = opened > 0 and opened == closed
-            currencies = {c for leg, q, p, f, c in fills if f != 0} | {
-                c for a, c in adjustments if a != 0
-            }
-            currency_ok = currencies <= {settlement_currency}
+            fees = sum(
+                (converted("FEE", key, f, c) for leg, q, p, f, c, key in fill_rows),
+                Decimal(0),
+            )
+            cash = sum(
+                (converted("CASH", key, a, c) for a, c, key in cash_rows), Decimal(0)
+            )
+            currency_ok = not missing
             gross = (
                 (exit_value - entry) * (1 if intent[0]["side"] == "BUY" else -1)
                 if complete
                 else None
             )
-            fees = (
-                sum((f for leg, q, p, f, c in fills), Decimal(0))
-                if currency_ok
-                else None
-            )
-            cash = sum((a for a, c in adjustments), Decimal(0)) if currency_ok else None
+            fees = fees if currency_ok else None
+            cash = cash if currency_ok else None
             net = gross - fees + cash if gross is not None and currency_ok else None
         return {
             "intent_id": episode_id,
@@ -369,6 +390,8 @@ class Ledger:
             "opened_quantity": str(opened),
             "closed_quantity": str(closed),
             "settlement_currency": settlement_currency,
+            "missing_valuations": missing,
+            "valuation_basis": "HISTORICAL_MARK" if rates else "ORIGINAL_CURRENCY",
             "gross_pnl": None if gross is None else str(gross),
             "fees": None if fees is None else str(fees),
             "cash_adjustments": None if cash is None else str(cash),
@@ -430,8 +453,9 @@ class Ledger:
                 """SELECT max(occurred_at_ms) FROM (
                 SELECT f.occurred_at_ms FROM v2_fills f JOIN v2_orders o USING(order_id)
                 WHERE o.episode_id=%s UNION ALL SELECT occurred_at_ms
-                FROM v2_cash_adjustments WHERE episode_id=%s) facts""",
-                (episode_id, episode_id),
+                FROM v2_cash_adjustments WHERE episode_id=%s UNION ALL SELECT quote_at_ms
+                FROM v2_fx_valuations WHERE episode_id=%s) facts""",
+                (episode_id, episode_id, episode_id),
             ).fetchone()[0]
             if latest is not None and evidence["observed_at_ms"] < latest:
                 raise ValueError("reconciliation evidence predates ledger facts")
@@ -466,9 +490,11 @@ class Ledger:
             foreign_currency = conn.execute(
                 """SELECT 1 FROM v2_fills f JOIN v2_orders o USING(order_id)
                 WHERE o.episode_id=%s AND f.fee<>0 AND f.fee_currency<>%s
+                AND NOT EXISTS (SELECT 1 FROM v2_fx_valuations v WHERE v.fill_key=f.fill_key AND v.target_currency=%s)
                 UNION ALL SELECT 1 FROM v2_cash_adjustments
-                WHERE episode_id=%s AND amount<>0 AND currency<>%s LIMIT 1""",
-                (episode_id, currency, episode_id, currency),
+                WHERE episode_id=%s AND amount<>0 AND currency<>%s
+                AND NOT EXISTS (SELECT 1 FROM v2_fx_valuations v WHERE v.adjustment_key=v2_cash_adjustments.adjustment_key AND v.target_currency=%s) LIMIT 1""",
+                (episode_id, currency, currency, episode_id, currency, currency),
             ).fetchone()
             if foreign_currency:
                 raise ValueError("explicit currency conversion required")

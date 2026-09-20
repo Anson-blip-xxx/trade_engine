@@ -145,3 +145,12 @@ transport 必须有超时且不能自动重试写请求；签名传输和完整�
 追加到不可变 `v2_fill_observations`，不增加 accounting_revision。
 费用允许交易所明确报告的负值（返佣），不得在无证据时自行推导。
 UNKNOWN 状态首次查到交易所订单号仍会持久绑定，状态未变化不能丢失身份。
+
+历史估值检查点：全仓 3043 passed、10 skipped、同一既有 warning。
+`TradingData.valuations.record` 为具体成交费用/资金调整记录带来源和理由的
+历史汇率（目标币数量/一单位原币）。不执行换汇，不声称是现金兑换成交。
+报价与原事实时间差必须在调用方指定范围内，硬上限五分钟；缺失时报告返回
+missing_valuations 和 PENDING，不把未知费用当零。生产历史报价源尚未接入。
+每条估值使用 request_key 幂等和 expected_version CAS，修正只追加新版本；
+增加 accounting_revision，使旧结算证据失效。报告标注 HISTORICAL_MARK。
+原币金额和所有旧报价始终保留；数据库约束拒绝跨 episode/币种挂接。

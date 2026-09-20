@@ -10,6 +10,7 @@ from v2_core.ledger import Ledger
 from v2_core.orders import Orders
 from v2_core.signals import Signals, signal_consumer
 from v2_core.state import BusinessState
+from v2_core.valuation import Valuations
 
 
 class TradingData:
@@ -21,6 +22,7 @@ class TradingData:
         self.ledger = Ledger(connection_factory)
         self.state = BusinessState(connection_factory)
         self.signals = Signals(connection_factory)
+        self.valuations = Valuations(connection_factory)
 
     def accept(self, intent, evidence):
         if (
@@ -100,8 +102,34 @@ class TradingData:
                 ORDER BY p.fill_key,p.evidence_digest""",
                 (intent_id,),
             ).fetchall()
+            valuations = conn.execute(
+                """SELECT fact_kind,fact_key,source_currency,target_currency,
+                version,rate::text,quote_at_ms,request_key,evidence FROM v2_fx_valuations
+                WHERE episode_id=%s ORDER BY fact_kind,fact_key,target_currency,version""",
+                (intent_id,),
+            ).fetchall()
         return {
             "intent_id": intent[0],
+            "valuations": [
+                dict(
+                    zip(
+                        (
+                            "kind",
+                            "fact_key",
+                            "source_currency",
+                            "target_currency",
+                            "version",
+                            "rate",
+                            "quote_at_ms",
+                            "request_key",
+                            "evidence",
+                        ),
+                        row,
+                        strict=True,
+                    )
+                )
+                for row in valuations
+            ],
             "signal": None
             if signal is None
             else dict(

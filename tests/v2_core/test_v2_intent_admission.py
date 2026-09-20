@@ -426,6 +426,121 @@ def test_binance_protocol_through_pg_runner_records_fill_once(database):
     assert sum(method == "POST" for method, _ in calls) == 1
 
 
+def test_foreign_fee_valuation_is_versioned_and_invalidates_old_settlement(database):
+    from decimal import Decimal
+
+    from v2_core.service import TradingData
+
+    original, orders, opening, _ = opened(database)
+    data = TradingData(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    record(data.ledger, opening, "fee-bnb", "100", fee="0.001", currency="BNB")
+    orders.transition(
+        opening, expected_version=2, status="FILLED", evidence={"source": "test"}
+    )
+    closing, _ = orders.prepare(original.intent_id, leg="CLOSE")
+    orders.transition(closing, expected_version=1, status="SUBMITTING", evidence={})
+    record(data.ledger, closing, "closing", "110", fee="0")
+    orders.transition(
+        closing, expected_version=2, status="FILLED", evidence={"source": "test"}
+    )
+    report = data.ledger.report(original.intent_id, settlement_currency="USDT")
+    assert report["net_pnl"] is None and len(report["missing_valuations"]) == 1
+    key = report["missing_valuations"][0]["fact_key"]
+    args = {
+        "kind": "FEE",
+        "fact_key": key,
+        "target_currency": "USDT",
+        "rate": "300",
+        "quote_at_ms": 100,
+        "max_distance_ms": 0,
+        "expected_version": 0,
+        "request_key": "quote-1",
+        "evidence": {"source": "historical-test-quote", "reason": "fee valuation"},
+    }
+    assert data.valuations.record(original.intent_id, **args)
+    assert not data.valuations.record(original.intent_id, **args)
+    report = data.ledger.report(original.intent_id, settlement_currency="USDT")
+    assert Decimal(report["net_pnl"]) == Decimal("-0.2")
+    assert report["valuation_basis"] == "HISTORICAL_MARK"
+    proof = {
+        "exchange_flat": True,
+        "orders_terminal": True,
+        "fills_complete": True,
+        "cash_complete": True,
+        "observed_at_ms": 200,
+        "source": "test",
+        "ledger_revision": report["accounting_revision"],
+    }
+    assert data.ledger.settle(original.intent_id, currency="USDT", evidence=proof)
+    with pytest.raises(ValueError, match="conflict"):
+        data.valuations.record(original.intent_id, **{**args, "rate": "301"})
+    with pytest.raises(ValueError, match="stale"):
+        data.valuations.record(original.intent_id, **{**args, "request_key": "stale"})
+    assert data.valuations.record(
+        original.intent_id,
+        **{**args, "expected_version": 1, "request_key": "quote-2", "rate": "200"},
+    )
+    assert not data.valuations.record(original.intent_id, **args)
+    revised = data.ledger.report(original.intent_id, settlement_currency="USDT")
+    assert revised["accounting_status"] == "CALCULATED"
+    assert Decimal(revised["net_pnl"]) == Decimal("-0.1")
+    assert len(data.trace(original.intent_id)["valuations"]) == 2
+    with pytest.raises(ValueError, match="stale"):
+        data.ledger.settle(original.intent_id, currency="USDT", evidence=proof)
+
+
+def test_valuation_cash_scope_freshness_and_concurrent_cas(database):
+    from v2_core.service import TradingData
+
+    original, _orders, _opening, _client = opened(database)
+    data = TradingData(database)
+    data.ledger.adjustment(
+        episode_id=original.intent_id,
+        source_id="foreign",
+        amount_text="-0.2",
+        currency="BNB",
+        kind="CORRECTION",
+        occurred_at_ms=100,
+        evidence={"source": "test"},
+    )
+    key = data.trace(original.intent_id)["cash"][0]["adjustment_key"]
+    args = {
+        "kind": "CASH",
+        "fact_key": key,
+        "target_currency": "USDT",
+        "rate": "300",
+        "quote_at_ms": 100,
+        "max_distance_ms": 1,
+        "expected_version": 0,
+        "request_key": "one",
+        "evidence": {"source": "quote", "reason": "foreign adjustment"},
+    }
+    with pytest.raises(ValueError, match="distant"):
+        data.valuations.record(original.intent_id, **{**args, "quote_at_ms": 102})
+    other = intent()
+    assert data.intents.admit(other).code is Code.ACCEPTED
+    with pytest.raises(ValueError, match="this episode"):
+        data.valuations.record(other.intent_id, **args)
+
+    def attempt(n):
+        try:
+            return data.valuations.record(
+                original.intent_id, **{**args, "request_key": str(n)}
+            )
+        except ValueError as exc:
+            assert "stale" in str(exc)
+            return False
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sum(pool.map(attempt, range(4))) == 1
+    report = data.ledger.report(original.intent_id, settlement_currency="USDT")
+    from decimal import Decimal
+
+    assert Decimal(report["cash_adjustments"]) == Decimal(-60)
+    assert report["accounting_status"] == "PENDING"  # no opening/closing fills
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

@@ -163,6 +163,46 @@ CREATE TRIGGER v2_cash_immutable BEFORE UPDATE OR DELETE ON v2_cash_adjustments
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE INDEX v2_cash_episode ON v2_cash_adjustments(episode_id);
 
+-- Historical valuation, not an assertion of a currency exchange transaction.
+CREATE TABLE v2_fx_valuations (
+    episode_id UUID NOT NULL REFERENCES v2_episodes(episode_id),
+    request_key TEXT NOT NULL,
+    fill_key TEXT REFERENCES v2_fills(fill_key),
+    adjustment_key TEXT REFERENCES v2_cash_adjustments(adjustment_key),
+    fact_key TEXT GENERATED ALWAYS AS (COALESCE(fill_key,adjustment_key)) STORED,
+    fact_kind TEXT GENERATED ALWAYS AS (CASE WHEN fill_key IS NULL THEN 'CASH' ELSE 'FEE' END) STORED,
+    source_currency TEXT NOT NULL,
+    target_currency TEXT NOT NULL,
+    version BIGINT NOT NULL CHECK (version > 0),
+    rate NUMERIC(38,18) NOT NULL CHECK (rate > 0),
+    quote_at_ms BIGINT NOT NULL CHECK (quote_at_ms >= 0),
+    evidence JSONB NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+    CHECK ((fill_key IS NULL) <> (adjustment_key IS NULL)),
+    CHECK (source_currency <> target_currency),
+    PRIMARY KEY (episode_id,request_key),
+    UNIQUE (fact_kind,fact_key,target_currency,version)
+);
+CREATE TRIGGER v2_fx_immutable BEFORE UPDATE OR DELETE ON v2_fx_valuations
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE FUNCTION v2_guard_valuation_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE owner_id UUID; original_currency TEXT;
+BEGIN
+    IF NEW.fill_key IS NOT NULL THEN
+        SELECT o.episode_id,f.fee_currency INTO owner_id,original_currency
+        FROM v2_fills f JOIN v2_orders o USING(order_id) WHERE f.fill_key=NEW.fill_key;
+    ELSE
+        SELECT episode_id,currency INTO owner_id,original_currency
+        FROM v2_cash_adjustments WHERE adjustment_key=NEW.adjustment_key;
+    END IF;
+    IF owner_id IS DISTINCT FROM NEW.episode_id OR original_currency IS DISTINCT FROM NEW.source_currency THEN
+        RAISE EXCEPTION 'valuation must belong to original fact owner and currency';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER v2_fx_owner BEFORE INSERT ON v2_fx_valuations
+FOR EACH ROW EXECUTE FUNCTION v2_guard_valuation_owner();
+
 CREATE TABLE v2_consumer_receipts (
     consumer TEXT NOT NULL,
     event_id UUID NOT NULL REFERENCES v2_domain_outbox(event_id),
