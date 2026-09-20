@@ -2261,6 +2261,143 @@ def test_s3_changed_breakout_without_coverage_rejected(database):
     assert BusinessState(database).read(processor.key) == before
 
 
+def closed_candle_batch():
+    return {
+        "source": "BINANCE_FUTURES",
+        "environment": "SANDBOX",
+        "interval": "1m",
+        "closed_at": 86400000,
+        "candles": {
+            "BTCUSDT": [
+                {
+                    "t": 86400000 - (i + 1) * 60000,
+                    "o": "100",
+                    "h": "102",
+                    "l": "99",
+                    "c": "101",
+                    "v": "10",
+                    "tbv": "6",
+                }
+                for i in range(1440)
+            ]
+        },
+    }
+
+
+def test_closed_candle_runner_pg_restart_after_lost_ack(database):
+    from types import SimpleNamespace
+
+    from services.v2_s3_candles import S3CandleRunner
+    from services.v2_s3_runtime import S3Runtime
+
+    publisher, _ = producer(database, now=lambda: 86400001)
+    batch = closed_candle_batch()
+    source = SimpleNamespace(read=lambda: batch, ack=lambda _: False)
+    first = S3CandleRunner(S3Runtime(publisher), source=source).run_once()
+    assert first["stage"] == "ACK" and first["status"] == "RETRY"
+    publisher.clock_ms = lambda: 99999999
+    source.ack = lambda _: True
+    replay = S3CandleRunner(S3Runtime(publisher), source=source).run_once()
+    assert replay["status"] == "ACKNOWLEDGED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM v2_state_history").fetchone()[0] == 1
+    # Even an old unused open price must conflict under the same source identity.
+    batch["candles"]["BTCUSDT"][-1]["o"] = "100.5"
+    conflict = S3CandleRunner(S3Runtime(publisher), source=source).run_once()
+    assert conflict == {
+        "status": "RETRY",
+        "stage": "PUBLISH",
+        "error_code": "SignalConflict",
+    }
+
+
+@pytest.mark.parametrize("clock", [86399999, 86400100])
+def test_new_closed_candle_frame_cannot_refresh_stale_or_future_observation(
+    database, clock
+):
+    from services.v2_s3_candles import build_frame
+    from services.v2_s3_runtime import S3Runtime
+
+    publisher, cache = producer(database, now=lambda: clock)
+    with pytest.raises(ValueError, match="stale or future"):
+        S3Runtime(publisher).process(
+            **build_frame(closed_candle_batch(), environment="SANDBOX")
+        )
+    assert not cache.records
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 0
+
+
+def test_candle_to_real_pg_redis_strategy_preserves_input_provenance(database):
+    from types import SimpleNamespace
+
+    import redis
+
+    from services.v2_s3_candles import S3CandleRunner
+    from services.v2_s3_runtime import S3Runtime
+    from v2_core.ingress import ContextProvider
+    from v2_core.producer import RedisMarketContext
+
+    socket = os.environ["V2_REDIS_TEST_SOCKET"]
+    assert socket.startswith("/tmp/v2-data-qa.")
+    client = redis.Redis(unix_socket_path=socket, decode_responses=True)
+    key = "v2:market:SANDBOX:s3:BTCUSDT"
+    assert not client.exists(key)
+    try:
+        cache = RedisMarketContext(client, environment="SANDBOX")
+        publisher, _ = producer(database, market=cache, now=lambda: 86400001)
+        batch = closed_candle_batch()
+        batch["candles"]["BTCUSDT"][0].update(v="100", tbv="60")
+        acknowledgements = []
+
+        def acknowledge(frame_id):
+            acknowledgements.append(frame_id)
+            return True
+
+        source = SimpleNamespace(read=lambda: batch, ack=acknowledge)
+        runner = S3CandleRunner(S3Runtime(publisher), source=source)
+        result = runner.run_once()
+        assert result["status"] == "ACKNOWLEDGED" and result["signal_ids"]
+        provider = ContextProvider(
+            environment="SANDBOX",
+            policy={"s3": {"scope": "SYMBOL", "max_age_ms": 100}},
+            read=cache.read,
+            clock_ms=lambda: 86400001,
+        )
+        worker, runtime = strategy_worker(database, now=lambda: 86400001)
+        worker.source = "s3"
+        signal_id = result["signal_ids"][0]
+        with database() as conn:
+            snapshot = conn.execute(
+                "SELECT snapshot FROM v2_inbound_signals WHERE signal_id=%s",
+                (signal_id,),
+            ).fetchone()[0]
+        assert (
+            worker.consume(signal_id, context=provider(snapshot))["status"]
+            == "PREPARED"
+        )
+        trace = runtime.data.trace(worker.decision(signal_id)["decision_id"])
+        provenance = trace["decision"]["features"]["context"]["sources"]["s3"][
+            "features"
+        ]["input_evidence"]
+        assert provenance["bar_count"] == 1440 and provenance["closed_at"] == 86400000
+        assert len(provenance["bars_digest"]) == 64
+        # Cache loss and redelivery rebuild projection without a second decision.
+        client.delete(key)
+        assert runner.run_once()["signal_ids"] == result["signal_ids"]
+        assert client.exists(key)
+        with database() as conn:
+            assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 1
+            assert (
+                conn.execute("SELECT count(*) FROM v2_strategy_decisions").fetchone()[0]
+                == 1
+            )
+    finally:
+        client.delete(key)
+        client.close()
+
+
 def producer_frame(**changes):
     return {
         "frame_id": "s3:frame:100",
