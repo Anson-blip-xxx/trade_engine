@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from uuid import uuid4
 
+from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import Ledger, lock_order_episode
 from v2_core.orders import Orders
 
@@ -131,6 +132,14 @@ class ExecutionRunner:
             return "RACE_LOST"
         try:
             observation = self.submit(deepcopy(before))
+        except SubmissionNotSent as exc:
+            applied = self.orders.transition(
+                order_id,
+                expected_version=before["version"] + 1,
+                status="REJECTED",
+                evidence={"reason": exc.reason, "submission_sent": False},
+            )
+            return "REJECTED" if applied else "RACE_LOST"
         except Exception:  # noqa: BLE001 - transport may have accepted the order
             self.orders.transition(
                 order_id,

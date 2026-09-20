@@ -206,3 +206,17 @@ def test_timeout_does_not_retry_write():
     with pytest.raises(TimeoutError):
         adapter(request).submit(order())
     assert calls == ["GET", "POST"]
+
+
+def test_read_preflight_failure_is_definitely_not_submitted():
+    from v2_core.errors import SubmissionNotSent
+
+    calls = []
+
+    def request(method, path, params):
+        calls.append(method)
+        raise TimeoutError("private detail")
+
+    with pytest.raises(SubmissionNotSent, match="PREFLIGHT"):
+        adapter(request).submit(order())
+    assert calls == ["GET"]

@@ -641,6 +641,31 @@ def test_approved_risk_evidence_is_committed_before_submission(database):
     assert runner.dispatch(opening) == "ACKNOWLEDGED"
 
 
+def test_proven_not_submitted_is_terminal_without_manual_recovery(database):
+    from v2_core.errors import SubmissionNotSent
+    from v2_core.runner import ExecutionRunner
+    from v2_core.service import TradingData
+
+    original, _orders, opening, _client = opened(database)
+    calls = []
+
+    def submit(_):
+        calls.append("preflight")
+        raise SubmissionNotSent("VENUE_PREFLIGHT_UNAVAILABLE")
+
+    runner = ExecutionRunner(
+        database,
+        submit=submit,
+        query=lambda _: pytest.fail("terminal must not query"),
+        risk_check=lambda _: True,
+    )
+    assert runner.dispatch(opening) == "REJECTED"
+    assert runner.dispatch(opening) == "REJECTED"
+    assert calls == ["preflight"]
+    trace = TradingData(database).trace(original.intent_id)
+    assert trace["episode"]["status"] == "ABORTED"
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

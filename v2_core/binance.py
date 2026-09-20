@@ -8,8 +8,10 @@ Missing historical orders are ambiguous, not permission to submit again.
 import re
 from decimal import Decimal, localcontext
 
+from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import amount
 from v2_core.runner import ExchangeObservation
+from v2_core.transport import ExchangeTransportError
 
 
 def identifier(value):
@@ -95,9 +97,12 @@ class BinanceFutures:
 
     def submit(self, order):
         self._scope(order)
-        mode = self.request("GET", "/fapi/v1/positionSide/dual", {})
+        try:
+            mode = self.request("GET", "/fapi/v1/positionSide/dual", {})
+        except Exception:  # noqa: BLE001 - only read preflight attempted, no order write
+            raise SubmissionNotSent("VENUE_PREFLIGHT_UNAVAILABLE") from None
         if not isinstance(mode, dict) or mode.get("dualSidePosition") is not False:
-            raise ValueError("one-way account mode required")
+            raise SubmissionNotSent("VENUE_MODE_UNSUPPORTED")
         params = {
             "symbol": order["symbol"],
             "side": order["side"],
@@ -112,7 +117,13 @@ class BinanceFutures:
             params.update(
                 price=order["limit_price"], timeInForce=order["time_in_force"]
             )
-        raw = self.request("POST", "/fapi/v1/order", params)
+        try:
+            raw = self.request("POST", "/fapi/v1/order", params)
+        except ExchangeTransportError as exc:
+            # Only these transport gates are guaranteed to precede any write.
+            if str(exc) in {"ENDPOINT_OR_WRITE_DISABLED", "QUOTA_DENIED"}:
+                raise SubmissionNotSent(str(exc)) from None
+            raise
         order_id, _ = self._order(order, raw)
         # Even a FILLED response lacks per-fill commissions. Query before finality.
         return ExchangeObservation(
