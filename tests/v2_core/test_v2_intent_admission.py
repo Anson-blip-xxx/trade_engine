@@ -992,6 +992,292 @@ def test_income_journal_financial_facts_are_immutable(database):
     assert journal.pending(income_scope())[0]["income_id"] == identity
 
 
+def strategy_worker(database, *, decide=None, now=None, producer="s6", config=None):
+    from v2_core.runtime import DataRuntime
+    from v2_core.strategy import StrategyDecision, StrategyScope, StrategyWorker
+
+    runtime = DataRuntime(
+        database,
+        submit=lambda _: pytest.fail("strategy admission must never submit"),
+        query=lambda _: None,
+        risk_check=lambda _: True,
+        clock_ms=now or (lambda: 3),
+    )
+    worker = StrategyWorker(
+        runtime,
+        StrategyScope("BINANCE", "test-account", "SANDBOX", "FUTURES", producer),
+        source="tv_bridge",
+        strategy_version="rule-v1",
+        config={"size": "0.01"} if config is None else config,
+        decide=decide
+        or (
+            lambda signal, context, config: StrategyDecision(
+                "OPEN", "momentum", "BUY", config["size"]
+            )
+        ),
+        max_delay_ms=5,
+    )
+    return worker, runtime
+
+
+def test_strategy_decision_retries_reuse_original_config_context_and_deadline(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    calls = []
+    from v2_core.strategy import StrategyDecision
+
+    def decide(signal, context, config):
+        calls.append(signal)
+        signal["symbol"] = "ETHUSDT"
+        context["price"] = "999"
+        config["size"] = "2"
+        return StrategyDecision(
+            "OPEN", "original rationale", "BUY", "0.01", '{"score":80}'
+        )
+
+    worker, runtime = strategy_worker(database, decide=decide)
+    result = worker.consume(signal_id, context={"price": "100"})
+    assert result["status"] == "PREPARED"
+    assert len(calls) == 1
+    record = worker.decision(signal_id)
+    assert record["config"] == {"size": "0.01"}
+    assert record["snapshot"]["features"]["context"] == {"price": "100"}
+    assert record["snapshot"]["symbol"] == "BTCUSDT"
+    assert record["snapshot"]["expires_at_ms"] == 8
+    replacement, _ = strategy_worker(
+        database,
+        config={"size": "20"},
+        decide=lambda *_: pytest.fail("must reuse committed decision"),
+    )
+    retried = replacement.consume(signal_id, context={"price": "10000"})
+    assert retried["intent_id"] == result["intent_id"]
+    assert retried["order_id"] == result["order_id"]
+    assert replacement.decision(signal_id) == record
+    assert runtime.data.trace(result["intent_id"])["decision"] == record["snapshot"]
+
+
+def test_strategy_crash_after_decision_cannot_refresh_expired_scene(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, runtime = strategy_worker(database)
+
+    def fail(*_):
+        raise ConnectionError("simulated admission outage")
+
+    runtime.accept_open = fail
+    with pytest.raises(ConnectionError):
+        worker.consume(signal_id, context={"price": "100"})
+    assert worker.decision(signal_id)["action"] == "OPEN"
+    resumed, runtime2 = strategy_worker(
+        database, now=lambda: 20, decide=lambda *_: pytest.fail("do not reevaluate")
+    )
+    result = resumed.consume(signal_id, context={"price": "500"})
+    assert result["status"] == "EXPIRED"
+    assert runtime2.data.trace(result["intent_id"])["orders"] == []
+
+
+def test_strategy_concurrent_evaluation_has_one_committed_result_and_order(database):
+    from threading import Barrier
+
+    from v2_core.strategy import StrategyDecision
+
+    _data, _request, _proof, signal_id = signal_request(database)
+    barrier = Barrier(4)
+
+    def decide(signal, context, config):
+        barrier.wait(timeout=10)
+        return StrategyDecision("OPEN", context["reason"], "BUY", "0.01")
+
+    worker, _runtime = strategy_worker(database, decide=decide)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(
+            pool.map(
+                lambda n: worker.consume(signal_id, context={"reason": str(n)}),
+                range(4),
+            )
+        )
+    assert (
+        len({r["intent_id"] for r in results})
+        == len({r["order_id"] for r in results})
+        == 1
+    )
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_decisions"
+        ).fetchone() == (1,)
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (1,)
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_strategy_ignored_or_expired_signal_never_creates_order(database, expired):
+    from v2_core.strategy import StrategyDecision
+
+    _data, _request, _proof, signal_id = signal_request(database)
+
+    def decide(*_):
+        assert not expired
+        return StrategyDecision(
+            "IGNORED", "trend gate denied", features_json='{"trend":"DOWN"}'
+        )
+
+    worker, _runtime = strategy_worker(
+        database, decide=decide, now=lambda: 20 if expired else 3
+    )
+    first = worker.consume(signal_id, context={})
+    assert first["status"] == ("EXPIRED" if expired else "IGNORED")
+    assert worker.consume(signal_id, context={})["status"] == first["status"]
+    assert worker.consume(signal_id, context={})["decision_id"] == first["decision_id"]
+    assert worker.decision(signal_id)["action"] == first["status"]
+    assert counts(database) == (0, 0)
+
+
+def test_strategy_wrong_source_or_future_signal_cannot_be_evaluated(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, _runtime = strategy_worker(
+        database, now=lambda: 0, decide=lambda *_: pytest.fail("no evaluation")
+    )
+    assert worker.consume(signal_id, context={})["status"] == "DEFERRED"
+    assert worker.decision(signal_id) is None
+    worker.source = "s3"
+    with pytest.raises(ValueError, match="bound source"):
+        worker.consume(signal_id, context={})
+
+
+def test_strategy_decision_commit_ack_loss_is_replayed_without_reevaluation(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    calls = 0
+
+    @contextmanager
+    def lost_ack():
+        nonlocal calls
+        calls += 1
+        with database() as conn:
+            yield conn
+        if calls == 2:
+            raise ConnectionError(
+                "simulated durable decision commit acknowledgement lost"
+            )
+
+    worker, _runtime = strategy_worker(database)
+    worker._connect = lost_ack
+    with pytest.raises(ConnectionError):
+        worker.consume(signal_id, context={})
+    assert counts(database) == (0, 0)
+    resumed, _runtime2 = strategy_worker(
+        database, decide=lambda *_: pytest.fail("must reuse")
+    )
+    assert resumed.consume(signal_id, context={})["status"] == "PREPARED"
+
+
+def test_strategy_evidence_and_decision_roll_back_together(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, _runtime = strategy_worker(database)
+    with database() as conn:
+        before = conn.execute("SELECT count(*) FROM v2_decision_evidence").fetchone()
+        conn.execute("""CREATE FUNCTION fail_strategy_decision() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'decision injection'; END; $$;
+            CREATE TRIGGER fail_strategy_decision BEFORE INSERT ON v2_strategy_decisions
+            FOR EACH ROW EXECUTE FUNCTION fail_strategy_decision();""")
+    with pytest.raises(Exception, match="decision injection"):
+        worker.consume(signal_id, context={})
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_decision_evidence").fetchone()
+            == before
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_decisions"
+        ).fetchone() == (0,)
+    assert counts(database) == (0, 0)
+
+
+def test_strategy_ignored_decision_readonly_cli_and_immutable_audit(
+    database, monkeypatch, capsys
+):
+    import json
+
+    from v2_core import __main__ as cli
+    from v2_core.strategy import StrategyDecision
+
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, runtime = strategy_worker(
+        database, decide=lambda *_: StrategyDecision("IGNORED", "risk context stale")
+    )
+    result = worker.consume(signal_id, context={"observed_at_ms": 1})
+    trace = runtime.data.decision_trace(result["decision_id"])
+    assert trace["receipt"]["outcome"] == "IGNORED"
+    assert trace["snapshot"]["rationale"] == "risk context stale"
+    assert trace["signal"]["signal"] == "TREND_UP"
+
+    def factory(dsn, *, schema, read_only):
+        assert read_only is True
+        return database
+
+    monkeypatch.setattr(cli, "connection_factory", factory)
+    monkeypatch.setenv("V2_POSTGRES_DSN", "dummy-not-used")
+    monkeypatch.setattr("sys.argv", ["v2_core", result["decision_id"], "--decision"])
+    cli.main()
+    assert json.loads(capsys.readouterr().out) == trace
+    with pytest.raises(Exception, match="immutable"), database() as conn:
+        conn.execute(
+            "UPDATE v2_strategy_decisions SET action='EXPIRED' WHERE decision_id=%s",
+            (result["decision_id"],),
+        )
+
+
+def test_strategy_existing_receipt_cannot_be_revived_and_consumers_are_isolated(
+    database,
+):
+    from v2_core.strategy import StrategyDecision
+
+    data, _request, _proof, signal_id = signal_request(database)
+    first, _runtime = strategy_worker(
+        database, decide=lambda *_: pytest.fail("consumed signal cannot be reevaluated")
+    )
+    data.signals.complete(
+        consumer=first.scope.consumer,
+        signal_id=signal_id,
+        outcome="IGNORED",
+        reason="already consumed",
+    )
+    assert first.consume(signal_id, context={})["status"] == "IGNORED"
+    second, _runtime2 = strategy_worker(
+        database,
+        producer="s8",
+        decide=lambda *_: StrategyDecision("IGNORED", "independent strategy"),
+    )
+    assert second.consume(signal_id, context={})["status"] == "IGNORED"
+    assert second.decision(signal_id)["snapshot"]["rationale"] == "independent strategy"
+    assert first.decision(signal_id) is None
+
+
+def test_strategy_waiting_for_capacity_keeps_original_deadline(database):
+    occupied, _orders, _opening, _client = opened(database)
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, runtime = strategy_worker(database)
+    waiting = worker.consume(signal_id, context={"price": "100"})
+    assert waiting["status"] == "WAITING_CAPACITY"
+    assert runtime.data.trace(waiting["intent_id"])["orders"] == []
+    resumed, runtime2 = strategy_worker(
+        database, now=lambda: 20, decide=lambda *_: pytest.fail("no reevaluation")
+    )
+    expired = resumed.consume(signal_id, context={"price": "200"})
+    assert expired["status"] == "EXPIRED"
+    assert expired["intent_id"] == waiting["intent_id"]
+    assert runtime2.data.trace(waiting["intent_id"])["orders"] == []
+    assert runtime2.data.trace(occupied.intent_id)["episode"]["status"] == "ACTIVE"
+
+
+def test_runtime_does_not_hide_unrelated_preparation_failure(database):
+    _data, _request, _proof, signal_id = signal_request(database)
+    worker, runtime = strategy_worker(database)
+
+    def fail(*_, **__):
+        raise ConnectionError("database unavailable")
+
+    runtime.data.orders.prepare = fail
+    with pytest.raises(ConnectionError):
+        worker.consume(signal_id, context={})
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

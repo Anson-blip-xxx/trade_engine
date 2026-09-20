@@ -272,6 +272,39 @@ class TradingData:
             ],
         }
 
+    def decision_trace(self, decision_id):
+        """Read-only evidence even when a strategy produced no trading intent."""
+        decision_id = str(UUID(decision_id))
+        with self._connect() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            row = conn.execute(
+                """SELECT d.decision_id::text,d.consumer,d.signal_id::text,
+                d.action,d.side,d.quantity::text,e.strategy_version,e.config,e.snapshot,s.snapshot,
+                r.outcome,r.intent_id::text,r.reason
+                FROM v2_strategy_decisions d JOIN v2_decision_evidence e USING(evidence_ref)
+                JOIN v2_inbound_signals s ON s.signal_id=d.signal_id
+                LEFT JOIN v2_signal_receipts r ON r.signal_id=d.signal_id AND r.consumer=d.consumer
+                WHERE d.decision_id=%s""",
+                (decision_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "decision_id": row[0],
+            "consumer": json.loads(row[1]),
+            "signal_id": row[2],
+            "action": row[3],
+            "side": row[4],
+            "quantity": row[5],
+            "strategy_version": row[6],
+            "config": row[7],
+            "snapshot": row[8],
+            "signal": row[9],
+            "receipt": None
+            if row[10] is None
+            else dict(zip(("outcome", "intent_id", "reason"), row[10:], strict=True)),
+        }
+
     def accept_signal(self, intent, evidence):
         """Atomically register signal consumption and its durable trade intent.
 

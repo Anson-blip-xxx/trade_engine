@@ -382,3 +382,21 @@ REFERENCES v2_inbound_signals(signal_id);
 ALTER TABLE v2_trade_intents ADD COLUMN signal_id UUID REFERENCES v2_inbound_signals(signal_id);
 CREATE UNIQUE INDEX v2_one_intent_per_signal_consumer ON v2_trade_intents
 (exchange,account_id,environment,product,producer,signal_id) WHERE signal_id IS NOT NULL;
+
+ALTER TABLE v2_decision_evidence ADD UNIQUE (evidence_ref,signal_id);
+CREATE TABLE v2_strategy_decisions (
+    decision_id UUID PRIMARY KEY,
+    consumer TEXT NOT NULL,
+    signal_id UUID NOT NULL REFERENCES v2_inbound_signals(signal_id),
+    evidence_ref TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('OPEN','IGNORED','EXPIRED')),
+    side TEXT,
+    quantity NUMERIC(38,18),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    FOREIGN KEY (evidence_ref,signal_id) REFERENCES v2_decision_evidence(evidence_ref,signal_id),
+    UNIQUE (consumer,signal_id),
+    CHECK ((action='OPEN' AND side IS NOT NULL AND side IN ('BUY','SELL') AND quantity IS NOT NULL AND quantity>0)
+        OR (action<>'OPEN' AND side IS NULL AND quantity IS NULL))
+);
+CREATE TRIGGER v2_strategy_decisions_immutable BEFORE UPDATE OR DELETE ON v2_strategy_decisions
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();

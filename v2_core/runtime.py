@@ -96,7 +96,23 @@ class DataRuntime:
             }
         if not prepare_initial:
             return {"status": "RECEIVED", "intent_id": identity}
-        order_id, client_id = self.data.orders.prepare(identity)
+        try:
+            order_id, client_id = self.data.orders.prepare(identity)
+        except Exception as exc:
+            if (
+                getattr(exc, "sqlstate", None) != "23505"
+                or getattr(getattr(exc, "diag", None), "constraint_name", None)
+                != "v2_one_active_episode"
+            ):
+                raise
+            current = self.data.trace(identity)
+            return {
+                "status": "WAITING_CAPACITY"
+                if current["status"] == "RECEIVED"
+                else current["status"],
+                "intent_id": identity,
+                "reason": "symbol has an active episode",
+            }
         return {
             "status": "PREPARED",
             "intent_id": identity,
