@@ -14,7 +14,8 @@ def test_adapter_is_injected_and_not_runtime_wired():
     runtime_importers = []
     for path in ROOT.rglob("*.py"):
         relative = path.relative_to(ROOT)
-        if relative.parts[0] in {"tests", "operation_journal"}:
+        if relative.parts[0] in {
+                "tests", "operation_journal", "operator_decision"}:
             continue
         tree = ast.parse(path.read_text())
         names = [

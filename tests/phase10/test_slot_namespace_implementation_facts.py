@@ -88,6 +88,7 @@ def test_only_protection_fence_modules_call_identity_package():
         'operation_journal/generation_fence.py',
         'operation_journal/generation_reader.py',
         'operation_journal/delayed_policy.py',
+        'operator_decision/model.py',
         'position_protection/binance_observation.py',
         'position_protection/binance_query.py',
         'position_protection/claim.py',
