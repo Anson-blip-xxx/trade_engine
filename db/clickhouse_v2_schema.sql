@@ -10,3 +10,10 @@ CREATE TABLE v2_trade_events (
 -- All analytics use this view, never sum the physical at-least-once table.
 CREATE VIEW v2_trade_events_logical AS
 SELECT event_id,intent_id,kind,payload,payload_digest FROM v2_trade_events FINAL;
+
+-- Content-addressed immutable-by-contract raw market archive. Repeated inserts
+-- carry identical content; digest verification is mandatory on every read.
+CREATE TABLE v2_candle_archive (
+    content_digest FixedString(64),
+    payload String
+) ENGINE = ReplacingMergeTree ORDER BY content_digest;

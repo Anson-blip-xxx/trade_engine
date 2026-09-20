@@ -2398,6 +2398,292 @@ def test_candle_to_real_pg_redis_strategy_preserves_input_provenance(database):
         client.close()
 
 
+def durable_source(database, *, archive=None, now=None):
+    from services.v2_s3_source import DurableCandleSource
+
+    class Archive:
+        def __init__(self):
+            self.rows = {}
+
+        def put(self, key, encoded):
+            self.rows[key] = encoded
+            return True
+
+        def get(self, key):
+            return self.rows.get(key)
+
+    publisher, cache = producer(database, now=now or (lambda: 86400001))
+    source = DurableCandleSource(publisher, archive=archive or Archive())
+    return source, cache
+
+
+def expire_source_lease(database):
+    with database() as conn:
+        conn.execute(
+            "UPDATE v2_candle_deliveries SET lease_until=clock_timestamp()-interval '1 second' WHERE status='PENDING' AND lease_token IS NOT NULL"
+        )
+
+
+def test_durable_source_concurrent_enqueue_claim_and_restart(database):
+    from services.v2_s3_candles import S3CandleRunner
+    from services.v2_s3_runtime import S3Runtime
+    from services.v2_s3_source import DurableCandleSource
+
+    source, _ = durable_source(database)
+    batch = closed_candle_batch()
+    with ThreadPoolExecutor(4) as pool:
+        identities = list(pool.map(lambda _: source.enqueue(batch), range(4)))
+    assert len(set(identities)) == 1
+    competitor = DurableCandleSource(source.publisher, archive=source.archive)
+    assert source.read() == batch
+    assert competitor.read() is None
+    assert source.ack(identities[0]) is False  # Source ack cannot precede S3 commit.
+    expire_source_lease(database)
+    result = S3CandleRunner(S3Runtime(source.publisher), source=competitor).run_once()
+    assert result["status"] == "ACKNOWLEDGED"
+    assert source.ack(identities[0]) is False  # Stale token cannot confirm new owner.
+    assert competitor.read() is None
+    with database() as conn:
+        assert conn.execute(
+            "SELECT status,attempts FROM v2_candle_deliveries"
+        ).fetchone() == ("ACKNOWLEDGED", 2)
+        assert conn.execute(
+            "SELECT outcome FROM v2_candle_delivery_events"
+        ).fetchall() == [("ACKNOWLEDGED",)]
+
+
+def test_durable_source_expired_unpublished_is_audited_not_retimed(database):
+    from services.v2_s3_source import SourceQuarantined
+
+    source, cache = durable_source(database, now=lambda: 86400100)
+    source.enqueue(closed_candle_batch())
+    with pytest.raises(SourceQuarantined):
+        source.read()
+    assert source.read() is None and not cache.records
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome FROM v2_candle_delivery_events"
+        ).fetchone() == ("EXPIRED_UNPUBLISHED",)
+        assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 0
+
+
+def test_durable_source_committed_expired_frame_still_recovers(database):
+    from services.v2_s3_candles import S3CandleRunner, build_frame
+    from services.v2_s3_runtime import S3Runtime
+
+    source, _ = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    batch = source.read()
+    S3Runtime(source.publisher).process(**build_frame(batch, environment="SANDBOX"))
+    expire_source_lease(database)
+    source.publisher.clock_ms = lambda: 99999999
+    result = S3CandleRunner(S3Runtime(source.publisher), source=source).run_once()
+    assert result["status"] == "ACKNOWLEDGED"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_s3_frames").fetchone()[0] == 1
+
+
+def test_durable_source_archive_corruption_quarantines_with_no_publish(database):
+    from services.v2_s3_source import SourceQuarantined
+
+    source, cache = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    for key in source.archive.rows:
+        source.archive.rows[key] = "corrupted"
+    with pytest.raises(SourceQuarantined):
+        source.read()
+    assert not cache.records
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome FROM v2_candle_delivery_events"
+        ).fetchone() == ("ARCHIVE_CORRUPT",)
+
+
+def test_durable_source_missing_archive_remains_retryable(database):
+    source, _ = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    saved = dict(source.archive.rows)
+    source.archive.rows.clear()
+    with pytest.raises(RuntimeError, match="unavailable"):
+        source.read()
+    with database() as conn:
+        assert conn.execute("SELECT status FROM v2_candle_deliveries").fetchone() == (
+            "PENDING",
+        )
+        assert (
+            conn.execute("SELECT count(*) FROM v2_candle_delivery_events").fetchone()[0]
+            == 0
+        )
+    source.archive.rows.update(saved)
+    expire_source_lease(database)
+    assert source.read() == closed_candle_batch()
+
+
+def test_durable_source_archive_failure_cannot_create_queue_row(database):
+    source, _ = durable_source(database)
+    source.archive.put = lambda *args: False
+    with pytest.raises(RuntimeError):
+        source.enqueue(closed_candle_batch())
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0] == 0
+        )
+
+
+def test_durable_source_identity_and_audit_are_immutable(database):
+    from v2_core.signals import SignalConflict
+
+    source, _ = durable_source(database)
+    source.enqueue(closed_candle_batch())
+    changed = closed_candle_batch()
+    changed["candles"]["BTCUSDT"][0]["o"] = "100.5"
+    with pytest.raises(SignalConflict):
+        source.enqueue(changed)
+    import psycopg
+
+    with pytest.raises(psycopg.Error), database() as conn:
+        conn.execute("UPDATE v2_candle_deliveries SET input_digest='changed'")
+    source.publisher.clock_ms = lambda: 86400100
+    from services.v2_s3_source import SourceQuarantined
+
+    with pytest.raises(SourceQuarantined):
+        source.read()
+    for sql in (
+        "UPDATE v2_candle_deliveries SET status='PENDING'",
+        "DELETE FROM v2_candle_delivery_events",
+    ):
+        with pytest.raises(psycopg.Error), database() as conn:
+            conn.execute(sql)
+
+
+def test_durable_source_transport_decode_failure_is_not_integrity_proof(database):
+    source, _ = durable_source(database)
+    source.enqueue(closed_candle_batch())
+
+    def unavailable(_):
+        raise ValueError("transport response decode failure")
+
+    source.archive.get = unavailable
+    with pytest.raises(ValueError):
+        source.read()
+    with database() as conn:
+        assert conn.execute("SELECT status FROM v2_candle_deliveries").fetchone() == (
+            "PENDING",
+        )
+
+
+def test_durable_source_fifo_and_superseded_frame_audit(database):
+    from services.v2_s3_candles import build_frame
+    from services.v2_s3_runtime import S3Runtime
+    from services.v2_s3_source import DurableCandleSource, SourceQuarantined
+
+    source, _ = durable_source(database, now=lambda: 86460001)
+    source.publisher.lifetime_ms = 200000
+    source.publisher.max_age_ms = 200000
+    old = closed_candle_batch()
+    newer = closed_candle_batch()
+    newer["closed_at"] += 60000
+    for bar in newer["candles"]["BTCUSDT"]:
+        bar["t"] += 60000
+    source.enqueue(newer)
+    source.enqueue(old)
+    assert source.read() == old
+    other = DurableCandleSource(source.publisher, archive=source.archive)
+    assert other.read() is None  # Never skip a leased head and publish a newer row.
+    # An independent producer may already have advanced the durable lifecycle.
+    S3Runtime(source.publisher).process(**build_frame(newer, environment="SANDBOX"))
+    expire_source_lease(database)
+    with pytest.raises(SourceQuarantined):
+        other.read()
+    assert other.read() == newer
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome FROM v2_candle_delivery_events"
+        ).fetchall() == [("SUPERSEDED_UNPUBLISHED",)]
+
+
+def test_durable_source_ack_commit_loss_does_not_redeliver_completed_work(database):
+    from services.v2_s3_candles import build_frame
+    from services.v2_s3_runtime import S3Runtime
+
+    source, _ = durable_source(database)
+    identity = source.enqueue(closed_candle_batch())
+    batch = source.read()
+    S3Runtime(source.publisher).process(**build_frame(batch, environment="SANDBOX"))
+
+    @contextmanager
+    def lost_ack():
+        with database() as conn:
+            yield conn
+        raise RuntimeError("ack response lost")
+
+    source.publisher._connect = lost_ack
+    with pytest.raises(RuntimeError):
+        source.ack(identity)
+    source.publisher._connect = database
+    assert source.read() is None
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_candle_delivery_events").fetchone()[0]
+            == 1
+        )
+
+
+def test_durable_source_queue_commit_loss_can_be_reenqueued(database):
+    source, _ = durable_source(database)
+
+    @contextmanager
+    def lost_ack():
+        with database() as conn:
+            yield conn
+        raise RuntimeError("enqueue response lost")
+
+    source.publisher._connect = lost_ack
+    with pytest.raises(RuntimeError):
+        source.enqueue(closed_candle_batch())
+    source.publisher._connect = database
+    source.enqueue(closed_candle_batch())
+    assert source.read() == closed_candle_batch()
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0] == 1
+        )
+
+
+@pytest.mark.parametrize("enqueue_first", [True, False])
+def test_durable_source_existing_published_identity_conflict_is_terminal(
+    database, enqueue_first
+):
+    from services.v2_s3_candles import build_frame
+    from services.v2_s3_runtime import S3Runtime
+    from services.v2_s3_source import SourceQuarantined
+    from v2_core.signals import SignalConflict
+
+    source, _ = durable_source(database)
+    batch = closed_candle_batch()
+    if enqueue_first:
+        source.enqueue(batch)
+    altered = closed_candle_batch()
+    altered["candles"]["BTCUSDT"][-1]["o"] = "100.5"
+    S3Runtime(source.publisher).process(**build_frame(altered, environment="SANDBOX"))
+    if enqueue_first:
+        with pytest.raises(SourceQuarantined):
+            source.read()
+        assert source.read() is None
+        with database() as conn:
+            assert conn.execute(
+                "SELECT outcome FROM v2_candle_delivery_events"
+            ).fetchone() == ("PUBLISHED_INPUT_CONFLICT",)
+    else:
+        with pytest.raises(SignalConflict):
+            source.enqueue(batch)
+        with database() as conn:
+            assert (
+                conn.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0]
+                == 0
+            )
+
+
 def producer_frame(**changes):
     return {
         "frame_id": "s3:frame:100",

@@ -66,3 +66,40 @@ def test_clickhouse_logical_view_deduplicates_before_background_merge(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "1"
+
+
+def test_clickhouse_candle_archive_survives_duplicate_delivery(tmp_path):
+    if os.environ.get("V2_CORE_TEST_ISOLATED") != "YES":
+        pytest.skip("requires isolated ClickHouse QA")
+    ddl = (
+        Path(__file__).resolve().parents[2] / "db/clickhouse_v2_schema.sql"
+    ).read_text()
+    query = (
+        ddl
+        + """
+        INSERT INTO v2_candle_archive VALUES (lower(hex(SHA256('{}'))),'{}'),(lower(hex(SHA256('{}'))),'{}');
+        SELECT payload FROM v2_candle_archive WHERE content_digest=lower(hex(SHA256('{}'))) LIMIT 1;
+        SELECT count() FROM v2_candle_archive FINAL;
+    """
+    )
+    result = subprocess.run(
+        [
+            "clickhouse",
+            "local",
+            "--path",
+            str(tmp_path / "archive"),
+            "--background_schedule_pool_size",
+            "2",
+            "--max_threads",
+            "2",
+            "--multiquery",
+            "--query",
+            query,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines() == ["{}", "1"]

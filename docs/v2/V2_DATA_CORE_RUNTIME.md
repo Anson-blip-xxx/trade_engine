@@ -281,3 +281,16 @@ Ruff、格式与 diff 检查通过；一次性 QA 服务已停止。该结果不
 新增 34 项 QA；全仓 **3322 passed、10 skipped、1 个既有 warning**，81.55 秒。
 Ruff/格式/diff 检查通过；临时 PG/Redis 已停止，诊断 `/tmp/v2-data-qa.PZO7wt`。
 未连接交易账户、执行交易、修改运行数据库或重启现有服务。
+
+## 持久行情源与归档恢复检查点
+
+新增 `DurableCandleSource` 和 `ClickHouseCandleArchive`：行情原文归 CH，PG 保存
+投递身份/摘要/期限、顺序租约、摘要绑定确认及不可变隔离审计。归档写后读回确认
+先于 PG 登记；跨库失败可留下孤立归档对象，不会提前确认业务批次。
+已发布旧帧继续恢复，未发布过期/被新帧超过以及输入冲突均可明确隔离。
+详见 [恢复语义、容量风险与剩余部署门禁](V2_S3_SOURCE_RECOVERY.md)。
+
+新增 20 项 QA，全仓 **3342 passed、10 skipped、1 个既有 warning**，91.16 秒。
+Ruff/格式/diff 检查通过；一次性服务已停止，诊断 `/tmp/v2-data-qa.UpiG0T`。
+真实临时 PG 和 ClickHouse local 分别验证账本/归档 SQL；网络客户端与真实 CH 集群
+贯穿及灾难恢复仍未验收。没有更新生产 schema、安装服务或访问交易账户。

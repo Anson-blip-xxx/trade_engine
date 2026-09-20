@@ -449,3 +449,41 @@ CREATE TABLE v2_s3_frames (
 );
 CREATE TRIGGER v2_s3_frames_immutable BEFORE UPDATE OR DELETE ON v2_s3_frames
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+-- Market payload lives in ClickHouse; PG owns delivery and failure evidence.
+CREATE TABLE v2_candle_deliveries (
+    environment TEXT NOT NULL CHECK (environment IN ('SANDBOX','LIVE')),
+    frame_id TEXT NOT NULL,
+    observed_at_ms BIGINT NOT NULL CHECK (observed_at_ms>=0),
+    expires_at_ms BIGINT NOT NULL CHECK (expires_at_ms>observed_at_ms),
+    archive_digest TEXT NOT NULL,
+    input_digest TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACKNOWLEDGED','QUARANTINED')),
+    lease_token UUID,
+    lease_until TIMESTAMPTZ,
+    attempts BIGINT NOT NULL DEFAULT 0 CHECK (attempts>=0),
+    PRIMARY KEY(environment,frame_id),
+    CHECK ((lease_token IS NULL)=(lease_until IS NULL))
+);
+CREATE INDEX v2_candle_deliveries_pending ON v2_candle_deliveries(environment,observed_at_ms,frame_id) WHERE status='PENDING';
+CREATE TABLE v2_candle_delivery_events (
+    event_id UUID PRIMARY KEY,
+    environment TEXT NOT NULL,
+    frame_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('ACKNOWLEDGED','EXPIRED_UNPUBLISHED','SUPERSEDED_UNPUBLISHED','ARCHIVE_CORRUPT','PUBLISHED_INPUT_CONFLICT')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    FOREIGN KEY(environment,frame_id) REFERENCES v2_candle_deliveries(environment,frame_id)
+);
+CREATE TRIGGER v2_candle_delivery_events_immutable BEFORE UPDATE OR DELETE ON v2_candle_delivery_events
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
+CREATE FUNCTION v2_guard_candle_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP='DELETE' THEN RAISE EXCEPTION 'delivery history cannot be deleted'; END IF;
+    IF (NEW.environment,NEW.frame_id,NEW.observed_at_ms,NEW.expires_at_ms,NEW.archive_digest,NEW.input_digest)
+        IS DISTINCT FROM (OLD.environment,OLD.frame_id,OLD.observed_at_ms,OLD.expires_at_ms,OLD.archive_digest,OLD.input_digest)
+        OR OLD.status<>'PENDING' THEN RAISE EXCEPTION 'delivery identity and terminal state are immutable'; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER v2_candle_delivery_guard BEFORE UPDATE OR DELETE ON v2_candle_deliveries
+FOR EACH ROW EXECUTE FUNCTION v2_guard_candle_delivery();
