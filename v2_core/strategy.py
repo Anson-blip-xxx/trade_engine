@@ -148,6 +148,33 @@ class StrategyWorker:
             if len(context_json.encode()) > 1_000_000:
                 raise ValueError("decision context exceeds size limit")
             expired = now >= signal["expires_at_ms"]
+            deadline = min(signal["expires_at_ms"], now + self.max_delay_ms)
+            frozen_context = json.loads(context_json)
+            context_fields = {
+                "assembled_at",
+                "valid_until_ms",
+                "environment",
+                "symbol",
+                "sources",
+            }
+            if not expired and context_fields.intersection(frozen_context):
+                if (
+                    not context_fields <= frozen_context.keys()
+                    or frozen_context["environment"] != self.scope.environment
+                    or frozen_context["symbol"] != signal["symbol"]
+                    or type(frozen_context["assembled_at"]) is not int
+                    or type(frozen_context["valid_until_ms"]) is not int
+                    or not 0
+                    <= frozen_context["assembled_at"]
+                    <= now
+                    < frozen_context["valid_until_ms"]
+                    or not isinstance(frozen_context["sources"], dict)
+                    or not frozen_context["sources"]
+                ):
+                    raise ValueError(
+                        "context is stale, incomplete or outside strategy scope"
+                    )
+                deadline = min(deadline, frozen_context["valid_until_ms"])
             result = (
                 StrategyDecision("IGNORED", "signal expired before evaluation")
                 if expired
@@ -163,7 +190,7 @@ class StrategyWorker:
                 "signal_id": signal_id,
                 "observed_at": signal["observed_at"],
                 "decided_at": now,
-                "expires_at_ms": min(signal["expires_at_ms"], now + self.max_delay_ms),
+                "expires_at_ms": deadline,
                 "source": self.source,
                 "symbol": signal["symbol"],
                 "rationale": result.rationale,

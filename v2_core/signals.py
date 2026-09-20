@@ -9,6 +9,10 @@ from v2_core.state import normalized
 _NAMESPACE = UUID("335484b5-02ae-4e01-8fbf-c2b5703264d3")
 
 
+class SignalConflict(ValueError):
+    """An existing source identity cannot be reused for different facts."""
+
+
 def signal_consumer(intent):
     return json.dumps(
         [
@@ -25,6 +29,17 @@ def signal_consumer(intent):
 class Signals:
     def __init__(self, connection_factory):
         self._connect = connection_factory
+
+    def lookup(self, *, source, environment, request_key):
+        for value in (source, environment, request_key):
+            normalized(value)
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT signal_id::text,snapshot FROM v2_inbound_signals
+                WHERE source=%s AND environment=%s AND request_key=%s""",
+                (source, environment, request_key),
+            ).fetchone()
+        return None if row is None else {"signal_id": row[0], "snapshot": row[1]}
 
     def admit(self, *, source, environment, request_key, snapshot):
         for value in (source, environment, request_key):
@@ -64,7 +79,7 @@ class Signals:
                 (identity,),
             ).fetchone()
             if existing != (source, environment, request_key, json.loads(encoded)):
-                raise ValueError("signal identity content conflict")
+                raise SignalConflict("signal identity content conflict")
         return identity
 
     def pending(self, *, consumer, environment, source, limit=100):

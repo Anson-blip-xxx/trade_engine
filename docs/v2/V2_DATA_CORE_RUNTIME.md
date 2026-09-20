@@ -235,3 +235,13 @@ git diff --check 通过。测试只使用独立临时 PG/Redis、ClickHouse 本�
 最终全仓结果：**3124 passed，10 skipped，1 个既有 golden test 返回值 warning**。
 Ruff 和 diff 空白检查通过；QA 临时服务已停止，诊断目录为
 `/tmp/v2-data-qa.0E3tLo`。未执行真实交易、运行数据库更新、生产服务重启或环境清理。
+
+## 信号与上下文入口接线检查点
+
+详见 [信号入口说明](V2_SIGNAL_INGRESS.md)。新增独立 TV WSGI 工厂、固定事件身份
+和原始期限、PG 提交后确认、内部 s2/s3 接入契约及 s0/s2/s3 上下文范围/新鲜度校验。
+策略决策与实际提交都受上下文的最早过期时间约束。默认不开启服务，也不携带
+交易执行能力；旧生产者、alert 模板与市场读源尚未全部迁移，第 1 项仍进行中。
+
+本检查点全仓 QA：3218 passed、10 skipped、1 个既有 warning；新增 94 项。
+Ruff、格式与 diff 检查通过；一次性 QA 服务已停止。该结果不是生产上线验收。

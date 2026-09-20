@@ -1732,6 +1732,290 @@ def test_signal_to_binance_protocol_ledger_and_cache_rebuild(
         client.close()
 
 
+def pg_webhook(database, *, now=lambda: 120):
+    from v2_core.ingress import SignalIngress
+    from v2_core.signals import Signals
+    from v2_core.webhook import TradingViewWebhook
+
+    return TradingViewWebhook(
+        SignalIngress(
+            Signals(database),
+            source="tv_bridge",
+            environment="SANDBOX",
+            clock_ms=now,
+            max_age_ms=100,
+            max_lifetime_ms=100,
+        ),
+        secret="qa-webhook-secret-never-production",
+    )
+
+
+def pg_webhook_call(app, **changes):
+    import json
+    from io import BytesIO
+
+    payload = {
+        "secret": "qa-webhook-secret-never-production",
+        "event_id": "tv:test:bar1",
+        "observed_at": 100,
+        "expires_at_ms": 200,
+        "symbol": "BINANCE:BTCUSDT.P",
+        "signal": "TREND_UP_LONG",
+        "strength": 70,
+        "price": "100",
+        **changes,
+    }
+    body = json.dumps(payload).encode()
+    response = []
+    output = b"".join(
+        app(
+            {
+                "REQUEST_METHOD": "POST",
+                "PATH_INFO": "/v2/webhooks/tradingview",
+                "CONTENT_TYPE": "application/json",
+                "CONTENT_LENGTH": str(len(body)),
+                "wsgi.input": BytesIO(body),
+            },
+            lambda status, headers: response.append(status),
+        )
+    )
+    return int(response[0].split()[0]), json.loads(output)
+
+
+def test_service_factory_records_to_explicit_isolated_schema(database):
+    from services.v2_signal_ingress import create_application
+
+    with database() as conn:
+        schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    app = create_application(
+        environ={
+            "V2_SIGNAL_INGRESS_ENABLED": "YES",
+            "V2_POSTGRES_DSN": os.environ["V2_CORE_TEST_DSN"],
+            "V2_POSTGRES_SCHEMA": schema,
+            "V2_ENVIRONMENT": "SANDBOX",
+            "V2_TV_WEBHOOK_SECRET": "qa-webhook-secret-never-production",
+            "V2_SIGNAL_MAX_AGE_MS": "100",
+            "V2_SIGNAL_MAX_LIFETIME_MS": "100",
+        },
+        clock_ms=lambda: 120,
+    )
+    assert pg_webhook_call(app)[0] == 200
+    with database() as conn:
+        assert conn.execute(
+            "SELECT source,environment FROM v2_inbound_signals"
+        ).fetchone() == ("tv_bridge", "SANDBOX")
+
+
+def test_pg_webhook_concurrent_retries_commit_one_signal_without_orders(database):
+    app = pg_webhook(database)
+    with ThreadPoolExecutor(6) as pool:
+        results = list(pool.map(lambda _: pg_webhook_call(app), range(6)))
+    assert all(status == 200 for status, _ in results)
+    assert len({result["signal_id"] for _, result in results}) == 1
+    with database() as conn:
+        snapshots = conn.execute("SELECT snapshot FROM v2_inbound_signals").fetchall()
+        assert len(snapshots) == 1
+        assert "secret" not in repr(snapshots)
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+
+
+def test_pg_webhook_concurrent_conflicting_content_is_not_acknowledged(database):
+    app = pg_webhook(database)
+    with ThreadPoolExecutor(2) as pool:
+        results = list(
+            pool.map(lambda price: pg_webhook_call(app, price=price), ["100", "101"])
+        )
+    assert sorted(status for status, _ in results) == [200, 409]
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            1,
+        )
+
+
+@pytest.mark.parametrize("commit_succeeded", [True, False])
+def test_pg_webhook_commit_fault_never_acks_and_retry_uses_original_identity(
+    database, commit_succeeded
+):
+    @contextmanager
+    def interrupted():
+        written = False
+        with database() as conn:
+
+            class Proxy:
+                def execute(self, sql, params=None):
+                    nonlocal written
+                    if "INSERT INTO v2_inbound_signals" in sql:
+                        written = True
+                        if not commit_succeeded:
+                            raise ConnectionError("sensitive DSN must not escape")
+                    return conn.execute(sql, params)
+
+            yield Proxy()
+        if written:
+            raise ConnectionError("commit response lost")
+
+    assert pg_webhook_call(pg_webhook(interrupted)) == (
+        503,
+        {"error": "INGRESS_UNAVAILABLE"},
+    )
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_inbound_signals").fetchone() == (
+            int(commit_succeeded),
+        )
+    # A committed, expired replay is acknowledged without renewing its deadline.
+    retry = pg_webhook(database, now=lambda: 999 if commit_succeeded else 120)
+    status, result = pg_webhook_call(retry)
+    assert status == 200
+    original = result["signal_id"]
+    assert pg_webhook_call(retry)[1]["signal_id"] == original
+    with database() as conn:
+        assert conn.execute(
+            "SELECT snapshot->>'expires_at_ms' FROM v2_inbound_signals"
+        ).fetchone() == ("200",)
+
+
+def test_pg_webhook_fresh_context_is_persisted_with_decision(database):
+    from v2_core.ingress import ContextProvider
+    from v2_core.scheduling import StrategyScheduler
+
+    status, result = pg_webhook_call(pg_webhook(database))
+    assert status == 200
+    worker, runtime = strategy_worker(database, now=lambda: 120)
+    context = ContextProvider(
+        environment="SANDBOX",
+        policy={
+            "s0": {"scope": "GLOBAL", "max_age_ms": 50},
+            "s3": {"scope": "SYMBOL", "max_age_ms": 30},
+        },
+        read=lambda source, env, symbol: {
+            "snapshot_id": source + ":100",
+            "source": source,
+            "environment": env,
+            "symbol": symbol,
+            "observed_at": 100,
+            "features": {"price": "100"},
+        },
+        clock_ms=lambda: 120,
+    )
+    assert StrategyScheduler(worker, context_provider=context).run_once() == {
+        result["signal_id"]: "PREPARED"
+    }
+    decision = worker.decision(result["signal_id"])
+    trace = runtime.data.trace(decision["decision_id"])
+    assert trace["signal"]["snapshot"]["observed_at"] == 100
+    assert trace["decision"]["features"]["context"]["sources"]["s0"]["symbol"] == "*"
+    assert (
+        trace["decision"]["features"]["context"]["sources"]["s3"]["snapshot_id"]
+        == "s3:100"
+    )
+
+
+@pytest.mark.parametrize("context_failure", ["missing", "stale", "wrong-environment"])
+def test_pg_webhook_bad_context_prevents_order_then_signal_expires(
+    database, context_failure
+):
+    from v2_core.ingress import ContextProvider
+    from v2_core.scheduling import StrategyScheduler
+
+    status, result = pg_webhook_call(pg_webhook(database))
+    assert status == 200
+    now = [120]
+    worker, _ = strategy_worker(
+        database,
+        now=lambda: now[0],
+        decide=lambda *_: pytest.fail("bad context cannot authorize decision"),
+    )
+
+    def read(source, env, symbol):
+        if context_failure == "missing":
+            return None
+        return {
+            "snapshot_id": "s3:1",
+            "source": source,
+            "environment": "LIVE" if context_failure == "wrong-environment" else env,
+            "symbol": symbol,
+            "observed_at": 0 if context_failure == "stale" else 100,
+            "features": {"price": "100"},
+        }
+
+    provider = ContextProvider(
+        environment="SANDBOX",
+        policy={"s3": {"scope": "SYMBOL", "max_age_ms": 30}},
+        read=read,
+        clock_ms=lambda: now[0],
+    )
+    scheduler = StrategyScheduler(worker, context_provider=provider)
+    assert scheduler.run_once() == {result["signal_id"]: "UNAVAILABLE"}
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_decisions"
+        ).fetchone() == (0,)
+    scheduler_due(database)
+    now[0] = 201
+    assert scheduler.run_once() == {result["signal_id"]: "EXPIRED"}
+
+
+def test_context_freshness_deadline_survives_waiting_and_expired_dispatch(database):
+    from v2_core.ingress import ContextProvider
+
+    _status, result = pg_webhook_call(pg_webhook(database))
+    now = [120]
+    worker, runtime = strategy_worker(database, now=lambda: now[0])
+    provider = ContextProvider(
+        environment="SANDBOX",
+        policy={"s3": {"scope": "SYMBOL", "max_age_ms": 20}},
+        read=lambda source, env, symbol: {
+            "snapshot_id": "s3:100",
+            "source": source,
+            "environment": env,
+            "symbol": symbol,
+            "observed_at": 100,
+            "features": {"price": "100"},
+        },
+        clock_ms=lambda: now[0],
+    )
+    accepted = worker.consume(
+        result["signal_id"], context=provider({"symbol": "BTCUSDT"})
+    )
+    assert accepted["status"] == "PREPARED"
+    assert worker.decision(result["signal_id"])["snapshot"]["expires_at_ms"] == 121
+    now[0] = 122
+    assert runtime.execution.dispatch(accepted["order_id"]) == "DENIED"
+    assert (
+        runtime.data.trace(accepted["intent_id"])["orders"][0]["status"] == "CANCELLED"
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"environment": "LIVE"},
+        {"symbol": "ETHUSDT"},
+        {"valid_until_ms": 120},
+        {"assembled_at": 121},
+    ],
+)
+def test_strategy_rechecks_context_scope_and_age_before_evaluation(database, changes):
+    _status, result = pg_webhook_call(pg_webhook(database))
+    worker, _ = strategy_worker(
+        database,
+        now=lambda: 120,
+        decide=lambda *_: pytest.fail("invalid context cannot be evaluated"),
+    )
+    context = {
+        "assembled_at": 100,
+        "valid_until_ms": 150,
+        "environment": "SANDBOX",
+        "symbol": "BTCUSDT",
+        "sources": {"s3": {}},
+        **changes,
+    }
+    with pytest.raises(ValueError, match="context"):
+        worker.consume(result["signal_id"], context=context)
+    assert worker.decision(result["signal_id"]) is None
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 
