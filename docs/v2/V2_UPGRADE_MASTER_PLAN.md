@@ -200,6 +200,11 @@ generation-fenced reconcile 只恢复原 intent，不向当前 episode重绑旧�
 建议初始政策：worker/authority 不健康即暂停新开仓；现有仓只告警并进入
 reconcile，不自动市价平仓；所有自动 emergency close 另票审批。
 
+2026-09-20 已批准并实现 dormant 默认契约：风险增加事件过期取消，UNKNOWN
+只查询不盲重试，上下文变化后旧事件作废并重建决策，未保护仓位按“恢复保护
+→ 暂停新开仓 → quarantine”升级，人工审批绑定版本且过期失效，自动市价平仓
+默认关闭。生产时限数值、durable scheduler、告警和 executor wiring 仍未启用。
+
 ## 6. Wave I — Open Identity 与幂等
 
 1. D1C：Binance client-order-ID/query characterization；
