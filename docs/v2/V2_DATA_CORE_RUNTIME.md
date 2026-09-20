@@ -132,3 +132,16 @@ socket 的一次性 PG/Redis 并在退出时停止；不使用已有服务 DSN�
 后续检查点：新核心 74 passed；全仓 3011 passed、10 skipped、同一既有 warning。
 在独立 virtualenv 中安装 psycopg 3.3.6 后，全仓结果一致。初次系统环境驱动为
 3.1.17，不符合旧 requirements-postgres.txt 的 >=3.2 要求，未修改系统安装。
+
+协议适配检查点：全仓 3041 passed、10 skipped、同一既有 warning。
+`v2_core.binance.BinanceFutures` 通过注入的认证 transport 对接 USD-M 单向模式，
+绑定账户/环境；提交只调用一次，恢复只查单，分页成交不完整不宣告终态。
+LIMIT 条件、reduceOnly、客户端/交易所订单身份均核验。没有建立真实 HTTP 连接，
+transport 必须有超时且不能自动重试写请求；签名传输和完整部署仍未接线。
+协议依据：[Binance 官方 USD-M REST Trade 文档](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade)。
+历史订单查询具有保留期限，因此 not-found 不等于未成交，也不允许重发。
+
+同笔成交跨 REST/实时推送到达时，财务字段一致只计一次账；不同来源证据
+追加到不可变 `v2_fill_observations`，不增加 accounting_revision。
+费用允许交易所明确报告的负值（返佣），不得在无证据时自行推导。
+UNKNOWN 状态首次查到交易所订单号仍会持久绑定，状态未变化不能丢失身份。

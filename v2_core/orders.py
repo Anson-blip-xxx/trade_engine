@@ -12,7 +12,7 @@ _TRANSITIONS = {
     "PREPARED": {"SUBMITTING", "CANCELLED"},
     "SUBMITTING": {"UNKNOWN", "ACKNOWLEDGED", "FILLED", "REJECTED", "CANCELLED"},
     "UNKNOWN": {"ACKNOWLEDGED", "FILLED", "CANCELLED", "REJECTED"},
-    "ACKNOWLEDGED": {"UNKNOWN", "FILLED", "CANCELLED"},
+    "ACKNOWLEDGED": {"UNKNOWN", "FILLED", "CANCELLED", "REJECTED"},
     "FILLED": set(),
     "CANCELLED": set(),
     "REJECTED": set(),
@@ -205,7 +205,13 @@ class Orders:
                 raise ValueError("unknown order")
             if row[1] != expected_version:
                 return False
-            if status not in _TRANSITIONS[row[0]]:
+            binds_identity = (
+                status == row[0]
+                and row[0] in {"UNKNOWN", "ACKNOWLEDGED"}
+                and row[3] is None
+                and exchange_order_id is not None
+            )
+            if status not in _TRANSITIONS[row[0]] and not binds_identity:
                 raise ValueError("illegal order transition")
             if row[3] is not None and exchange_order_id not in (None, row[3]):
                 raise ValueError("exchange order identity cannot change")

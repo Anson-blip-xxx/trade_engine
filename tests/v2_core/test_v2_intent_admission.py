@@ -308,6 +308,124 @@ def test_fill_dedup_pnl_and_cash_are_exact(database):
     orders.prepare(new.intent_id)
 
 
+def test_fill_provenance_is_append_only_without_double_accounting(database):
+    from v2_core.ledger import Ledger
+    from v2_core.service import TradingData
+
+    original, orders, opening, _ = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    ledger = Ledger(database)
+    args = {
+        "order_id": opening,
+        "exchange_fill_id": "same-fill",
+        "quantity": "0.01",
+        "price": "100",
+        "fee": "-0.001",
+        "fee_currency": "USDT",
+        "occurred_at_ms": 100,
+    }
+    assert ledger.record_fill(**args, evidence={"source": "stream"})
+    before = TradingData(database).trace(original.intent_id)
+    assert not ledger.record_fill(**args, evidence={"source": "REST"})
+    after = TradingData(database).trace(original.intent_id)
+    assert len(after["fills"]) == 1
+    assert len(after["fill_observations"]) == 2
+    assert after["data_revision"] == before["data_revision"] + 1
+    assert not ledger.record_fill(**args, evidence={"source": "REST"})
+    assert TradingData(database).trace(original.intent_id) == after
+    with pytest.raises(ValueError, match="conflict"):
+        ledger.record_fill(**{**args, "fee": "0.001"}, evidence={"source": "REST"})
+    orders.transition(
+        opening, expected_version=2, status="FILLED", evidence={"source": "test"}
+    )
+    closing, _ = orders.prepare(original.intent_id, leg="CLOSE")
+    orders.transition(closing, expected_version=1, status="SUBMITTING", evidence={})
+    record(ledger, closing, "closing", "100", fee="0")
+    from decimal import Decimal
+
+    report = ledger.report(original.intent_id, settlement_currency="USDT")
+    assert Decimal(report["net_pnl"]) == Decimal("0.001")
+    assert report["accounting_revision"] == 2
+
+
+def test_unknown_query_binds_exchange_identity_without_status_change(database):
+    from v2_core.runner import ExchangeObservation, ExecutionRunner
+
+    _original, orders, opening, client = opened(database)
+    orders.transition(opening, expected_version=1, status="SUBMITTING", evidence={})
+    orders.transition(opening, expected_version=2, status="UNKNOWN", evidence={})
+    runner = ExecutionRunner(
+        database,
+        submit=lambda _: pytest.fail("must not submit"),
+        query=lambda _: ExchangeObservation(
+            client, "UNKNOWN", "123", evidence={"source": "query"}
+        ),
+        risk_check=lambda _: True,
+    )
+    assert runner.recover(opening) == "UNKNOWN"
+    assert runner.snapshot(opening)["exchange_order_id"] == "123"
+    version = runner.snapshot(opening)["version"]
+    assert runner.recover(opening) == "UNKNOWN"
+    assert runner.snapshot(opening)["version"] == version
+    runner.query = lambda _: ExchangeObservation(
+        client, "UNKNOWN", "456", evidence={"source": "query"}
+    )
+    with pytest.raises(ValueError, match="identity"):
+        runner.recover(opening)
+
+
+def test_binance_protocol_through_pg_runner_records_fill_once(database):
+    from v2_core.binance import BinanceFutures
+    from v2_core.runner import ExecutionRunner
+    from v2_core.service import TradingData
+
+    original, _orders, opening, client = opened(database)
+    calls = []
+
+    def transport(method, path, params):
+        calls.append((method, path))
+        if path.endswith("/dual"):
+            return {"dualSidePosition": False}
+        if path.endswith("/userTrades"):
+            return [
+                {
+                    "id": 9,
+                    "orderId": 123,
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "positionSide": "BOTH",
+                    "qty": "0.01",
+                    "price": "100",
+                    "commission": "0.001",
+                    "commissionAsset": "USDT",
+                    "time": 100,
+                }
+            ]
+        return {
+            "clientOrderId": client,
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "positionSide": "BOTH",
+            "type": "MARKET",
+            "reduceOnly": False,
+            "origQty": "0.01",
+            "executedQty": "0.01",
+            "orderId": 123,
+            "status": "FILLED",
+        }
+
+    venue = BinanceFutures(transport, account_id="test-account", environment="SANDBOX")
+    runner = ExecutionRunner(
+        database, submit=venue.submit, query=venue.query, risk_check=lambda _: True
+    )
+    assert runner.dispatch(opening) == "ACKNOWLEDGED"
+    assert runner.recover(opening) == "FILLED"
+    assert runner.recover(opening) == "FILLED"
+    trace = TradingData(database).trace(original.intent_id)
+    assert len(trace["fills"]) == 1
+    assert sum(method == "POST" for method, _ in calls) == 1
+
+
 def test_incomplete_reconciliation_cannot_settle(database):
     from v2_core.ledger import Ledger
 

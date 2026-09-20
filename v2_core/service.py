@@ -93,6 +93,13 @@ class TradingData:
                 ORDER BY occurred_at_ms,adjustment_key""",
                 (intent_id,),
             ).fetchall()
+            fill_observations = conn.execute(
+                """SELECT p.fill_key,p.evidence_digest,p.evidence
+                FROM v2_fill_observations p JOIN v2_fills f USING(fill_key)
+                JOIN v2_orders o USING(order_id) WHERE o.episode_id=%s
+                ORDER BY p.fill_key,p.evidence_digest""",
+                (intent_id,),
+            ).fetchall()
         return {
             "intent_id": intent[0],
             "signal": None
@@ -170,6 +177,10 @@ class TradingData:
                     )
                 )
                 for row in cash
+            ],
+            "fill_observations": [
+                dict(zip(("fill_key", "evidence_digest", "evidence"), row, strict=True))
+                for row in fill_observations
             ],
             "orders": [
                 dict(

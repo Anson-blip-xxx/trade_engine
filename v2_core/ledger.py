@@ -8,7 +8,7 @@ import json
 from decimal import Decimal, InvalidOperation, localcontext
 from uuid import UUID, uuid4
 
-from v2_core.evidence import canonical
+from v2_core.evidence import canonical, digest
 
 
 def amount(value, *, positive=False):
@@ -83,8 +83,9 @@ class Ledger:
             amount(price, positive=True),
             amount(fee),
         )
-        if commission < 0 or not fee_currency or not exchange_fill_id:
-            raise ValueError("invalid fee or fill identity")
+        for value in (fee_currency, exchange_fill_id):
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise ValueError("normalized fee currency and fill identity required")
         if type(occurred_at_ms) is not int or occurred_at_ms < 0:
             raise ValueError("invalid fill timestamp")
         encoded = canonical(evidence)
@@ -121,8 +122,9 @@ class Ledger:
                 (key,),
             ).fetchone()
             if previous is not None:
-                if previous != values:
+                if previous[:6] != values[:6]:
                     raise ValueError("fill identity content conflict")
+                self._observe_fill(conn, row[0], key, encoded, notify=True)
                 return False
             if row[9] not in {"SUBMITTING", "UNKNOWN", "ACKNOWLEDGED"}:
                 raise ValueError("new fill requires a submitted nonterminal order")
@@ -157,6 +159,7 @@ class Ledger:
                     encoded,
                 ),
             )
+            self._observe_fill(conn, row[0], key, encoded, notify=False)
             emit(
                 conn,
                 row[0],
@@ -185,6 +188,32 @@ class Ledger:
                 (row[0],),
             )
         return True
+
+    @staticmethod
+    def _observe_fill(conn, episode_id, key, encoded, *, notify):
+        fingerprint = digest(encoded)
+        inserted = conn.execute(
+            """INSERT INTO v2_fill_observations(fill_key,evidence_digest,evidence)
+            VALUES (%s,%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING fill_key""",
+            (key, fingerprint, encoded),
+        ).fetchone()
+        stored = conn.execute(
+            "SELECT evidence FROM v2_fill_observations WHERE fill_key=%s AND evidence_digest=%s",
+            (key, fingerprint),
+        ).fetchone()
+        if stored != (json.loads(encoded),):
+            raise ValueError("fill evidence content conflict")
+        if inserted and notify:
+            emit(
+                conn,
+                episode_id,
+                f"FILL_EVIDENCE:{key}:{fingerprint}",
+                {
+                    "fill_key": key,
+                    "evidence_digest": fingerprint,
+                    "evidence": json.loads(encoded),
+                },
+            )
 
     def adjustment(
         self,

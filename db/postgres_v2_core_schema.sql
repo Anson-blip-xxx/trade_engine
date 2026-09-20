@@ -132,7 +132,7 @@ CREATE TABLE v2_fills (
     order_id UUID NOT NULL REFERENCES v2_orders(order_id),
     quantity NUMERIC(38,18) NOT NULL CHECK (quantity > 0),
     price NUMERIC(38,18) NOT NULL CHECK (price > 0),
-    fee NUMERIC(38,18) NOT NULL CHECK (fee >= 0),
+    fee NUMERIC(38,18) NOT NULL,
     fee_currency TEXT NOT NULL,
     occurred_at_ms BIGINT NOT NULL CHECK (occurred_at_ms >= 0),
     payload JSONB NOT NULL,
@@ -141,6 +141,15 @@ CREATE TABLE v2_fills (
 CREATE TRIGGER v2_fills_immutable BEFORE UPDATE OR DELETE ON v2_fills
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE INDEX v2_fills_order ON v2_fills(order_id);
+CREATE TABLE v2_fill_observations (
+    fill_key TEXT NOT NULL REFERENCES v2_fills(fill_key),
+    evidence_digest TEXT NOT NULL CHECK (evidence_digest ~ '^[0-9a-f]{64}$'),
+    evidence JSONB NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (fill_key,evidence_digest)
+);
+CREATE TRIGGER v2_fill_observations_immutable BEFORE UPDATE OR DELETE ON v2_fill_observations
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE TABLE v2_cash_adjustments (
     adjustment_key TEXT PRIMARY KEY,
     episode_id UUID NOT NULL REFERENCES v2_episodes(episode_id),

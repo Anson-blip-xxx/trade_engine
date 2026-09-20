@@ -180,7 +180,11 @@ class ExecutionRunner:
             if not isinstance(fill, dict) or "order_id" in fill:
                 raise ValueError("fill must be bound by the persisted order identity")
             ledger.record_fill(order_id=order_id, **fill)
-        if current["status"] == observation.status:
+        if current["status"] == observation.status and not (
+            current["exchange_order_id"] is None
+            and observation.exchange_order_id is not None
+            and current["status"] in {"UNKNOWN", "ACKNOWLEDGED"}
+        ):
             return observation.status
         if current["status"] in {"FILLED", "CANCELLED", "REJECTED"}:
             raise ValueError("conflicting terminal exchange observation")
