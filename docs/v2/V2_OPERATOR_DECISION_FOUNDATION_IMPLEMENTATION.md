@@ -1,8 +1,10 @@
 # V2 Operator Decision Inbox And Notification Outbox Foundation
 
 > **IMPLEMENTED / CLOSED as dormant infrastructure.** The standalone schema was
-> not applied to any database. There is no DSN, PostgreSQL adapter, Telegram
-> transport, HTTP route, frontend, scheduler, worker, or runtime import.
+> not applied to any persistent or production database. An injected PostgreSQL
+> adapter is implemented and tested only against disposable QA databases. There
+> is no DSN lookup, driver import, Telegram transport, HTTP route, frontend,
+> scheduler, worker, or runtime import.
 
 ## Durable authorities
 
@@ -20,6 +22,15 @@ The Web inbox is not trading authority, and Telegram delivery is not business
 acknowledgement. Snapshot payloads are explicitly safe summaries, never raw
 credentials, signed requests, or exchange secrets.
 
+## Injected PostgreSQL adapter
+
+`PostgresOperatorDecisionStore` receives a transaction-scoped connection
+factory. It atomically creates a decision and its initial notification, exposes
+version-fenced decision CAS, lists only active inbox rows, and claims bounded
+notification batches with `FOR UPDATE SKIP LOCKED`. Notification completion is
+fenced by version, owner token, and a live database-clock lease. Every ambiguous
+write/commit failure returns an explicit `UNKNOWN` outcome.
+
 ## State rules
 
 - decision status is `OPEN -> ACKNOWLEDGED -> RESOLVED`, with direct
@@ -36,10 +47,8 @@ credentials, signed requests, or exchange secrets.
 
 ## Remaining slices
 
-1. injected PostgreSQL transaction/CAS/claim adapter;
-2. isolated PostgreSQL concurrency/integration QA;
-3. read-only authenticated API and UI;
-4. Telegram renderer/transport with safe deep links;
-5. approval audit/signing and default-off executor integration.
+1. read-only authenticated API and UI;
+2. Telegram renderer/transport with safe deep links;
+3. approval audit/signing and default-off executor integration.
 
 **V2-OPERATOR-DECISION-FOUNDATION PASS.**

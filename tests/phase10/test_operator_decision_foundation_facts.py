@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL = ROOT / "operator_decision/model.py"
+ADAPTER = ROOT / "operator_decision/postgres.py"
 SCHEMA = ROOT / "db/postgres_operator_decision_schema.sql"
 DOC = ROOT / "docs/v2/V2_OPERATOR_DECISION_FOUNDATION_IMPLEMENTATION.md"
 
@@ -67,9 +68,24 @@ def test_existing_runtime_does_not_import_decision_center():
     assert importers == []
 
 
+def test_postgres_adapter_is_injected_transactional_and_fenced():
+    source = ADAPTER.read_text()
+    lowered = source.lower()
+    assert "connection_factory" in source
+    assert "import psycopg" not in lowered
+    assert "_TEST_DSN" not in source
+    assert "os.environ" not in source
+    assert "create_with_notification" in source
+    assert "FOR UPDATE OF item SKIP LOCKED" in source
+    assert "lease_expires_at <= now_value.now" in source
+    assert "AND version = %(expected_version)s" in source
+    assert "AND owner_token = %(expected_owner_token)s" in source
+
+
 def test_foundation_is_explicitly_unapplied_and_dormant():
     source = DOC.read_text()
-    assert "standalone schema was\n> not applied to any database" in source
-    assert "There is no DSN" in source
+    assert ("standalone schema was\n> not applied to any persistent or "
+            "production database") in source
+    assert "There\n> is no DSN lookup" in source
     assert "Web inbox is not trading authority" in source
     assert "Telegram delivery is not business\nacknowledgement" in source

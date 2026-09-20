@@ -209,8 +209,9 @@ reconcile，不自动市价平仓；所有自动 emergency close 另票审批。
 deep link，Web 展示触发快照与当前状态 diff、倒计时、自动兜底、证据时间线和
 审计。先交付 durable inbox/outbox 与只读页面，再启用带 RBAC、重新认证、过期
 绑定和服务端二次校验的批准动作；任何 UI 不在线都不得阻塞自动安全兜底。
-独立的 durable inbox/outbox PostgreSQL schema 与纯状态模型现已作为 dormant
-foundation 完成；尚未应用 schema，也没有 PG adapter、Telegram transport、API、
+独立的 durable inbox/outbox PostgreSQL schema、纯状态模型与注入式 PG adapter
+现已作为 dormant foundation 完成，并通过隔离临时 PostgreSQL 的事务和并发测试；
+schema 尚未应用到持久或生产数据库，也没有生产 DSN、Telegram transport、API、
 前端、scheduler 或 runtime wiring。
 
 ## 6. Wave I — Open Identity 与幂等

@@ -53,6 +53,15 @@ _DECISION_TRANSITIONS = {
 }
 
 
+def is_legal_decision_transition(current, desired):
+    if not isinstance(current, DecisionStatus) or not isinstance(
+            desired, DecisionStatus):
+        return False
+    if current is desired:
+        return current in {DecisionStatus.OPEN, DecisionStatus.ACKNOWLEDGED}
+    return desired in _DECISION_TRANSITIONS[current]
+
+
 @dataclass(frozen=True)
 class DecisionItem:
     decision_id: str
@@ -170,7 +179,8 @@ class DecisionItem:
             ):
         if not isinstance(status, DecisionStatus):
             raise TypeError("status must be DecisionStatus")
-        if status not in _DECISION_TRANSITIONS[self.status]:
+        if (status is self.status or
+                not is_legal_decision_transition(self.status, status)):
             raise ValueError(
                 f"illegal decision transition {self.status.value}->{status.value}")
         detail = {} if resolution_detail is None else resolution_detail
