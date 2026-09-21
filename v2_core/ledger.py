@@ -5,6 +5,7 @@ implicit: mixed fee currencies leave settlement pending for an explicit FX leg.
 """
 
 import json
+from contextlib import nullcontext
 from decimal import Decimal, InvalidOperation, localcontext
 from uuid import UUID, uuid4
 
@@ -292,11 +293,14 @@ class Ledger:
                 )
         return bool(inserted)
 
-    def report(self, episode_id, *, settlement_currency):
+    def report(self, episode_id, *, settlement_currency, connection=None):
         episode_id = str(UUID(episode_id))
-        with self._connect() as conn:
+        with (
+            nullcontext(connection) if connection is not None else self._connect()
+        ) as conn:
             # One consistent snapshot for an accounting report.
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            if connection is None:
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             intent = conn.execute(
                 """SELECT i.payload,e.snapshot,e.config,i.exchange,i.product
                 FROM v2_trade_intents i JOIN v2_decision_evidence e

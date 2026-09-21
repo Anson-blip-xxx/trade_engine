@@ -172,6 +172,26 @@ def test_live_protection_gate_rejected():
         )
 
 
+def test_ack_visibility_delay_retries_reads_only(database, monkeypatch):
+    class Delayed(Venue):
+        reads = 0
+
+        def __call__(self, method, path, params):
+            if method == "GET":
+                self.reads += 1
+                if self.reads < 3:
+                    raise ExchangeTransportError(
+                        "EXCHANGE_RESPONSE_ERROR", status=400, code=-2013
+                    )
+            return super().__call__(method, path, params)
+
+    monkeypatch.setattr("v2_core.protection.time.sleep", lambda _: None)
+    venue = Delayed()
+    worker = TestnetProtection(BusinessState(database), venue, scope=SCOPE)
+    assert worker.submit_once(SPEC)["status"] == "NEW"
+    assert venue.reads == 3 and venue.writes == ["POST"]
+
+
 def test_explicit_price_rejection_is_durable_and_not_retried(database):
     class Reject(Venue):
         def __call__(self, method, path, params):

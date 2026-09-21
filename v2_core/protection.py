@@ -7,6 +7,7 @@ No replacement, bulk cancellation, live transport or automatic write retry.
 
 import json
 import re
+import time
 from dataclasses import asdict, dataclass
 
 from v2_core.evidence import canonical, digest
@@ -138,11 +139,18 @@ class TestnetProtection:
         snapshot, payload = self.read(spec)
         if snapshot is None:
             raise ValueError("unregistered protection")
-        raw = self.request(
-            "GET",
-            "/fapi/v1/algoOrder",
-            {"clientAlgoId": self.params(spec)["clientAlgoId"]},
-        )
+        for attempt in range(5):
+            try:
+                raw = self.request(
+                    "GET",
+                    "/fapi/v1/algoOrder",
+                    {"clientAlgoId": self.params(spec)["clientAlgoId"]},
+                )
+                break
+            except ExchangeTransportError as exc:
+                if exc.code != -2013 or attempt == 4:
+                    raise
+                time.sleep(0.25)  # newly ACKed algos may not be query-visible yet
         expected = self.params(spec)
         for field in (
             "symbol",

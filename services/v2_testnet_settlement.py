@@ -7,11 +7,12 @@ rejects funding, external activity and non-USDT cases pending a general reconcil
 import argparse
 import json
 import time
+from contextlib import nullcontext
 from dataclasses import asdict
 from decimal import Decimal, localcontext
 
 from services.v2_testnet_inventory import credentials, deployment_database
-from services.v2_testnet_roundtrip import CAMPAIGN, EPISODE, SCOPE
+from services.v2_testnet_roundtrip import CAMPAIGN, EPISODE, SCOPE, trigger_identity
 from v2_core.binance_income import BinanceIncomeImporter
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
@@ -21,7 +22,9 @@ from v2_core.state import BusinessState, StateKey
 from v2_core.transport import BinanceSignedTransport
 
 
-def proof_from_facts(trace, report, before, after, rows, run, timestamp):
+def proof_from_facts(
+    trace, report, before, after, rows, run, timestamp, *, propose=False
+):
     scope = asdict(SCOPE)
     if trace["intent_id"] != EPISODE or any(
         trace["scope"].get(k) != v for k, v in scope.items()
@@ -76,7 +79,6 @@ def proof_from_facts(trace, report, before, after, rows, run, timestamp):
         or report["settlement_currency"] != "USDT"
         or report["net_pnl"] is None
         or report["missing_valuations"]
-        or trace["cash"]
     ):
         raise ValueError("UNSUPPORTED_ACCOUNTING")
     with localcontext() as ctx:
@@ -131,7 +133,47 @@ def proof_from_facts(trace, report, before, after, rows, run, timestamp):
         delta = amount(after["responses"]["account"]["totalWalletBalance"]) - amount(
             before["responses"]["account"]["totalWalletBalance"]
         )
-        if sum(actual.values(), Decimal(0)) != net or delta != net:
+        venue_net = sum(actual.values(), Decimal(0))
+        if delta != venue_net:
+            raise ValueError("WALLET_INCOME_LEDGER_MISMATCH")
+        cash = trace["cash"]
+        if len(cash) > 1:
+            raise ValueError("UNSUPPORTED_ACCOUNTING")
+        correction = sum((amount(c["amount"]) for c in cash), Decimal(0))
+        base_net = net - correction
+        difference = venue_net - base_net
+        proposal = None
+        if difference:
+            # Deliberately narrow acceptance policy: one closing fill, at most
+            # one USDT reporting quantum. Never silently round the ledger.
+            close_ids = {o["order_id"] for o in trace["orders"] if o["leg"] == "CLOSE"}
+            if (
+                abs(difference) > Decimal("0.00000001")
+                or sum(f["order_id"] in close_ids for f in trace["fills"]) != 1
+            ):
+                raise ValueError("VENUE_PRECISION_DIFFERENCE_TOO_LARGE")
+            proposal = {
+                "source": "exclusive-testnet-venue-precision-v1",
+                "episode": EPISODE,
+                "amount": str(difference.normalize()),
+                "base_net": str(base_net.normalize()),
+                "venue_net": str(venue_net.normalize()),
+                "trade_ids": sorted(fill_ids),
+                "income_digest": digest(canonical({"rows": rows})),
+                "baseline_inventory": before["observation_id"],
+                "final_inventory": after["observation_id"],
+            }
+        if cash:
+            if (
+                proposal is None
+                or cash[0]["kind"] != "CORRECTION"
+                or cash[0]["currency"] != "USDT"
+                or correction != difference
+                or cash[0]["evidence"] != proposal
+                or cash[0]["occurred_at_ms"] != after["finished_at_ms"]
+            ):
+                raise ValueError("UNSUPPORTED_ACCOUNTING")
+        elif difference and not propose:
             raise ValueError("WALLET_INCOME_LEDGER_MISMATCH")
         if amount(report["opened_quantity"], positive=True) != amount(
             report["closed_quantity"]
@@ -144,7 +186,8 @@ def proof_from_facts(trace, report, before, after, rows, run, timestamp):
         "exchange_flat": True,
         "orders_terminal": True,
         "fills_complete": True,
-        "cash_complete": True,
+        "cash_complete": delta == net,
+        "proposed_correction": proposal if not cash else None,
         "baseline_inventory": before["observation_id"],
         "final_inventory": after["observation_id"],
         "inventory_digests": [digest(canonical(x)) for x in (before, after)],
@@ -188,7 +231,7 @@ def settle_protocol(connect, request, clock_ms):
     before = read_inventory(json.loads(plan.payload_json)["baseline_id"])
     with connect() as conn:
         verified = conn.execute(
-            "SELECT payload FROM v2_business_state WHERE scope->>'namespace'='testnet-roundtrip-verification-v1' AND scope->>'account_id'=%s AND scope->>'environment'='SANDBOX' AND NOT deleted AND payload->>'episode'=%s AND payload->>'status'='PROTECTED_ROUNDTRIP_PASSED' LIMIT 101",
+            "SELECT payload FROM v2_business_state WHERE scope->>'namespace'='testnet-roundtrip-verification-v1' AND scope->>'account_id'=%s AND scope->>'environment'='SANDBOX' AND NOT deleted AND payload->>'episode'=%s AND payload->>'status' IN ('PROTECTED_ROUNDTRIP_PASSED','ROUNDTRIP_CLOSED') LIMIT 101",
             (SCOPE.account_id, EPISODE),
         ).fetchall()
     if not verified or len(verified) > 100:
@@ -230,8 +273,39 @@ def settle_protocol(connect, request, clock_ms):
         )
         for r in raw
     ]
-    proof = proof_from_facts(trace, report, before, after, rows, run, clock_ms())
-    data.ledger.settle(EPISODE, currency="USDT", evidence=proof)
+    # Re-read under the intent lock. Correction and final proof commit together;
+    # a failed settlement never leaves a standalone balancing adjustment.
+    with connect() as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        conn.execute(
+            "SELECT intent_id FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE",
+            (EPISODE,),
+        )
+        bound = TradingData(lambda: nullcontext(conn))
+        trace = bound.trace(EPISODE, connection=conn)
+        report = bound.ledger.report(
+            EPISODE, settlement_currency="USDT", connection=conn
+        )
+        proof = proof_from_facts(
+            trace, report, before, after, rows, run, clock_ms(), propose=True
+        )
+        correction = proof["proposed_correction"]
+        if correction:
+            bound.ledger.adjustment(
+                episode_id=EPISODE,
+                source_id="protocol-venue-precision:" + EPISODE,
+                amount_text=correction["amount"],
+                currency="USDT",
+                kind="CORRECTION",
+                occurred_at_ms=after["finished_at_ms"],
+                evidence=correction,
+            )
+            trace = bound.trace(EPISODE, connection=conn)
+            report = bound.ledger.report(
+                EPISODE, settlement_currency="USDT", connection=conn
+            )
+        proof = proof_from_facts(trace, report, before, after, rows, run, clock_ms())
+        bound.ledger.settle(EPISODE, currency="USDT", evidence=proof)
     return {
         "status": "SETTLED",
         "episode": EPISODE,
@@ -241,9 +315,13 @@ def settle_protocol(connect, request, clock_ms):
 
 
 def main():
+    global CAMPAIGN, EPISODE  # explicit bounded acceptance case, not arbitrary account selection
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
+    parser.add_argument("--trigger-attempt", type=int, choices=(1, 2, 3))
     args = parser.parse_args()
+    if args.trigger_attempt is not None:
+        CAMPAIGN, EPISODE = trigger_identity(args.trigger_attempt)
     connect = deployment_database()
     cfg = credentials(args.config, notify=False)
     budget = PublicRateBudget(connect, scope="v2-testnet-host-maintenance", limit=1800)

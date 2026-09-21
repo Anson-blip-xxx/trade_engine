@@ -38,9 +38,13 @@ class TradingData:
         self.evidence.put(evidence)
         return self.intents.admit(intent)
 
-    def trace(self, intent_id):
-        with self._connect() as conn:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    def trace(self, intent_id, *, connection=None):
+        # A supplied connection belongs to the caller's consistent transaction.
+        with (
+            nullcontext(connection) if connection is not None else self._connect()
+        ) as conn:
+            if connection is None:
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             intent = conn.execute(
                 """SELECT i.intent_id::text,i.status,i.version,
                 i.payload,e.config,e.snapshot,i.data_revision,

@@ -11,7 +11,7 @@ import json
 import subprocess
 import time
 from dataclasses import asdict
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from http.client import HTTPSConnection
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -24,6 +24,7 @@ from v2_core.evidence import DecisionEvidence, canonical
 from v2_core.intents import OpenIntent
 from v2_core.ledger import amount
 from v2_core.protection import ProtectionSpec, TestnetProtection
+from v2_core.protection_child import ProtectionChildReconciler
 from v2_core.public_market import PublicRateBudget
 from v2_core.runner import RiskVerdict
 from v2_core.runtime import DataRuntime
@@ -39,7 +40,14 @@ def now():
     return time.time_ns() // 1000000
 
 
-def plan_from_market(instrument, mark, timestamp):
+def trigger_identity(attempt):
+    if type(attempt) is not int or not 1 <= attempt <= 3:
+        raise ValueError("BOUNDED_TRIGGER_ATTEMPT_REQUIRED")
+    campaign = f"testnet-native-trigger-20260921-{attempt}"
+    return campaign, str(uuid5(NAMESPACE_URL, campaign))
+
+
+def plan_from_market(instrument, mark, timestamp, *, trigger=False):
     if (
         instrument["symbol"] != SYMBOL
         or instrument["status"] != "TRADING"
@@ -60,10 +68,10 @@ def plan_from_market(instrument, mark, timestamp):
         amount(filters["MIN_NOTIONAL"]["notional"], positive=True) * Decimal("1.05"),
     )
     qty = (minimum / price / step).to_integral_value(rounding=ROUND_CEILING) * step
-    stop = (price * Decimal("0.98") / tick).to_integral_value(
+    stop = (price * Decimal("0.9999" if trigger else "0.98") / tick).to_integral_value(
         rounding=ROUND_FLOOR
     ) * tick
-    take = (price * Decimal("1.02") / tick).to_integral_value(
+    take = (price * Decimal("1.0001" if trigger else "1.02") / tick).to_integral_value(
         rounding=ROUND_CEILING
     ) * tick
     if not (
@@ -105,14 +113,27 @@ def close_owned(runtime, request):
     await_fill(runtime, opens[0]["order_id"])
     trace = runtime.data.trace(EPISODE)
     closes = [o for o in trace["orders"] if o["leg"] == "CLOSE"]
-    if closes:
-        # PREPARED has never been sent. Anything else is query-only.
-        runtime.execution.dispatch(closes[0]["order_id"])
-        await_fill(runtime, closes[0]["order_id"])
+    for close in closes:
+        if close["status"] not in {"FILLED", "CANCELLED", "REJECTED"}:
+            # Only PREPARED can submit; ambiguous outcomes remain query-only.
+            runtime.execution.dispatch(close["order_id"])
+            await_fill(runtime, close["order_id"])
+    trace = runtime.data.trace(EPISODE)
+    legs = {o["order_id"]: o["leg"] for o in trace["orders"]}
+    with localcontext() as ctx:
+        ctx.prec = 80
+        remaining = sum(
+            (
+                amount(f["quantity"]) * (1 if legs[f["order_id"]] == "OPEN" else -1)
+                for f in trace["fills"]
+            ),
+            Decimal(0),
+        )
+    if remaining == 0:
         return
     rows = request("GET", "/fapi/v3/positionRisk", {})
     active = [r for r in rows if amount(r["positionAmt"]) != 0]
-    quantity = trace["orders"][0]["quantity"]
+    quantity = str(remaining)
     if (
         len(active) != 1
         or active[0]["symbol"] != SYMBOL
@@ -132,12 +153,16 @@ def close_owned(runtime, request):
 
 
 def main():
+    global CAMPAIGN, EPISODE  # fixed single-process acceptance case, never a daemon setting
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument(
         "--execute-testnet-roundtrip", action="store_true", required=True
     )
+    parser.add_argument("--trigger-attempt", type=int, choices=(1, 2, 3))
     args = parser.parse_args()
+    if args.trigger_attempt is not None:
+        CAMPAIGN, EPISODE = trigger_identity(args.trigger_attempt)
     for unit in OLD_UNITS:
         result = subprocess.run(
             ["systemctl", "show", unit, "-p", "ActiveState", "--value"],
@@ -152,14 +177,27 @@ def main():
     # Session lock excludes concurrent copies across all external actions.
     with connect() as lock_conn:
         locked = lock_conn.execute(
-            "SELECT pg_try_advisory_lock(hashtextextended(%s,0))", (CAMPAIGN,)
+            "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
+            ("testnet-protocol-account:" + SCOPE.key,),
         ).fetchone()[0]
         if not locked:
             raise ValueError("ROUNDTRIP_ALREADY_RUNNING")
-        execute(connect, args.config)
+        execute(
+            connect,
+            args.config,
+            trigger=args.trigger_attempt is not None,
+            trigger_kind="TAKE_PROFIT_MARKET"
+            if args.trigger_attempt == 3
+            else "STOP_MARKET",
+        )
 
 
-def execute(connect, config_path):
+def execute(connect, config_path, *, trigger=False, trigger_kind="STOP_MARKET"):
+    if type(trigger) is not bool or trigger_kind not in {
+        "STOP_MARKET",
+        "TAKE_PROFIT_MARKET",
+    }:
+        raise ValueError("INVALID_TRIGGER_TEST_MODE")
     store = BusinessState(connect)
     budget = PublicRateBudget(connect, scope="v2-testnet-host-maintenance", limit=1800)
 
@@ -218,7 +256,10 @@ def execute(connect, config_path):
         info = public("/fapi/v1/exchangeInfo")
         instrument = next(s for s in info["symbols"] if s["symbol"] == SYMBOL)
         plan = plan_from_market(
-            instrument, public("/fapi/v1/premiumIndex?symbol=BTCUSDT"), now()
+            instrument,
+            public("/fapi/v1/premiumIndex?symbol=BTCUSDT"),
+            now(),
+            trigger=trigger,
         )
         plan["baseline_id"] = before["observation_id"]
         if (
@@ -308,6 +349,28 @@ def execute(connect, config_path):
         ProtectionSpec(EPISODE, SYMBOL, "SELL", kind, plan[field])
         for kind, field in (("STOP_MARKET", "stop"), ("TAKE_PROFIT_MARKET", "take"))
     ]
+    if trigger:
+        specs = [s for s in specs if s.kind == trigger_kind]
+    child_worker = ProtectionChildReconciler(connect, request, scope=SCOPE)
+
+    def child_complete():
+        return any(
+            o["leg"] == "CLOSE"
+            and o["status"] == "FILLED"
+            and o["request_evidence"].get("origin") == "BINANCE_ALGO_CHILD"
+            for o in runtime.data.trace(EPISODE)["orders"]
+        )
+
+    def clean_terminal(result):
+        return result["status"] in {"CANCELED", "EXPIRED"} or (
+            result["status"] == "FINISHED"
+            and any(
+                o["status"] == "FILLED"
+                and o["request_evidence"].get("parent_algo_id") == result["algo_id"]
+                for o in runtime.data.trace(EPISODE)["orders"]
+            )
+        )
+
     trace = runtime.data.trace(EPISODE)
     already_closed = any(
         o["leg"] == "CLOSE" and o["status"] == "FILLED" for o in trace["orders"]
@@ -321,7 +384,7 @@ def execute(connect, config_path):
                         "SELECT 1 FROM v2_state_history WHERE state_id=%s AND payload->>'status'='NEW' LIMIT 1",
                         (protection.key(spec).identity,),
                     ).fetchone()
-                    if confirmed is None:
+                    if confirmed is None and not (trigger and child_complete()):
                         raise ValueError("PROTECTION_NEVER_CONFIRMED")
         elif accepted.get("order_id"):
             runtime.execution.dispatch(accepted["order_id"])
@@ -331,9 +394,38 @@ def execute(connect, config_path):
         for spec in [] if already_closed else specs:
             result = protection.submit_once(spec)
             print(json.dumps({"phase": spec.kind, **result}), flush=True)
-            if result["status"] != "NEW":
+            if result["status"] not in (
+                {"NEW", "TRIGGERING", "TRIGGERED", "FINISHED"} if trigger else {"NEW"}
+            ):
                 raise ValueError("PROTECTION_NOT_CONFIRMED")
+        if trigger and not already_closed:
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                result = child_worker.reconcile(specs[0])
+                if result["status"] == "FILLED":
+                    print(json.dumps({"phase": "NATIVE_CHILD", **result}), flush=True)
+                    break
+                time.sleep(1)
+            else:
+                raise ValueError("TRIGGER_WAIT_TIMEOUT")
+        if trigger and not child_complete():
+            raise ValueError("NATIVE_TRIGGER_NOT_CONFIRMED")
     finally:
+        if trigger:
+            current, _ = protection.read(specs[0])
+            if current is not None:
+                try:
+                    child_worker.reconcile(specs[0])
+                except Exception as exc:  # noqa: BLE001 - still attempt owned reduce-only exit below
+                    print(
+                        json.dumps(
+                            {
+                                "phase": "CHILD_RECOVERY_PENDING",
+                                "error_class": type(exc).__name__,
+                            }
+                        ),
+                        flush=True,
+                    )
         close_owned(runtime, request)
         # Never cancel an ambiguous/absent protection blindly, nor while open.
         for spec in specs:
@@ -341,13 +433,13 @@ def execute(connect, config_path):
             if current and payload.get("observation"):
                 for _ in range(5):
                     result = protection.cancel_flat_once(spec)
-                    if result["status"] in {"CANCELED", "EXPIRED"}:
+                    if clean_terminal(result):
                         break
                     time.sleep(0.5)
                 print(
                     json.dumps({"phase": "CANCEL_" + spec.kind, **result}), flush=True
                 )
-                if result["status"] not in {"CANCELED", "EXPIRED"}:
+                if not clean_terminal(result):
                     raise ValueError("PROTECTION_CLEANUP_UNCONFIRMED")
         after = inventory.collect(str(uuid4()))
         print(
@@ -374,6 +466,27 @@ def execute(connect, config_path):
         )
         if after["blockers"]:
             raise ValueError("FINAL_ACCOUNT_NOT_CLEAR")
+        if (
+            report["net_pnl"] is not None
+            and amount(report["opened_quantity"]) > 0
+            and report["opened_quantity"] == report["closed_quantity"]
+        ):
+            store.change(
+                StateKey(
+                    **asdict(SCOPE),
+                    namespace="testnet-roundtrip-verification-v1",
+                    key="closed:" + after["observation_id"],
+                ),
+                expected_version=0,
+                request_key="closed",
+                reason="PROTOCOL_POSITION_CLOSED_NOT_TRIGGER_ACCEPTANCE",
+                payload={
+                    "episode": EPISODE,
+                    "final_inventory": after["observation_id"],
+                    "report": report,
+                    "status": "ROUNDTRIP_CLOSED",
+                },
+            )
     if (
         report["accounting_status"] not in {"CALCULATED", "SETTLED"}
         or report["opened_quantity"] != report["closed_quantity"]

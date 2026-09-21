@@ -9,6 +9,7 @@ from test_v2_testnet_roundtrip import Venue, install
 
 from services import v2_testnet_roundtrip as rt
 from services.v2_testnet_settlement import proof_from_facts, settle_protocol
+from v2_core.ledger import Ledger
 from v2_core.service import TradingData
 from v2_core.state import BusinessState, StateKey
 
@@ -16,11 +17,15 @@ database = database_fixture
 
 
 @pytest.fixture
-def completed(database, monkeypatch):
+def completed(database, monkeypatch, request):
+    precision = getattr(request, "param", "0")
+
     class Balances(Venue):
         def __call__(self, method, path, params):
             if path.endswith("/account"):
                 balance = str(Decimal(1000) - Decimal(".01") * len(self.orders))
+                if len(self.orders) == 2:
+                    balance = str(Decimal(balance) + Decimal(precision))
                 return {
                     k: balance
                     for k in (
@@ -29,7 +34,12 @@ def completed(database, monkeypatch):
                         "totalMarginBalance",
                     )
                 }
-            return super().__call__(method, path, params)
+            result = super().__call__(method, path, params)
+            if path.endswith("userTrades") and len(self.orders) == 2:
+                for fill in result:
+                    if fill["side"] == "SELL":
+                        fill["realizedPnl"] = precision
+            return result
 
     venue = Balances()
     install(monkeypatch, venue)
@@ -76,6 +86,23 @@ def completed(database, monkeypatch):
         for i, f in enumerate(trace["fills"])
     ]
     run = {"status": "FETCHED", "rows": len(rows), "run_id": "qa-run"}
+    for fill in trace["fills"]:
+        if Decimal(fill["evidence"]["venue_realized_pnl"]):
+            rows.append(
+                {
+                    "income_type": "REALIZED_PNL",
+                    "source_id": "100",
+                    "symbol": "BTCUSDT",
+                    "amount": precision,
+                    "currency": "USDT",
+                    "occurred_at_ms": fill["occurred_at_ms"],
+                    "evidence": {
+                        "source": "binance-income",
+                        "trade_id": fill["evidence"]["trade_id"],
+                    },
+                }
+            )
+    run["rows"] = len(rows)
     return [
         trace,
         data.ledger.report(rt.EPISODE, settlement_currency="USDT"),
@@ -143,6 +170,7 @@ def test_missing_or_conflicting_facts_never_authorize_settlement(completed, fail
         proof_from_facts(trace, report, before, after, rows, run, timestamp)
 
 
+@pytest.mark.parametrize("completed", ["0", "0.00000001", "-0.00000001"], indirect=True)
 def test_pg_settlement_releases_budget_and_replay_has_no_new_orders(
     database, monkeypatch, completed
 ):
@@ -171,14 +199,52 @@ def test_pg_settlement_releases_budget_and_replay_has_no_new_orders(
             ]
 
     request = Income()
+
+    def fail_settlement(*args, **kwargs):
+        raise RuntimeError("injected settlement failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Ledger, "settle", fail_settlement)
+        with pytest.raises(RuntimeError, match="injected"):
+            settle_protocol(database, request, lambda: facts[6])
+    failed_trace = TradingData(database).trace(rt.EPISODE)
+    assert not failed_trace["cash"] and not failed_trace["settlements"]
+    assert failed_trace["account_risk"]["status"] == "HELD"
     assert settle_protocol(database, request, lambda: facts[6])["status"] == "SETTLED"
     trace = TradingData(database).trace(rt.EPISODE)
     assert trace["episode"]["status"] == "SETTLED"
     assert trace["account_risk"]["status"] == "RELEASED"
+    assert len(trace["cash"]) == (1 if len(rows) == 3 else 0)
     assert (
         settle_protocol(database, request, lambda: facts[6])["status"]
         == "ALREADY_SETTLED"
     )
-    assert request.calls == 1
+    assert request.calls == 2
     rt.execute(database, "unused")
     assert len(venue.writes) == 4
+
+
+@pytest.mark.parametrize("completed", ["0.00000001"], indirect=True)
+@pytest.mark.parametrize("failure", ["wallet", "income", "large", "cash", "none"])
+def test_precision_difference_requires_all_evidence(completed, failure):
+    facts, _ = completed
+    trace, report, _before, after, rows, _run, _timestamp = facts
+    if failure == "wallet":
+        after["responses"]["account"]["totalWalletBalance"] = "999.98"
+    elif failure == "income":
+        rows[-1]["amount"] = "0.00000002"
+    elif failure == "large":
+        report["net_pnl"] = "-0.03"
+    elif failure == "cash":
+        trace["cash"] = [
+            {"amount": "0.00000001", "kind": "FUNDING", "currency": "USDT"}
+        ]
+    if failure != "none":
+        with pytest.raises(ValueError):
+            proof_from_facts(*facts, propose=True)
+    else:
+        with pytest.raises(ValueError):
+            proof_from_facts(*facts)
+        proof = proof_from_facts(*facts, propose=True)
+        assert not proof["cash_complete"]
+        assert Decimal(proof["proposed_correction"]["amount"]) == Decimal("0.00000001")

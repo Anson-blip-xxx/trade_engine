@@ -6,6 +6,7 @@ Missing historical orders are ambiguous, not permission to submit again.
 """
 
 import re
+from dataclasses import replace
 from decimal import Decimal, localcontext
 
 from v2_core.errors import SubmissionNotSent
@@ -96,6 +97,8 @@ class BinanceFutures:
         return order_id, executed
 
     def submit(self, order):
+        if order.get("request_evidence", {}).get("origin") == "BINANCE_ALGO_CHILD":
+            raise SubmissionNotSent("EXCHANGE_CREATED_ORDER_QUERY_ONLY")
         self._scope(order)
         try:
             mode = self.request("GET", "/fapi/v1/positionSide/dual", {})
@@ -134,6 +137,29 @@ class BinanceFutures:
         )
 
     def query(self, order):
+        binding = order.get("request_evidence", {})
+        if binding.get("origin") == "BINANCE_ALGO_CHILD":
+            if (
+                order.get("leg") != "CLOSE"
+                or order.get("reduce_only") is not True
+                or order.get("exchange_order_id") != binding["exchange_order_id"]
+            ):
+                raise ValueError("invalid native child binding")
+            venue_order = {
+                **order,
+                "client_order_id": binding["venue_client_order_id"],
+                "request_evidence": {},
+            }
+            result = self.query(venue_order)
+            return (
+                None
+                if result is None
+                else replace(
+                    result,
+                    client_order_id=order["client_order_id"],
+                    evidence={**result.evidence, "native_child_binding": binding},
+                )
+            )
         self._scope(order)
         raw = self.request(
             "GET",

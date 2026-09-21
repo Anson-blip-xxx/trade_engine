@@ -220,6 +220,66 @@ def test_preexisting_exposure_blocks_before_open(database, monkeypatch):
     assert venue.writes == []
 
 
+@pytest.mark.parametrize("trigger_kind", ["STOP_MARKET", "TAKE_PROFIT_MARKET"])
+def test_native_stop_closes_without_a_second_post_and_survives_restart(
+    database, monkeypatch, trigger_kind
+):
+    class TriggerVenue(Venue):
+        queries = 0
+
+        def __call__(self, method, path, params):
+            if method == "GET" and path.endswith("algoOrder"):
+                self.queries += 1
+                row = self.algos[params["clientAlgoId"]]
+                if self.queries == 2:
+                    quantity = self.quantity
+                    self.quantity = "0"
+                    self.orders["venue-child"] = {
+                        "symbol": "BTCUSDT",
+                        "side": "SELL",
+                        "positionSide": "BOTH",
+                        "type": "MARKET",
+                        "reduceOnly": True,
+                        "origQty": quantity,
+                        "executedQty": quantity,
+                        "orderId": 2,
+                        "clientOrderId": "venue-child",
+                        "status": "FILLED",
+                    }
+                    row.update(
+                        algoStatus="FINISHED", actualOrderId="2", actualQty=quantity
+                    )
+                return copy.deepcopy(row)
+            if method == "GET" and path.endswith("/order") and "orderId" in params:
+                return copy.deepcopy(
+                    next(
+                        o
+                        for o in self.orders.values()
+                        if o["orderId"] == params["orderId"]
+                    )
+                )
+            return super().__call__(method, path, params)
+
+    campaign, episode = rt.trigger_identity(1)
+    monkeypatch.setattr(rt, "CAMPAIGN", campaign)
+    monkeypatch.setattr(rt, "EPISODE", episode)
+    venue = TriggerVenue()
+    install(monkeypatch, venue)
+    rt.execute(database, "unused", trigger=True, trigger_kind=trigger_kind)
+    trace = TradingData(database).trace(episode)
+    assert len(trace["orders"]) == 2 and len(trace["fills"]) == 2
+    assert len([w for w in venue.writes if w[0].endswith("/order")]) == 1
+    assert (
+        next(o for o in trace["orders"] if o["leg"] == "CLOSE")["request_evidence"][
+            "origin"
+        ]
+        == "BINANCE_ALGO_CHILD"
+    )
+    count = len(venue.writes)
+    rt.execute(database, "unused", trigger=True, trigger_kind=trigger_kind)
+    assert len(venue.writes) == count
+
+
 @pytest.mark.parametrize(
     "price,age", [("100000", 10001), ("100000", -1), ("NaN", 0), ("100", 0)]
 )
