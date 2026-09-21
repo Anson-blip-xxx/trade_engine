@@ -9,6 +9,18 @@ class ArchiveIntegrityError(ValueError):
     """Confirmed content mismatch, distinct from transport unavailability."""
 
 
+def decoded_digest(value):
+    """clickhouse-connect can return FixedString as bytes, not Python str."""
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("ascii")
+        except UnicodeDecodeError:
+            raise ArchiveIntegrityError("invalid digest encoding") from None
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ArchiveIntegrityError("invalid digest encoding")
+    return value
+
+
 class ClickHouseCandleArchive:
     def __init__(self, client):
         self.client = client

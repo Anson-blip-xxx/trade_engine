@@ -1,0 +1,32 @@
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <log>/var/log/trade-engine-v2/clickhouse.log</log>
+        <errorlog>/var/log/trade-engine-v2/clickhouse-error.log</errorlog>
+        <size>20M</size>
+        <count>3</count>
+    </logger>
+    <listen_host>127.0.0.1</listen_host>
+    <http_port>18123</http_port>
+    <tcp_port>19000</tcp_port>
+    <path>/var/lib/trade-engine-v2/clickhouse/</path>
+    <tmp_path>/var/lib/trade-engine-v2/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/trade-engine-v2/clickhouse/user_files/</user_files_path>
+    <format_schema_path>/var/lib/trade-engine-v2/clickhouse/format_schemas/</format_schema_path>
+    <max_server_memory_usage>1073741824</max_server_memory_usage>
+    <mark_cache_size>134217728</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <background_buffer_flush_schedule_pool_size>4</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>4</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>4</background_distributed_schedule_pool_size>
+    <profiles><default><max_memory_usage>536870912</max_memory_usage><max_threads>4</max_threads></default></profiles>
+    <users>
+        <default>
+            <password></password>
+            <networks><ip>127.0.0.1</ip></networks>
+            <profile>default</profile><quota>default</quota>
+        </default>
+    </users>
+    <quotas><default><interval><duration>3600</duration></interval></default></quotas>
+</clickhouse>

@@ -119,6 +119,26 @@ def test_timeout_is_redacted_and_not_retried():
     assert len(conn.calls) == 1 and conn.closed
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/fapi/v3/account",
+        "/fapi/v3/positionRisk",
+        "/fapi/v1/openOrders",
+        "/fapi/v1/openAlgoOrders",
+        "/fapi/v1/multiAssetsMargin",
+    ],
+)
+def test_account_inventory_routes_are_read_only(path):
+    conn = Connection()
+    client = transport(conn)
+    assert client("GET", path, {}) == {"ok": True}
+    for method in ("POST", "DELETE", "PUT"):
+        with pytest.raises(ExchangeTransportError, match="DISABLED"):
+            client(method, path, {})
+    assert len(conn.calls) == 1
+
+
 def test_missing_order_retains_ambiguous_identity():
     conn = Connection()
     conn.status, conn.raw = 400, b'{"code":-2013,"msg":"unknown"}'

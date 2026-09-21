@@ -4,7 +4,11 @@ import json
 import re
 
 from v2_core.evidence import canonical, digest
-from v2_core.market_archive import ArchiveIntegrityError, ClickHouseCandleArchive
+from v2_core.market_archive import (
+    ArchiveIntegrityError,
+    ClickHouseCandleArchive,
+    decoded_digest,
+)
 
 
 class ClickHouseChunkedArchive(ClickHouseCandleArchive):
@@ -22,6 +26,7 @@ class ClickHouseChunkedArchive(ClickHouseCandleArchive):
         ).result_rows
         result = {}
         for key, encoded in rows:
+            key = decoded_digest(key)
             if (
                 key not in keys
                 or not isinstance(encoded, str)
@@ -110,6 +115,7 @@ class ClickHouseChunkedArchive(ClickHouseCandleArchive):
                 content_digest
             )  # Existing unchunked receipts remain replayable.
         encoded, expected = rows[0]
+        expected = decoded_digest(expected)
         if (
             not isinstance(encoded, str)
             or len(encoded.encode()) > 250000

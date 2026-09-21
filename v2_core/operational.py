@@ -20,12 +20,17 @@ class OperationalProjector(Projector):
     _subject = "scope_id"
 
 
+class MarketOperationalProjector(OperationalProjector):
+    def _scope_filter(self):
+        return "e.event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED')", ()
+
+
 class MarketAlerts:
     def __init__(self, connect, *, environment, notify):
         if environment not in ("SANDBOX", "LIVE") or not callable(notify):
             raise ValueError("bound environment and notification sink required")
         self._connect, self.environment = connect, environment
-        self.projector = OperationalProjector(
+        self.projector = MarketOperationalProjector(
             connect,
             "market-alerts:" + environment,
             lambda event_id, scope, kind, payload: (

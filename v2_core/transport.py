@@ -24,6 +24,11 @@ class BinanceSignedTransport:
             "/fapi/v1/userTrades",
             "/fapi/v1/positionSide/dual",
             "/fapi/v1/income",
+            "/fapi/v3/account",
+            "/fapi/v3/positionRisk",
+            "/fapi/v1/openOrders",
+            "/fapi/v1/openAlgoOrders",
+            "/fapi/v1/multiAssetsMargin",
         }
     )
 

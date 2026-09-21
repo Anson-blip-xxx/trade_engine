@@ -402,3 +402,16 @@ Ruff/格式/diff 检查通过；临时服务已停止，诊断 `/tmp/v2-data-qa.
 **3718 passed、10 skipped、1 个既有 warning**，195.83 秒。
 `git diff --check` 通过；临时 QA 服务已停止，诊断 `/tmp/v2-data-qa.LMtFMZ`。
 该改动不等于新 PG PM 生命周期已接通，也不构成切换或实盘许可。
+
+## 2026-09-21：授权停止旧服务，独立测试网数据侧落地
+
+停止旧6个交易服务、保留历史数据；新建隔离PG/Redis/ClickHouse并实际采集测试网。
+账户清点、不可变快照/告警原子落库与账户隔离TG投递已真实验证；现有旧仓/旧条件单
+被明确识别，不当作空账户。FixedString驱动bytes问题经真实CH联调发现并修复。
+BTC/ETH行情→CH小时归档→S3信号→PG回执→Redis上下文已跑通，数据侧pilot现常驻，
+正常重启后同帧返回CURRENT。没有发出任何交易写请求，交易闭环仍未交付。
+
+新增44项回归，全仓 **3762 passed、10 skipped、1个既有warning**，193.12秒；
+Ruff/格式/diff通过，临时QA服务停止，诊断 `/tmp/v2-data-qa.N54HAf`。
+实际资源、证据ID、恢复限制与后续事项见
+[测试网部署记录](V2_TESTNET_DEPLOYMENT_20260921.md)。Polymarket排除，TV后置。
