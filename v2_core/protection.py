@@ -204,5 +204,15 @@ class TestnetProtection:
             return {"status": "CONCURRENT_CHANGE"}
         # On lost response the cancel_started latch persists. Later calls query
         # only; they cannot remove a different order or issue another DELETE.
-        self.request("DELETE", "/fapi/v1/algoOrder", {"algoId": result["algo_id"]})
+        try:
+            self.request("DELETE", "/fapi/v1/algoOrder", {"algoId": result["algo_id"]})
+        except ExchangeTransportError as exc:
+            if exc.code != -2011:
+                raise
+            # Closing can auto-expire a close-all order between GET and DELETE.
+            # A rejection alone is not proof: query the same identity again.
+            observed = self.query(spec)
+            if observed["status"] in {"CANCELED", "EXPIRED"}:
+                return observed
+            raise
         return self.query(spec)

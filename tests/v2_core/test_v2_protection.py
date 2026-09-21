@@ -206,3 +206,28 @@ def test_concurrent_submission_has_one_external_write(database):
         list(pool.map(lambda _: run(), range(4)))
     assert venue.writes == ["POST"]
     assert worker.query(SPEC)["status"] == "NEW"
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_cancel_rejection_requires_query_proof_of_expiry(database, expired):
+    class AutoExpire(Venue):
+        def __call__(self, method, path, params):
+            if method == "DELETE":
+                self.writes.append(method)
+                if expired:
+                    self.row["algoStatus"] = "EXPIRED"
+                raise ExchangeTransportError(
+                    "EXCHANGE_RESPONSE_ERROR", status=400, code=-2011
+                )
+            return super().__call__(method, path, params)
+
+    venue = AutoExpire()
+    worker = TestnetProtection(BusinessState(database), venue, scope=SCOPE)
+    worker.submit_once(SPEC)
+    if expired:
+        assert worker.cancel_flat_once(SPEC)["status"] == "EXPIRED"
+    else:
+        with pytest.raises(ExchangeTransportError):
+            worker.cancel_flat_once(SPEC)
+        assert worker.cancel_flat_once(SPEC)["status"] == "CANCEL_PENDING_QUERY_ONLY"
+    assert venue.writes == ["POST", "DELETE"]
