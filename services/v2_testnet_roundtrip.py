@@ -375,7 +375,7 @@ def execute(connect, config_path):
         if after["blockers"]:
             raise ValueError("FINAL_ACCOUNT_NOT_CLEAR")
     if (
-        report["accounting_status"] != "CALCULATED"
+        report["accounting_status"] not in {"CALCULATED", "SETTLED"}
         or report["opened_quantity"] != report["closed_quantity"]
     ):
         raise ValueError("ROUNDTRIP_ACCOUNTING_PENDING")
@@ -394,11 +394,16 @@ def execute(connect, config_path):
             "final_inventory": after["observation_id"],
             "report": report,
             "status": "PROTECTED_ROUNDTRIP_PASSED",
-            "settlement": "PENDING_INCOME_RECONCILIATION",
+            "settlement": report["accounting_status"],
         },
     )
     print(
-        '{"status":"PROTECTED_ROUNDTRIP_PASSED","settlement":"PENDING_INCOME_RECONCILIATION"}',
+        json.dumps(
+            {
+                "status": "PROTECTED_ROUNDTRIP_PASSED",
+                "settlement": report["accounting_status"],
+            }
+        ),
         flush=True,
     )
 
