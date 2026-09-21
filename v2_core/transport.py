@@ -44,6 +44,7 @@ class BinanceSignedTransport:
         permit,
         enable_trading=False,
         enable_testnet_cancellation=False,
+        enable_testnet_protection=False,
         timeout=10,
         connection_factory=HTTPSConnection,
     ):
@@ -70,6 +71,8 @@ class BinanceSignedTransport:
             type(enable_trading) is not bool
             or type(enable_testnet_cancellation) is not bool
             or (enable_testnet_cancellation and environment != "SANDBOX")
+            or type(enable_testnet_protection) is not bool
+            or (enable_testnet_protection and environment != "SANDBOX")
             or type(timeout) is not int
             or not 1 <= timeout <= 30
         ):
@@ -83,6 +86,7 @@ class BinanceSignedTransport:
         )
         self._trading, self._timeout = enable_trading, timeout
         self._cancel = enable_testnet_cancellation
+        self._protection = enable_testnet_protection
 
     def __call__(self, method, path, params):
         if (
@@ -91,6 +95,9 @@ class BinanceSignedTransport:
             or method == "POST"
             and path == "/fapi/v1/order"
             and self._trading
+            or method == "POST"
+            and path == "/fapi/v1/algoOrder"
+            and self._protection
             or method == "DELETE"
             and path == "/fapi/v1/algoOrder"
             and self._cancel
@@ -98,6 +105,25 @@ class BinanceSignedTransport:
             pass
         else:
             raise ExchangeTransportError("ENDPOINT_OR_WRITE_DISABLED")
+        if method == "POST" and path == "/fapi/v1/algoOrder":
+            # This capability cannot create an opening order, even if miscalled.
+            required = {
+                "algoType": "CONDITIONAL",
+                "positionSide": "BOTH",
+                "closePosition": "true",
+                "workingType": "MARK_PRICE",
+                "priceProtect": "false",
+            }
+            if (
+                not isinstance(params, dict)
+                or set(params)
+                != set(required)
+                | {"symbol", "side", "type", "triggerPrice", "clientAlgoId"}
+                or any(params.get(k) != v for k, v in required.items())
+                or params.get("type") not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}
+                or params.get("side") not in {"BUY", "SELL"}
+            ):
+                raise ExchangeTransportError("PROTECTION_CLOSE_ALL_REQUIRED")
         if not isinstance(params, dict) or any(
             k in params for k in ("timestamp", "signature", "recvWindow")
         ):
