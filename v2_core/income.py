@@ -131,7 +131,15 @@ class IncomeJournal:
             for r in rows
         ]
 
-    def assign_funding(self, income_id, episode_id, *, expected_revision, evidence):
+    def assign_funding(
+        self,
+        income_id,
+        episode_id,
+        *,
+        expected_revision,
+        evidence,
+        connection=None,
+    ):
         income_id, episode_id = str(UUID(income_id)), str(UUID(episode_id))
         if type(expected_revision) is not int or expected_revision < 0:
             raise ValueError("explicit accounting revision required")
@@ -139,7 +147,9 @@ class IncomeJournal:
             raise ValueError("complete reconciliation evidence required")
         normalized(evidence.get("source"))
         encoded = canonical({"ledger_revision": expected_revision, "proof": evidence})
-        with self._connect() as conn:
+        with (
+            nullcontext(connection) if connection is not None else self._connect()
+        ) as conn:
             scope = conn.execute(
                 """SELECT exchange,account_id,environment,product,payload->>'symbol'
                 FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE""",

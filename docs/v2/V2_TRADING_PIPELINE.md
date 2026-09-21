@@ -52,7 +52,8 @@ S6/S8 决策和受控订单派发组织为同一个有界循环。仅接受 SAND
 4. 通用结算与分析阶段：连接成交、手续费、资金费、净盈亏及策略归因。
    现有固定 protocol-test 专用结算器不能作为通用实现。
    已补方向策略现金核验及调度接口，见 `V2_DIRECTIONAL_CASH_AUDIT.md`；
-   CASH_MATCHED 仍不等于 SETTLED，最终钱包/仓位核对及资金费原子入账未完成。
+   CASH_MATCHED 仍不等于 SETTLED。最终钱包/仓位核对及资金费原子入账已由
+   `V2_DIRECTIONAL_FINAL_SETTLEMENT.md` 接入；尚待真实 Testnet 与部署验收。
 5. 真实依赖工厂、Testnet 守护进程、耐重启发布与 TG 告警；目前构造器要求
    显式注入上述阶段，尚不是可直接部署的全功能交易服务。
 6. 真实行情自然触发一次策略交易，从 frame/signal/evidence/intent/order/fills
