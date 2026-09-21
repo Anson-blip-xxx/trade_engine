@@ -185,8 +185,8 @@ class TestnetProtection:
             }
         ):
             raise ValueError("protection query terms mismatch")
-        payload.update(status=raw["algoStatus"], observation=raw)
-        if not self.save(spec, snapshot, payload):
+        updated = {**payload, "status": raw["algoStatus"], "observation": raw}
+        if updated != payload and not self.save(spec, snapshot, updated):
             return {"status": "CONCURRENT_CHANGE"}
         return {
             "status": raw["algoStatus"],

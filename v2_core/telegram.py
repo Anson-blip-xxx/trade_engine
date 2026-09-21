@@ -32,7 +32,12 @@ class TelegramOperationalSink:
     def __call__(self, event_id, scope, kind, payload):
         if scope != self.environment:
             return False
-        if kind not in {"ACCOUNT_INVENTORY", "MARKET_FAILURE", "CANDLE_QUARANTINED"}:
+        if kind not in {
+            "ACCOUNT_INVENTORY",
+            "MARKET_FAILURE",
+            "CANDLE_QUARANTINED",
+            "PROTECTION_RECOVERY",
+        }:
             return False
         # Never forward arbitrary fields, API responses, balances or exception text.
         allowed = (
@@ -44,6 +49,8 @@ class TelegramOperationalSink:
             "stage",
             "error_code",
             "outcome",
+            "state_id",
+            "parent_status",
         )
         clean = {key: payload[key] for key in allowed if key in payload}
         text = f"[V2 {scope}] {kind}\nevent_id={event_id}\n" + json.dumps(

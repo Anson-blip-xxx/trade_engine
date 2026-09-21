@@ -505,7 +505,7 @@ CREATE TABLE v2_operational_outbox (
     event_id UUID PRIMARY KEY,
     scope_id TEXT NOT NULL CHECK (scope_id IN ('SANDBOX','LIVE')),
     dedup_key TEXT NOT NULL,
-    event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED','ACCOUNT_INVENTORY')),
+    event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED','ACCOUNT_INVENTORY','PROTECTION_RECOVERY')),
     payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     UNIQUE(scope_id,dedup_key)
