@@ -5,7 +5,7 @@ IO 经 pm 模块 monkeypatch）
 vs
 service chain — 直接构造 PositionMonitoringService（同一注入集）。
 
-重点：多退出条件同时命中时 exit reason 不变；PMB-18/22 阻断语义不变。
+重点：多退出条件同时命中时 exit reason 一致；PMB-22 亏损反转按 V2 修正续链。
 """
 import time as time_mod
 

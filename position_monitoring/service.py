@@ -3,7 +3,7 @@
 职责（且仅此）：
 - monitor_all：监控编排主体（心跳节流 / ghost Step0 序 / filter / per-symbol
   隔离 / ghost 队列消费 / 双 save / summary 条件触发）——从 PM 逐字迁移
-- monitor_one：11 步出场链——从 PM 逐字迁移
+- monitor_one：11 步出场链；V2 修正亏损反转续链及延期截止时间
 - ws_on_message：ACCOUNT_UPDATE 解析 + 平仓 record→mark 顺序（逻辑迁入）
 - am_leader / ws_connect_loop：ws:leader 租约语义 + connect 门控（逻辑迁入；
   线程 spawn 仍为 pm 入口触发）
@@ -283,6 +283,7 @@ class PositionMonitoringService:
         if hold < 60 or pnl >= 40:
             pass  # 新开仓60分钟内不介入 / 大盈利仓只靠移动止盈
         else:
+            reversal_close_attempted = False
             try:
                 k1h = self.market.dc().get_klines(symbol, '1h', 22)
                 if k1h and len(k1h) >= 21:
@@ -291,36 +292,48 @@ class PositionMonitoringService:
                     ema20_1h = sum(c1h[-20:]) / 20
                     if pos['side'] == 'SHORT' and ema9_1h > ema20_1h * 1.02:
                         if self.action.g1h(pnl):
+                            reversal_close_attempted = True
                             if self.action.cls(symbol, pos, price, '1h趋势反转',
                                         positions):
                                 return ('1h趋势反转', price, entry,
                                         pos['qty'], pos['side'])
+                            # One close attempt per cycle, including failure.
+                            return None
                         elif not pos.get('trend_reversal_warned'):
                             pos['trend_reversal_warned'] = True
                             self.runtime.log(f'[1h反转观察] {symbol} 当前亏损 '
                                      f'{pnl:+.1f}%，暂不平仓，'
                                      '交给止损/时间止损处理')
-                        return None  # PMB-22：阻断当轮 time stop
+                        # A deferred reversal must still reach the time stop.
                     elif pos['side'] != 'SHORT' and ema9_1h < ema20_1h * 0.98:
                         if self.action.g1h(pnl):
+                            reversal_close_attempted = True
                             if self.action.cls(symbol, pos, price, '1h趋势反转',
                                         positions):
                                 return ('1h趋势反转', price, entry,
                                         pos['qty'], pos['side'])
+                            return None
                         elif not pos.get('trend_reversal_warned'):
                             pos['trend_reversal_warned'] = True
                             self.runtime.log(f'[1h反转观察] {symbol} 当前亏损 '
                                      f'{pnl:+.1f}%，暂不平仓，'
                                      '交给止损/时间止损处理')
-                        return None  # PMB-22：阻断当轮 time stop
+                        # Warning-once only controls notification, not expiry.
             except Exception:
-                pass
+                # An exception may follow a submitted close: do not submit a
+                # second close through the time-stop branch in this cycle.
+                if reversal_close_attempted:
+                    return None
 
         # 7. 时间止损
         ts_min = cfg.get('time_stop_min', 240)
         if hold > ts_min:
             if pnl < 0:
                 # 浮亏 — 检查是否可延期
+                # Honor the recorded deadline on every cycle, including after
+                # state reload; never grant another extension once marked.
+                if self.runtime.now() < pos.get('extend_deadline', 0):
+                    return None
                 if not pos.get('time_extended'):
                     _, _, _, _, _, get_oi_and_funding, get_rsi, _ = self.market.s6()
                     try:
@@ -337,8 +350,6 @@ class PositionMonitoringService:
                             return None
                     except Exception:
                         pass
-                    if self.runtime.now() < pos.get('extend_deadline', 0):
-                        return None
                 if self.action.cls(symbol, pos, price, '时间止损', positions):
                     return ('时间止损', price, entry, pos['qty'], pos['side'])
                 return None

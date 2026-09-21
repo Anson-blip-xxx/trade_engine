@@ -10,7 +10,7 @@
   4.5 分层止盈（阈值升序、每次只触发一层、tp_done 记账、安全拆仓）
   5 追踪锁利（be_done 后；'exit' → close 返回 reason='趋势反转'；数值 → _place_trail_sl）
   5.5 峰值回撤（str → close；float → _place_trail_sl）
-  6 1h EMA 安全阀（hold<60 或 pnl>=40 豁免；反转方向 → close 或 warn-once，均 return None）
+  6 1h EMA 安全阀（hold<60 或 pnl>=40 豁免；V2修正：亏损观察仍进入时间止损）
   7 时间止损（hold>ts_min；浮亏可延期一次；微盈直接平）
 """
 import time
@@ -398,6 +398,68 @@ class TestOneHReversal:
 
 
 class TestTimeStop:
+    @pytest.mark.parametrize('side', ['SHORT', 'LONG'])
+    @pytest.mark.parametrize('warned', [False, True])
+    def test_losing_reversal_reaches_expired_time_stop(self, one, side, warned):
+        TestOneHReversal()._set_1h(one, side)
+        one.price = 103.0 if side == 'SHORT' else 97.0
+        one.momentum_weak = False
+        pos = one.base(side=side, open_time=time.time() - 250 * 60,
+                       trend_reversal_warned=warned)
+        assert one.mon(pos)[0] == '时间止损'
+        assert len(one.close_calls) == 1
+        assert pos['trend_reversal_warned'] is True
+
+    @pytest.mark.parametrize('side', ['SHORT', 'LONG'])
+    @pytest.mark.parametrize('raises', [False, True])
+    def test_failed_reversal_close_does_not_attempt_time_stop(
+            self, one, monkeypatch, side, raises):
+        TestOneHReversal()._set_1h(one, side)
+        one.price = 100.0
+        one.close_result = False
+        if raises:
+            def uncertain_close(symbol, pos, price, reason, positions):
+                one.close_calls.append((symbol, price, reason))
+                raise TimeoutError('response unavailable')
+            monkeypatch.setattr(pm, '_close', uncertain_close)
+        pos = one.base(side=side, open_time=time.time() - 250 * 60)
+        assert one.mon(pos) is None
+        assert one.close_calls == [('TUSDT', 100.0, '1h趋势反转')]
+
+    @pytest.mark.parametrize('side', ['SHORT', 'LONG'])
+    @pytest.mark.parametrize('remaining', [100, 0, -100])
+    def test_reloaded_extension_deadline_without_regrant(
+            self, one, monkeypatch, side, remaining):
+        now = 1800000000.0
+        monkeypatch.setattr(pm.time, 'time', lambda: now)
+        one.price = 103.0 if side == 'SHORT' else 97.0
+        one.momentum_weak = False
+        TestOneHReversal()._set_1h(one, side)
+        # Qualifying extension inputs must not grant another extension.
+        monkeypatch.setattr(pm, '_s6api', lambda: (
+            None, None, None, lambda s: one.price, None,
+            lambda s: (0, 0, 0.001), lambda s: 70, None))
+        pos = one.base(side=side, open_time=now - 250 * 60,
+                       time_extended=True, extend_deadline=now + remaining)
+        for _ in range(2):
+            pos = dict(pos)  # State reloaded between monitor cycles.
+            one.close_calls.clear()
+            one.close_result = False
+            assert one.mon(pos) is None
+            assert pos['extend_deadline'] == now + remaining
+            assert len(one.close_calls) == (0 if remaining > 0 else 1)
+            if one.close_calls:
+                assert one.close_calls[0][2] == '时间止损'
+
+    @pytest.mark.parametrize('side', ['SHORT', 'LONG'])
+    def test_extension_does_not_override_hard_stop(self, one, side):
+        one.price = 103.0 if side == 'SHORT' else 97.0
+        pos = one.base(side=side, open_time=time.time() - 250 * 60,
+                       sl=102.0 if side == 'SHORT' else 98.0,
+                       time_extended=True, extend_deadline=time.time() + 100)
+        assert one.mon(pos)[0] == '硬止损'
+        assert len(one.close_calls) == 1
+
     def test_micro_profit_closes(self, one):
         # hold=250min, pnl=+1（<be 2）
         one.price = 99.0                   # SHORT pnl=+1（<be 2）
@@ -444,9 +506,8 @@ class TestTimeStop:
         r = one.mon(pos)
         assert r[0] == '时间止损' and 'time_extended' not in pos
 
-    def test_time_extended_flag_closes_directly(self, one, monkeypatch):
-        """PMB 冻结：time_extended=True → 下一轮直接平仓（extend_deadline
-        仅在延期尝试轮有效，延期后即失效）。"""
+    def test_time_extended_flag_honors_deadline(self, one, monkeypatch):
+        """V2 intentional correction: persisted extension remains effective."""
         cfg = dict(CFG, time_stop_min=240)
         monkeypatch.setattr(pm, '_get_cfg', lambda p: cfg)
         pos = one.base(open_time=time.time() - 250 * 60,
@@ -455,7 +516,7 @@ class TestTimeStop:
         one.price = 103.0                  # 浮亏分支
         one.momentum_weak = False
         r = one.mon(pos)
-        assert r[0] == '时间止损'
+        assert r is None and one.close_calls == []
 
     def test_preexisting_deadline_still_open_skips(self, one, monkeypatch):
         """未延期但残留 extend_deadline 未到 → 回到延期观察（return None）。"""
