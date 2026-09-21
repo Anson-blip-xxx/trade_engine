@@ -31,6 +31,8 @@ class BinanceSignedTransport:
             "/fapi/v1/openAlgoOrders",
             "/fapi/v1/algoOrder",
             "/fapi/v1/multiAssetsMargin",
+            "/fapi/v1/accountConfig",
+            "/fapi/v1/symbolConfig",
         }
     )
 

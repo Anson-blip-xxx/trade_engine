@@ -9,6 +9,7 @@ class SubmissionNotSent(ValueError):
             "ENDPOINT_OR_WRITE_DISABLED",
             "QUOTA_DENIED",
             "EXCHANGE_CREATED_ORDER_QUERY_ONLY",
+            "VENUE_READINESS_BLOCKED",
         }:
             raise ValueError("unsupported no-submission evidence")
         super().__init__(
