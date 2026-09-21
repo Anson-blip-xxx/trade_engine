@@ -45,8 +45,9 @@ S6/S8 决策和受控订单派发组织为同一个有界循环。仅接受 SAND
 
 1. 实时 S0、账户/交易规则/资金/历史分析 provider：接入真实来源，保留来源快照，
    与本循环共用账户身份和有效期限；当前仅有 assembler。
-2. 保护阶段：将 DirectionalStopRecovery、ProtectionSupervisor 和账户覆盖核验
-   组合为实际 stage。失败必须阻止后续开仓，但不能停止已有仓位恢复。
+2. 保护阶段的实际 stage 已实现，见 `V2_DIRECTIONAL_PROTECTION_STAGE.md`：
+   DirectionalStopRecovery、ProtectionSupervisor 和账户覆盖核验已串联，
+   并已替换部分集成测试的保护替身。仍未部署为启用写入的常驻服务。
 3. 退出阶段：接入实际 PM 退出决策、reduce-only 执行及保护单清理/竞态恢复。
 4. 通用结算与分析阶段：连接成交、手续费、资金费、净盈亏及策略归因。
    现有固定 protocol-test 专用结算器不能作为通用实现。

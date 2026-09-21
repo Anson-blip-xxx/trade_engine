@@ -57,6 +57,12 @@ def coverage_from_facts(scope, facts, inventory):
                 blockers.add("NONEXCLUSIVE_SYMBOL_OWNERSHIP")
             if any(
                 o["status"] not in {"FILLED", "CANCELLED", "REJECTED"}
+                and not (
+                    o["status"] == "PREPARED"
+                    and o.get("leg") == "OPEN"
+                    and o.get("exchange_order_id") is None
+                    and o.get("has_fills") is False
+                )
                 for o in facts["orders"]
             ):
                 blockers.add("LOCAL_ORDERS_NOT_FINAL")
@@ -167,7 +173,8 @@ class AccountCoverageAudit:
                 tuple(asdict(self.scope).values()),
             ).fetchall()
             orders = conn.execute(
-                """SELECT o.order_id::text,i.payload->>'symbol',o.exchange_order_id,o.status,o.version
+                """SELECT o.order_id::text,i.payload->>'symbol',o.exchange_order_id,o.status,o.version,
+                o.leg,EXISTS(SELECT 1 FROM v2_fills f WHERE f.order_id=o.order_id)
                 FROM v2_orders o JOIN v2_trade_intents i ON o.episode_id=i.intent_id
                 WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
                 ORDER BY o.order_id LIMIT 1001""",
@@ -201,6 +208,8 @@ class AccountCoverageAudit:
                             "exchange_order_id",
                             "status",
                             "version",
+                            "leg",
+                            "has_fills",
                         ),
                         r,
                         strict=True,

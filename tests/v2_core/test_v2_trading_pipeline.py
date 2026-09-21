@@ -326,3 +326,80 @@ def test_possible_submission_immediately_recovers_and_protects(
     assert calls.count("dispatch") == 1
     assert result["status"] == "ENTRY_BLOCKED"
     assert "private transport" not in json.dumps(result)
+
+
+def test_pipeline_uses_actual_protection_stage_and_preserves_prepared_orders(
+    case, database
+):
+    from test_v2_directional_lifecycle import Venue, stage
+
+    pipeline, _, _, _, _ = case
+    venue = Venue()
+    pipeline.protection = stage(database, venue, allow_writes=True)
+    for _ in range(2):
+        result = pipeline.run_once()
+        assert result["status"] == "CYCLE_COMPLETE", result
+        assert (
+            result["phases"]["protection"]["coverage"]["status"]
+            == "ACCOUNT_COVERAGE_CLEAR"
+        )
+    assert not venue.writes
+    with database() as conn:
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM v2_orders WHERE status='PREPARED'"
+            ).fetchone()[0]
+            > 0
+        )
+
+
+def test_same_cycle_s3_strategy_injected_fill_and_actual_stop_install(
+    case, database, monkeypatch
+):
+    from test_v2_directional_lifecycle import Venue, stage
+
+    pipeline, _, _, _, _ = case
+    venue = Venue()
+    pipeline.protection = stage(database, venue, allow_writes=True)
+    pipeline.enable_entries = True
+    runtime = pipeline.runtime
+
+    def confirmed_qa_fill(order_id):
+        # Only the exchange opening is injected; this is not online acceptance.
+        order = runtime.execution.snapshot(order_id)
+        quantity = order["quantity"]
+        runtime.data.orders.transition(
+            order_id,
+            expected_version=order["version"],
+            status="SUBMITTING",
+            evidence={},
+        )
+        runtime.data.ledger.record_fill(
+            order_id=order_id,
+            exchange_fill_id="1",
+            quantity=quantity,
+            price="100",
+            fee="0.05",
+            fee_currency="USDT",
+            occurred_at_ms=runtime._now(),
+            evidence={"source": "explicit-QA-fill"},
+        )
+        runtime.data.orders.transition(
+            order_id,
+            expected_version=order["version"] + 1,
+            status="FILLED",
+            exchange_order_id="10",
+            evidence={"fills_complete": True},
+        )
+        venue.rows["/fapi/v3/positionRisk"] = [
+            {"symbol": "BTCUSDT", "positionSide": "BOTH", "positionAmt": quantity}
+        ]
+        return "FILLED"
+
+    monkeypatch.setattr(runtime.execution, "dispatch", confirmed_qa_fill)
+    result = pipeline.run_once()
+    assert result["status"] == "CYCLE_COMPLETE", result
+    assert result["phases"]["after_dispatch_recovery"] == "FILLED"
+    assert result["phases"]["after_dispatch_protection"]["status"] == "CLEAR"
+    assert len(result["entries"]) == len(venue.writes) == 1
+    assert venue.writes[0]["triggerPrice"] == "92"
