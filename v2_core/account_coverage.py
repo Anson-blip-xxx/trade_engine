@@ -151,9 +151,12 @@ class AccountCoverageAudit:
         self.connect, self.scope = connect, scope
         self.inventory = AccountInventory(request, scope=scope, clock_ms=clock_ms)
 
-    def facts(self):
-        with self.connect() as conn:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    def facts(self, *, connection=None):
+        with (
+            nullcontext(connection) if connection is not None else self.connect()
+        ) as conn:
+            if connection is None:
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             episodes = conn.execute(
                 """SELECT i.intent_id::text,i.payload->>'symbol',i.payload->>'side',
                 COALESCE(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)::text,i.data_revision
