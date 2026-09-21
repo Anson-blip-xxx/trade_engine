@@ -28,6 +28,7 @@ class BinanceSignedTransport:
             "/fapi/v3/positionRisk",
             "/fapi/v1/openOrders",
             "/fapi/v1/openAlgoOrders",
+            "/fapi/v1/algoOrder",
             "/fapi/v1/multiAssetsMargin",
         }
     )
@@ -42,6 +43,7 @@ class BinanceSignedTransport:
         clock_ms,
         permit,
         enable_trading=False,
+        enable_testnet_cancellation=False,
         timeout=10,
         connection_factory=HTTPSConnection,
     ):
@@ -66,6 +68,8 @@ class BinanceSignedTransport:
             )
         if (
             type(enable_trading) is not bool
+            or type(enable_testnet_cancellation) is not bool
+            or (enable_testnet_cancellation and environment != "SANDBOX")
             or type(timeout) is not int
             or not 1 <= timeout <= 30
         ):
@@ -78,6 +82,7 @@ class BinanceSignedTransport:
             connection_factory,
         )
         self._trading, self._timeout = enable_trading, timeout
+        self._cancel = enable_testnet_cancellation
 
     def __call__(self, method, path, params):
         if (
@@ -86,6 +91,9 @@ class BinanceSignedTransport:
             or method == "POST"
             and path == "/fapi/v1/order"
             and self._trading
+            or method == "DELETE"
+            and path == "/fapi/v1/algoOrder"
+            and self._cancel
         ):
             pass
         else:
@@ -118,7 +126,7 @@ class BinanceSignedTransport:
                 "X-MBX-APIKEY": self._key,
                 "Content-Type": "application/x-www-form-urlencoded",
             }
-            target = path + "?" + signed if method == "GET" else path
+            target = path + "?" + signed if method in {"GET", "DELETE"} else path
             conn.request(
                 method,
                 target,

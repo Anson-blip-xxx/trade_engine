@@ -415,3 +415,13 @@ BTC/ETH行情→CH小时归档→S3信号→PG回执→Redis上下文已跑通�
 Ruff/格式/diff通过，临时QA服务停止，诊断 `/tmp/v2-data-qa.N54HAf`。
 实际资源、证据ID、恢复限制与后续事项见
 [测试网部署记录](V2_TESTNET_DEPLOYMENT_20260921.md)。Polymarket排除，TV后置。
+
+## 2026-09-21：经用户明确批准完成旧测试账户清理
+
+固定SANDBOX维护计划在PG先登记，2笔reduceOnly平仓与100笔按ID撤单均已查询确认。
+最终账户0持仓/0普通挂单/0条件单，快照和TG完成通知回执已入库；旧数据保留，
+不将维护单当作V2策略表现。清理中补撤单回执延迟的有界只读重查，恢复不重发旧动作。
+详见 [清理与审计记录](V2_TESTNET_CLEANUP_20260921.md)。新开仓仍关闭。
+
+新增15项回归；全仓 **3777 passed、10 skipped、1个既有warning**，200.48秒。
+Ruff/格式/diff通过，QA临时服务停止，诊断 `/tmp/v2-data-qa.6tWLFD`。

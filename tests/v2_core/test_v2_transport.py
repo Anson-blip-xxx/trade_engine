@@ -119,6 +119,45 @@ def test_timeout_is_redacted_and_not_retried():
     assert len(conn.calls) == 1 and conn.closed
 
 
+def test_testnet_cancel_is_explicit_and_signed_in_query():
+    conn = Connection()
+    with pytest.raises(ExchangeTransportError, match="DISABLED"):
+        transport(conn, enable_trading=True)(
+            "DELETE", "/fapi/v1/algoOrder", {"algoId": 123}
+        )
+    assert conn.calls == []
+    client = transport(conn, enable_testnet_cancellation=True)
+    client("DELETE", "/fapi/v1/algoOrder", {"algoId": 123})
+    args, kwargs = conn.calls[0]
+    assert args[0] == "DELETE" and kwargs["body"] is None
+    payload, signature = args[1].split("?", 1)[1].rsplit("&signature=", 1)
+    assert (
+        signature
+        == hmac.new(b"dummy-secret", payload.encode(), hashlib.sha256).hexdigest()
+    )
+    for method, path in [
+        ("POST", "/fapi/v1/order"),
+        ("DELETE", "/fapi/v1/algoOpenOrders"),
+        ("DELETE", "/fapi/v1/order"),
+    ]:
+        with pytest.raises(ExchangeTransportError, match="DISABLED"):
+            client(method, path, {})
+    assert len(conn.calls) == 1
+
+
+def test_cancellation_switch_cannot_enable_live_transport():
+    with pytest.raises(ValueError):
+        BinanceSignedTransport(
+            account_id="qa",
+            environment="LIVE",
+            api_key="dummy",
+            api_secret="dummy",
+            clock_ms=lambda: 1,
+            permit=lambda *_: True,
+            enable_testnet_cancellation=True,
+        )
+
+
 @pytest.mark.parametrize(
     "path",
     [
