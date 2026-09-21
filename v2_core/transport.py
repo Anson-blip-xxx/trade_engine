@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import re
 from http.client import HTTPSConnection
 from typing import ClassVar
 from urllib.parse import urlencode
@@ -44,6 +45,7 @@ class BinanceSignedTransport:
         permit,
         enable_trading=False,
         enable_testnet_cancellation=False,
+        enable_testnet_order_cancellation=False,
         enable_testnet_protection=False,
         timeout=10,
         connection_factory=HTTPSConnection,
@@ -69,6 +71,8 @@ class BinanceSignedTransport:
             )
         if (
             type(enable_trading) is not bool
+            or type(enable_testnet_order_cancellation) is not bool
+            or (enable_testnet_order_cancellation and environment != "SANDBOX")
             or type(enable_testnet_cancellation) is not bool
             or (enable_testnet_cancellation and environment != "SANDBOX")
             or type(enable_testnet_protection) is not bool
@@ -86,6 +90,7 @@ class BinanceSignedTransport:
         )
         self._trading, self._timeout = enable_trading, timeout
         self._cancel = enable_testnet_cancellation
+        self._order_cancel = enable_testnet_order_cancellation
         self._protection = enable_testnet_protection
 
     def __call__(self, method, path, params):
@@ -101,10 +106,26 @@ class BinanceSignedTransport:
             or method == "DELETE"
             and path == "/fapi/v1/algoOrder"
             and self._cancel
+            or method == "DELETE"
+            and path == "/fapi/v1/order"
+            and self._order_cancel
         ):
             pass
         else:
             raise ExchangeTransportError("ENDPOINT_OR_WRITE_DISABLED")
+        if (
+            method == "DELETE"
+            and path == "/fapi/v1/order"
+            and (
+                not isinstance(params, dict)
+                or set(params) != {"symbol", "origClientOrderId"}
+                or not isinstance(params["symbol"], str)
+                or not re.fullmatch(r"[A-Z0-9_]{1,40}", params["symbol"])
+                or not isinstance(params["origClientOrderId"], str)
+                or not re.fullmatch(r"v2[0-9a-f]{32}", params["origClientOrderId"])
+            )
+        ):
+            raise ValueError("scoped V2 cancellation identity required")
         if method == "POST" and path == "/fapi/v1/algoOrder":
             # This capability cannot create an opening order, even if miscalled.
             required = {

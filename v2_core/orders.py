@@ -92,6 +92,10 @@ class Orders:
                 return order_id, client_id
             if row[5] in {"REJECTED", "EXPIRED", "CANCELLED"}:
                 raise ValueError("intent is missing or terminal")
+            if leg == "OPEN":
+                from v2_core.opening_halt import require_opening_allowed
+
+                require_opening_allowed(conn, intent_id)
             slot = json.dumps([*row[:4], payload["symbol"]], separators=(",", ":"))
             if leg == "OPEN":
                 conn.execute(
@@ -254,6 +258,9 @@ class Orders:
                 raise ValueError("cannot reject an order with confirmed fills")
             if row[4] == "OPEN" and status == "SUBMITTING":
                 from v2_core.account_risk import reserve_open
+                from v2_core.opening_halt import require_opening_allowed
+
+                require_opening_allowed(conn, row[2])
 
                 proof = reserve_open(
                     conn,
