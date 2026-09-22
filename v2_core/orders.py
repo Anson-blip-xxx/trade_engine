@@ -1,7 +1,7 @@
 """PG-owned order identity and audited state transitions. No exchange calls."""
 
 import json
-from decimal import localcontext
+from decimal import Decimal, localcontext
 from uuid import UUID, uuid4, uuid5
 
 from v2_core.evidence import canonical
@@ -126,6 +126,27 @@ class Orders:
                     ):
                         raise ValueError("opening allocation exceeds admitted quantity")
             else:
+                request_evidence = json.loads(encoded)
+                native_child = request_evidence.get("origin") == "BINANCE_ALGO_CHILD"
+                if native_child and not (
+                    isinstance(request_evidence.get("parent_algo_id"), int)
+                    and request_evidence["parent_algo_id"] > 0
+                    and request_key
+                    == "native-algo:" + str(request_evidence["parent_algo_id"])
+                    and all(
+                        isinstance(request_evidence.get(field), str)
+                        and bool(request_evidence[field])
+                        for field in (
+                            "parent_client_algo_id",
+                            "exchange_order_id",
+                            "venue_client_order_id",
+                        )
+                    )
+                    and request_evidence["exchange_order_id"].isascii()
+                    and request_evidence["exchange_order_id"].isdecimal()
+                    and int(request_evidence["exchange_order_id"]) > 0
+                ):
+                    raise ValueError("invalid exchange-created close binding")
                 opened = conn.execute(
                     """SELECT COALESCE(sum(f.quantity),0)
                     FROM v2_fills f JOIN v2_orders o USING(order_id)
@@ -149,7 +170,13 @@ class Orders:
                 ).fetchone()[0]
                 with localcontext() as ctx:
                     ctx.prec = 80
-                    available = opened - closed - reserved
+                    # A registered native stop may trigger while a cooperating
+                    # reduce-only exit is in flight. It already exists at the
+                    # exchange, so represent it even though local reservations
+                    # overlap; Binance prevents either order reversing exposure.
+                    available = (
+                        opened - closed - (Decimal(0) if native_child else reserved)
+                    )
                 if requested > available:
                     raise ValueError("close quantity exceeds confirmed fills")
             conn.execute(

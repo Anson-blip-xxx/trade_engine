@@ -189,14 +189,37 @@ def test_incomplete_trades_do_not_claim_filled(setup):
     assert len(data.trace(spec.episode)["fills"]) == 1
 
 
-def test_existing_close_reservation_blocks_conflicting_native_close(setup):
+def test_existing_close_reservation_does_not_hide_confirmed_native_close(setup):
     data, spec, _venue, worker = setup
+    manual, _ = data.orders.prepare(
+        spec.episode, leg="CLOSE", quantity="0.01", request_key="manual"
+    )
+    result = worker.reconcile(spec)
+    assert result["status"] == "FILLED"
+    trace = data.trace(spec.episode)
+    assert len(trace["orders"]) == 3
+    assert next(o for o in trace["orders"] if o["order_id"] == manual)["status"] == (
+        "PREPARED"
+    )
+    assert (
+        len([o for o in trace["orders"] if o["request_key"].startswith("native-algo:")])
+        == 1
+    )
+
+
+def test_forged_native_child_evidence_cannot_bypass_close_reservation(setup):
+    data, spec, _venue, _worker = setup
     data.orders.prepare(
         spec.episode, leg="CLOSE", quantity="0.01", request_key="manual"
     )
-    with pytest.raises(ValueError, match="close quantity"):
-        worker.reconcile(spec)
-    assert len(data.trace(spec.episode)["orders"]) == 2
+    with pytest.raises(ValueError, match="exchange-created close binding"):
+        data.orders.prepare(
+            spec.episode,
+            leg="CLOSE",
+            quantity="0.01",
+            request_key="forged",
+            evidence={"origin": "BINANCE_ALGO_CHILD", "exchange_order_id": "555"},
+        )
 
 
 def test_wrong_episode_side_rejected_before_venue(setup):
