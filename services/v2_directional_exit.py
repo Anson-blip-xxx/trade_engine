@@ -197,7 +197,6 @@ class DirectionalExitStage:
             "funding_rate",
             "ema9_1h",
             "ema20_1h",
-            "quantity_step",
             "exit_fee_rate",
         ):
             if field not in raw:
@@ -251,6 +250,10 @@ class DirectionalExitStage:
             exit_fee_rate=observation["exit_fee_rate"],
         )
         decision = evaluate_directional_exit(facts)
+        quantity_step = trace["decision"]["features"]["context"]["directional"][
+            "sizing"
+        ]["quantity_step"]
+        amount(quantity_step, positive=True)
         encoded_facts = asdict(facts)
         encoded_facts["momentum_closes_15m"] = list(facts.momentum_closes_15m)
         encoded_facts["peak_return_pct"] = decision.peak_return_pct
@@ -292,10 +295,20 @@ class DirectionalExitStage:
             key,
             state.version,
             spec,
+            quantity_step,
         )
 
     def _dispatch(
-        self, episode, remaining, decision, observation, payload, key, version, spec
+        self,
+        episode,
+        remaining,
+        decision,
+        observation,
+        payload,
+        key,
+        version,
+        spec,
+        quantity_step,
     ):
         with self.connect() as account:
             if not account.execute(
@@ -317,7 +330,7 @@ class DirectionalExitStage:
                     "blockers": blockers,
                 }
             persist_inventory(self.connect, scope=self.scope, observation=inventory)
-            step = amount(observation["quantity_step"], positive=True)
+            step = amount(quantity_step, positive=True)
             with localcontext() as ctx:
                 ctx.prec = 100
                 quantity = remaining

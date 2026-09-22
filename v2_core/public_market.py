@@ -96,6 +96,9 @@ class BinancePublicMarket:
             raise TypeError("normalized public parameters required")
         if path == "/fapi/v1/time" and params == {}:
             weight = 1
+        elif path == "/fapi/v1/premiumIndex" and set(params) == {"symbol"}:
+            symbol(params["symbol"])
+            weight = 1
         elif path == "/fapi/v1/klines" and set(params) == {
             "symbol",
             "interval",
@@ -108,15 +111,17 @@ class BinancePublicMarket:
                 milliseconds(params["startTime"]),
                 milliseconds(params["endTime"]),
             )
-            if (
-                params["interval"] != "1m"
-                or type(params["limit"]) is not int
-                or params["limit"] != 1440
-                or start % 60000
-                or end + 1 - start != 86400000
-            ):
+            contracts = {
+                ("1m", 1440): (60000, 86400000, 10),
+                ("15m", 4): (900000, 3600000, 1),
+                ("1h", 20): (3600000, 72000000, 1),
+            }
+            contract = contracts.get((params["interval"], params["limit"]))
+            if contract is None:
                 raise ValueError("bounded closed-minute request required")
-            weight = 10
+            interval, duration, weight = contract
+            if start % interval or end + 1 - start != duration:
+                raise ValueError("bounded closed-market request required")
         else:
             raise PublicMarketError("PUBLIC_ENDPOINT_DISABLED")
         if self.budget.permit(weight) is not True:
