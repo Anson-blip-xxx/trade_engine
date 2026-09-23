@@ -94,9 +94,12 @@ class BinancePublicMarket:
             raise PublicMarketError("PUBLIC_MARKET_DISABLED")
         if not isinstance(params, dict):
             raise TypeError("normalized public parameters required")
-        if path == "/fapi/v1/time" and params == {}:
+        if path in {"/fapi/v1/time", "/fapi/v1/exchangeInfo"} and params == {}:
             weight = 1
-        elif path == "/fapi/v1/premiumIndex" and set(params) == {"symbol"}:
+        elif (path == "/fapi/v1/premiumIndex" and set(params) == {"symbol"}) or (
+            path == "/futures/data/globalLongShortAccountRatio"
+            and params == {"symbol": params.get("symbol"), "period": "1h", "limit": 3}
+        ):
             symbol(params["symbol"])
             weight = 1
         elif path == "/fapi/v1/klines" and set(params) == {

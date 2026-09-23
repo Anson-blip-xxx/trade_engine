@@ -104,6 +104,24 @@ def test_public_disabled_and_quota_denied_before_network():
 
 
 @pytest.mark.parametrize(
+    "path,params",
+    [
+        ("/fapi/v1/exchangeInfo", {}),
+        (
+            "/futures/data/globalLongShortAccountRatio",
+            {"symbol": "BTCUSDT", "period": "1h", "limit": 3},
+        ),
+    ],
+)
+def test_account_context_public_routes_are_exact_get_only(path, params):
+    http, budget = MarketHTTP(raw=b"{}" if not params else b"[]"), Budget()
+    public(http, budget)(path, params)
+    assert len(http.calls) == 1 and budget.weights == [1]
+    with pytest.raises(PublicMarketError, match="ENDPOINT_DISABLED"):
+        public(MarketHTTP())(path, {**params, "extra": "forbidden"})
+
+
+@pytest.mark.parametrize(
     "status,retry,delay",
     [(429, "120", 120), (429, "bad", 60), (418, "", 86400), (418, "99999999", 259200)],
 )

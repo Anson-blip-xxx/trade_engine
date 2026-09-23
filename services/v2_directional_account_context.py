@@ -1,0 +1,312 @@
+"""Read-only Binance and PG evidence for directional strategy sizing.
+
+No values are defaulted. Collection persists a normalized snapshot before it is
+returned; it never submits, cancels, protects or closes an exchange order.
+"""
+
+import json
+from dataclasses import asdict
+from uuid import uuid4
+
+from v2_core.account_risk import AccountScope
+from v2_core.directional import analysis_adjustment, number
+from v2_core.drawdown import BalanceObservation, DrawdownState
+from v2_core.evidence import canonical, digest
+from v2_core.ingress import milliseconds, symbol
+from v2_core.ledger import amount
+from v2_core.state import BusinessState, StateKey
+
+
+def expected_move(signal):
+    kind, features = signal["signal"], signal["features"]
+    field = (
+        "chg_15m"
+        if kind in {"PULSE_UP", "PULSE_DOWN", "PUMP_UP", "PUMP_DOWN", "PANIC_SELL"}
+        else "chg_1h"
+        if kind in {"TREND_UP", "TREND_DOWN"}
+        else "vol_1h"
+        if kind in {"VIOLENT_BULLISH", "VIOLENT_BEARISH"}
+        else None
+    )
+    if field is None or field not in features:
+        raise ValueError("EXPECTED_MOVE_EVIDENCE_MISSING")
+    return format(abs(amount(features[field])).normalize(), "f")
+
+
+def _target_position(rows, target):
+    if not isinstance(rows, list) or len(rows) > 10000:
+        raise ValueError("INVALID_POSITION_SNAPSHOT")
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise TypeError("INVALID_POSITION_SNAPSHOT")
+        name = symbol(row["symbol"])
+        side = row["positionSide"]
+        if side not in {"BOTH", "LONG", "SHORT"}:
+            raise ValueError("INVALID_POSITION_SNAPSHOT")
+        quantity = amount(row["positionAmt"])
+        normalized.append((name, side, format(quantity, "f")))
+    if len(normalized) != len({(name, side) for name, side, _ in normalized}):
+        raise ValueError("DUPLICATE_POSITION_IDENTITY")
+    if any(
+        name == target and amount(quantity) != 0 for name, _, quantity in normalized
+    ):
+        raise ValueError("EXISTING_SYMBOL_POSITION")
+    return sorted(normalized)
+
+
+def _rules(exchange_info, symbol_config, target):
+    if not isinstance(exchange_info, dict) or not isinstance(
+        exchange_info.get("symbols"), list
+    ):
+        raise TypeError("INVALID_EXCHANGE_RULES")
+    matches = [row for row in exchange_info["symbols"] if row.get("symbol") == target]
+    if (
+        len(matches) != 1
+        or matches[0].get("status") != "TRADING"
+        or matches[0].get("contractType") != "PERPETUAL"
+        or matches[0].get("quoteAsset")
+        != ("USDC" if target.endswith("USDC") else "USDT")
+    ):
+        raise ValueError("SYMBOL_NOT_TRADING")
+    row = matches[0]
+    filters = row.get("filters")
+    if not isinstance(filters, list):
+        raise TypeError("INVALID_EXCHANGE_RULES")
+    by_type = {
+        item.get("filterType"): item for item in filters if isinstance(item, dict)
+    }
+    if len(by_type) != len(filters):
+        raise ValueError("DUPLICATE_EXCHANGE_RULE")
+    lot = by_type.get("MARKET_LOT_SIZE") or by_type.get("LOT_SIZE")
+    price, notional = by_type.get("PRICE_FILTER"), by_type.get("MIN_NOTIONAL")
+    if not all(isinstance(item, dict) for item in (lot, price, notional)):
+        raise ValueError("REQUIRED_EXCHANGE_RULE_MISSING")
+    configs = symbol_config if isinstance(symbol_config, list) else [symbol_config]
+    configs = [
+        item
+        for item in configs
+        if isinstance(item, dict) and item.get("symbol") == target
+    ]
+    if len(configs) != 1:
+        raise ValueError("ACCOUNT_SYMBOL_CONFIG_MISSING")
+    values = {
+        "quantity_step": lot["stepSize"],
+        "price_tick": price["tickSize"],
+        "min_quantity": lot["minQty"],
+        "max_quantity": lot["maxQty"],
+        "min_notional": notional.get("notional", notional.get("minNotional")),
+        "max_notional": configs[0]["maxNotionalValue"],
+    }
+    for key, value in values.items():
+        values[key] = format(amount(value, positive=True).normalize(), "f")
+    return values
+
+
+class BinanceDirectionalAccountContext:
+    def __init__(
+        self,
+        connect,
+        request,
+        public_market,
+        history,
+        drawdown,
+        *,
+        scope,
+        clock_ms,
+        max_age_ms=15000,
+        history_max_age_ms=120000,
+    ):
+        if (
+            not isinstance(scope, AccountScope)
+            or scope.environment != "SANDBOX"
+            or not isinstance(drawdown, DrawdownState)
+            or drawdown.key.account_id != scope.account_id
+            or (
+                getattr(request, "account_id", None),
+                getattr(request, "environment", None),
+            )
+            != (scope.account_id, scope.environment)
+            or getattr(public_market, "environment", None) != scope.environment
+            or not all(
+                callable(port) for port in (request, public_market, history, clock_ms)
+            )
+            or type(max_age_ms) is not int
+            or not 1000 <= max_age_ms <= 60000
+            or type(history_max_age_ms) is not int
+            or not 1000 <= history_max_age_ms <= 600000
+        ):
+            raise ValueError("explicit scoped account context dependencies required")
+        self.connect, self.request, self.public, self.history = (
+            connect,
+            request,
+            public_market,
+            history,
+        )
+        self.drawdown, self.scope, self.clock, self.max_age, self.history_max_age = (
+            drawdown,
+            scope,
+            clock_ms,
+            max_age_ms,
+            history_max_age_ms,
+        )
+
+    def __call__(self, signal):
+        target = symbol(signal["symbol"])
+        started = milliseconds(self.clock())
+        before = self.request("GET", "/fapi/v3/positionRisk", {})
+        account = self.request("GET", "/fapi/v3/account", {})
+        config = self.request("GET", "/fapi/v1/symbolConfig", {"symbol": target})
+        exchange = self.public("/fapi/v1/exchangeInfo", {})
+        ratio = self.public(
+            "/futures/data/globalLongShortAccountRatio",
+            {"symbol": target, "period": "1h", "limit": 3},
+        )
+        premium = self.public("/fapi/v1/premiumIndex", {"symbol": target})
+        after = self.request("GET", "/fapi/v3/positionRisk", {})
+        finished = milliseconds(self.clock())
+        if not started <= finished <= started + self.max_age:
+            raise ValueError("ACCOUNT_CONTEXT_DEADLINE")
+        positions = _target_position(before, target)
+        if positions != _target_position(after, target):
+            raise ValueError("POSITIONS_CHANGED_DURING_CONTEXT")
+        if not isinstance(account, dict):
+            raise TypeError("INVALID_ACCOUNT_CONTEXT")
+        if account.get("canTrade") is not True:
+            raise ValueError("ACCOUNT_TRADE_PERMISSION_UNVERIFIED")
+        balance = format(
+            amount(account["totalWalletBalance"], positive=True).normalize(), "f"
+        )
+        available = format(
+            amount(account["availableBalance"], positive=True).normalize(), "f"
+        )
+        used = amount(account["totalInitialMargin"]) + amount(
+            account["totalOpenOrderInitialMargin"]
+        )
+        if used < 0:
+            raise ValueError("INVALID_USED_MARGIN")
+        rules = _rules(exchange, config, target)
+        if not isinstance(ratio, list) or not ratio or not isinstance(ratio[-1], dict):
+            raise ValueError("SHORT_RATIO_MISSING")
+        if ratio[-1].get("symbol") != target:
+            raise ValueError("SHORT_RATIO_SCOPE")
+        short_ratio = format(
+            number(ratio[-1]["shortAccount"], minimum=0, maximum=1).normalize(), "f"
+        )
+        if type(ratio[-1].get("timestamp")) is not int:
+            raise ValueError("SHORT_RATIO_TIMESTAMP")
+        ratio_at = milliseconds(ratio[-1]["timestamp"])
+        if not 0 <= finished - ratio_at <= self.max_age:
+            raise ValueError("SHORT_RATIO_STALE")
+        if not isinstance(premium, dict) or premium.get("symbol") != target:
+            raise ValueError("FUNDING_RATE_MISSING")
+        funding = format(
+            number(premium["lastFundingRate"], minimum=-1, maximum=1).normalize(), "f"
+        )
+        if type(premium.get("time")) is not int:
+            raise ValueError("FUNDING_RATE_TIMESTAMP")
+        funding_at = milliseconds(premium["time"])
+        if not 0 <= finished - funding_at <= self.max_age:
+            raise ValueError("FUNDING_RATE_STALE")
+        history = self.history(signal)
+        if (
+            not isinstance(history, dict)
+            or set(history) != {"stats", "evidence", "observed_at_ms", "valid_until_ms"}
+            or not isinstance(history["stats"], dict)
+            or not isinstance(history["evidence"], dict)
+            or not history["evidence"]
+            or type(history["observed_at_ms"]) is not int
+            or type(history["valid_until_ms"]) is not int
+            or not history["observed_at_ms"] <= finished < history["valid_until_ms"]
+            or finished - history["observed_at_ms"] > self.history_max_age
+        ):
+            raise ValueError("HISTORY_EVIDENCE_UNAVAILABLE")
+        if set(history["stats"]) != {
+            "trades",
+            "win_rate",
+            "avg_quality_score",
+            "t60_avg_post_close_return_pct",
+            "avg_pct",
+        }:
+            raise ValueError("HISTORY_STATS_INCOMPLETE")
+        analysis_adjustment(history["stats"], mode="hard")
+        identity = str(uuid4())
+        normalized = {
+            "observation_id": identity,
+            "account_scope": asdict(self.scope),
+            "symbol": target,
+            "started_at_ms": started,
+            "finished_at_ms": finished,
+            "balance": balance,
+            "available_margin": available,
+            "used_pool_margin": format(used.normalize(), "f"),
+            "rules": rules,
+            "short_ratio": short_ratio,
+            "funding_rate": funding,
+            "response_digests": {
+                name: digest(canonical({"response": value}))
+                for name, value in {
+                    "positions": before,
+                    "account": account,
+                    "symbol_config": config,
+                    "exchange_info": exchange,
+                    "long_short_ratio": ratio,
+                    "premium_index": premium,
+                    "history": history,
+                }.items()
+            },
+        }
+        key = StateKey(
+            **asdict(self.scope),
+            namespace="directional-account-context-v1",
+            key=identity,
+        )
+        result = BusinessState(self.connect).change(
+            key,
+            expected_version=0,
+            request_key=identity,
+            payload=normalized,
+            reason="DIRECTIONAL_ACCOUNT_CONTEXT",
+        )
+        if result.code != "APPLIED":
+            raise ValueError("ACCOUNT_CONTEXT_PERSIST_FAILED")
+        snapshot = self.drawdown.record(
+            BalanceObservation(
+                identity, balance, finished, digest(canonical(normalized))
+            )
+        )
+        drawdown = json.loads(snapshot.payload_json)
+        deadline = min(
+            started + self.max_age + 1,
+            history["valid_until_ms"],
+            history["observed_at_ms"] + self.history_max_age + 1,
+            drawdown["observation"]["observed_at_ms"]
+            + drawdown["config"]["max_age_ms"]
+            + 1,
+        )
+        if finished >= deadline:
+            raise ValueError("ACCOUNT_CONTEXT_STALE")
+        return {
+            "account_scope": asdict(self.scope),
+            "symbol": target,
+            "observed_at_ms": finished,
+            "valid_until_ms": deadline,
+            "evidence": {
+                "state_id": key.identity,
+                "version": result.version,
+                "drawdown_state_id": self.drawdown.key.identity,
+                "drawdown_version": snapshot.version,
+                "history": history["evidence"],
+            },
+            "short_ratio": short_ratio,
+            "history": history["stats"],
+            "sizing": {
+                "balance": balance,
+                "available_margin": available,
+                "used_pool_margin": format(used.normalize(), "f"),
+                **rules,
+                "drawdown_factor": drawdown["state"]["factor"],
+            },
+            "expected_move_pct": expected_move(signal),
+            "funding_rate": funding,
+        }
