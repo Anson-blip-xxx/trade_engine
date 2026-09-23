@@ -210,6 +210,7 @@ def test_watchdog_systemd_unit_is_independent_and_hardened():
     assert "NoNewPrivileges=yes" in unit
     assert "ProtectSystem=strict" in unit
     assert "ReadOnlyPaths=/var/run/postgresql /var/lib/trade-engine-v2" in unit
+    assert "[Install]\nWantedBy=multi-user.target" in unit
 
 
 def insert_heartbeat(database, *, status="RUNNING", age_seconds=0):

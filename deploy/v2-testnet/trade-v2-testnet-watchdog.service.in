@@ -44,3 +44,6 @@ ReadOnlyPaths=/var/run/postgresql /var/lib/trade-engine-v2
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=trade-v2-testnet-watchdog
+
+[Install]
+WantedBy=multi-user.target
