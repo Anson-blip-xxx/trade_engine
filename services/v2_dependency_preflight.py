@@ -1,5 +1,6 @@
 """Bounded readiness gate for the fixed isolated V2 deployment endpoints."""
 
+import argparse
 import http.client
 import importlib.metadata
 import socket
@@ -93,8 +94,12 @@ def wait_for_dependencies(
         sleep(min(0.5, timeout_seconds - (now - started)))
 
 
-def main():
-    raise SystemExit(0 if wait_for_dependencies() else 1)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runtime-only", action="store_true")
+    args = parser.parse_args(argv)
+    ready = runtime_ready() if args.runtime_only else wait_for_dependencies()
+    raise SystemExit(0 if ready else 1)
 
 
 if __name__ == "__main__":
