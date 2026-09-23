@@ -8,7 +8,7 @@ import json
 from dataclasses import asdict
 from uuid import uuid4
 
-from v2_core.account_risk import AccountScope
+from v2_core.account_risk import AccountPolicy, AccountScope
 from v2_core.directional import analysis_adjustment, number
 from v2_core.drawdown import BalanceObservation, DrawdownState
 from v2_core.evidence import canonical, digest
@@ -103,6 +103,44 @@ def _rules(exchange_info, symbol_config, target):
     return values
 
 
+def _risk_budget(connect, scope, target):
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT a.version,p.config,COALESCE(sum(r.notional) FILTER
+            (WHERE r.status='HELD'),0),count(r.episode_id) FILTER
+            (WHERE r.status='HELD') FROM v2_risk_accounts a
+            JOIN v2_risk_policies p USING(scope,version)
+            LEFT JOIN v2_risk_reservations r USING(scope)
+            WHERE a.scope=%s GROUP BY a.version,p.config""",
+            (scope.key,),
+        ).fetchone()
+    if row is None:
+        raise ValueError("ACCOUNT_RISK_POLICY_MISSING")
+    version, config, held_notional, held_positions = row
+    if not isinstance(config, dict):
+        raise TypeError("ACCOUNT_RISK_POLICY_INVALID")
+    try:
+        policy = AccountPolicy(**config)
+    except (TypeError, ValueError, KeyError):
+        raise ValueError("ACCOUNT_RISK_POLICY_INVALID") from None
+    currency = "USDC" if target.endswith("USDC") else "USDT"
+    if policy.currency != currency:
+        raise ValueError("ACCOUNT_RISK_CURRENCY_MISMATCH")
+    held = amount(format(held_notional, "f"))
+    remaining = amount(policy.max_notional, positive=True) - held
+    if held_positions >= policy.max_positions or remaining <= 0:
+        raise ValueError("ACCOUNT_RISK_CAPACITY_UNAVAILABLE")
+    evidence = {
+        "policy_version": version,
+        "policy": config,
+        "held_notional": format(held.normalize(), "f"),
+        "held_positions": held_positions,
+        "available_notional": format(remaining.normalize(), "f"),
+    }
+    evidence["digest"] = digest(canonical(evidence))
+    return evidence
+
+
 class BinanceDirectionalAccountContext:
     def __init__(
         self,
@@ -182,6 +220,7 @@ class BinanceDirectionalAccountContext:
         # ``finished`` before this PG read made a real advancing clock see the
         # freshly observed history as coming from the future.
         history = self.history(signal)
+        risk_budget = _risk_budget(self.connect, self.scope, target)
         finished = milliseconds(self.clock())
         if not started <= finished <= started + self.max_age:
             raise ValueError("ACCOUNT_CONTEXT_DEADLINE")
@@ -212,6 +251,13 @@ class BinanceDirectionalAccountContext:
         if used < 0:
             raise ValueError("INVALID_USED_MARGIN")
         rules = _rules(exchange, config, target)
+        rules["max_notional"] = format(
+            min(
+                amount(rules["max_notional"], positive=True),
+                amount(risk_budget["available_notional"], positive=True),
+            ).normalize(),
+            "f",
+        )
         if not isinstance(ratio, list) or not ratio or not isinstance(ratio[-1], dict):
             raise ValueError("SHORT_RATIO_MISSING")
         if ratio[-1].get("symbol") != target:
@@ -266,6 +312,7 @@ class BinanceDirectionalAccountContext:
             "available_margin": available,
             "used_pool_margin": format(used.normalize(), "f"),
             "rules": rules,
+            "account_risk_budget": risk_budget,
             "short_ratio": short_ratio,
             "funding_rate": funding,
             "market_sources": {
@@ -327,6 +374,7 @@ class BinanceDirectionalAccountContext:
                 "drawdown_state_id": self.drawdown.key.identity,
                 "drawdown_version": snapshot.version,
                 "history": history["evidence"],
+                "account_risk_budget": risk_budget,
                 "sentiment_environment": self.sentiment.environment,
             },
             "short_ratio": short_ratio,

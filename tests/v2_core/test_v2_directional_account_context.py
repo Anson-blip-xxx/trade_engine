@@ -10,6 +10,7 @@ from services.v2_directional_account_context import (
     BinanceDirectionalAccountContext,
     expected_move,
 )
+from v2_core.account_risk import AccountPolicy, AccountRisk
 from v2_core.drawdown import DrawdownState
 
 database = database_fixture
@@ -165,6 +166,11 @@ def build(database, *, sentiment=None):
         currency="USDT",
         max_age_ms=60000,
     )
+    AccountRisk(database).configure(
+        SCOPE,
+        AccountPolicy("USDT", "250", 1, 60000, "binance-closed-1m-v1", 90000),
+        expected_version=0,
+    )
     provider = BinanceDirectionalAccountContext(
         database,
         request,
@@ -195,7 +201,7 @@ def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
         "min_quantity": "0.001",
         "max_quantity": "100",
         "min_notional": "5",
-        "max_notional": "50000",
+        "max_notional": "250",
         "drawdown_factor": "1",
     }
     assert all(method == "GET" for method, *_ in request.calls)
@@ -210,6 +216,8 @@ def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
             (result["evidence"]["state_id"],),
         ).fetchone()[0]
     assert payload["balance"] == "1000" and payload["rules"]["price_tick"] == "0.1"
+    assert payload["account_risk_budget"]["available_notional"] == "250"
+    assert payload["account_risk_budget"]["policy_version"] == 1
     assert set(payload["response_digests"]) == {
         "positions",
         "account",
@@ -266,8 +274,6 @@ def test_history_observed_during_collection_is_not_rejected_as_future(database):
     result = provider(signal())
     assert result["history"] == stats
     assert result["observed_at_ms"] > observations[0]
-
-
 @pytest.mark.parametrize(
     "kind,value",
     [("PULSE_UP", "5.25"), ("TREND_UP", "4"), ("VIOLENT_BULLISH", "18")],
