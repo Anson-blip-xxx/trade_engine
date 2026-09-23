@@ -111,13 +111,19 @@ def create_directional_testnet_pipeline(
 class TestnetTradingDaemon:
     __test__ = False
 
-    def __init__(self, pipeline, *, stop, notify, interval_seconds=10):
+    def __init__(
+        self, pipeline, *, stop, notify, interval_seconds=10, trade_notifications=None
+    ):
         if (
             not isinstance(pipeline, TradingPipeline)
             or pipeline.scope.environment != "SANDBOX"
             or not callable(getattr(stop, "is_set", None))
             or not callable(getattr(stop, "wait", None))
             or not callable(notify)
+            or (
+                trade_notifications is not None
+                and not callable(getattr(trade_notifications, "run_once", None))
+            )
             or type(interval_seconds) is not int
             or not 1 <= interval_seconds <= 60
         ):
@@ -129,6 +135,7 @@ class TestnetTradingDaemon:
             interval_seconds,
         )
         self.scope, self.connect = pipeline.scope, pipeline.connect
+        self.trade_notifications = trade_notifications
         self.store = BusinessState(self.connect)
         self.key = StateKey(
             **asdict(self.scope), namespace="testnet-trading-daemon-v1", key="latest"
@@ -169,6 +176,11 @@ class TestnetTradingDaemon:
                 "cycle_id": result.get("cycle_id"),
             }
         )
+        if self.trade_notifications is not None:
+            try:
+                self.trade_notifications.run_once()
+            except Exception:  # noqa: BLE001, S110 - durable projector retries later
+                pass
         return result
 
     def serve(self):

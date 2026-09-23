@@ -42,6 +42,7 @@ from v2_core.ledger import amount
 from v2_core.producer import RedisMarketContext
 from v2_core.public_market import BinancePublicMarket, PublicRateBudget
 from v2_core.telegram import TelegramOperationalSink
+from v2_core.trade_notifications import TradeLifecycleNotifications
 from v2_core.transport import BinanceSignedTransport
 
 _SECRET_ENV = {
@@ -436,11 +437,15 @@ def create_testnet_process(
     notifier = DaemonTelegramNotifier(
         telegram_sink, account_id=scope.account_id, clock_ms=clock_ms
     )
+    trade_notifications = TradeLifecycleNotifications(
+        connect, telegram_sink, scope=scope
+    )
     daemon = TestnetTradingDaemon(
         pipeline,
         stop=stop,
         notify=notifier,
         interval_seconds=daemon_cfg.interval_seconds,
+        trade_notifications=trade_notifications,
     )
     return TestnetProcess(daemon, market, runtime)
 

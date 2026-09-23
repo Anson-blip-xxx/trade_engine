@@ -165,6 +165,33 @@ def test_checkpoint_failure_prevents_pipeline_launch(case, monkeypatch):
     assert called == []
 
 
+def test_trade_notification_failure_never_changes_completed_pipeline(case, monkeypatch):
+    pipeline, *_ = case
+
+    class Notifications:
+        def run_once(self):
+            raise TimeoutError("telegram-token-must-not-escape")
+
+    daemon = TestnetTradingDaemon(
+        pipeline,
+        stop=Stop(),
+        notify=lambda _: True,
+        trade_notifications=Notifications(),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_once",
+        lambda: {"status": "CYCLE_COMPLETE", "cycle_id": "cycle"},
+    )
+    assert daemon.run_once() == {"status": "CYCLE_COMPLETE", "cycle_id": "cycle"}
+    assert (
+        json.loads(BusinessState(pipeline.connect).read(daemon.key).payload_json)[
+            "pipeline_status"
+        ]
+        == "CYCLE_COMPLETE"
+    )
+
+
 def test_supervisor_sanitizes_failure_and_honors_stop(case, monkeypatch):
     pipeline, *_ = case
     stop, alerts = Stop(cycles=2), []
