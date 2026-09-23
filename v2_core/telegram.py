@@ -6,7 +6,7 @@ Event IDs are visible so a replay can be identified, never used as trade approva
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from http.client import HTTPSConnection
 
@@ -30,14 +30,14 @@ def _number(value, places=8):
 def _time(value):
     if type(value) is not int or value < 0:
         raise TelegramDeliveryError("INVALID_TRADE_NOTIFICATION")
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc).strftime(
-        "%Y-%m-%d %H:%M:%S UTC"
+    utc_plus_8 = timezone(timedelta(hours=8), name="UTC+8")
+    return datetime.fromtimestamp(value / 1000, tz=utc_plus_8).strftime(
+        "%Y-%m-%d %H:%M:%S UTC+8"
     )
 
 
-def _trade_text(scope, kind, event_id, payload):
+def _trade_text(scope, kind, _event_id, payload):
     common = {
-        "account_id",
         "symbol",
         "direction",
         "strategy",
@@ -47,8 +47,6 @@ def _trade_text(scope, kind, event_id, payload):
         "leverage",
         "margin_type",
         "quantity",
-        "episode_id",
-        "signal_id",
     }
     required = common | (
         {
@@ -58,12 +56,8 @@ def _trade_text(scope, kind, event_id, payload):
             "planned_loss",
             "stop_price",
             "stop_status",
-            "stop_algo_id",
             "fees",
             "opened_at_ms",
-            "order_id",
-            "client_order_id",
-            "exchange_order_id",
             "analysis_reason",
             "required_margin",
         }
@@ -82,9 +76,6 @@ def _trade_text(scope, kind, event_id, payload):
             "held_ms",
             "opened_at_ms",
             "closed_at_ms",
-            "close_order_ids",
-            "exchange_order_ids",
-            "settlement_revision",
             "stop_status",
         }
     )
@@ -123,13 +114,9 @@ def _trade_text(scope, kind, event_id, payload):
             "🛡 风控与保护",
             f"计划最大损失：{_number(payload['planned_loss'])} USDT",
             f"止损：{_number(payload['stop_price'])}  |  {payload['stop_status']}",
-            f"保护单 ID：{payload['stop_algo_id']}",
             f"历史调整：{payload['analysis_reason']}",
             "",
             f"时间：{_time(payload['opened_at_ms'])}",
-            f"本地订单：{payload['order_id']}",
-            f"交易所订单：{payload['exchange_order_id']}",
-            f"Client ID：{payload['client_order_id']}",
         ]
     else:
         held = int(payload["held_ms"])
@@ -153,18 +140,7 @@ def _trade_text(scope, kind, event_id, payload):
             f"保护单终态：{payload['stop_status']}",
             f"开仓时间：{_time(payload['opened_at_ms'])}",
             f"平仓时间：{_time(payload['closed_at_ms'])}",
-            f"平仓订单：{payload['close_order_ids']}",
-            f"交易所订单：{payload['exchange_order_ids']}",
-            f"结算版本：{payload['settlement_revision']}",
         ]
-    lines += [
-        "",
-        "🔎 追溯",
-        f"账户：{payload['account_id']} ({scope})",
-        f"Episode：{payload['episode_id']}",
-        f"Signal：{payload['signal_id']}",
-        f"Event：{event_id}",
-    ]
     return "\n".join(lines)
 
 

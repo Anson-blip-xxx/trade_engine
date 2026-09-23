@@ -53,10 +53,14 @@ def redis_ready():
 def clickhouse_ready():
     connection = http.client.HTTPConnection("127.0.0.1", 18123, timeout=1)
     try:
-        connection.request("GET", "/ping", headers={"Connection": "close"})
+        connection.request(
+            "GET",
+            "/?query=SELECT%20timezone%28%29",
+            headers={"Connection": "close"},
+        )
         response = connection.getresponse()
-        body = response.read(16)
-        return response.status == 200 and body.strip() == b"Ok."
+        body = response.read(64)
+        return response.status == 200 and body.strip() == b"Asia/Shanghai"
     finally:
         connection.close()
 

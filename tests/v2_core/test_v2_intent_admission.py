@@ -3978,6 +3978,7 @@ def test_explicit_connection_factory_enforces_readonly_and_durability(database):
     with readonly() as conn:
         assert conn.execute("SHOW synchronous_commit").fetchone() == ("on",)
         assert conn.execute("SHOW transaction_read_only").fetchone() == ("on",)
+        assert conn.execute("SHOW TimeZone").fetchone() == ("Asia/Shanghai",)
     with pytest.raises(psycopg.errors.ReadOnlySqlTransaction), readonly() as conn:
         conn.execute("UPDATE v2_trade_intents SET version=version+1")
 

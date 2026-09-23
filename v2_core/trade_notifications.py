@@ -127,7 +127,6 @@ class TradeLifecycleNotifications:
             raise ValueError("TRADE_NOTIFICATION_EVIDENCE_PENDING")
         protected = protection[0][0]
         common = {
-            "account_id": self.scope.account_id,
             "symbol": trace["request"]["symbol"],
             "direction": plan["side"],
             "strategy": plan["strategy"],
@@ -137,8 +136,6 @@ class TradeLifecycleNotifications:
             "leverage": plan["leverage"],
             "margin_type": plan["margin_mode"],
             "quantity": _exact(quantity),
-            "episode_id": episode,
-            "signal_id": trace["signal"]["signal_id"],
         }
         return (
             trace,
@@ -150,7 +147,6 @@ class TradeLifecycleNotifications:
             notional,
             readiness[0],
             protected,
-            order_identity[0],
             common,
         )
 
@@ -159,13 +155,12 @@ class TradeLifecycleNotifications:
             trace,
             _,
             sizing,
-            opening,
+            _opening,
             fills,
             entry,
             notional,
             readiness,
             protection,
-            exchange_order,
             common,
         ) = self._facts(episode)
         return {
@@ -176,14 +171,8 @@ class TradeLifecycleNotifications:
             "planned_loss": sizing["planned_loss"],
             "stop_price": sizing["stop_price"],
             "stop_status": protection["status"],
-            "stop_algo_id": str(
-                (protection.get("observation") or {}).get("algoId", "PENDING")
-            ),
             "fees": _fees(fills),
             "opened_at_ms": min(row["occurred_at_ms"] for row in fills),
-            "order_id": opening["order_id"],
-            "client_order_id": opening["client_order_id"],
-            "exchange_order_id": str(exchange_order),
             "analysis_reason": trace["decision"]["features"]["evaluation"]["analysis"][
                 "reason"
             ],
@@ -191,7 +180,7 @@ class TradeLifecycleNotifications:
         }
 
     def _closing(self, episode):
-        trace, _, sizing, _, open_fills, entry, notional, _, protection, _, common = (
+        trace, _, sizing, _, open_fills, entry, notional, _, protection, common = (
             self._facts(episode)
         )
         if trace["episode"]["status"] != "SETTLED" or len(trace["settlements"]) != 1:
@@ -212,7 +201,7 @@ class TradeLifecycleNotifications:
                 (episode,),
             ).fetchone()
             order_rows = conn.execute(
-                """SELECT order_id::text,exchange_order_id,request_evidence
+                """SELECT request_evidence
                 FROM v2_orders WHERE episode_id=%s AND leg='CLOSE' ORDER BY updated_at,order_id""",
                 (episode,),
             ).fetchall()
@@ -221,8 +210,8 @@ class TradeLifecycleNotifications:
         report = Ledger(self.connect).report(episode, settlement_currency="USDT")
         if report["accounting_status"] != "SETTLED":
             raise ValueError("FINAL_ACCOUNTING_REQUIRED")
-        reasons = [row[2].get("reason") for row in order_rows if row[2].get("reason")]
-        native = any(row[2].get("origin") == "BINANCE_ALGO_CHILD" for row in order_rows)
+        reasons = [row[0].get("reason") for row in order_rows if row[0].get("reason")]
+        native = any(row[0].get("origin") == "BINANCE_ALGO_CHILD" for row in order_rows)
         if native:
             reason = "NATIVE_" + protection["spec"]["kind"]
         elif exit_state is not None:
@@ -253,9 +242,6 @@ class TradeLifecycleNotifications:
             "held_ms": closed_at - opened_at,
             "opened_at_ms": opened_at,
             "closed_at_ms": closed_at,
-            "close_order_ids": ",".join(row[0] for row in order_rows),
-            "exchange_order_ids": ",".join(str(row[1]) for row in order_rows),
-            "settlement_revision": outcome[4],
             "stop_status": protection["status"],
         }
 

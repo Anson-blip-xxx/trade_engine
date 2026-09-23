@@ -9,6 +9,7 @@
     <listen_host>127.0.0.1</listen_host>
     <http_port>18123</http_port>
     <tcp_port>19000</tcp_port>
+    <timezone>Asia/Shanghai</timezone>
     <path>/var/lib/trade-engine-v2/clickhouse/</path>
     <tmp_path>/var/lib/trade-engine-v2/clickhouse/tmp/</tmp_path>
     <user_files_path>/var/lib/trade-engine-v2/clickhouse/user_files/</user_files_path>

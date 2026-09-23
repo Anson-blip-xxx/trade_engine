@@ -99,8 +99,7 @@ def test_confirmed_open_and_settlement_render_complete_durable_messages(
         "S6 / S6A",
         "杠杆：3x CROSSED",
         "计划最大损失：10 USDT",
-        "保护单 ID：77",
-        episode,
+        "1970-01-01 08:00:00 UTC+8",
     ):
         assert expected in opening
     for expected in (
@@ -112,9 +111,20 @@ def test_confirmed_open_and_settlement_render_complete_durable_messages(
         "净收益：-10.106 USDT",
         "收益率：-8.0848%",
         "原因：RECONCILED_EXTERNAL_CLOSE",
-        episode,
     ):
         assert expected in closing
+    for hidden in (
+        "追溯",
+        "Episode",
+        "Signal",
+        "Event",
+        "本地订单",
+        "交易所订单",
+        "Client ID",
+        "保护单 ID",
+        episode,
+    ):
+        assert hidden not in opening and hidden not in closing
     assert notifications.run_once() == {
         "claimed": 0,
         "delivered": 0,

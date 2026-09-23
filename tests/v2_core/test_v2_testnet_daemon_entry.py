@@ -238,9 +238,7 @@ def test_process_propagates_external_position_exclusion_to_entry_gate(database):
     )
     gate = process.runtime.execution.submit
     assert gate.readiness.inventory.excluded_position_symbols == ("ZORAUSDT",)
-    assert gate.configure.__self__.inventory.excluded_position_symbols == (
-        "ZORAUSDT",
-    )
+    assert gate.configure.__self__.inventory.excluded_position_symbols == ("ZORAUSDT",)
     cache.close()
 
 
@@ -275,6 +273,8 @@ def test_systemd_template_is_hardened_unrendered_and_defaults_to_no_writes():
         "trade-v2-clickhouse.service",
     ):
         assert dependency in unit
+    clickhouse = (root / "deploy/v2-testnet/clickhouse.xml").read_text()
+    assert "<timezone>Asia/Shanghai</timezone>" in clickhouse
     for name, family in (
         ("trade-v2-cache.service.in", "RestrictAddressFamilies=AF_UNIX"),
         (

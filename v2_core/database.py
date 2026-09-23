@@ -36,6 +36,9 @@ def connection_factory(dsn, *, schema, read_only=False):
                 )
             )
             conn.execute("SET LOCAL synchronous_commit TO on")
+            # TIMESTAMPTZ remains an absolute instant; this only fixes every
+            # human-readable PostgreSQL rendering to the operator timezone.
+            conn.execute("SET LOCAL TIME ZONE 'Asia/Shanghai'")
             conn.execute("SET LOCAL lock_timeout TO '5s'")
             conn.execute("SET LOCAL statement_timeout TO '30s'")
             yield conn

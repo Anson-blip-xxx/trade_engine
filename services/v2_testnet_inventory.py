@@ -59,9 +59,16 @@ def deployment_database():
     with connect() as conn:
         row = conn.execute(
             "SELECT current_setting('cluster_name'),current_database(),"
-            "current_setting('listen_addresses'),to_regclass('v2_business_state')::text"
+            "current_setting('listen_addresses'),to_regclass('v2_business_state')::text,"
+            "current_setting('TimeZone')"
         ).fetchone()
-        if row != ("16/tradev2", "trade_v2_testnet", "", "v2_business_state"):
+        if row != (
+            "16/tradev2",
+            "trade_v2_testnet",
+            "",
+            "v2_business_state",
+            "Asia/Shanghai",
+        ):
             raise ValueError("WRONG_DEPLOYMENT_DATABASE")
     return connect
 
