@@ -54,3 +54,10 @@ ClickHouse 或 daemon，因此依赖失败时监督进程仍可运行；启动�
 本节点没有发送 Binance 写请求，没有改变三项交易权限，也没有重启现有 daemon。
 真实依赖中断通知、恢复通知、整机 reboot、长时间 soak 与回滚仍需单独演练，不能由
 上述只读烟测替代。
+
+部署后补充证据：`trade-v2-testnet-watchdog.service` 已安装并 `enabled`，使用只读 release
+`1f83956dfabeda9725b8d5eb8e5522a3885d0f42` 与锁定 Python 3.12 venv；连续观察为
+`active/running`、`NRestarts=0`。首次模板遗漏 `[Install]` 使 `is-enabled=static`，由
+提交 `50f8c85` 补回并增加回归断言，重新安装时只执行 `daemon-reload` 和 `enable`，未重启
+watchdog。原交易 daemon 的 `ActiveEnterTimestamp` 仍为 14:43:43，继续运行
+`a29565a...` release 且 `NRestarts=0`；三项写权限仍为 `false`。
