@@ -150,6 +150,24 @@ def test_actual_stage_installs_original_stop_despite_other_prepared_order(
         ).fetchone() == ("PREPARED",)
 
 
+def test_stop_installer_honors_same_explicit_external_position_exclusion(database):
+    _, result = opening(database)
+    venue = Venue()
+    venue.rows["/fapi/v3/positionRisk"] = [
+        {"symbol": "BTCUSDT", "positionSide": "BOTH", "positionAmt": "1.25"},
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"},
+    ]
+    result = stage(
+        database,
+        venue,
+        allow_writes=True,
+        excluded_position_symbols=("ZORAUSDT",),
+    ).run_once()
+    assert result["status"] == "CLEAR"
+    assert len(venue.writes) == 1
+    assert result["stops"][next(iter(result["stops"]))]["status"] == "NEW"
+
+
 def test_prepared_only_does_not_cancel_or_freeze_strategy_entry(database):
     _, result = opening(database, filled=False)
     venue = Venue()

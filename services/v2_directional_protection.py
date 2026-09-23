@@ -13,7 +13,15 @@ from v2_core.protection import ProtectionSpec
 
 class DirectionalStopRecovery:
     def __init__(
-        self, connect, request, *, scope, reference, clock_ms, allow_writes=False
+        self,
+        connect,
+        request,
+        *,
+        scope,
+        reference,
+        clock_ms,
+        allow_writes=False,
+        excluded_position_symbols=(),
     ):
         self.connect, self.scope = connect, scope
         self.recovery = PartialOpenProtection(
@@ -23,6 +31,7 @@ class DirectionalStopRecovery:
             reference=reference,
             clock_ms=clock_ms,
             allow_writes=allow_writes,
+            excluded_position_symbols=excluded_position_symbols,
         )
 
     def plan(self, order_id):

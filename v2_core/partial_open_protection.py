@@ -12,7 +12,15 @@ from v2_core.protection_install import GuardedStopInstaller
 
 class PartialOpenProtection:
     def __init__(
-        self, connect, request, *, scope, reference, clock_ms, allow_writes=False
+        self,
+        connect,
+        request,
+        *,
+        scope,
+        reference,
+        clock_ms,
+        allow_writes=False,
+        excluded_position_symbols=(),
     ):
         self.cancel = TestnetOpeningCancel(
             connect, request, scope=scope, allow_cancel=allow_writes
@@ -24,6 +32,7 @@ class PartialOpenProtection:
             reference=reference,
             clock_ms=clock_ms,
             allow_create=allow_writes,
+            excluded_position_symbols=excluded_position_symbols,
         )
 
     def ensure(self, order_id, spec):

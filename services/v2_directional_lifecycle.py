@@ -42,6 +42,7 @@ class DirectionalProtectionStage:
             reference=reference,
             clock_ms=clock_ms,
             allow_writes=allow_writes,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.supervisor = ProtectionSupervisor(connect, request, scope=scope)
         self.audit = AccountCoverageAudit(

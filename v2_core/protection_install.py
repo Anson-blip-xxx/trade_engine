@@ -19,7 +19,15 @@ from v2_core.state import BusinessState
 
 class GuardedStopInstaller:
     def __init__(
-        self, connect, request, *, scope, reference, clock_ms, allow_create=False
+        self,
+        connect,
+        request,
+        *,
+        scope,
+        reference,
+        clock_ms,
+        allow_create=False,
+        excluded_position_symbols=(),
     ):
         if (
             type(allow_create) is not bool
@@ -34,7 +42,11 @@ class GuardedStopInstaller:
             allow_create,
         )
         self.audit = AccountCoverageAudit(
-            connect, request, scope=scope, clock_ms=clock_ms
+            connect,
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.protection = TestnetProtection(
             BusinessState(connect), request, scope=scope
