@@ -45,12 +45,14 @@ Polymarket 排除，TradingView 后置，TG复用现有配置。执行记录与�
 补齐隔离 PG directional history migration，归档 S0、保护核验、退出、结算和 T60 均运行；
 按既定决定把 ZORA 作为显式、可审计、仅仓位数量排除的外部资产，未知挂单和本地认领
 仍会阻断。连续周期达到 `CYCLE_COMPLETE`，三项写权限全关且无订单更新。
-历史 S3 任务追平、长跑、故障/重启和自然新信号仍未完成，第 7/8 项保持开放。
+历史 S3 任务已在后续持久 release 追平；长跑、真实 reboot 和受支持方向信号仍未完成，
+第 7/8 项保持开放。
 
 同日进一步完成[持久只读发布](V2_PERSISTENT_RELEASE_20260923.md)：root 只读 release、
 离线 venv、永久 Redis/ClickHouse/daemon 单元、依赖 readiness gate 和 Redis 缓存重建
 已经实际验证；一次公共行情失败正确阻断并告警，随后恢复，期间无订单更新。
-daemon 已 enable，但尚未执行整机 reboot；历史任务追平和自然信号仍是第 7/8 项门禁。
+daemon 已 enable，但尚未执行整机 reboot；历史任务现已追平，受支持方向信号的自然
+只读判定仍是第 7/8 项门禁。
 
 策略清单须覆盖 s0、s2、s3、s6、s7、s8、s8b、pm、tv_bridge；本轮在
 `services/`、`strategies/` 中未找到直接命名为 S8B 的实现，不据此宣称该模块不存在

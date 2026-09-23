@@ -5,7 +5,7 @@
 首次冷启动使用远端 V2 提交 `da0b0f7fbd7c48cb39bd01948925559d96cd21a4`。发现运行时
 版本缺口并修复后，最终 daemon release 切换到：
 
-`/opt/trade-engine-v2/releases/71cc61914d471a00e89bb01b001beab37bce6c28`
+`/opt/trade-engine-v2/releases/a29565a40219ca16e11fd2b41976dc259059d8ce`
 
 目录由 root 持有并移除全部写权限。首次冷启动使用
 `/opt/trade-engine-v2/venvs/py312-system-v1`，随后核查发现它继承的系统 psycopg 为
@@ -54,12 +54,21 @@ PG/ClickHouse 数据及后续确认帧恢复。恢复后保护、退出、结算
 `CYCLE_COMPLETE`；保护、退出、结算、followups 为 CLEAR，market 为 CURRENT 或
 ACKNOWLEDGED，regime 为 PROJECTED。该窗口 `v2_orders.updated_at` 更新数为 0。
 
+最终 release 解决了三个真实自然信号阻断：Demo 多空比路径只返回 `ok`，因此改用明确
+记录来源的 LIVE 无凭据公共情绪端口；交易权限改由实际返回 `true/false/false` 的
+`accountConfig` 核验；HIGH_VOL/LOW_VOL 等无关事件在外部上下文前直接终结。中间版本
+实际落下 5 条 `sentiment_environment=LIVE` 账户上下文证据。最终版本上线后 S6/S8 均
+达到 `completed=scheduled=source_signals=5262`、`incomplete=undiscovered=0`、
+`caught_up=true`，连续 6 个周期 `CYCLE_COMPLETE`，0 订单更新、0 服务重启。该窗口
+自然新事件为 HIGH_VOL/LOW_VOL，均形成 IGNORED/EXPIRED；没有注入方向信号。
+
 ## QA 与剩余边界
 
 初始持久栈全仓回归为 4171 passed；运行时锁节点为 4174 passed；策略追平证据节点为
 4175 passed；自然信号上下文修正节点最终为 4180 passed。后续各次均为 10 skipped、
 1 条既有 PM golden warning；Ruff、format、diff 和完整 systemd unit 静态验证通过。
 
-尚未执行整机 reboot，因此“已 enable”不等于真实断电启动演练。仍需历史任务追平、
-自然新信号只读判定、较长 soak、实际 reboot/回滚以及依赖持续故障告警验证。完成这些
+尚未执行整机 reboot，因此“已 enable”不等于真实断电启动演练。历史任务已经追平；
+仍需自然出现的受支持方向信号只读判定、较长 soak、实际 reboot/回滚以及依赖持续故障
+告警验证。完成这些
 门禁前，保护写入、reduce-only 退出和开仓权限继续保持 false。
