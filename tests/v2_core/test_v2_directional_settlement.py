@@ -153,6 +153,34 @@ def test_incomplete_final_proof_never_settles(database, closed, failure):
     )
 
 
+def test_explicit_external_position_does_not_block_final_settlement(database, closed):
+    runtime, episode, income = closed
+    baseline(database, runtime, episode)
+    venue = Venue(income)
+    venue.rows["/fapi/v3/positionRisk"] = [
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"}
+    ]
+    stage = DirectionalSettlementStage(
+        database,
+        venue,
+        scope=SCOPE,
+        clock_ms=lambda: 70000,
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    result = stage.run_once()
+    assert result["status"] == "CLEAR"
+    assert result["settlements"][episode]["status"] == "SETTLED"
+    with database() as conn:
+        payload = conn.execute(
+            """SELECT payload FROM v2_business_state
+            WHERE scope->>'namespace'='account-inventory-v1'
+            ORDER BY version DESC LIMIT 1"""
+        ).fetchone()[0]
+    assert payload["excluded_position_symbols"] == ["ZORAUSDT"]
+    assert payload["summary"]["positions"] == []
+    assert payload["summary"]["excluded_positions"][0]["symbol"] == "ZORAUSDT"
+
+
 def test_failure_after_funding_allocation_rolls_back_whole_settlement(
     database, closed, monkeypatch
 ):

@@ -17,7 +17,16 @@ from v2_core.state import BusinessState, StateKey
 
 
 class DirectionalSettlementStage:
-    def __init__(self, connect, request, *, scope, clock_ms, limit=10):
+    def __init__(
+        self,
+        connect,
+        request,
+        *,
+        scope,
+        clock_ms,
+        limit=10,
+        excluded_position_symbols=(),
+    ):
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError("bounded settlement batch required")
         self.connect, self.scope, self.clock, self.limit = (
@@ -30,7 +39,11 @@ class DirectionalSettlementStage:
             connect, request, scope=scope, clock_ms=clock_ms
         )
         self.coverage = AccountCoverageAudit(
-            connect, request, scope=scope, clock_ms=clock_ms
+            connect,
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.outcomes = DirectionalOutcomeJournal(connect, scope=scope)
 
@@ -99,7 +112,12 @@ class DirectionalSettlementStage:
         final = self.coverage.inventory.collect(str(uuid4()))
         after = self.coverage.facts()
         persist_inventory(self.connect, scope=self.scope, observation=final)
-        blockers = coverage_from_facts(self.scope, after, final)
+        blockers = coverage_from_facts(
+            self.scope,
+            after,
+            final,
+            excluded_position_symbols=self.coverage.excluded_position_symbols,
+        )
         if before != after:
             blockers = sorted(set(blockers) | {"LOCAL_FACTS_CHANGED_DURING_INVENTORY"})
         if (

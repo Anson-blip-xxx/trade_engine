@@ -82,7 +82,11 @@ def create_directional_testnet_pipeline(
         allow_writes=enable_reduce_only_exits,
     )
     settlement = DirectionalSettlementStage(
-        runtime.data._connect, request, scope=scope, clock_ms=clock_ms
+        runtime.data._connect,
+        request,
+        scope=scope,
+        clock_ms=clock_ms,
+        excluded_position_symbols=external_position_exclusions,
     )
     followups = DirectionalFollowupStage(
         runtime.data._connect,

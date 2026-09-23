@@ -178,7 +178,12 @@ class AccountCoverageAudit:
             raise ValueError("testnet futures coverage only")
         self.connect, self.scope = connect, scope
         self.excluded_position_symbols = _excluded_positions(excluded_position_symbols)
-        self.inventory = AccountInventory(request, scope=scope, clock_ms=clock_ms)
+        self.inventory = AccountInventory(
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=self.excluded_position_symbols,
+        )
 
     def facts(self, *, connection=None):
         with (

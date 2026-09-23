@@ -60,6 +60,13 @@ def test_factory_wires_actual_lifecycle_stages_without_io(case):
     assert calls == []
 
 
+def test_factory_propagates_external_position_exclusion_to_final_settlement(case):
+    pipeline, *_ = case
+    composed = compose(pipeline, external_position_exclusions=("ZORAUSDT",))
+    assert composed.protection.audit.excluded_position_symbols == ("ZORAUSDT",)
+    assert composed.settlement.coverage.excluded_position_symbols == ("ZORAUSDT",)
+
+
 def test_factory_can_enable_reducing_exits_while_entries_remain_disabled(case):
     pipeline, *_ = case
     pipeline.runtime.execution.submit.reduce_only_enabled = True
