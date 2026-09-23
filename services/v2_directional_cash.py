@@ -302,7 +302,10 @@ class DirectionalCashAudit:
         end = max(f["occurred_at_ms"] for f in trace["fills"])
         if self.clock() < end + 60000:
             return {"status": "WAITING_INCOME_LAG", "settlement_authorized": False}
-        run = self.importer.import_window(start_ms=start, end_ms=end)
+        # Binance income timestamps may be truncated to the containing second
+        # while userTrades retains milliseconds for the same trade identity.
+        income_start, income_end = max(0, start - 999), end + 999
+        run = self.importer.import_window(start_ms=income_start, end_ms=income_end)
         if run["status"] != "FETCHED":
             return {
                 "status": "INCOME_INCOMPLETE",
@@ -322,7 +325,7 @@ class DirectionalCashAudit:
                 """SELECT income_id::text,income_type,source_id,symbol,amount::text,currency,occurred_at_ms,evidence
                 FROM v2_exchange_income WHERE (exchange,account_id,environment,product)=(%s,%s,%s,%s)
                 AND occurred_at_ms BETWEEN %s AND %s ORDER BY income_type,source_id LIMIT 20001""",
-                (*asdict(self.scope).values(), start, end),
+                (*asdict(self.scope).values(), income_start, income_end),
             ).fetchall()
             rows = [
                 dict(

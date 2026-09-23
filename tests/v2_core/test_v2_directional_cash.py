@@ -216,6 +216,16 @@ def test_income_lag_wait_has_no_exchange_calls(database, closed):
     assert income.calls == 0
 
 
+def test_income_second_flooring_still_matches_the_same_trade_ids(database, closed):
+    _, episode, income = closed
+    income.rows[0]["time"] = 2
+    income.rows[1]["time"] = 9
+    income.rows[2]["time"] = 9
+    proof = auditor(database, income).audit(episode)
+    assert proof["status"] == "CASH_MATCHED"
+    assert Decimal(proof["provisional_net_pnl"]) == Decimal("-10.106")
+
+
 def test_income_transport_failure_is_nonterminal_and_sanitized(database, closed):
     _, episode, income = closed
     income.fail = True
