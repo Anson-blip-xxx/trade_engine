@@ -30,6 +30,11 @@ Binance Demo 对上述多空比路径实际返回 HTTP 200、`application/octet-
 `sentiment_environment=LIVE` 写入状态和决策引用。1 小时桶时间戳允许最多 2 小时年龄，
 但整个账户快照和返回上下文仍保持 15 秒边界。
 
+正式 S6/S8 调度器在访问账户、行情和历史端口前先运行纯 `supports_event` 分类。
+HIGH_VOL、LOW_VOL 等不属于对应方向策略的 S3 事件直接持久化为
+`UNSUPPORTED_DIRECTIONAL_EVENT / IGNORED`，不产生外部请求，也不进入失败重试；只有
+当前、未决且属于该策略的方向事件才收集完整上下文。
+
 账户、规则、公共行情和历史响应都以摘要进入
 `directional-account-context-v1` PG 状态；标准化的余额、保证金、规则、资金费和多空比
 随状态保存。随后才更新回撤观察并返回上下文，决策证据引用两个 PG 状态版本。

@@ -150,6 +150,41 @@ def test_scheduler_persists_formal_task_and_order(database):
     assert scheduler.run_once() == {}
 
 
+def test_scheduler_ignores_unrelated_s3_event_without_account_context(database):
+    _, runtime, original, context = scenario(database)
+    formal(runtime).consume(original, context=context)
+    signal = runtime.data.signals.admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key="unrelated-high-vol",
+        snapshot={
+            "symbol": "BTCUSDT",
+            "observed_at": 1,
+            "expires_at_ms": 8,
+            "signal": "HIGH_VOL",
+            "features": {"type": "HIGH_VOL", "strength": 31},
+        },
+    )
+    scheduler = create_directional_admission_scheduler(
+        runtime,
+        context_provider=lambda _: pytest.fail(
+            "unrelated event needs no account context"
+        ),
+        strategy="S6",
+        analysis_mode="hard",
+        max_delay_ms=5,
+        enable_admission=True,
+    )
+    assert scheduler.run_once() == {original: "PREPARED", signal: "IGNORED"}
+    assert scheduler.run_once() == {}
+    assert scheduler.progress()["caught_up"] is True
+    with database() as conn:
+        assert conn.execute(
+            "SELECT reason FROM v2_signal_receipts WHERE consumer=%s AND signal_id=%s",
+            (scheduler.worker.scope.consumer, signal),
+        ).fetchone() == ("UNSUPPORTED_DIRECTIONAL_EVENT",)
+
+
 @pytest.mark.parametrize(
     "failure", ["disabled", "not_bool", "live", "unbound", "reference", "strategy"]
 )

@@ -1325,6 +1325,24 @@ def test_strategy_scheduler_failed_signal_does_not_starve_later_signal(database)
     assert set(rows) == {(bad, "ConnectionError", False), (good, None, True)}
 
 
+def test_strategy_scheduler_persists_only_fixed_diagnostic_detail(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "fixed-code")
+    worker, _ = strategy_worker(database)
+    scheduler = StrategyScheduler(
+        worker,
+        context_provider=lambda _: (_ for _ in ()).throw(
+            ValueError("ACCOUNT_MODE_UNVERIFIED")
+        ),
+    )
+    assert scheduler.run_once() == {signal_id: "UNAVAILABLE"}
+    with database() as conn:
+        assert conn.execute(
+            "SELECT error_code FROM v2_strategy_tasks WHERE signal_id=%s", (signal_id,)
+        ).fetchone() == ("ACCOUNT_MODE_UNVERIFIED",)
+
+
 def test_strategy_scheduler_progress_distinguishes_undiscovered_and_incomplete(
     database,
 ):

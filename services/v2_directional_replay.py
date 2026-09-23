@@ -28,6 +28,15 @@ def decimal_features(value):
 def replay_decision(signal, context, config):
     if config["mode"] != "REPLAY_ONLY":
         raise ValueError("replay cannot authorize execution")
+    event = signal["features"]
+    if event.get("type", signal["signal"]) != signal["signal"]:
+        raise ValueError("conflicting event type")
+    if not supports_event(config["strategy"], signal["signal"]):
+        return StrategyDecision(
+            "IGNORED",
+            "UNSUPPORTED_DIRECTIONAL_EVENT",
+            features_json='{"execution_authorized":false}',
+        )
     if context["account_scope"] != config["account_scope"]:
         raise ValueError("replay account scope mismatch")
     if (
@@ -41,15 +50,6 @@ def replay_decision(signal, context, config):
     ):
         raise ValueError("replay context expired or future")
     snapshot = context["directional"]
-    event = signal["features"]
-    if event.get("type", signal["signal"]) != signal["signal"]:
-        raise ValueError("conflicting event type")
-    if not supports_event(config["strategy"], signal["signal"]):
-        return StrategyDecision(
-            "IGNORED",
-            "UNSUPPORTED_DIRECTIONAL_EVENT",
-            features_json='{"execution_authorized":false}',
-        )
     plan = evaluate_market(
         config["strategy"],
         {

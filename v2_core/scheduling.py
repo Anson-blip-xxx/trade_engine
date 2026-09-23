@@ -4,15 +4,30 @@ Leases reduce duplicate pure evaluation, not guarantee exactly-once execution.
 StrategyWorker's immutable decision and idempotent admission are the authority.
 """
 
+import re
 from copy import deepcopy
 from uuid import uuid4
 
 
+def diagnostic_code(exc):
+    detail = str(exc)
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", detail):
+        return detail
+    return type(exc).__name__
+
+
 class StrategyScheduler:
-    def __init__(self, worker, *, context_provider):
-        if not callable(context_provider):
-            raise TypeError("explicit read-only context provider required")
-        self.worker, self.context_provider = worker, context_provider
+    def __init__(self, worker, *, context_provider, context_required=None):
+        context_required = (
+            (lambda _: True) if context_required is None else context_required
+        )
+        if not callable(context_provider) or not callable(context_required):
+            raise TypeError("explicit read-only context policy required")
+        self.worker, self.context_provider, self.context_required = (
+            worker,
+            context_provider,
+            context_required,
+        )
         self._connect = worker._connect
 
     def progress(self):
@@ -106,12 +121,17 @@ class StrategyScheduler:
                 now = worker.runtime._now()
                 # Recovery must not depend on a fresh market snapshot. In
                 # particular an unavailable feed cannot prevent expiry handling.
-                needs_context = (
+                eligible_for_context = (
                     stored is None
                     and receipt is None
                     and snapshot["signal"] != "EVENT_END"
                     and snapshot["observed_at"] <= now < snapshot["expires_at_ms"]
                 )
+                needs_context = False
+                if eligible_for_context:
+                    needs_context = self.context_required(deepcopy(snapshot))
+                    if type(needs_context) is not bool:
+                        raise TypeError("context policy must return bool")
                 context = (
                     self.context_provider(deepcopy(snapshot)) if needs_context else {}
                 )
@@ -120,7 +140,7 @@ class StrategyScheduler:
                 ]
             except Exception as exc:  # noqa: BLE001 - poison signals cannot stop other tasks
                 results[signal_id] = "UNAVAILABLE"
-                error = type(exc).__name__
+                error = diagnostic_code(exc)
             delay = (
                 interval_seconds
                 if error is None
