@@ -32,6 +32,7 @@ class TradingPipeline:
         *,
         runtime,
         market,
+        regime,
         schedulers,
         protection,
         exits,
@@ -63,7 +64,11 @@ class TradingPipeline:
                 or scheduler.worker.strategy_version != "directional-admission-v2-1"
             ):
                 raise ValueError("single runtime and actual directional rules required")
-        if market.source.publisher.environment != scope.environment:
+        if (
+            market.source.publisher.environment != scope.environment
+            or getattr(regime, "environment", None) != scope.environment
+            or not callable(getattr(regime, "run_once", None))
+        ):
             raise ValueError("market environment mismatch")
         for stage in (protection, exits, settlement, followups):
             if getattr(stage, "scope", None) != scope or not callable(
@@ -72,10 +77,11 @@ class TradingPipeline:
                 raise ValueError(
                     "bound protection, exit, settlement and T60 stages required"
                 )
-        self.runtime, self.scope, self.market, self.schedulers = (
+        self.runtime, self.scope, self.market, self.regime, self.schedulers = (
             runtime,
             scope,
             market,
+            regime,
             schedulers,
         )
         self.protection, self.exits, self.settlement, self.followups = (
@@ -161,7 +167,20 @@ class TradingPipeline:
                 and market.get("status") in {"ACKNOWLEDGED", "CURRENT"}
                 and not failed(market)
             )
-            can_admit = all(safety) and not failed(recovered) and market_ok
+            regime = phase(
+                "regime",
+                self.regime.run_once
+                if market_ok
+                else lambda: {"status": "BLOCKED", "error_code": "MARKET_NOT_CURRENT"},
+            )
+            regime_ok = (
+                isinstance(regime, dict)
+                and regime.get("status") in {"CLEAR", "PROJECTED"}
+                and not failed(regime)
+            )
+            can_admit = (
+                all(safety) and not failed(recovered) and market_ok and regime_ok
+            )
             if can_admit:
                 for scheduler in self.schedulers:
                     result = phase(

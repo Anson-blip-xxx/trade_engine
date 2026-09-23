@@ -9,6 +9,7 @@ from test_v2_account_inventory import TelegramConnection, sink
 from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_followup import DirectionalFollowupStage
+from services.v2_s0_regime import ArchivedS0Stage
 from services.v2_testnet_daemon_entry import (
     BinanceTestnetMark,
     PrivateRatePermit,
@@ -177,6 +178,7 @@ def test_full_process_factory_wires_real_components_without_io(database):
     pipeline = process.daemon.pipeline
     assert isinstance(process.runtime.execution.submit, GuardedOpeningSubmit)
     assert isinstance(pipeline.followups, DirectionalFollowupStage)
+    assert isinstance(pipeline.regime, ArchivedS0Stage)
     assert [item.worker.scope.producer for item in pipeline.schedulers] == ["s6", "s8"]
     assert pipeline.enable_entries is False
     assert pipeline.protection.allow_writes is False

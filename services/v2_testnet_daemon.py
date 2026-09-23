@@ -23,6 +23,7 @@ def create_directional_testnet_pipeline(
     request,
     public_market,
     market,
+    regime,
     schedulers,
     mark_reference,
     clock_ms,
@@ -45,6 +46,7 @@ def create_directional_testnet_pipeline(
         or getattr(request, "account_id", None) != scope.account_id
         or getattr(request, "environment", None) != scope.environment
         or getattr(public_market, "environment", None) != scope.environment
+        or getattr(regime, "environment", None) != scope.environment
         or not all(
             callable(port)
             for port in (request, public_market, mark_reference, clock_ms)
@@ -89,6 +91,7 @@ def create_directional_testnet_pipeline(
     return TradingPipeline(
         runtime=runtime,
         market=market,
+        regime=regime,
         schedulers=schedulers,
         protection=protection,
         exits=exits,

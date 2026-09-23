@@ -22,6 +22,7 @@ from services.v2_directional_context import DirectionalContext
 from services.v2_directional_execution import bind_directional_venue_gate
 from services.v2_market_pipeline import create_market_pipeline
 from services.v2_risk_reference import create_guarded_runtime
+from services.v2_s0_regime import create_s0_stage
 from services.v2_testnet_daemon import (
     TestnetTradingDaemon,
     create_directional_testnet_pipeline,
@@ -271,6 +272,16 @@ def create_testnet_process(
             else {}
         ),
     )
+    regime = create_s0_stage(
+        connect,
+        archive=market.source.archive,
+        redis_client=redis_client,
+        environment="SANDBOX",
+        symbols=config.symbols,
+        clock_ms=clock_ms,
+        max_age_ms=90000,
+        lifetime_ms=120000,
+    )
     public_market = market.collector.transport
     private_budget = PublicRateBudget(
         connect, scope="v2-testnet-private:" + scope.account_id, limit=2400
@@ -379,6 +390,7 @@ def create_testnet_process(
         request=request,
         public_market=public_market,
         market=market,
+        regime=regime,
         schedulers=schedulers,
         mark_reference=mark,
         clock_ms=clock_ms,

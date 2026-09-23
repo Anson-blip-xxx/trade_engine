@@ -34,6 +34,7 @@ def compose(pipeline, **changes):
         "request": request,
         "public_market": Public(),
         "market": pipeline.market,
+        "regime": pipeline.regime,
         "schedulers": pipeline.schedulers,
         "mark_reference": lambda _: {},
         "clock_ms": pipeline.runtime.clock_ms,

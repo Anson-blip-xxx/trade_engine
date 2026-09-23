@@ -131,6 +131,7 @@ def case(database):
 
     class Stage:
         scope = SCOPE
+        environment = "SANDBOX"
         status = "CLEAR"
 
         def __init__(self, name):
@@ -143,6 +144,7 @@ def case(database):
     pipeline = TradingPipeline(
         runtime=runtime,
         market=market,
+        regime=Stage("regime"),
         schedulers=schedulers,
         protection=Stage("protection"),
         exits=Stage("exits"),
@@ -156,7 +158,14 @@ def test_real_s3_detection_through_context_strategy_and_pg_order(case, database)
     pipeline, calls, _, _, _ = case
     result = pipeline.run_once()
     assert result["status"] == "CYCLE_COMPLETE"
-    assert calls == ["protection", "exits", "settlement", "followups", "market"]
+    assert calls == [
+        "protection",
+        "exits",
+        "settlement",
+        "followups",
+        "market",
+        "regime",
+    ]
     assert result["phases"]["s6"] and "PREPARED" in result["phases"]["s6"].values()
     assert result["entries"] == {}
     with database() as conn:
@@ -180,7 +189,14 @@ def test_incomplete_lifecycle_stage_prevents_new_decisions(case, database, stage
     getattr(pipeline, stage).status = "PENDING"
     result = pipeline.run_once()
     assert result["status"] == "ENTRY_BLOCKED"
-    assert calls == ["protection", "exits", "settlement", "followups", "market"]
+    assert calls == [
+        "protection",
+        "exits",
+        "settlement",
+        "followups",
+        "market",
+        "regime",
+    ]
     with database() as conn:
         assert (
             conn.execute("SELECT count(*) FROM v2_strategy_decisions").fetchone()[0]
@@ -195,6 +211,19 @@ def test_market_outage_never_skips_position_management(case):
     assert calls == ["protection", "exits", "settlement", "followups", "market"]
     assert result["status"] == "ENTRY_BLOCKED"
     assert "secret-url" not in json.dumps(result)
+
+
+def test_regime_failure_blocks_admission_after_market(case, database):
+    pipeline, calls, _, _, _ = case
+    pipeline.regime.status = "RETRY"
+    result = pipeline.run_once()
+    assert result["status"] == "ENTRY_BLOCKED"
+    assert calls[-2:] == ["market", "regime"]
+    with database() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM v2_strategy_decisions").fetchone()[0]
+            == 0
+        )
 
 
 @pytest.mark.parametrize(
@@ -247,9 +276,10 @@ def test_public_collection_to_durable_source_to_actual_strategy_decisions(
     from market_fakes import ArchiveClient, MarketHTTP
 
     from services.v2_market_pipeline import create_market_pipeline
+    from services.v2_s0_regime import create_s0_stage
     from v2_core.producer import RedisMarketContext
 
-    pipeline, _, _, envelopes, now = case
+    pipeline, _, _, _, now = case
     socket = os.environ["V2_REDIS_TEST_SOCKET"]
     assert socket.startswith("/tmp/v2-data-qa.")
     client = redis.Redis(unix_socket_path=socket, decode_responses=True)
@@ -276,15 +306,26 @@ def test_public_collection_to_durable_source_to_actual_strategy_decisions(
             monotonic_ms=lambda: 0,
             http_connection_factory=http,
         )
+        pipeline.regime = create_s0_stage(
+            database,
+            archive=pipeline.market.source.archive,
+            redis_client=client,
+            environment="SANDBOX",
+            symbols=["BTCUSDT"],
+            clock_ms=lambda: now,
+            max_age_ms=90000,
+            lifetime_ms=120000,
+        )
         cache = RedisMarketContext(client, environment="SANDBOX")
         for scheduler in pipeline.schedulers:
-            scheduler.context_provider.market.read = lambda *args: (
-                envelopes.get(args) if args[0] == "s0" else cache.read(*args)
-            )
+            scheduler.context_provider.market.read = cache.read
         result = pipeline.run_once()
         assert result["phases"]["market"]["status"] == "ACKNOWLEDGED"
+        assert result["phases"]["regime"]["status"] == "PROJECTED"
         assert len(http.calls) == 2
         assert archive.tables["v2_candle_archive"]
+        s0 = cache.read("s0", "SANDBOX", "*")
+        assert s0["features"]["evidence"]["s3_frame_id"].startswith("s3-closed-1m-v1:")
         with database() as conn:
             assert conn.execute(
                 "SELECT status FROM v2_candle_deliveries"
@@ -299,8 +340,15 @@ def test_public_collection_to_durable_source_to_actual_strategy_decisions(
         assert (
             result["entries"] == {}
         )  # Real strategies may reject; never force a trade.
+        replay = pipeline.run_once()
+        assert replay["phases"]["market"]["status"] == "CURRENT"
+        assert replay["phases"]["regime"]["status"] == "PROJECTED"
+        with database() as conn:
+            assert conn.execute(
+                "SELECT count(*) FROM v2_producer_batches WHERE source='s0'"
+            ).fetchone() == (1,)
     finally:
-        client.delete(key)
+        client.delete(key, "v2:market:SANDBOX:s0:*")
         client.close()
 
 
