@@ -1,0 +1,48 @@
+[Unit]
+Description=Trade Engine V2 Binance Testnet daemon
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=@PROJECT_ROOT@
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=@ENV_FILE@
+ExecStart=@PYTHON@ -m services.v2_testnet_daemon_entry --credentials @CREDENTIAL_FILE@
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=read-only
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/run/postgresql /var/lib/trade-engine-v2
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trade-v2-testnet-daemon
+
+[Install]
+WantedBy=multi-user.target
