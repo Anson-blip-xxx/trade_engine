@@ -54,6 +54,13 @@ Polymarket 排除，TradingView 后置，TG复用现有配置。执行记录与�
 daemon 已 enable，但尚未执行整机 reboot；历史任务现已追平，受支持方向信号的自然
 只读判定仍是第 7/8 项门禁。
 
+随后完成[设置协调与分阶段写入验收](V2_TESTNET_SETTINGS_DEPLOYMENT_20260923.md)：新
+release 已推送并部署，保护/退出/entry 权限逐级开启，10 个 Demo 可交易标的的真实采集
+捕获方向信号并由冻结阈值正确过滤；旧 release 回滚、新 release 前滚、ClickHouse
+中断失败关闭及恢复均实际通过。当前 Testnet 三项权限已恢复开启并继续等待自然合格
+信号。尚无自然 OPEN，故真实 symbol settings POST 和开仓—保护—退出—结算闭环仍未
+关闭；整机 reboot 也仍开放。
+
 策略清单须覆盖 s0、s2、s3、s6、s7、s8、s8b、pm、tv_bridge；本轮在
 `services/`、`strategies/` 中未找到直接命名为 S8B 的实现，不据此宣称该模块不存在
 或已完成迁移，需结合历史交接与运行服务映射定位。此处 pm 指仓位管理，不是 Polymarket。

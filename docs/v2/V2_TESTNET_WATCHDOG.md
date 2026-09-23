@@ -61,3 +61,9 @@ ClickHouse 或 daemon，因此依赖失败时监督进程仍可运行；启动�
 提交 `50f8c85` 补回并增加回归断言，重新安装时只执行 `daemon-reload` 和 `enable`，未重启
 watchdog。原交易 daemon 的 `ActiveEnterTimestamp` 仍为 14:43:43，继续运行
 `a29565a...` release 且 `NRestarts=0`；三项写权限仍为 `false`。
+
+后续依赖中断演练见
+[设置协调与分阶段写入验收](V2_TESTNET_SETTINGS_DEPLOYMENT_20260923.md)：在交易写权限
+全关时停止 ClickHouse，daemon 按依赖关系停止而 watchdog 持续 active；恢复后依赖和
+daemon 均 0 重启并重新达到 `CYCLE_COMPLETE`。本机没有 TG 送达回执，因此只记为探测
+窗口覆盖，不宣称通知恰好一次或已由用户端确认。
