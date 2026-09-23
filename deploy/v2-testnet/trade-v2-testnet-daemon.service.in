@@ -16,7 +16,7 @@ Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=@ENV_FILE@
 ExecStartPre=@PYTHON@ -m services.v2_dependency_preflight
 ExecStart=@PYTHON@ -m services.v2_testnet_daemon_entry --credentials @CREDENTIAL_FILE@
-Restart=on-failure
+Restart=always
 RestartSec=10
 TimeoutStartSec=30
 TimeoutStopSec=30

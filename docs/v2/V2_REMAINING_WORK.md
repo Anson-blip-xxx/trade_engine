@@ -140,6 +140,11 @@ RELEASED，流水线恢复 CYCLE_COMPLETE；最终 V2 核心隔离 QA 为 1274 p
 推送并部署。第 1—5 项在当前 S6/S8 Testnet 范围内已闭合；第 6 项 S7、TV 后置，
 第 7 项只剩整机 reboot/更长观察，第 8 项只剩独立 LIVE 发布决策和切换演练。
 
+同日开始 [Testnet 连续运行观察](V2_TESTNET_SOAK_RELEASE_20260923.md)：最新不可变
+release 已发布，PG/Redis/ClickHouse/daemon/watchdog 全部 enable，daemon 与 watchdog
+分别通过一次受控崩溃自动拉起。观察期内只运行 Testnet；达到运行、数据完整性和样本
+门槛后才形成 LIVE 候选，实盘凭据和切换仍须单独批准。
+
 新增 [真实账户核验与受控首单入口](V2_VENUE_READINESS.md)：实际账户权限、杠杆/
 保证金模式、USDT 余额及敞口核验，证据先落库再调用 submit；绑定 S6/S8 原始计划。
 后续补齐 Testnet symbol settings 协调：仅开仓权限开启、无 V2 管理仓位且无挂单时，

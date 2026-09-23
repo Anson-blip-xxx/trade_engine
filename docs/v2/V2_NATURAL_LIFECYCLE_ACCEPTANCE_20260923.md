@@ -46,12 +46,16 @@
 - 最终完整 V2 核心隔离 QA：`1274 passed in 441.84s`。
 - 最后结算链 targeted QA：50 passed；outcome/settlement targeted QA：28 passed。
 - Ruff 与 `git diff --check` 通过。
-- 当前不可变 release：`f6b17319d7db4ee4ba758719a152acd55d31e673`。
-- `trade-v2-testnet-daemon.service` 与 watchdog 均 active，`NRestarts=0`。
+- 自然生命周期验收 release：`f6b17319d7db4ee4ba758719a152acd55d31e673`；
+  最终文档与验收固化提交：`a6f509c6b556a546c5a606cbec9f2d9591528335`。
+- `trade-v2-testnet-daemon.service` 与 watchdog 均 active。发布后的受控 `SIGKILL`
+  故障注入中，两者各自动恢复一次（`NRestarts=1`），恢复后流水线重新达到
+  `CYCLE_COMPLETE`，保护、退出和结算均为 `CLEAR`，风险预留为 0。
 - Testnet entry/protection/reduce-only 三项权限已恢复；LIVE 仍无授权。
 
 ## 仍属后置或人工发布门禁
 
 - TradingView 按用户决定后置；Polymarket 不进入 V2；S7 网格不阻塞当前方向策略发布。
-- 尚未执行整机 reboot 演练；systemd 冷启动、依赖 readiness、release 前滚/回滚已验证。
+- 尚未执行整机 reboot 演练；systemd 冷启动、进程崩溃自动拉起、依赖 readiness、
+  release 前滚/回滚已验证。
 - Testnet 验收不能替代 LIVE 凭据、生产限额和切换窗口的单独批准。

@@ -265,6 +265,7 @@ def test_systemd_template_is_hardened_unrendered_and_defaults_to_no_writes():
         "CapabilityBoundingSet=",
         "TimeoutStopSec=30",
         "KillSignal=SIGTERM",
+        "Restart=always",
         "ExecStartPre=@PYTHON@ -m services.v2_dependency_preflight",
     ):
         assert directive in unit
