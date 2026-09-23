@@ -31,6 +31,7 @@ def create_directional_testnet_pipeline(
     enable_entries=False,
     enable_protection_writes=False,
     enable_reduce_only_exits=False,
+    external_position_exclusions=(),
 ):
     flags = (enable_entries, enable_protection_writes, enable_reduce_only_exits)
     scope = runtime.scope
@@ -68,6 +69,7 @@ def create_directional_testnet_pipeline(
         reference=mark_reference,
         clock_ms=clock_ms,
         allow_writes=enable_protection_writes,
+        excluded_position_symbols=external_position_exclusions,
     )
     exits = DirectionalExitStage(
         runtime.data._connect,

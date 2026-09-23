@@ -14,12 +14,23 @@ from psycopg.types.json import Jsonb
 
 from v2_core.account_inventory import AccountInventory
 from v2_core.evidence import canonical, digest
+from v2_core.ingress import symbol
 from v2_core.ledger import amount
 from v2_core.protection import ProtectionSpec
 from v2_core.state import BusinessState, StateKey
 
 
-def coverage_from_facts(scope, facts, inventory):
+def _excluded_positions(values):
+    if not isinstance(values, (list, tuple)) or len(values) > 20:
+        raise ValueError("bounded external position exclusions required")
+    normalized = tuple(sorted(symbol(item) for item in values))
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("unique external position exclusions required")
+    return normalized
+
+
+def coverage_from_facts(scope, facts, inventory, *, excluded_position_symbols=()):
+    exclusions = set(_excluded_positions(excluded_position_symbols))
     if inventory["account_scope"] != asdict(scope):
         raise ValueError("COVERAGE_SCOPE_MISMATCH")
     blockers = set(inventory["blockers"]) - {
@@ -50,7 +61,10 @@ def coverage_from_facts(scope, facts, inventory):
             actual = {
                 p["symbol"]: amount(p["quantity"])
                 for p in inventory["summary"]["positions"]
+                if p["symbol"] not in exclusions
             }
+            if set(owners) & exclusions:
+                blockers.add("EXCLUDED_POSITION_HAS_LOCAL_OWNERSHIP")
             if {k: v for k, v in expected.items() if v} != actual:
                 blockers.add("VENUE_LEDGER_POSITION_MISMATCH")
             if any(len(items) != 1 for items in owners.values()):
@@ -147,7 +161,15 @@ def coverage_from_facts(scope, facts, inventory):
 
 
 class AccountCoverageAudit:
-    def __init__(self, connect, request, *, scope, clock_ms):
+    def __init__(
+        self,
+        connect,
+        request,
+        *,
+        scope,
+        clock_ms,
+        excluded_position_symbols=(),
+    ):
         if (scope.exchange, scope.environment, scope.product) != (
             "BINANCE",
             "SANDBOX",
@@ -155,6 +177,7 @@ class AccountCoverageAudit:
         ):
             raise ValueError("testnet futures coverage only")
         self.connect, self.scope = connect, scope
+        self.excluded_position_symbols = _excluded_positions(excluded_position_symbols)
         self.inventory = AccountInventory(request, scope=scope, clock_ms=clock_ms)
 
     def facts(self, *, connection=None):
@@ -234,7 +257,12 @@ class AccountCoverageAudit:
             before = self.facts()
             observation = self.inventory.collect(str(uuid4()))
             after = self.facts()
-            blockers = coverage_from_facts(self.scope, after, observation)
+            blockers = coverage_from_facts(
+                self.scope,
+                after,
+                observation,
+                excluded_position_symbols=self.excluded_position_symbols,
+            )
             if before != after:
                 blockers = sorted(
                     set(blockers) | {"LOCAL_FACTS_CHANGED_DURING_INVENTORY"}
@@ -244,6 +272,7 @@ class AccountCoverageAudit:
                 if blockers
                 else "ACCOUNT_COVERAGE_CLEAR",
                 "blockers": blockers,
+                "excluded_position_symbols": list(self.excluded_position_symbols),
                 "execution_authorized": False,
             }
             identity = observation["observation_id"]

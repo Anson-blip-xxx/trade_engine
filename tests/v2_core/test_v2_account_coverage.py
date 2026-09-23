@@ -110,6 +110,49 @@ def test_multiple_episode_owners_and_unknown_orders_block(covered):
     assert "LOCAL_ORDERS_NOT_FINAL" in errors
 
 
+def test_explicit_external_position_exclusion_is_narrow_and_audited(covered):
+    audit, reader, _ = covered
+    reader.rows["/fapi/v3/positionRisk"].append(
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"}
+    )
+    scoped = AccountCoverageAudit(
+        audit.connect,
+        reader,
+        scope=SCOPE,
+        clock_ms=lambda: 1000,
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    result = scoped.run_once()
+    assert result["status"] == "ACCOUNT_COVERAGE_CLEAR"
+    assert result["excluded_position_symbols"] == ["ZORAUSDT"]
+    with audit.connect() as conn:
+        payload = conn.execute(
+            "SELECT payload FROM v2_state_history WHERE reason='ACCOUNT_COVERAGE_AUDIT' AND payload ? 'result' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()[0]
+    assert payload["result"]["excluded_position_symbols"] == ["ZORAUSDT"]
+
+
+def test_exclusion_never_hides_local_ownership_or_external_orders(covered):
+    audit, reader, _ = covered
+    facts = audit.facts()
+    facts["episodes"][0]["symbol"] = "ZORAUSDT"
+    errors = coverage_from_facts(
+        SCOPE,
+        facts,
+        inventory(reader),
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    assert "EXCLUDED_POSITION_HAS_LOCAL_OWNERSHIP" in errors
+    reader.rows["/fapi/v1/openOrders"] = [{"symbol": "ZORAUSDT", "orderId": 999}]
+    errors = coverage_from_facts(
+        SCOPE,
+        audit.facts(),
+        inventory(reader),
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    assert "UNOWNED_ORDINARY_ORDER" in errors
+
+
 def test_ledger_change_during_network_blocks(covered, monkeypatch):
     audit, _, _ = covered
     original = audit.facts

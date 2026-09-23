@@ -32,6 +32,7 @@ def settings(**changes):
         "V2_ENABLE_REDUCE_ONLY_EXITS": "false",
         "V2_TESTNET_WRITE_ACK": "",
         "V2_SYMBOLS": "BTCUSDT,ETHUSDT",
+        "V2_EXTERNAL_POSITION_EXCLUSIONS": "",
         "V2_EXIT_FEE_RATE": "0.0004",
     }
     values.update(changes)
@@ -49,6 +50,7 @@ def test_process_config_is_explicit_public_and_never_accepts_environment_secrets
         "enable_protection_writes": False,
         "enable_reduce_only_exits": False,
         "symbols": ["BTCUSDT", "ETHUSDT"],
+        "external_position_exclusions": [],
         "exit_fee_rate": "0.0004",
         "notifications": True,
     }
@@ -57,10 +59,17 @@ def test_process_config_is_explicit_public_and_never_accepts_environment_secrets
         {"V2_SYMBOLS": "BTCUSDT, BTCUSDT"},
         {"V2_SYMBOLS": "BTCUSDT,BTCUSDT"},
         {"V2_SYMBOLS": "../bad"},
+        {"V2_EXTERNAL_POSITION_EXCLUSIONS": "BTCUSDT"},
+        {"V2_EXTERNAL_POSITION_EXCLUSIONS": "ZORAUSDT, ZORAUSDT"},
         {"V2_EXIT_FEE_RATE": "4e-4"},
     ):
         with pytest.raises(ValueError):
             TestnetProcessConfig.from_mapping(settings(**change))
+
+    excluded = TestnetProcessConfig.from_mapping(
+        settings(V2_EXTERNAL_POSITION_EXCLUSIONS="ZORAUSDT")
+    )
+    assert excluded.external_position_exclusions == ("ZORAUSDT",)
 
 
 def test_credentials_require_absolute_private_regular_file_and_select_testnet_only(

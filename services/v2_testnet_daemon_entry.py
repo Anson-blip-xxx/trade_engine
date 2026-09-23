@@ -60,6 +60,7 @@ class TestnetProcessConfig:
 
     daemon: TestnetDaemonConfig
     symbols: tuple[str, ...]
+    external_position_exclusions: tuple[str, ...]
     exit_fee_rate: str
 
     @classmethod
@@ -76,18 +77,35 @@ class TestnetProcessConfig:
         if not 1 <= len(items) <= 20 or len(set(items)) != len(items):
             raise ValueError("bounded unique Testnet symbols required")
         targets = tuple(symbol(item) for item in items)
+        raw_exclusions = values.get("V2_EXTERNAL_POSITION_EXCLUSIONS", "")
+        if not isinstance(raw_exclusions, str) or any(
+            char.isspace() for char in raw_exclusions
+        ):
+            raise ValueError("canonical external position exclusions required")
+        exclusions = (
+            tuple(symbol(item) for item in raw_exclusions.split(","))
+            if raw_exclusions
+            else ()
+        )
+        if (
+            len(exclusions) > 20
+            or len(set(exclusions)) != len(exclusions)
+            or set(exclusions) & set(targets)
+        ):
+            raise ValueError("bounded disjoint position exclusions required")
         fee = values.get("V2_EXIT_FEE_RATE")
         if not isinstance(fee, str):
             raise TypeError("explicit exit fee rate required")
         normalized = number(fee, minimum=0, maximum=Decimal(".01"))
         if fee != format(normalized, "f"):
             raise ValueError("canonical exit fee rate required")
-        return cls(daemon, targets, fee)
+        return cls(daemon, targets, exclusions, fee)
 
     def public_summary(self):
         return {
             **self.daemon.public_summary(),
             "symbols": list(self.symbols),
+            "external_position_exclusions": list(self.external_position_exclusions),
             "exit_fee_rate": self.exit_fee_rate,
             "notifications": True,
         }
@@ -398,6 +416,7 @@ def create_testnet_process(
         enable_entries=daemon_cfg.enable_entries,
         enable_protection_writes=daemon_cfg.enable_protection_writes,
         enable_reduce_only_exits=daemon_cfg.enable_reduce_only_exits,
+        external_position_exclusions=config.external_position_exclusions,
     )
     notifier = DaemonTelegramNotifier(
         telegram_sink, account_id=scope.account_id, clock_ms=clock_ms

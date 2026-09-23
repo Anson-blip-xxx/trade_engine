@@ -29,6 +29,11 @@
 `V2_TESTNET_WRITE_ACK=SANDBOX:<account_id>`；仅打开开仓而未打开保护会直接拒绝。
 配置对象的公开摘要不包含 API key、secret、TG token 或配置文件内容。
 
+可选 `V2_EXTERNAL_POSITION_EXCLUSIONS` 只用于 SANDBOX 中已明确不由 V2 接管的外部
+持仓。它必须是规范、唯一且与 `V2_SYMBOLS` 不重叠的列表；配置和每次 coverage 证据
+均公开记录。它不忽略外部挂单，也不能隐藏 V2 自有仓位，详见
+[实际只读联调](V2_UNIFIED_DRY_RUN_20260923.md)。
+
 ## 进程入口与密钥边界
 
 `TestnetProcessConfig` 只从进程环境读取非敏感设置：账户、SANDBOX、轮询间隔、
@@ -83,7 +88,9 @@
 
 V2 S0 已接入确认归档，详见 [S0 说明](V2_S0_REGIME.md)。进程不会伪造中性 regime：
 缺失、过期或不一致 S0 时保护、退出、结算和行情仍可运行，S6/S8 准入失败关闭。
-仍需完成账户风控策略的显式预配置、Testnet 长时间运行、真实自然信号全链路、
+首次真实只读统一循环已经完成，数据见
+[2026-09-23 联调记录](V2_UNIFIED_DRY_RUN_20260923.md)。仍需完成历史任务追平、
+Testnet 长时间运行、真实自然信号全链路、
 重启/依赖中断演练、可观测性和发布回滚。
 账户、资金费、合约规则及 PG 历史已有真实 provider；
 完成这些验收前不得切换实盘。

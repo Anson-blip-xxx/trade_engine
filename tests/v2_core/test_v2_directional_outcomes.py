@@ -1,4 +1,5 @@
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from test_v2_directional_cash import closed as closed_fixture
@@ -24,6 +25,27 @@ def outcome(database, closed):
 
 def market_signal():
     return {"symbol": "BTCUSDT", "signal": "TREND_UP", "features": {}}
+
+
+def test_directional_history_migration_is_repeatable(database):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "db/migrations/20260923_directional_history.sql"
+    ).read_text()
+    with database() as conn:
+        conn.execute("DROP TABLE v2_directional_followups")
+        conn.execute("DROP TABLE v2_directional_outcomes")
+        conn.execute(script)
+        conn.execute(script)
+        assert conn.execute(
+            "SELECT to_regclass('v2_directional_outcomes'),to_regclass('v2_directional_followups')"
+        ).fetchone() == (
+            "v2_directional_outcomes",
+            "v2_directional_followups",
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('v2_directional_outcomes_immutable','v2_directional_followups_immutable')"
+        ).fetchone() == (2,)
 
 
 def test_settlement_derives_immutable_t0_outcome(database, outcome):

@@ -24,6 +24,7 @@ class DirectionalProtectionStage:
         reference,
         clock_ms,
         allow_writes=False,
+        excluded_position_symbols=(),
         limit=20,
     ):
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -44,7 +45,11 @@ class DirectionalProtectionStage:
         )
         self.supervisor = ProtectionSupervisor(connect, request, scope=scope)
         self.audit = AccountCoverageAudit(
-            connect, request, scope=scope, clock_ms=clock_ms
+            connect,
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.store = BusinessState(connect)
         self.cursor = StateKey(
