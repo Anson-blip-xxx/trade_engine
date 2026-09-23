@@ -108,6 +108,24 @@ class Public:
         raise AssertionError("unexpected public route")
 
 
+class LiveSentiment:
+    environment = "LIVE"
+
+    def __init__(self, clock):
+        self.clock, self.calls = clock, []
+
+    def __call__(self, path, params):
+        self.calls.append((path, deepcopy(params)))
+        assert path == "/futures/data/globalLongShortAccountRatio"
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "shortAccount": "0.47",
+                "timestamp": self.clock.now - 3600000,
+            }
+        ]
+
+
 def signal(kind="TREND_UP", **features):
     values = {
         "TREND_UP": {"chg_1h": "4"},
@@ -121,7 +139,7 @@ def signal(kind="TREND_UP", **features):
     }
 
 
-def build(database):
+def build(database, *, sentiment=None):
     clock, request = Clock(), Request()
     public = Public(clock)
     stats = historical_stats()
@@ -149,6 +167,7 @@ def build(database):
         drawdown,
         scope=SCOPE,
         clock_ms=clock,
+        sentiment_market=sentiment,
     )
     return provider, request, public, clock, stats
 
@@ -196,6 +215,32 @@ def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
     }
 
 
+def test_live_public_sentiment_is_explicit_and_persisted_for_testnet(database):
+    clock = Clock()
+    sentiment = LiveSentiment(clock)
+    provider, _, public, _, _ = build(database, sentiment=sentiment)
+    result = provider(signal())
+    assert result["evidence"]["sentiment_environment"] == "LIVE"
+    assert all(
+        path != "/futures/data/globalLongShortAccountRatio" for path, _ in public.calls
+    )
+    assert sentiment.calls == [
+        (
+            "/futures/data/globalLongShortAccountRatio",
+            {"symbol": "BTCUSDT", "period": "1h", "limit": 3},
+        )
+    ]
+    with database() as conn:
+        payload = conn.execute(
+            "SELECT payload FROM v2_business_state WHERE state_id=%s",
+            (result["evidence"]["state_id"],),
+        ).fetchone()[0]
+    assert payload["market_sources"] == {
+        "contract_environment": "SANDBOX",
+        "sentiment_environment": "LIVE",
+    }
+
+
 @pytest.mark.parametrize(
     "kind,value",
     [("PULSE_UP", "5.25"), ("TREND_UP", "4"), ("VIOLENT_BULLISH", "18")],
@@ -228,7 +273,7 @@ def test_incomplete_or_racy_sources_fail_before_context_is_returned(database, de
     elif defect == "changed":
         request.positions[1][0]["positionAmt"] = "0.2"
     elif defect == "ratio_stale":
-        public.ratio_time = clock.now - 20000
+        public.ratio_time = clock.now - 7200001
     elif defect == "funding_stale":
         public.funding_time = clock.now - 20000
     elif defect == "rules":

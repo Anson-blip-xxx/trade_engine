@@ -189,6 +189,10 @@ def test_full_process_factory_wires_real_components_without_io(database):
     assert isinstance(pipeline.followups, DirectionalFollowupStage)
     assert isinstance(pipeline.regime, ArchivedS0Stage)
     assert [item.worker.scope.producer for item in pipeline.schedulers] == ["s6", "s8"]
+    for scheduler in pipeline.schedulers:
+        account = scheduler.context_provider.account
+        assert account.public.environment == "SANDBOX"
+        assert account.sentiment.environment == "LIVE"
     assert pipeline.enable_entries is False
     assert pipeline.protection.allow_writes is False
     assert pipeline.exits.allow_writes is False

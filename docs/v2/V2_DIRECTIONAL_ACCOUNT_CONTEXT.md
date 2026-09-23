@@ -14,11 +14,18 @@
 - 公共 `exchangeInfo`：永续合约状态、结算资产、市场单数量步进/上下限、价格 tick 和
   最小名义金额。
 - 公共 `premiumIndex`：有明确时间戳的当前资金费率。
-- 公共 `globalLongShortAccountRatio`：1 小时维度、3 条有界请求中的最新空头账户比。
+- Binance LIVE 无凭据公共 `globalLongShortAccountRatio`：1 小时维度、3 条有界请求中的
+  最新空头账户比。Testnet 执行、签名账户、合约规则和资金费仍严格使用 SANDBOX。
 - PG `DrawdownState`：由本次真实钱包余额证据推进的持久回撤系数。
 - 显式历史端口：14 日统计和来源证据；缺失、过期或字段不完整不会退化成零历史。
 - 原始 S3 信号：PULSE/PUMP/PANIC 使用 `chg_15m`，TREND 使用 `chg_1h`，VIOLENT 使用
   `vol_1h` 生成预期幅度，不刷新也不从其他行情猜测。
+
+Binance Demo 对上述多空比路径实际返回 HTTP 200、`application/octet-stream` 和正文
+`ok`，不能被当成策略数据；LIVE 同路径返回带时间戳的 JSON 数组。实现没有伪造中性值，
+而是显式使用 LIVE 公共情绪端口，并把 `contract_environment=SANDBOX`、
+`sentiment_environment=LIVE` 写入状态和决策引用。1 小时桶时间戳允许最多 2 小时年龄，
+但整个账户快照和返回上下文仍保持 15 秒边界。
 
 账户、规则、公共行情和历史响应都以摘要进入
 `directional-account-context-v1` PG 状态；标准化的余额、保证金、规则、资金费和多空比
@@ -34,7 +41,6 @@
 ## 尚未完成
 
 历史端口已有 [V2 原生不可变结果与 14 日滚动统计](V2_DIRECTIONAL_OUTCOMES.md)，
-真实已收盘公共 K 线 T60 调度阶段也已装入统一 daemon pipeline。尚需在
-可部署进程入口组装 S6/S8 scheduler 时，将分别绑定的 history/provider 接到
-两个 `DirectionalContext` 调度器，并做真实 Testnet 长时间验收。本轮只做隔离
-PostgreSQL 和 HTTP 替身 QA，没有访问 Binance。
+真实已收盘公共 K 线 T60 调度阶段、两个独立 history/provider 及 S6/S8 scheduler 已装入
+统一 daemon pipeline。公开端点形态已在运行主机实测；仍需部署该修正并取得自然新信号
+成功判定、较长时间稳定性和失败恢复证据，写权限继续关闭。

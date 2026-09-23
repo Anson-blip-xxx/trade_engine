@@ -40,7 +40,7 @@ from v2_core.drawdown import DrawdownState
 from v2_core.ingress import ContextProvider, milliseconds, symbol
 from v2_core.ledger import amount
 from v2_core.producer import RedisMarketContext
-from v2_core.public_market import PublicRateBudget
+from v2_core.public_market import BinancePublicMarket, PublicRateBudget
 from v2_core.telegram import TelegramOperationalSink
 from v2_core.transport import BinanceSignedTransport
 
@@ -301,6 +301,16 @@ def create_testnet_process(
         lifetime_ms=120000,
     )
     public_market = market.collector.transport
+    sentiment_market = BinancePublicMarket(
+        environment="LIVE",
+        budget=PublicRateBudget(connect, scope="v2-testnet-live-sentiment", limit=1200),
+        enabled=True,
+        **(
+            {"connection_factory": public_connection_factory}
+            if public_connection_factory is not None
+            else {}
+        ),
+    )
     private_budget = PublicRateBudget(
         connect, scope="v2-testnet-private:" + scope.account_id, limit=2400
     )
@@ -389,6 +399,7 @@ def create_testnet_process(
             drawdown,
             scope=scope,
             clock_ms=clock_ms,
+            sentiment_market=sentiment_market,
         )
         context = DirectionalContext(
             market_context, account, scope=scope, clock_ms=clock_ms

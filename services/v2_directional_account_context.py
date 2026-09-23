@@ -114,9 +114,14 @@ class BinanceDirectionalAccountContext:
         *,
         scope,
         clock_ms,
+        sentiment_market=None,
         max_age_ms=15000,
+        sentiment_max_age_ms=7200000,
         history_max_age_ms=120000,
     ):
+        sentiment_market = (
+            public_market if sentiment_market is None else sentiment_market
+        )
         if (
             not isinstance(scope, AccountScope)
             or scope.environment != "SANDBOX"
@@ -128,26 +133,34 @@ class BinanceDirectionalAccountContext:
             )
             != (scope.account_id, scope.environment)
             or getattr(public_market, "environment", None) != scope.environment
+            or getattr(sentiment_market, "environment", None)
+            not in {scope.environment, "LIVE"}
             or not all(
                 callable(port) for port in (request, public_market, history, clock_ms)
             )
             or type(max_age_ms) is not int
             or not 1000 <= max_age_ms <= 60000
+            or type(sentiment_max_age_ms) is not int
+            or not 3600000 <= sentiment_max_age_ms <= 7200000
             or type(history_max_age_ms) is not int
             or not 1000 <= history_max_age_ms <= 600000
         ):
             raise ValueError("explicit scoped account context dependencies required")
-        self.connect, self.request, self.public, self.history = (
+        self.connect, self.request, self.public, self.sentiment, self.history = (
             connect,
             request,
             public_market,
+            sentiment_market,
             history,
         )
-        self.drawdown, self.scope, self.clock, self.max_age, self.history_max_age = (
+        self.drawdown, self.scope, self.clock, self.max_age = (
             drawdown,
             scope,
             clock_ms,
             max_age_ms,
+        )
+        self.sentiment_max_age, self.history_max_age = (
+            sentiment_max_age_ms,
             history_max_age_ms,
         )
 
@@ -158,7 +171,7 @@ class BinanceDirectionalAccountContext:
         account = self.request("GET", "/fapi/v3/account", {})
         config = self.request("GET", "/fapi/v1/symbolConfig", {"symbol": target})
         exchange = self.public("/fapi/v1/exchangeInfo", {})
-        ratio = self.public(
+        ratio = self.sentiment(
             "/futures/data/globalLongShortAccountRatio",
             {"symbol": target, "period": "1h", "limit": 3},
         )
@@ -196,7 +209,7 @@ class BinanceDirectionalAccountContext:
         if type(ratio[-1].get("timestamp")) is not int:
             raise ValueError("SHORT_RATIO_TIMESTAMP")
         ratio_at = milliseconds(ratio[-1]["timestamp"])
-        if not 0 <= finished - ratio_at <= self.max_age:
+        if not 0 <= finished - ratio_at <= self.sentiment_max_age:
             raise ValueError("SHORT_RATIO_STALE")
         if not isinstance(premium, dict) or premium.get("symbol") != target:
             raise ValueError("FUNDING_RATE_MISSING")
@@ -243,6 +256,10 @@ class BinanceDirectionalAccountContext:
             "rules": rules,
             "short_ratio": short_ratio,
             "funding_rate": funding,
+            "market_sources": {
+                "contract_environment": self.public.environment,
+                "sentiment_environment": self.sentiment.environment,
+            },
             "response_digests": {
                 name: digest(canonical({"response": value}))
                 for name, value in {
@@ -297,6 +314,7 @@ class BinanceDirectionalAccountContext:
                 "drawdown_state_id": self.drawdown.key.identity,
                 "drawdown_version": snapshot.version,
                 "history": history["evidence"],
+                "sentiment_environment": self.sentiment.environment,
             },
             "short_ratio": short_ratio,
             "history": history["stats"],
