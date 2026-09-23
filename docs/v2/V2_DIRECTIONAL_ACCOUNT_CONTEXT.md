@@ -33,7 +33,7 @@
 
 ## 尚未完成
 
-历史端口目前只有契约，尚未实现从 V2 结算和收盘后 T60 行情生成 14 日滚动统计；因此
-本组件还不能装进真实 daemon 入口。本轮只做隔离 PostgreSQL 和 HTTP 替身 QA，没有
-访问 Binance。后续必须先完成不可变交易结果分析、迟到数据重算版本和完整性检查，
-再把本 provider 接到 `DirectionalContext` 与 S6/S8 两个调度器。
+历史端口已有 [V2 原生不可变结果与 14 日滚动统计](V2_DIRECTIONAL_OUTCOMES.md)，但尚缺
+从真实已收盘公共 K 线自动补录 T60 的调度阶段；因此还不能装进真实 daemon 入口。
+本轮只做隔离 PostgreSQL 和 HTTP 替身 QA，没有访问 Binance。完成 T60 调度后，再把
+按 S6/S8 分别绑定的 history/provider 接到两个 `DirectionalContext` 调度器。

@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from services.v2_directional_cash import DirectionalCashAudit
 from v2_core.account_coverage import AccountCoverageAudit, coverage_from_facts
 from v2_core.account_inventory import persist_inventory
+from v2_core.directional_outcomes import DirectionalOutcomeJournal
 from v2_core.evidence import canonical, digest
 from v2_core.income import IncomeJournal
 from v2_core.ledger import Ledger, amount
@@ -31,6 +32,7 @@ class DirectionalSettlementStage:
         self.coverage = AccountCoverageAudit(
             connect, request, scope=scope, clock_ms=clock_ms
         )
+        self.outcomes = DirectionalOutcomeJournal(connect, scope=scope)
 
     def _state(self, namespace, key):
         value = BusinessState(self.connect).read(
@@ -84,7 +86,10 @@ class DirectionalSettlementStage:
                     "settlement_authorized": False,
                 }
             account.commit()
-            return self._settle_locked(episode, cash)
+            result = self._settle_locked(episode, cash)
+        if result.get("status") == "SETTLED":
+            result["outcome"] = self.outcomes.record(episode)
+        return result
 
     def _settle_locked(self, episode, cash):
         baseline_order, baseline_proof, baseline, baseline_version = self._baseline(
@@ -230,6 +235,27 @@ class DirectionalSettlementStage:
                 return {"status": "BLOCKED", "reason": "BUSY"}
             guard.commit()
             with self.connect() as conn:
+                pending = conn.execute(
+                    """SELECT i.intent_id::text FROM v2_trade_intents i
+                    JOIN v2_episodes e ON e.episode_id=i.intent_id
+                    WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                    AND i.producer IN ('s6','s8')
+                    AND i.strategy_version='directional-admission-v2-1'
+                    AND e.status='SETTLED' AND NOT EXISTS (
+                        SELECT 1 FROM v2_directional_outcomes d WHERE d.episode_id=i.intent_id)
+                    ORDER BY i.intent_id LIMIT %s""",
+                    (*asdict(self.scope).values(), self.limit),
+                ).fetchall()
+            outcomes = {}
+            for (episode,) in pending:
+                try:
+                    outcomes[episode] = self.outcomes.record(episode)
+                except Exception as exc:  # noqa: BLE001 - isolate corrupt analysis evidence
+                    outcomes[episode] = {
+                        "status": "BLOCKED",
+                        "error_code": type(exc).__name__,
+                    }
+            with self.connect() as conn:
                 rows = conn.execute(
                     """SELECT i.intent_id::text FROM v2_trade_intents i JOIN v2_episodes e
                     ON e.episode_id=i.intent_id JOIN v2_orders o ON o.episode_id=i.intent_id
@@ -251,9 +277,12 @@ class DirectionalSettlementStage:
                         "status": "BLOCKED",
                         "error_code": type(exc).__name__,
                     }
-            unresolved = any(r.get("status") != "SETTLED" for r in results.values())
+            unresolved = any(
+                r.get("status") != "SETTLED" for r in results.values()
+            ) or any(r.get("status") == "BLOCKED" for r in outcomes.values())
             return {
                 "status": "BLOCKED" if unresolved else "CLEAR",
                 "settlements": results,
+                "outcomes": outcomes,
                 "settlement_authorized": False,
             }

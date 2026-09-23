@@ -110,6 +110,7 @@ def test_final_account_cash_and_funding_settle_atomically(database, closed):
     assert service(database, income).run_once() == {
         "status": "CLEAR",
         "settlements": {},
+        "outcomes": {},
         "settlement_authorized": False,
     }
     assert len(runtime.data.trace(episode)["cash"]) == 1
