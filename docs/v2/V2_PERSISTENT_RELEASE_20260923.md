@@ -2,17 +2,18 @@
 
 ## 不可变 release 与运行时
 
-已将远端 V2 提交 `da0b0f7fbd7c48cb39bd01948925559d96cd21a4` 通过本地
-`git archive` 安装到：
+首次冷启动使用远端 V2 提交 `da0b0f7fbd7c48cb39bd01948925559d96cd21a4`。发现运行时
+版本缺口并修复后，最终 daemon release 切换到：
 
-`/opt/trade-engine-v2/releases/da0b0f7fbd7c48cb39bd01948925559d96cd21a4`
+`/opt/trade-engine-v2/releases/71cc61914d471a00e89bb01b001beab37bce6c28`
 
 目录由 root 持有并移除全部写权限。首次冷启动使用
 `/opt/trade-engine-v2/venvs/py312-system-v1`，随后核查发现它继承的系统 psycopg 为
 3.1.17，与 QA 锁定的 3.3.6 不一致。该运行时不再作为最终发布目标；后续节点改用独立
 `/opt/trade-engine-v2/venvs/py312-locked-20260923-v1`，完整解析版本记录在
 `requirements-v2-runtime-lock.txt`，启动预检在任何外部 I/O 前核对 Python 3.12 和所有
-驱动/传递依赖的精确版本，不匹配即失败关闭。release 不包含 `config/binance.env`，pytest
+驱动/传递依赖的精确版本，不匹配即失败关闭。切换时实际服务账户执行预检 status=0，
+systemd 的 `ExecStartPre` 也记录 status=0。release 不包含 `config/binance.env`，pytest
 也不能向 release 写 cache，这是预期的无密钥、只读边界。
 
 ## 永久 systemd 栈
@@ -49,9 +50,14 @@ PG/ClickHouse 数据及后续确认帧恢复。恢复后保护、退出、结算
 快照时 S6/S8 各完成 2590 条历史任务、无悬挂任务，S3 已有 5100 条信号；旧信号按原
 期限形成 EXPIRED 决策，尚未完全追到实时头部。没有注入固定交易信号。
 
+锁定运行时切换后 daemon 为 active/running、`NRestarts=0`，首批 4 个周期全部
+`CYCLE_COMPLETE`；保护、退出、结算、followups 为 CLEAR，market 为 CURRENT 或
+ACKNOWLEDGED，regime 为 PROJECTED。该窗口 `v2_orders.updated_at` 更新数为 0。
+
 ## QA 与剩余边界
 
-当前提交最终全仓回归为 4171 passed、10 skipped、1 条既有 PM golden warning；
+初始持久栈全仓回归为 4171 passed；运行时锁节点最终全仓回归为 4174 passed、
+10 skipped、1 条既有 PM golden warning；
 Ruff、format、diff 和完整 systemd unit 静态验证通过。
 
 尚未执行整机 reboot，因此“已 enable”不等于真实断电启动演练。仍需历史任务追平、
