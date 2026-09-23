@@ -37,6 +37,7 @@ class DirectionalExitStage:
         clock_ms,
         reference,
         allow_writes=False,
+        excluded_position_symbols=(),
         limit=10,
     ):
         if (
@@ -65,7 +66,11 @@ class DirectionalExitStage:
         self.data = TradingData(connect)
         self.store = BusinessState(connect)
         self.audit = AccountCoverageAudit(
-            connect, request, scope=scope, clock_ms=clock_ms
+            connect,
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.stop = DirectionalStopRecovery(
             connect,
@@ -74,6 +79,7 @@ class DirectionalExitStage:
             reference=reference,
             clock_ms=clock_ms,
             allow_writes=False,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.protection = TestnetProtection(self.store, request, scope=scope)
 

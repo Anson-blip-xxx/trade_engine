@@ -104,6 +104,19 @@ def test_wait_cycle_is_clear_and_persists_peak_evidence(database):
     assert BusinessState(database).read(service._key(episode)).version == 1
 
 
+def test_exit_audit_honors_explicit_external_position_exclusion(database):
+    _, result, venue, service = setup_exit(database)
+    venue.rows["/fapi/v3/positionRisk"].append(
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"}
+    )
+    service.audit.excluded_position_symbols = ("ZORAUSDT",)
+    service.stop.recovery.stop.audit.excluded_position_symbols = ("ZORAUSDT",)
+    answer = service.run_once()
+    assert answer["status"] == "CLEAR", answer
+    assert answer["coverage"]["excluded_position_symbols"] == ["ZORAUSDT"]
+    assert answer["exits"][result["intent_id"]]["status"] == "WAIT"
+
+
 def test_action_is_durable_but_never_posts_when_writes_disabled(database):
     _, result, venue, service = setup_exit(database, mark_price="105")
     answer = service.run_once()

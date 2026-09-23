@@ -80,6 +80,7 @@ def create_directional_testnet_pipeline(
         clock_ms=clock_ms,
         reference=mark_reference,
         allow_writes=enable_reduce_only_exits,
+        excluded_position_symbols=external_position_exclusions,
     )
     settlement = DirectionalSettlementStage(
         runtime.data._connect,
