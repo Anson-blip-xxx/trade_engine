@@ -28,7 +28,12 @@ class DirectionalProtectionStage:
     ):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("bounded protection batch required")
-        self.connect, self.scope, self.limit = connect, scope, limit
+        self.connect, self.scope, self.limit, self.allow_writes = (
+            connect,
+            scope,
+            limit,
+            allow_writes,
+        )
         self.stop = DirectionalStopRecovery(
             connect,
             request,

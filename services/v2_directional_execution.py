@@ -9,7 +9,14 @@ from dataclasses import asdict
 from v2_core.venue_readiness import GuardedOpeningSubmit, TestnetVenueReadiness
 
 
-def bind_directional_venue_gate(runtime, request, *, mark_reference, enabled=False):
+def bind_directional_venue_gate(
+    runtime,
+    request,
+    *,
+    mark_reference,
+    enabled=False,
+    reduce_only_enabled=False,
+):
     if (
         runtime.scope is None
         or runtime.execution.scope != runtime.scope
@@ -48,6 +55,7 @@ def bind_directional_venue_gate(runtime, request, *, mark_reference, enabled=Fal
         plan=plan,
         submit=runtime.execution.submit,
         enabled=enabled,
+        reduce_only_enabled=reduce_only_enabled,
     )
     runtime.execution.submit = gate
     return gate

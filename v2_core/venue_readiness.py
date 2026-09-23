@@ -147,27 +147,48 @@ class GuardedOpeningSubmit:
     No retries here; downstream exceptions remain ambiguous to ExecutionRunner.
     """
 
-    def __init__(self, connect, *, readiness, reference, plan, submit, enabled=False):
-        if type(enabled) is not bool or not all(
-            callable(p) for p in (reference, plan, submit)
+    def __init__(
+        self,
+        connect,
+        *,
+        readiness,
+        reference,
+        plan,
+        submit,
+        enabled=False,
+        reduce_only_enabled=False,
+    ):
+        if (
+            type(enabled) is not bool
+            or type(reduce_only_enabled) is not bool
+            or not all(callable(p) for p in (reference, plan, submit))
         ):
             raise ValueError("explicit guarded submit ports required")
         self.connect, self.readiness = connect, readiness
-        self.reference, self.plan, self.submit, self.enabled = (
+        (
+            self.reference,
+            self.plan,
+            self.submit,
+            self.enabled,
+            self.reduce_only_enabled,
+        ) = (
             reference,
             plan,
             submit,
             enabled,
+            reduce_only_enabled,
         )
 
     def __call__(self, order):
-        if not self.enabled:
-            raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
         scope = self.readiness.scope
         if any(order.get(k) != v for k, v in asdict(scope).items()):
             raise SubmissionNotSent("VENUE_READINESS_BLOCKED")
         if order["leg"] == "CLOSE" and order.get("reduce_only") is True:
+            if not self.reduce_only_enabled:
+                raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
             return self.submit(order)
+        if not self.enabled:
+            raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
         if order["leg"] != "OPEN" or order.get("reduce_only") is not False:
             raise SubmissionNotSent("VENUE_READINESS_BLOCKED")
         with self.connect() as guard:

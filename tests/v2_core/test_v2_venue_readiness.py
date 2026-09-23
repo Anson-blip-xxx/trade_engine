@@ -8,6 +8,7 @@ from test_v2_intent_admission import database as database_fixture
 from test_v2_intent_admission import evidence, intent
 from test_v2_protection_child import SCOPE
 
+from v2_core.errors import SubmissionNotSent
 from v2_core.runner import ExchangeObservation, ExecutionRunner
 from v2_core.service import TradingData
 from v2_core.state import BusinessState, StateKey
@@ -206,6 +207,25 @@ def test_default_disabled_never_reads_venue(case):
     gate.enabled = False
     assert runner.dispatch(order) == "REJECTED"
     assert not venue.calls and not sent
+
+
+def test_reduce_only_permission_is_independent_from_entry_permission(case):
+    _, _, venue, gate, _, sent = case
+    gate.enabled = False
+    gate.reduce_only_enabled = True
+    gate.submit = lambda order: sent.append(order) or "reduced"
+    close = {
+        **asdict(SCOPE),
+        "leg": "CLOSE",
+        "reduce_only": True,
+    }
+    assert gate(close) == "reduced"
+    assert sent == [close]
+    assert not venue.calls
+    gate.reduce_only_enabled = False
+    with pytest.raises(SubmissionNotSent, match="DISABLED"):
+        gate(close)
+    assert len(sent) == 1
 
 
 def test_pg_registration_failure_prevents_submission(case, monkeypatch):
