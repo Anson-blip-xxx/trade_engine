@@ -112,6 +112,27 @@ def test_peak_is_monotonic_and_cost_is_included_in_risk_multiple():
     assert decision.risk_multiple == "0.2449"
 
 
+def test_real_price_ratios_are_bounded_to_the_ledger_numeric_scale():
+    decision = evaluate_directional_exit(
+        facts(
+            entry_price="0.19752",
+            mark_price="0.1981234",
+            stop_price="0.18188",
+            remaining_quantity="494",
+            planned_loss="7.72416",
+            peak_return_pct="0",
+        )
+    )
+    for value in (
+        decision.return_pct,
+        decision.peak_return_pct,
+        decision.gross_pnl,
+        decision.estimated_net_pnl,
+        decision.risk_multiple,
+    ):
+        assert len(value.partition(".")[2]) <= 18
+
+
 @pytest.mark.parametrize(
     "changes",
     [
