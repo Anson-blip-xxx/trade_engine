@@ -35,11 +35,15 @@ class Request:
             [{"symbol": "ETHUSDT", "positionSide": "BOTH", "positionAmt": "0.1"}],
         ]
         self.account = {
-            "canTrade": True,
             "totalWalletBalance": "1000",
             "availableBalance": "700",
             "totalInitialMargin": "100",
             "totalOpenOrderInitialMargin": "20",
+        }
+        self.account_config = {
+            "canTrade": True,
+            "dualSidePosition": False,
+            "multiAssetsMargin": False,
         }
         self.config = [{"symbol": "BTCUSDT", "maxNotionalValue": "50000"}]
 
@@ -50,6 +54,8 @@ class Request:
             return deepcopy(self.positions.pop(0))
         if path == "/fapi/v3/account":
             return deepcopy(self.account)
+        if path == "/fapi/v1/accountConfig":
+            return deepcopy(self.account_config)
         if path == "/fapi/v1/symbolConfig":
             assert params == {"symbol": "BTCUSDT"}
             return deepcopy(self.config)
@@ -207,6 +213,7 @@ def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
     assert set(payload["response_digests"]) == {
         "positions",
         "account",
+        "account_config",
         "symbol_config",
         "exchange_info",
         "long_short_ratio",
@@ -262,6 +269,8 @@ def test_expected_move_uses_original_signal_fact(kind, value):
         "history",
         "history_stale",
         "permission",
+        "position_mode",
+        "asset_mode",
     ],
 )
 def test_incomplete_or_racy_sources_fail_before_context_is_returned(database, defect):
@@ -286,7 +295,11 @@ def test_incomplete_or_racy_sources_fail_before_context_is_returned(database, de
             "valid_until_ms": clock.now + 1,
         }
     elif defect == "permission":
-        request.account["canTrade"] = False
+        request.account_config["canTrade"] = False
+    elif defect == "position_mode":
+        request.account_config["dualSidePosition"] = True
+    elif defect == "asset_mode":
+        request.account_config["multiAssetsMargin"] = True
     else:
         provider.history = lambda _: {}
     with pytest.raises((ValueError, TypeError, KeyError)):

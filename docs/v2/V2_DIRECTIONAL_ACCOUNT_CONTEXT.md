@@ -9,7 +9,10 @@
 
 - Binance 签名 `positionRisk` 前后快照：发现目标标的已有仓位或采集期间任意持仓变化
   即失败；其他标的保证金仍计入账户已用额度。
-- Binance 签名账户：`canTrade`、钱包余额、可用余额、持仓初始保证金和挂单初始保证金。
+- Binance 签名 V3 账户：钱包余额、可用余额、持仓初始保证金和挂单初始保证金；V3 在
+  Demo 上不保证 `canTrade` 语义，不能作为权限来源。
+- Binance 签名 `accountConfig`：权威核验 `canTrade=true`、单向和单资产模式；同一真实
+  Testnet 账户已读到 `true/false/false`。
 - 账户级 `symbolConfig`：目标标的最大名义金额。
 - 公共 `exchangeInfo`：永续合约状态、结算资产、市场单数量步进/上下限、价格 tick 和
   最小名义金额。

@@ -169,6 +169,7 @@ class BinanceDirectionalAccountContext:
         started = milliseconds(self.clock())
         before = self.request("GET", "/fapi/v3/positionRisk", {})
         account = self.request("GET", "/fapi/v3/account", {})
+        account_config = self.request("GET", "/fapi/v1/accountConfig", {})
         config = self.request("GET", "/fapi/v1/symbolConfig", {"symbol": target})
         exchange = self.public("/fapi/v1/exchangeInfo", {})
         ratio = self.sentiment(
@@ -185,8 +186,16 @@ class BinanceDirectionalAccountContext:
             raise ValueError("POSITIONS_CHANGED_DURING_CONTEXT")
         if not isinstance(account, dict):
             raise TypeError("INVALID_ACCOUNT_CONTEXT")
-        if account.get("canTrade") is not True:
+        if (
+            not isinstance(account_config, dict)
+            or account_config.get("canTrade") is not True
+        ):
             raise ValueError("ACCOUNT_TRADE_PERMISSION_UNVERIFIED")
+        if (
+            account_config.get("dualSidePosition") is not False
+            or account_config.get("multiAssetsMargin") is not False
+        ):
+            raise ValueError("ACCOUNT_MODE_UNVERIFIED")
         balance = format(
             amount(account["totalWalletBalance"], positive=True).normalize(), "f"
         )
@@ -265,6 +274,7 @@ class BinanceDirectionalAccountContext:
                 for name, value in {
                     "positions": before,
                     "account": account,
+                    "account_config": account_config,
                     "symbol_config": config,
                     "exchange_info": exchange,
                     "long_short_ratio": ratio,
