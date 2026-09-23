@@ -50,3 +50,9 @@
 均为 true；LIVE 没有启用。独立 watchdog 保持 active。整机 reboot 尚未执行，自然
 合格信号的真实设置—开仓—保护—退出—结算闭环也仍待市场触发；这两项不能用固定
 协议单或模拟 QA 冒充。
+
+部署后审计又发现最终结算没有把同一外部持仓排除传入 final coverage。提交
+`b658d00f074744285c7132d163e0a59de8db2d67` 已修复，并让 coverage inventory 本身保存
+排除列表/排除持仓，而不只在结果比较时临时忽略。相关定向 97 passed、完整 V2 核心
+1267 passed；对应不可变 release 已部署，首个真实周期 `CYCLE_COMPLETE`，三项 Testnet
+权限保持 true、daemon/watchdog 均 0 重启，订单和 symbol settings 仍无新增。
