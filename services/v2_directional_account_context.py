@@ -178,6 +178,10 @@ class BinanceDirectionalAccountContext:
         )
         premium = self.public("/fapi/v1/premiumIndex", {"symbol": target})
         after = self.request("GET", "/fapi/v3/positionRisk", {})
+        # History is part of the same evidence collection interval. Capturing
+        # ``finished`` before this PG read made a real advancing clock see the
+        # freshly observed history as coming from the future.
+        history = self.history(signal)
         finished = milliseconds(self.clock())
         if not started <= finished <= started + self.max_age:
             raise ValueError("ACCOUNT_CONTEXT_DEADLINE")
@@ -230,7 +234,6 @@ class BinanceDirectionalAccountContext:
         funding_at = milliseconds(premium["time"])
         if not 0 <= finished - funding_at <= self.max_age:
             raise ValueError("FUNDING_RATE_STALE")
-        history = self.history(signal)
         if (
             not isinstance(history, dict)
             or set(history) != {"stats", "evidence", "observed_at_ms", "valid_until_ms"}

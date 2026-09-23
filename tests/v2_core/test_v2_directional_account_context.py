@@ -248,6 +248,26 @@ def test_live_public_sentiment_is_explicit_and_persisted_for_testnet(database):
     }
 
 
+def test_history_observed_during_collection_is_not_rejected_as_future(database):
+    provider, _, _, clock, stats = build(database)
+    observations = []
+
+    def freshly_observed(_):
+        observed = clock()
+        observations.append(observed)
+        return {
+            "stats": deepcopy(stats),
+            "evidence": {"source": "pg-directional-history-v1"},
+            "observed_at_ms": observed,
+            "valid_until_ms": observed + 60000,
+        }
+
+    provider.history = freshly_observed
+    result = provider(signal())
+    assert result["history"] == stats
+    assert result["observed_at_ms"] > observations[0]
+
+
 @pytest.mark.parametrize(
     "kind,value",
     [("PULSE_UP", "5.25"), ("TREND_UP", "4"), ("VIOLENT_BULLISH", "18")],
