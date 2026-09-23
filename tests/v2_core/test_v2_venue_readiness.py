@@ -181,6 +181,30 @@ def test_registered_proof_before_send_and_recovery_never_resends(case):
     assert len(sent) == 1
 
 
+def test_symbol_settings_proof_is_required_and_persisted_before_send(case):
+    data, order, _, gate, runner, sent = case
+    observed = []
+
+    def configure(snapshot, terms):
+        observed.append((snapshot["order_id"], terms))
+        return {"status": "VERIFIED", "state_id": "settings-proof", "changed": []}
+
+    gate.configure = configure
+    assert runner.dispatch(order) == "ACKNOWLEDGED"
+    key = StateKey(**asdict(SCOPE), namespace="opening-readiness-v1", key=order)
+    proof = json.loads(BusinessState(data._connect).read(key).payload_json)
+    assert proof["symbol_settings"]["state_id"] == "settings-proof"
+    assert observed == [(order, {"leverage": 2, "margin_type": "ISOLATED"})]
+    assert len(sent) == 1
+
+
+def test_unverified_symbol_settings_prevent_readiness_and_send(case):
+    _, order, venue, gate, runner, sent = case
+    gate.configure = lambda *_: {"status": "UNCONFIRMED"}
+    assert runner.dispatch(order) == "REJECTED"
+    assert venue.calls == [] and sent == []
+
+
 def test_bad_actual_leverage_is_definitely_not_sent(case):
     _, order, venue, _, runner, sent = case
     venue.rows["/fapi/v1/symbolConfig"][0]["leverage"] = 20
@@ -279,6 +303,43 @@ def test_missing_usdt_is_not_global_balance_fallback():
     venue = Venue()
     venue.rows["/fapi/v3/account"]["assets"] = []
     assert "INVALID_VENUE_READINESS_RESPONSE" in inspect(venue)["blockers"]
+
+
+def test_explicit_external_position_does_not_mask_target_or_orders():
+    venue = Venue()
+    venue.rows["/fapi/v3/positionRisk"] = [
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"}
+    ]
+    readiness = TestnetVenueReadiness(
+        venue,
+        scope=SCOPE,
+        clock_ms=lambda: 1000,
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    assert readiness.inspect(
+        symbol="BTCUSDT",
+        quantity="1",
+        leverage=2,
+        margin_type="ISOLATED",
+        reference=REF,
+    )["status"] == "READY_FOR_GUARDED_SUBMISSION"
+    with pytest.raises(ValueError, match="excluded"):
+        readiness.inspect(
+            symbol="ZORAUSDT",
+            quantity="1",
+            leverage=2,
+            margin_type="ISOLATED",
+            reference={**REF, "symbol": "ZORAUSDT"},
+        )
+    venue.rows["/fapi/v1/openOrders"] = [{"symbol": "ZORAUSDT", "orderId": 1}]
+    result = readiness.inspect(
+        symbol="BTCUSDT",
+        quantity="1",
+        leverage=2,
+        margin_type="ISOLATED",
+        reference=REF,
+    )
+    assert "EXISTING_ORDINARY_ORDERS" in result["blockers"]
 
 
 def test_persisted_local_exposure_blocks_even_if_venue_claims_flat(case):

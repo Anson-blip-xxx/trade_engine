@@ -77,7 +77,15 @@ def orders(rows, *, conditional):
 
 
 class AccountInventory:
-    def __init__(self, request, *, scope, clock_ms, max_duration_ms=30000):
+    def __init__(
+        self,
+        request,
+        *,
+        scope,
+        clock_ms,
+        max_duration_ms=30000,
+        excluded_position_symbols=(),
+    ):
         if not isinstance(scope, AccountScope) or not callable(clock_ms):
             raise TypeError("explicit scope and clock required")
         if not callable(request) or (
@@ -87,8 +95,17 @@ class AccountInventory:
             raise ValueError("INVENTORY_TRANSPORT_SCOPE")
         if type(max_duration_ms) is not int or not 1 <= max_duration_ms <= 60000:
             raise ValueError("bounded inventory duration required")
+        if (
+            not isinstance(excluded_position_symbols, (list, tuple))
+            or len(excluded_position_symbols) > 20
+        ):
+            raise ValueError("bounded external position exclusions required")
+        exclusions = tuple(sorted(symbol(item) for item in excluded_position_symbols))
+        if len(set(exclusions)) != len(exclusions):
+            raise ValueError("unique external position exclusions required")
         self.request, self.scope, self.clock_ms = request, scope, clock_ms
         self.max_duration_ms = max_duration_ms
+        self.excluded_position_symbols = exclusions
 
     def collect(self, observation_id):
         observation_id = str(UUID(observation_id))
@@ -119,10 +136,19 @@ class AccountInventory:
                     blockers.append("ONE_WAY_MODE_REQUIRED")
                 if raw["margin_mode"].get("multiAssetsMargin") is not False:
                     blockers.append("SINGLE_ASSET_MODE_REQUIRED")
-                before = positions(raw["positions_before"])
-                summary["positions"] = positions(raw["positions_after"])
-                if before != summary["positions"]:
+                before_all = positions(raw["positions_before"])
+                after_all = positions(raw["positions_after"])
+                if before_all != after_all:
                     blockers.append("POSITION_CHANGED_DURING_INVENTORY")
+                excluded = set(self.excluded_position_symbols)
+                summary["positions"] = [
+                    item for item in after_all if item["symbol"] not in excluded
+                ]
+                if self.excluded_position_symbols:
+                    summary["excluded_positions"] = [
+                        item for item in after_all if item["symbol"] in excluded
+                    ]
+                before = [item for item in before_all if item["symbol"] not in excluded]
                 if before or summary["positions"]:
                     blockers.append("EXISTING_POSITION_REQUIRES_RECOVERY")
                 for field, conditional in (
@@ -154,6 +180,7 @@ class AccountInventory:
             "finished_at_ms": finished,
             "status": "BLOCKED" if blockers else "CLEAR_FOR_RECOVERY_CHECKS",
             "execution_authorized": False,
+            "excluded_position_symbols": list(self.excluded_position_symbols),
             "blockers": blockers,
             "summary": summary,
             "failures": failures,

@@ -31,8 +31,9 @@
 配置对象的公开摘要不包含 API key、secret、TG token 或配置文件内容。
 
 可选 `V2_EXTERNAL_POSITION_EXCLUSIONS` 只用于 SANDBOX 中已明确不由 V2 接管的外部
-持仓。它必须是规范、唯一且与 `V2_SYMBOLS` 不重叠的列表；配置和每次 coverage 证据
-均公开记录。它不忽略外部挂单，也不能隐藏 V2 自有仓位，详见
+持仓。它必须是规范、唯一且与 `V2_SYMBOLS` 不重叠的列表；配置以及 coverage/inventory
+证据均公开记录，并贯穿首单 readiness 与 symbol settings 协调。它不忽略外部挂单或
+采集期间仓位变化，不能隐藏 V2 自有仓位，也绝不允许交易被排除标的，详见
 [实际只读联调](V2_UNIFIED_DRY_RUN_20260923.md)。
 
 ## 进程入口与密钥边界
@@ -44,7 +45,8 @@
 `BINANCE_TESTNET_API_KEY/SECRET` 和 TG 通知字段，即使旧文件同时存在 LIVE key 也不会读取。
 
 统一工厂显式装配隔离 PG、Redis 当前上下文、ClickHouse 行情归档、公共/私有配额、
-签名 Testnet transport、不可变风险参考、账户回撤、归档驱动 S0、S6/S8 独立历史和 TG 外层告警。
+签名 Testnet transport、受限 symbol settings 协调、不可变风险参考、账户回撤、
+归档驱动 S0、S6/S8 独立历史和 TG 外层告警。
 构造本身无网络 I/O；私有路由白名单和 PG 分钟配额均先于 transport。
 
 ## 每轮顺序与持久证据

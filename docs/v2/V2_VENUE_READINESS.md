@@ -1,9 +1,10 @@
 # 测试网真实账户核验与提交入口
 
-本节点限定 USDT、单向、单资产模式及空仓账户首单，不是多仓保证金引擎。
-新增 `TestnetVenueReadiness`、`GuardedOpeningSubmit`，并通过
+本节点限定 USDT、单向、单资产模式及无 V2 管理仓位账户的首单，不是多仓保证金引擎。
+新增 `TestnetVenueReadiness`、`TestnetSymbolSettings`、`GuardedOpeningSubmit`，并通过
 `bind_directional_venue_gate` 接入已有 S6/S8 运行时的 submit 端口。
-绑定默认禁用，不启动循环、不设置杠杆、不修改保证金模式。
+绑定默认禁用，不启动循环；只有 SANDBOX 开仓权限显式开启后，才允许按策略计划设置
+1–5 倍杠杆和 `ISOLATED/CROSSED` 保证金模式。
 
 ## 核验与落库
 
@@ -16,7 +17,13 @@
   其他未知/活动订单阻断。账户锁串行化合作执行路径；精确订单身份和原始期限再次核验。
 - PG `opening-readiness-v1` 保存完整观察证据；证据提交成功且未过期才调用下单端口。
   核验失败明确标记未发送；下单端口抛异常仍按 UNKNOWN，不自动重下。
-- 新增两个 GET 路由，不增加任何改杠杆、改保证金或实盘写权限。
+- 实际配置不匹配时，先确认账户无 V2 管理仓位和任何普通/条件挂单，再把期望配置及
+  inventory 摘要登记到 PG `venue-symbol-settings-v1`；之后才允许单次 POST。无论 POST
+  返回、超时或异常，都必须重新 GET `symbolConfig`，不根据响应猜测、不盲重试。
+- 杠杆/保证金设置拥有独立 transport 白名单和参数全集校验，仅 SANDBOX 可启用；LIVE
+  构造直接失败。最终配置再次进入 opening readiness 证明，未核实绝不调用下单。
+- 明确配置的外部持仓排除贯穿 inventory、设置与 readiness，但只排除持仓数量；任何
+  挂单、采集期间仓位变化、V2 本地认领或尝试交易被排除标的仍失败关闭。
 
 接口来源：[Binance 官方账户接口](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/account)。
 
@@ -38,12 +45,13 @@ REST 非原子快照；外部操作仍可能发生在读取之后。10% 是估�
 滑点、手续费。检查截止时间覆盖到调用 submit 前；下游端口内部额外 I/O 仍需未来
 传输级期限检查。尚未强制所有其他调用路径使用此入口。
 保护就绪、常驻 PM、通用自动结算、账户迁移/恢复及完整真实策略闭环仍未验收。
-不能因 canTrade=true 或本节点 QA 通过就开启实盘，也不绕过 ZORA 阻断。
+不能因 canTrade=true 或本节点 QA 通过就开启实盘。外部持仓排除必须显式配置并保留
+审计证据，不能泛化成忽略未知账户状态。
 
 ## QA 结果
 
-新增 30 个隔离测试，包括真实策略计划接入、错误杠杆/权限/资产余额拒绝、
-本地账本残仓、原始期限不可延长、账户互斥、PG 提交失败、发单丢响应不重发。
-全仓 **3986 passed / 10 skipped / 1 warning**，304.25 秒；
-诊断目录 `/tmp/v2-data-qa.oppJUO`。唯一 warning 是既有 PM golden 测试返回 bool。
-修改的 Python 文件 Ruff 检查通过；未启用运行服务的新写权限。
+2026-09-23 新增设置协调、外部持仓排除一致性及 transport 白名单故障测试；定向
+**125 passed**，完整 V2 核心 **1265 passed**，全仓 **4218 passed / 10 skipped /
+1 warning**。覆盖 PG 先登记、非空账户阻断、超时但
+已生效、超时且未生效、LIVE 拒绝、参数越界、被排除标的拒绝以及挂单/仓位变化不被
+排除。修改的 Python 文件 Ruff 检查通过；本节点尚未改变运行服务的写权限。

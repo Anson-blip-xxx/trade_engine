@@ -94,6 +94,52 @@ def test_any_existing_exposure_blocks(field, entry, blocker):
     assert blocker in result["blockers"]
 
 
+def test_explicit_external_position_exclusion_is_quantity_only_and_audited():
+    reader = ReadAccount()
+    reader.rows["/fapi/v3/positionRisk"] = [
+        {"symbol": "ZORAUSDT", "positionSide": "BOTH", "positionAmt": "26399"}
+    ]
+    result = AccountInventory(
+        reader,
+        scope=SCOPE,
+        clock_ms=lambda: 1000,
+        excluded_position_symbols=("ZORAUSDT",),
+    ).collect(str(uuid4()))
+    assert result["status"] == "CLEAR_FOR_RECOVERY_CHECKS"
+    assert result["excluded_position_symbols"] == ["ZORAUSDT"]
+    assert result["summary"]["positions"] == []
+    assert result["summary"]["excluded_positions"] == [
+        {"symbol": "ZORAUSDT", "side": "BOTH", "quantity": "26399"}
+    ]
+
+
+def test_external_position_exclusion_never_hides_orders_or_movement():
+    class MovingExcluded(ReadAccount):
+        def __call__(self, method, path, params):
+            result = super().__call__(method, path, params)
+            if path == "/fapi/v3/positionRisk":
+                quantity = "1" if self.calls.count(path) == 1 else "2"
+                return [
+                    {
+                        "symbol": "ZORAUSDT",
+                        "positionSide": "BOTH",
+                        "positionAmt": quantity,
+                    }
+                ]
+            return result
+
+    reader = MovingExcluded()
+    reader.rows["/fapi/v1/openOrders"] = [{"symbol": "ZORAUSDT", "orderId": 1}]
+    result = AccountInventory(
+        reader,
+        scope=SCOPE,
+        clock_ms=lambda: 1000,
+        excluded_position_symbols=("ZORAUSDT",),
+    ).collect(str(uuid4()))
+    assert "POSITION_CHANGED_DURING_INVENTORY" in result["blockers"]
+    assert "EXISTING_ORDINARY_ORDERS" in result["blockers"]
+
+
 @pytest.mark.parametrize("path", list(ReadAccount().rows))
 def test_failed_read_is_not_empty_account_and_never_leaks(path):
     reader = ReadAccount()

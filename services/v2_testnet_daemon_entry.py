@@ -157,6 +157,8 @@ class PrivateRatePermit:
         self.writes = {
             ("POST", "/fapi/v1/order"): entries or exits,
             ("POST", "/fapi/v1/algoOrder"): protection,
+            ("POST", "/fapi/v1/leverage"): entries,
+            ("POST", "/fapi/v1/marginType"): entries,
             ("DELETE", "/fapi/v1/order"): protection,
             ("DELETE", "/fapi/v1/algoOrder"): protection,
         }
@@ -333,6 +335,7 @@ def create_testnet_process(
         enable_testnet_cancellation=daemon_cfg.enable_protection_writes,
         enable_testnet_order_cancellation=daemon_cfg.enable_protection_writes,
         enable_testnet_protection=daemon_cfg.enable_protection_writes,
+        enable_testnet_settings=daemon_cfg.enable_entries,
         **(
             {"connection_factory": signed_connection_factory}
             if signed_connection_factory is not None
@@ -374,6 +377,7 @@ def create_testnet_process(
         mark_reference=mark,
         enabled=daemon_cfg.enable_entries,
         reduce_only_enabled=daemon_cfg.enable_reduce_only_exits,
+        excluded_position_symbols=config.external_position_exclusions,
     )
     cache = RedisMarketContext(redis_client, environment="SANDBOX")
     market_context = ContextProvider(

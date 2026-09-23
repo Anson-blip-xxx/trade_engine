@@ -49,6 +49,7 @@ class BinanceSignedTransport:
         enable_testnet_cancellation=False,
         enable_testnet_order_cancellation=False,
         enable_testnet_protection=False,
+        enable_testnet_settings=False,
         timeout=10,
         connection_factory=HTTPSConnection,
     ):
@@ -79,6 +80,8 @@ class BinanceSignedTransport:
             or (enable_testnet_cancellation and environment != "SANDBOX")
             or type(enable_testnet_protection) is not bool
             or (enable_testnet_protection and environment != "SANDBOX")
+            or type(enable_testnet_settings) is not bool
+            or (enable_testnet_settings and environment != "SANDBOX")
             or type(timeout) is not int
             or not 1 <= timeout <= 30
         ):
@@ -94,6 +97,7 @@ class BinanceSignedTransport:
         self._cancel = enable_testnet_cancellation
         self._order_cancel = enable_testnet_order_cancellation
         self._protection = enable_testnet_protection
+        self._settings = enable_testnet_settings
 
     def __call__(self, method, path, params):
         if (
@@ -105,6 +109,9 @@ class BinanceSignedTransport:
             or method == "POST"
             and path == "/fapi/v1/algoOrder"
             and self._protection
+            or method == "POST"
+            and path in {"/fapi/v1/leverage", "/fapi/v1/marginType"}
+            and self._settings
             or method == "DELETE"
             and path == "/fapi/v1/algoOrder"
             and self._cancel
@@ -115,6 +122,33 @@ class BinanceSignedTransport:
             pass
         else:
             raise ExchangeTransportError("ENDPOINT_OR_WRITE_DISABLED")
+        if method == "POST" and path in {
+            "/fapi/v1/leverage",
+            "/fapi/v1/marginType",
+        }:
+            expected = (
+                {"symbol", "leverage"}
+                if path.endswith("/leverage")
+                else {"symbol", "marginType"}
+            )
+            if (
+                not isinstance(params, dict)
+                or set(params) != expected
+                or not isinstance(params.get("symbol"), str)
+                or not re.fullmatch(r"[A-Z0-9_]{1,40}", params["symbol"])
+                or (
+                    path.endswith("/leverage")
+                    and (
+                        type(params.get("leverage")) is not int
+                        or not 1 <= params["leverage"] <= 5
+                    )
+                )
+                or (
+                    path.endswith("/marginType")
+                    and params.get("marginType") not in {"ISOLATED", "CROSSED"}
+                )
+            ):
+                raise ValueError("bounded Testnet symbol settings required")
         if (
             method == "DELETE"
             and path == "/fapi/v1/order"

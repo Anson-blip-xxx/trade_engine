@@ -1,12 +1,14 @@
 """Wire the actual-account first-entry gate into an existing Testnet runtime.
 
-Does not enable a transport or install account policy, change leverage, or start
-a trading loop. Caller still supplies verified mark data and protection readiness.
+Changes bounded per-symbol Testnet leverage/margin settings only on a flat,
+order-free account and only behind the entry write gate. It does not enable a
+transport or start a trading loop. Caller still supplies mark/protection data.
 """
 
 from dataclasses import asdict
 
 from v2_core.venue_readiness import GuardedOpeningSubmit, TestnetVenueReadiness
+from v2_core.venue_settings import TestnetSymbolSettings
 
 
 def bind_directional_venue_gate(
@@ -16,6 +18,7 @@ def bind_directional_venue_gate(
     mark_reference,
     enabled=False,
     reduce_only_enabled=False,
+    excluded_position_symbols=(),
 ):
     if (
         runtime.scope is None
@@ -49,11 +52,22 @@ def bind_directional_venue_gate(
     gate = GuardedOpeningSubmit(
         runtime.data._connect,
         readiness=TestnetVenueReadiness(
-            request, scope=scope, clock_ms=runtime.clock_ms
+            request,
+            scope=scope,
+            clock_ms=runtime.clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         ),
         reference=mark_reference,
         plan=plan,
         submit=runtime.execution.submit,
+        configure=TestnetSymbolSettings(
+            runtime.data._connect,
+            request,
+            scope=scope,
+            clock_ms=runtime.clock_ms,
+            allow_writes=enabled,
+            excluded_position_symbols=excluded_position_symbols,
+        ).ensure,
         enabled=enabled,
         reduce_only_enabled=reduce_only_enabled,
     )

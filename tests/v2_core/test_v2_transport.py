@@ -158,6 +158,49 @@ def test_cancellation_switch_cannot_enable_live_transport():
         )
 
 
+def test_testnet_symbol_settings_are_separately_gated_and_signed():
+    conn = Connection()
+    params = {"symbol": "BTCUSDT", "leverage": 2}
+    with pytest.raises(ExchangeTransportError, match="DISABLED"):
+        transport(conn)("POST", "/fapi/v1/leverage", params)
+    client = transport(conn, enable_testnet_settings=True)
+    assert client("POST", "/fapi/v1/leverage", params) == {"ok": True}
+    args, kwargs = conn.calls[0]
+    assert args[:2] == ("POST", "/fapi/v1/leverage")
+    assert "symbol=BTCUSDT&leverage=2" in kwargs["body"]
+
+
+@pytest.mark.parametrize(
+    "path,params",
+    [
+        ("/fapi/v1/leverage", {"symbol": "BTCUSDT", "leverage": 0}),
+        ("/fapi/v1/leverage", {"symbol": "BTCUSDT", "leverage": 6}),
+        ("/fapi/v1/leverage", {"symbol": "BTCUSDT", "leverage": True}),
+        ("/fapi/v1/marginType", {"symbol": "BTCUSDT", "marginType": "CROSS"}),
+        ("/fapi/v1/marginType", {"symbol": "../BTC", "marginType": "CROSSED"}),
+        ("/fapi/v1/marginType", {"symbol": "BTCUSDT"}),
+    ],
+)
+def test_testnet_symbol_settings_reject_unbounded_parameters(path, params):
+    conn = Connection()
+    with pytest.raises(ValueError, match="bounded"):
+        transport(conn, enable_testnet_settings=True)("POST", path, params)
+    assert conn.calls == []
+
+
+def test_symbol_settings_switch_cannot_enable_live_transport():
+    with pytest.raises(ValueError):
+        BinanceSignedTransport(
+            account_id="qa",
+            environment="LIVE",
+            api_key="dummy",
+            api_secret="dummy",
+            clock_ms=lambda: 1,
+            permit=lambda *_: True,
+            enable_testnet_settings=True,
+        )
+
+
 @pytest.mark.parametrize(
     "path",
     [

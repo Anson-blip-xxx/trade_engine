@@ -110,7 +110,12 @@ def test_private_endpoint_budget_is_chunked_and_write_permissions_are_independen
     assert permit("POST", "/fapi/v1/algoOrder")
     assert permit("DELETE", "/fapi/v1/order")
     assert not permit("POST", "/fapi/v1/order")
+    assert not permit("POST", "/fapi/v1/leverage")
+    assert not permit("POST", "/fapi/v1/marginType")
     assert not permit("GET", "/fapi/v1/leverageBracket")
+    entries = PrivateRatePermit(Budget(), entries=True, protection=False, exits=False)
+    assert entries("POST", "/fapi/v1/leverage")
+    assert entries("POST", "/fapi/v1/marginType")
 
 
 class Public:
@@ -201,6 +206,41 @@ def test_full_process_factory_wires_real_components_without_io(database):
             {"symbol": "BTCUSDT", "signal": "TREND_UP", "features": {}}
         )
     assert public_http.calls == [] and telegram.calls == []
+    cache.close()
+
+
+def test_process_propagates_external_position_exclusion_to_entry_gate(database):
+    redis = pytest.importorskip("redis")
+    cache = redis.Redis(
+        unix_socket_path=os.environ["V2_REDIS_TEST_SOCKET"], decode_responses=True
+    )
+    cache.flushdb()
+    telegram = TelegramConnection()
+    process = create_testnet_process(
+        TestnetProcessConfig.from_mapping(
+            settings(V2_EXTERNAL_POSITION_EXCLUSIONS="ZORAUSDT")
+        ),
+        {
+            "BINANCE_TESTNET_API_KEY": "test-key",
+            "BINANCE_TESTNET_API_SECRET": "test-secret",
+            "TG_NOTIFY_TOKEN": "12345:abcdefghijklmnop",
+            "TG_NOTIFY_CHAT_ID": "-123",
+        },
+        connect=database,
+        redis_client=cache,
+        clickhouse=ArchiveClient(),
+        stop=threading.Event(),
+        telegram_sink=sink(telegram),
+        clock_ms=lambda: 86402001,
+        monotonic_ms=lambda: 0,
+        signed_connection_factory=lambda *_: pytest.fail("signed I/O during build"),
+        public_connection_factory=MarketHTTP(),
+    )
+    gate = process.runtime.execution.submit
+    assert gate.readiness.inventory.excluded_position_symbols == ("ZORAUSDT",)
+    assert gate.configure.__self__.inventory.excluded_position_symbols == (
+        "ZORAUSDT",
+    )
     cache.close()
 
 

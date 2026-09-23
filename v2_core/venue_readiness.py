@@ -1,4 +1,4 @@
-"""Testnet-only, flat-account first-entry check. Never changes venue settings.
+"""Testnet-only, scoped-account first-entry check. Never changes venue settings.
 
 REST observations are not atomic; this is not a multi-position margin engine.
 Reference and intended leverage/margin terms are explicit trusted dependencies.
@@ -18,7 +18,7 @@ from v2_core.state import BusinessState, StateKey
 class TestnetVenueReadiness:
     __test__ = False
 
-    def __init__(self, request, *, scope, clock_ms):
+    def __init__(self, request, *, scope, clock_ms, excluded_position_symbols=()):
         if (scope.exchange, scope.environment, scope.product) != (
             "BINANCE",
             "SANDBOX",
@@ -27,7 +27,11 @@ class TestnetVenueReadiness:
             raise ValueError("testnet futures readiness only")
         self.request, self.scope, self.clock = request, scope, clock_ms
         self.inventory = AccountInventory(
-            request, scope=scope, clock_ms=clock_ms, max_duration_ms=10000
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            max_duration_ms=10000,
+            excluded_position_symbols=excluded_position_symbols,
         )
 
     def inspect(self, *, symbol, quantity, leverage, margin_type, reference):
@@ -39,6 +43,8 @@ class TestnetVenueReadiness:
             raise ValueError("bounded explicit intended account settings required")
         if not isinstance(symbol, str) or not symbol.endswith("USDT"):
             raise ValueError("USDT settlement only")
+        if symbol in self.inventory.excluded_position_symbols:
+            raise ValueError("cannot trade an externally excluded position symbol")
         qty = amount(quantity, positive=True)
         ref = deepcopy(reference)
         started = self.clock()
@@ -156,15 +162,18 @@ class GuardedOpeningSubmit:
         plan,
         submit,
         enabled=False,
+        configure=None,
         reduce_only_enabled=False,
     ):
         if (
             type(enabled) is not bool
             or type(reduce_only_enabled) is not bool
             or not all(callable(p) for p in (reference, plan, submit))
+            or (configure is not None and not callable(configure))
         ):
             raise ValueError("explicit guarded submit ports required")
         self.connect, self.readiness = connect, readiness
+        self.configure = configure
         (
             self.reference,
             self.plan,
@@ -200,6 +209,16 @@ class GuardedOpeningSubmit:
                     raise ValueError("account busy")
                 guard.commit()
                 terms = self.plan(deepcopy(order))
+                settings = (
+                    None
+                    if self.configure is None
+                    else self.configure(deepcopy(order), deepcopy(terms))
+                )
+                if settings is not None and (
+                    not isinstance(settings, dict)
+                    or settings.get("status") != "VERIFIED"
+                ):
+                    raise ValueError("venue symbol settings unverified")
                 proof = self.readiness.inspect(
                     symbol=order["symbol"],
                     quantity=order["quantity"],
@@ -207,6 +226,8 @@ class GuardedOpeningSubmit:
                     margin_type=terms["margin_type"],
                     reference=self.reference(order["symbol"]),
                 )
+                if settings is not None:
+                    proof["symbol_settings"] = settings
                 key = StateKey(
                     **asdict(scope),
                     namespace="opening-readiness-v1",
