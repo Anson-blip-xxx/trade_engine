@@ -1,6 +1,7 @@
 [Unit]
 Description=Trade Engine V2 Binance Testnet daemon
-After=network-online.target
+Requires=postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
+After=network-online.target postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
 Wants=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5

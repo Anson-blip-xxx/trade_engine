@@ -223,6 +223,28 @@ def test_systemd_template_is_hardened_unrendered_and_defaults_to_no_writes():
         "KillSignal=SIGTERM",
     ):
         assert directive in unit
+    for dependency in (
+        "postgresql@16-tradev2.service",
+        "trade-v2-cache.service",
+        "trade-v2-clickhouse.service",
+    ):
+        assert dependency in unit
+    for name, family in (
+        ("trade-v2-cache.service.in", "RestrictAddressFamilies=AF_UNIX"),
+        (
+            "trade-v2-clickhouse.service.in",
+            "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+        ),
+    ):
+        dependency = (root / "deploy/v2-testnet" / name).read_text()
+        assert "@PROJECT_ROOT@" in dependency
+        assert "ProtectSystem=strict" in dependency
+        assert "NoNewPrivileges=yes" in dependency
+        assert (
+            "ReadWritePaths=/var/lib/trade-engine-v2 /var/log/trade-engine-v2"
+            in dependency
+        )
+        assert family in dependency
     assert "BINANCE_TESTNET_API_KEY=" not in environment
     values = dict(
         line.split("=", 1)

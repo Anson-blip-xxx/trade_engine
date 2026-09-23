@@ -1,0 +1,36 @@
+[Unit]
+Description=Trade Engine V2 isolated ClickHouse
+After=local-fs.target network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/bin/clickhouse server --config-file=@PROJECT_ROOT@/deploy/v2-testnet/clickhouse.xml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+UMask=0077
+MemoryMax=1536M
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/trade-engine-v2 /var/log/trade-engine-v2
+
+[Install]
+WantedBy=multi-user.target
