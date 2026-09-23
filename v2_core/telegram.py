@@ -37,6 +37,7 @@ class TelegramOperationalSink:
             "MARKET_FAILURE",
             "CANDLE_QUARANTINED",
             "PROTECTION_RECOVERY",
+            "TRADING_DAEMON",
         }:
             return False
         # Never forward arbitrary fields, API responses, balances or exception text.
@@ -51,6 +52,8 @@ class TelegramOperationalSink:
             "outcome",
             "state_id",
             "parent_status",
+            "account_id",
+            "observed_at_ms",
         )
         clean = {key: payload[key] for key in allowed if key in payload}
         text = f"[V2 {scope}] {kind}\nevent_id={event_id}\n" + json.dumps(
