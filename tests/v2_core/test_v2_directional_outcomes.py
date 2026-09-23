@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 
@@ -66,6 +67,48 @@ def test_settlement_derives_immutable_t0_outcome(database, outcome):
         ).fetchone()
     assert row[:4] == ("s6", "BTCUSDT", "TREND_UP", Decimal("-10.106"))
     assert row[4]["opening_notional"] == "125"
+
+
+def test_market_slippage_does_not_invalidate_quantity_bound_outcome(database, closed):
+    runtime, episode, income = closed
+    baseline(database, runtime, episode)
+    assert service(database, income).run_once()["status"] == "CLEAR"
+
+    class Result:
+        def __init__(self, row=None):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class SlippageConnection:
+        def __init__(self, real):
+            self.real, self.inserted = real, None
+
+        def execute(self, query, params):
+            sql = str(query)
+            if "SELECT i.producer" in sql:
+                row = list(self.real.execute(query, params).fetchone())
+                row[6] = Decimal("123.75")
+                return Result(tuple(row))
+            if "INSERT INTO v2_directional_outcomes" in sql:
+                self.inserted = params
+                return Result()
+            if "SELECT episode_id::text" in sql:
+                values = list(self.inserted)
+                for index in (10, 11, 12, 13):
+                    values[index] = Decimal(values[index])
+                values[14] = values[14].obj
+                return Result(tuple(values))
+            return self.real.execute(query, params)
+
+    @contextmanager
+    def connect():
+        with database() as real:
+            yield SlippageConnection(real)
+
+    result = DirectionalOutcomeJournal(connect, scope=SCOPE).record(episode)
+    assert result["closing_price"] == "92"
 
 
 def test_t60_followup_is_direction_aware_idempotent_and_rolls_up(outcome):

@@ -53,6 +53,7 @@ class DirectionalOutcomeJournal:
                 """SELECT i.producer,i.payload->>'symbol',e.snapshot,s.revision,s.evidence,
                 max(f.occurred_at_ms) FILTER (WHERE o.leg='CLOSE'),
                 sum(f.quantity*f.price) FILTER (WHERE o.leg='OPEN'),
+                sum(f.quantity) FILTER (WHERE o.leg='OPEN'),
                 sum(f.quantity*f.price) FILTER (WHERE o.leg='CLOSE'),
                 sum(f.quantity) FILTER (WHERE o.leg='CLOSE')
                 FROM v2_trade_intents i JOIN v2_decision_evidence e USING(evidence_ref)
@@ -73,6 +74,7 @@ class DirectionalOutcomeJournal:
                 settlement,
                 closed,
                 opened,
+                opening_quantity,
                 closing,
                 quantity,
             ) = row
@@ -82,7 +84,9 @@ class DirectionalOutcomeJournal:
                 plan["strategy"].lower() != producer
                 or symbol(target) != snapshot["symbol"]
                 or sizing["reason"] != "SIZED"
-                or amount(sizing["notional"], positive=True) != opened
+                or amount(sizing["notional"], positive=True) <= 0
+                or amount(sizing["quantity"], positive=True) != opening_quantity
+                or opening_quantity != quantity
                 or closed is None
                 or quantity is None
                 or quantity <= 0
@@ -101,6 +105,7 @@ class DirectionalOutcomeJournal:
                 "episode_id": episode,
                 "decision_evidence_ref": digest(canonical({"snapshot": snapshot})),
                 "settlement_digest": digest(canonical({"settlement": settlement})),
+                "planned_notional": sizing["notional"],
                 "opening_notional": exact(opened),
                 "closing_quantity": exact(quantity),
             }
