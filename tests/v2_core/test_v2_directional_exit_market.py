@@ -110,6 +110,22 @@ def test_fresh_mark_funding_and_closed_windows_are_exact():
     ]
 
 
+def test_recurring_ema_is_bounded_to_the_ledger_numeric_scale():
+    market = Market()
+
+    def recurring(path, value):
+        if path.endswith("klines") and len(value) == 20:
+            for row in value:
+                row[4] = "1"
+            value[-1][4] = "2"
+        return value
+
+    market.mutate = recurring
+    result = provider(market)("BTCUSDT")
+    assert result["ema9_1h"] == "1.111111111111111111"
+    assert result["ema20_1h"] == "1.05"
+
+
 @pytest.mark.parametrize(
     "defect",
     ["clock", "premium", "premium_time", "missing", "order", "decimal"],

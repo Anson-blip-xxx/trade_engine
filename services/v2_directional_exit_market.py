@@ -1,6 +1,6 @@
 """Fresh credential-free Binance observations for directional exit decisions."""
 
-from decimal import Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 
 from v2_core.directional import number
 from v2_core.ingress import milliseconds, symbol
@@ -36,7 +36,14 @@ class BinanceDirectionalExitMarket:
 
     @staticmethod
     def _exact(value):
-        encoded = format(value.normalize(), "f")
+        with localcontext() as ctx:
+            ctx.prec = 100
+            bounded = (
+                value.quantize(Decimal("1e-18"), rounding=ROUND_HALF_EVEN)
+                if value.as_tuple().exponent < -18
+                else value
+            )
+        encoded = format(bounded.normalize(), "f")
         amount(encoded)
         return encoded
 
