@@ -3,10 +3,10 @@ Description=Trade Engine V2 isolated Redis cache
 After=local-fs.target
 
 [Service]
-Type=simple
+Type=notify
 User=ubuntu
 Group=ubuntu
-ExecStart=/usr/bin/redis-server @PROJECT_ROOT@/deploy/v2-testnet/redis.conf
+ExecStart=/usr/bin/redis-server @PROJECT_ROOT@/deploy/v2-testnet/redis.conf --supervised systemd --daemonize no
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

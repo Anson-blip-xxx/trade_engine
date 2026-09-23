@@ -221,6 +221,7 @@ def test_systemd_template_is_hardened_unrendered_and_defaults_to_no_writes():
         "CapabilityBoundingSet=",
         "TimeoutStopSec=30",
         "KillSignal=SIGTERM",
+        "ExecStartPre=@PYTHON@ -m services.v2_dependency_preflight",
     ):
         assert directive in unit
     for dependency in (
@@ -245,6 +246,8 @@ def test_systemd_template_is_hardened_unrendered_and_defaults_to_no_writes():
             in dependency
         )
         assert family in dependency
+    cache_unit = (root / "deploy/v2-testnet/trade-v2-cache.service.in").read_text()
+    assert "Type=notify" in cache_unit and "--supervised systemd" in cache_unit
     assert "BINANCE_TESTNET_API_KEY=" not in environment
     values = dict(
         line.split("=", 1)
