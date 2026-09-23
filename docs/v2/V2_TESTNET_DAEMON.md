@@ -6,7 +6,8 @@
 它只接受 `BINANCE / SANDBOX / FUTURES`，把已经实现的恢复、保护、主动退出、
 结算、行情、S6/S8 调度和开仓派发接到同一账户流水。构造过程不启动线程、
 不访问网络、不发送订单。`services/v2_testnet_daemon_entry.py` 现提供可测试的
-完整进程装配和 CLI；仓库只提供未安装的 systemd 模板，没有执行部署动作。
+完整进程装配和 CLI；仓库保留可复现的 systemd 模板，当前只读 Testnet 栈已按
+[持久发布报告](V2_PERSISTENT_RELEASE_20260923.md)安装，三项交易写权限仍全部关闭。
 
 这不是生产上线许可，也不是收益保证。只有把真实 Testnet 依赖注入并显式打开相应
 权限后，阶段才可写交易所；本节点的 QA 全部使用隔离依赖和交易所替身。
@@ -85,11 +86,15 @@
 结算后的自动 T60 采集、配置/密钥加载进程入口和 systemd 模板已完成。
 模板位于 `deploy/v2-testnet/`，必须显式渲染 `@PROJECT_ROOT@`/`@PYTHON@`/
 `@ENV_FILE@`/`@CREDENTIAL_FILE@` 占位符后才可安装；样例环境默认三项写权限全关。
+Redis、ClickHouse 也有独立硬化模板，daemon 以 `Requires/After` 绑定三项依赖；启动前
+执行固定端点的有界 readiness 探针，不再用自动重启替代依赖就绪。实际安装和受控重启
+记录见 [持久发布报告](V2_PERSISTENT_RELEASE_20260923.md)。
 
 V2 S0 已接入确认归档，详见 [S0 说明](V2_S0_REGIME.md)。进程不会伪造中性 regime：
 缺失、过期或不一致 S0 时保护、退出、结算和行情仍可运行，S6/S8 准入失败关闭。
-首次真实只读统一循环已经完成，数据见
-[2026-09-23 联调记录](V2_UNIFIED_DRY_RUN_20260923.md)。仍需完成历史任务追平、
+首次真实只读统一循环及持久 release 已完成，数据见
+[2026-09-23 联调记录](V2_UNIFIED_DRY_RUN_20260923.md)和
+[持久发布报告](V2_PERSISTENT_RELEASE_20260923.md)。仍需完成历史任务追平、
 Testnet 长时间运行、真实自然信号全链路、
 重启/依赖中断演练、可观测性和发布回滚。
 账户、资金费、合约规则及 PG 历史已有真实 provider；
