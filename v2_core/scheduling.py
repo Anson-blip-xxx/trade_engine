@@ -15,6 +15,35 @@ class StrategyScheduler:
         self.worker, self.context_provider = worker, context_provider
         self._connect = worker._connect
 
+    def progress(self):
+        """Return an atomic source-to-consumer catch-up snapshot."""
+        worker, consumer = self.worker, self.worker.scope.consumer
+        with self._connect() as conn:
+            row = conn.execute(
+                """WITH scoped_signals AS (
+                    SELECT signal_id FROM v2_inbound_signals
+                    WHERE source=%s AND environment=%s),
+                totals AS (
+                    SELECT count(*) AS source_signals,
+                    count(t.signal_id) AS scheduled,
+                    count(t.signal_id) FILTER (WHERE t.completed_at IS NOT NULL) AS completed,
+                    count(t.signal_id) FILTER (WHERE t.completed_at IS NULL) AS incomplete
+                    FROM scoped_signals s LEFT JOIN v2_strategy_tasks t
+                    ON t.consumer=%s AND t.signal_id=s.signal_id)
+                SELECT source_signals,scheduled,completed,incomplete,
+                source_signals-scheduled AS undiscovered FROM totals""",
+                (worker.source, worker.scope.environment, consumer),
+            ).fetchone()
+        source, scheduled, completed, incomplete, undiscovered = map(int, row)
+        return {
+            "source_signals": source,
+            "scheduled": scheduled,
+            "completed": completed,
+            "incomplete": incomplete,
+            "undiscovered": undiscovered,
+            "caught_up": undiscovered == 0 and incomplete == 0,
+        }
+
     def run_once(self, limit=100, *, interval_seconds=5, lease_seconds=300):
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid strategy batch limit")

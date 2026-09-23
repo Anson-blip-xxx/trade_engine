@@ -62,6 +62,11 @@
 8. S6/S8 正式策略调度；
 9. 条件满足且开仓权限开启时，最多派发一笔新开仓并立即恢复、保护。
 
+S6/S8 阶段还把调度器的原子追平快照写入同一周期证据：`source_signals`、
+`scheduled`、`completed`、`incomplete`、`undiscovered` 和 `caught_up`。只有
+`undiscovered=0` 且 `incomplete=0` 时 `caught_up=true`；任务表暂时没有 pending
+不能替代该判断。该字段是发布/运行观测证据，不会自行开启交易权限。
+
 每个阶段前后另有 `trading-pipeline-cycle-v1` PG 日志。周期结束后守护进程提交
 `RUNNING` 或 `DEGRADED` 检查点，其中记录账户范围、三项写权限、流水状态和周期身份。
 `CYCLE_COMPLETE` 只代表该轮门禁正常，不能替代订单、成交和结算事实。

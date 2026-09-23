@@ -56,9 +56,9 @@ ACKNOWLEDGED，regime 为 PROJECTED。该窗口 `v2_orders.updated_at` 更新数
 
 ## QA 与剩余边界
 
-初始持久栈全仓回归为 4171 passed；运行时锁节点最终全仓回归为 4174 passed、
-10 skipped、1 条既有 PM golden warning；
-Ruff、format、diff 和完整 systemd unit 静态验证通过。
+初始持久栈全仓回归为 4171 passed；运行时锁节点为 4174 passed；策略追平证据节点为
+4175 passed。后两次均为 10 skipped、1 条既有 PM golden warning；Ruff、format、
+diff 和完整 systemd unit 静态验证通过。
 
 尚未执行整机 reboot，因此“已 enable”不等于真实断电启动演练。仍需历史任务追平、
 自然新信号只读判定、较长 soak、实际 reboot/回滚以及依赖持续故障告警验证。完成这些

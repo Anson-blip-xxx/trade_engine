@@ -183,9 +183,14 @@ class TradingPipeline:
             )
             if can_admit:
                 for scheduler in self.schedulers:
+
+                    def schedule_and_measure(target=scheduler):
+                        processed = target.run_once(limit=limit)
+                        return {**processed, "progress": target.progress()}
+
                     result = phase(
                         scheduler.worker.scope.producer,
-                        lambda s=scheduler: s.run_once(limit=limit),
+                        schedule_and_measure,
                     )
                     can_admit = can_admit and not failed(result)
             entries = {}

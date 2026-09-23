@@ -1325,6 +1325,39 @@ def test_strategy_scheduler_failed_signal_does_not_starve_later_signal(database)
     assert set(rows) == {(bad, "ConnectionError", False), (good, None, True)}
 
 
+def test_strategy_scheduler_progress_distinguishes_undiscovered_and_incomplete(
+    database,
+):
+    from v2_core.scheduling import StrategyScheduler
+    from v2_core.strategy import StrategyDecision
+
+    scheduler_signal(database, "first")
+    scheduler_signal(database, "second")
+    worker, _ = strategy_worker(
+        database, decide=lambda *_: StrategyDecision("IGNORED", "filtered")
+    )
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {})
+    assert scheduler.progress() == {
+        "source_signals": 2,
+        "scheduled": 0,
+        "completed": 0,
+        "incomplete": 0,
+        "undiscovered": 2,
+        "caught_up": False,
+    }
+    scheduler.run_once(1)
+    assert scheduler.progress() == {
+        "source_signals": 2,
+        "scheduled": 1,
+        "completed": 1,
+        "incomplete": 0,
+        "undiscovered": 1,
+        "caught_up": False,
+    }
+    scheduler.run_once(1)
+    assert scheduler.progress()["caught_up"] is True
+
+
 def test_strategy_scheduler_recovers_capacity_wait_without_feed_and_expires(database):
     from v2_core.scheduling import StrategyScheduler
 

@@ -167,6 +167,14 @@ def test_real_s3_detection_through_context_strategy_and_pg_order(case, database)
         "regime",
     ]
     assert result["phases"]["s6"] and "PREPARED" in result["phases"]["s6"].values()
+    assert result["phases"]["s6"]["progress"] == {
+        "source_signals": 1,
+        "scheduled": 1,
+        "completed": 1,
+        "incomplete": 0,
+        "undiscovered": 0,
+        "caught_up": True,
+    }
     assert result["entries"] == {}
     with database() as conn:
         rows = conn.execute("""SELECT s.snapshot->>'signal',i.producer,o.status,e.snapshot->'features'->'context'
