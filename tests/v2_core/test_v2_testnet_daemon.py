@@ -7,6 +7,7 @@ from test_v2_trading_pipeline import case as pipeline_case
 from test_v2_venue_readiness import Venue
 
 from services.v2_directional_exit import DirectionalExitStage
+from services.v2_directional_followup import DirectionalFollowupStage
 from services.v2_directional_lifecycle import DirectionalProtectionStage
 from services.v2_directional_settlement import DirectionalSettlementStage
 from services.v2_testnet_daemon import (
@@ -51,6 +52,7 @@ def test_factory_wires_actual_lifecycle_stages_without_io(case):
     assert isinstance(composed.protection, DirectionalProtectionStage)
     assert isinstance(composed.exits, DirectionalExitStage)
     assert isinstance(composed.settlement, DirectionalSettlementStage)
+    assert isinstance(composed.followups, DirectionalFollowupStage)
     assert composed.enable_entries is False
     assert composed.protection.allow_writes is False
     assert composed.exits.allow_writes is False

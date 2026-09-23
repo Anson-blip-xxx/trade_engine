@@ -1,6 +1,6 @@
 """One account-bound lifecycle supervisor; default no new order dispatch.
 
-Explicit PM/exit/settlement stages are mandatory. They must return CLEAR only
+Explicit PM/exit/settlement/T60 stages are mandatory. They must return CLEAR only
 after their own evidence-based checks, never merely because a scan did not crash.
 This composition is not a substitute for implementing or deploying those stages.
 """
@@ -36,6 +36,7 @@ class TradingPipeline:
         protection,
         exits,
         settlement,
+        followups,
         enable_entries=False,
     ):
         scope = runtime.scope
@@ -64,12 +65,12 @@ class TradingPipeline:
                 raise ValueError("single runtime and actual directional rules required")
         if market.source.publisher.environment != scope.environment:
             raise ValueError("market environment mismatch")
-        for stage in (protection, exits, settlement):
+        for stage in (protection, exits, settlement, followups):
             if getattr(stage, "scope", None) != scope or not callable(
                 getattr(stage, "run_once", None)
             ):
                 raise ValueError(
-                    "bound protection, exit and settlement stages required"
+                    "bound protection, exit, settlement and T60 stages required"
                 )
         self.runtime, self.scope, self.market, self.schedulers = (
             runtime,
@@ -77,7 +78,12 @@ class TradingPipeline:
             market,
             schedulers,
         )
-        self.protection, self.exits, self.settlement = protection, exits, settlement
+        self.protection, self.exits, self.settlement, self.followups = (
+            protection,
+            exits,
+            settlement,
+            followups,
+        )
         self.enable_entries = enable_entries
         self.connect = runtime.data._connect
 
@@ -140,6 +146,7 @@ class TradingPipeline:
                 ("protection", self.protection),
                 ("exits", self.exits),
                 ("settlement", self.settlement),
+                ("followups", self.followups),
             ):
                 result = phase(name, stage.run_once)
                 safety.append(

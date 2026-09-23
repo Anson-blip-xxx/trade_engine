@@ -147,6 +147,7 @@ def case(database):
         protection=Stage("protection"),
         exits=Stage("exits"),
         settlement=Stage("settlement"),
+        followups=Stage("followups"),
     )
     return pipeline, calls, account, envelopes, now
 
@@ -155,7 +156,7 @@ def test_real_s3_detection_through_context_strategy_and_pg_order(case, database)
     pipeline, calls, _, _, _ = case
     result = pipeline.run_once()
     assert result["status"] == "CYCLE_COMPLETE"
-    assert calls == ["protection", "exits", "settlement", "market"]
+    assert calls == ["protection", "exits", "settlement", "followups", "market"]
     assert result["phases"]["s6"] and "PREPARED" in result["phases"]["s6"].values()
     assert result["entries"] == {}
     with database() as conn:
@@ -173,13 +174,13 @@ def test_real_s3_detection_through_context_strategy_and_pg_order(case, database)
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone()[0] == len(rows)
 
 
-@pytest.mark.parametrize("stage", ["protection", "exits", "settlement"])
+@pytest.mark.parametrize("stage", ["protection", "exits", "settlement", "followups"])
 def test_incomplete_lifecycle_stage_prevents_new_decisions(case, database, stage):
     pipeline, calls, _, _, _ = case
     getattr(pipeline, stage).status = "PENDING"
     result = pipeline.run_once()
     assert result["status"] == "ENTRY_BLOCKED"
-    assert calls == ["protection", "exits", "settlement", "market"]
+    assert calls == ["protection", "exits", "settlement", "followups", "market"]
     with database() as conn:
         assert (
             conn.execute("SELECT count(*) FROM v2_strategy_decisions").fetchone()[0]
@@ -191,7 +192,7 @@ def test_market_outage_never_skips_position_management(case):
     pipeline, calls, _, _, _ = case
     pipeline.market.fail = True
     result = pipeline.run_once()
-    assert calls == ["protection", "exits", "settlement", "market"]
+    assert calls == ["protection", "exits", "settlement", "followups", "market"]
     assert result["status"] == "ENTRY_BLOCKED"
     assert "secret-url" not in json.dumps(result)
 

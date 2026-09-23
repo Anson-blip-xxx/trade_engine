@@ -33,7 +33,8 @@
 
 ## 尚未完成
 
-历史端口已有 [V2 原生不可变结果与 14 日滚动统计](V2_DIRECTIONAL_OUTCOMES.md)，但尚缺
-从真实已收盘公共 K 线自动补录 T60 的调度阶段；因此还不能装进真实 daemon 入口。
-本轮只做隔离 PostgreSQL 和 HTTP 替身 QA，没有访问 Binance。完成 T60 调度后，再把
-按 S6/S8 分别绑定的 history/provider 接到两个 `DirectionalContext` 调度器。
+历史端口已有 [V2 原生不可变结果与 14 日滚动统计](V2_DIRECTIONAL_OUTCOMES.md)，
+真实已收盘公共 K 线 T60 调度阶段也已装入统一 daemon pipeline。尚需在
+可部署进程入口组装 S6/S8 scheduler 时，将分别绑定的 history/provider 接到
+两个 `DirectionalContext` 调度器，并做真实 Testnet 长时间验收。本轮只做隔离
+PostgreSQL 和 HTTP 替身 QA，没有访问 Binance。

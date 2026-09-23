@@ -115,6 +115,7 @@ class BinancePublicMarket:
                 milliseconds(params["endTime"]),
             )
             contracts = {
+                ("1m", 1): (60000, 60000, 1),
                 ("1m", 1440): (60000, 86400000, 10),
                 ("15m", 4): (900000, 3600000, 1),
                 ("1h", 20): (3600000, 72000000, 1),

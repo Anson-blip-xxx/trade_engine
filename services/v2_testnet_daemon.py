@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from services.v2_directional_exit import DirectionalExitStage
 from services.v2_directional_exit_market import BinanceDirectionalExitMarket
+from services.v2_directional_followup import DirectionalFollowupStage
 from services.v2_directional_lifecycle import DirectionalProtectionStage
 from services.v2_directional_settlement import DirectionalSettlementStage
 from services.v2_trading_pipeline import TradingPipeline
@@ -79,6 +80,12 @@ def create_directional_testnet_pipeline(
     settlement = DirectionalSettlementStage(
         runtime.data._connect, request, scope=scope, clock_ms=clock_ms
     )
+    followups = DirectionalFollowupStage(
+        runtime.data._connect,
+        public_market,
+        scope=scope,
+        clock_ms=clock_ms,
+    )
     return TradingPipeline(
         runtime=runtime,
         market=market,
@@ -86,6 +93,7 @@ def create_directional_testnet_pipeline(
         protection=protection,
         exits=exits,
         settlement=settlement,
+        followups=followups,
         enable_entries=enable_entries,
     )
 
