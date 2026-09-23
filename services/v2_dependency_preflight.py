@@ -1,8 +1,37 @@
 """Bounded readiness gate for the fixed isolated V2 deployment endpoints."""
 
 import http.client
+import importlib.metadata
 import socket
+import sys
 import time
+
+_RUNTIME_REQUIREMENTS = {
+    "backports.zstd": "1.7.0",
+    "certifi": "2026.7.22",
+    "clickhouse-connect": "1.6.0",
+    "lz4": "4.4.5",
+    "psycopg": "3.3.6",
+    "psycopg-binary": "3.3.6",
+    "redis": "8.0.1",
+    "typing_extensions": "4.16.0",
+    "urllib3": "2.8.0",
+}
+
+
+def runtime_ready(
+    *, version=importlib.metadata.version, python_version=sys.version_info
+):
+    """Reject an untested interpreter or data driver before external I/O."""
+    if tuple(python_version[:2]) != (3, 12):
+        return False
+    try:
+        return all(
+            version(name) == expected
+            for name, expected in _RUNTIME_REQUIREMENTS.items()
+        )
+    except importlib.metadata.PackageNotFoundError:
+        return False
 
 
 def postgres_ready():
@@ -32,7 +61,7 @@ def clickhouse_ready():
 
 
 def wait_for_dependencies(
-    probes=(postgres_ready, redis_ready, clickhouse_ready),
+    probes=(runtime_ready, postgres_ready, redis_ready, clickhouse_ready),
     *,
     monotonic=time.monotonic,
     sleep=time.sleep,
