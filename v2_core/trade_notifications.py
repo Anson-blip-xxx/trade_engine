@@ -1,5 +1,7 @@
 """Durable, read-only Telegram projections for confirmed trade lifecycle facts."""
 
+import json
+import time
 from dataclasses import asdict
 from decimal import Decimal, localcontext
 
@@ -7,6 +9,7 @@ from v2_core.account_risk import AccountScope
 from v2_core.delivery import Projector
 from v2_core.ledger import Ledger, amount
 from v2_core.service import TradingData
+from v2_core.state import BusinessState, StateKey
 from v2_core.telegram import TelegramOperationalSink
 
 
@@ -60,7 +63,7 @@ class TradeLifecycleProjector(Projector):
 
 
 class TradeLifecycleNotifications:
-    def __init__(self, connect, sink, *, scope):
+    def __init__(self, connect, sink, *, scope, pin_messages=False):
         if (
             not isinstance(scope, AccountScope)
             or scope.environment != "SANDBOX"
@@ -69,6 +72,10 @@ class TradeLifecycleNotifications:
         ):
             raise ValueError("account-bound Testnet trade notifications required")
         self.connect, self.sink, self.scope = connect, sink, scope
+        if type(pin_messages) is not bool:
+            raise ValueError("explicit pin flag required")
+        self.pin_messages = pin_messages
+        self.store = BusinessState(connect)
         self.data = TradingData(connect)
         self.projector = TradeLifecycleProjector(
             connect,
@@ -78,7 +85,74 @@ class TradeLifecycleNotifications:
         )
 
     def run_once(self, limit=10):
+        # Pin I/O runs in the independent watchdog, never the trading cycle.
         return self.projector.run_scheduled_batch(limit, lease_seconds=30)
+
+    def _pin_key(self, event_id):
+        return StateKey(**asdict(self.scope), namespace="telegram-pin-v1", key=event_id)
+
+    def _queue_pin(self, event_id, message_id):
+        key = self._pin_key(event_id)
+        previous = self.store.read(key)
+        if previous:
+            return
+        result = self.store.change(
+            key,
+            expected_version=0,
+            request_key="message-confirmed",
+            payload={
+                "message_id": message_id,
+                "destination": self.sink.pin_destination,
+                "status": "PENDING",
+                "attempts": 0,
+                "next_attempt_ms": 0,
+            },
+            reason="TELEGRAM_TRADE_MESSAGE_CONFIRMED",
+        )
+        if result.code != "APPLIED":
+            raise ValueError("TELEGRAM_RECEIPT_CONFLICT")
+
+    def _retry_pins(self, limit):
+        now = time.time_ns() // 1000000
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT scope->>'key' FROM v2_business_state
+                WHERE scope @> %s::jsonb AND NOT deleted AND payload->>'status'='PENDING'
+                AND (payload->>'next_attempt_ms')::bigint<=%s
+                ORDER BY (payload->>'next_attempt_ms')::bigint,state_id LIMIT %s""",
+                (
+                    json.dumps({**asdict(self.scope), "namespace": "telegram-pin-v1"}),
+                    now,
+                    limit,
+                ),
+            ).fetchall()
+        for (event_id,) in rows:
+            key = self._pin_key(event_id)
+            saved = self.store.read(key)
+            payload = json.loads(saved.payload_json)
+            if payload["status"] != "PENDING":
+                continue
+            if payload["destination"] != self.sink.pin_destination:
+                payload.update(
+                    status="DESTINATION_CHANGED", error="PIN_DESTINATION_CHANGED"
+                )
+            else:
+                try:
+                    self.sink.pin(payload["message_id"])
+                    payload.update(status="PINNED", error=None)
+                except Exception:  # noqa: BLE001 - independent durable pin retry
+                    payload.update(error="PIN_UNCONFIRMED")
+                payload["attempts"] += 1
+                payload["next_attempt_ms"] = now + min(
+                    3600000, 60000 * 2 ** min(payload["attempts"] - 1, 6)
+                )
+            self.store.change(
+                key,
+                expected_version=saved.version,
+                request_key=f"pin:{saved.version}",
+                payload=payload,
+                reason="TELEGRAM_PIN_ATTEMPT",
+            )
 
     def _facts(self, episode):
         trace = self.data.trace(episode)
@@ -246,12 +320,19 @@ class TradeLifecycleNotifications:
         }
 
     def _deliver(self, event_id, episode, kind, _payload):
+        if self.pin_messages and self.store.read(self._pin_key(event_id)):
+            return True  # Confirmed send survives projector-ACK failure; pin independently.
+        options = (
+            {"receipt": lambda mid: self._queue_pin(event_id, mid)}
+            if self.pin_messages
+            else {}
+        )
         if kind.startswith("ORDER_STATE:"):
             return self.sink(
-                event_id, "SANDBOX", "TRADE_OPENED", self._opening(episode)
+                event_id, "SANDBOX", "TRADE_OPENED", self._opening(episode), **options
             )
         if kind.startswith("SETTLED:"):
             return self.sink(
-                event_id, "SANDBOX", "TRADE_CLOSED", self._closing(episode)
+                event_id, "SANDBOX", "TRADE_CLOSED", self._closing(episode), **options
             )
         return True

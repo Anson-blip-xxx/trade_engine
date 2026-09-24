@@ -158,6 +158,12 @@ class TradingHealth:
             findings["PIPELINE_ENTRY_BLOCKED"] = {"stages": blocked}
             if any(name in blocked for name in ("protection", "exits")):
                 findings["POSITION_SAFETY_BLOCKED"] = {"stages": blocked}
+                lag = findings.pop("SIGNAL_CONSUMPTION_LAG", None)
+                if lag:
+                    expected_waits["signals_waiting_for_safety"] = {
+                        "reason": "UPSTREAM_POSITION_SAFETY_BLOCKED",
+                        "queues": lag,
+                    }
         previous = self.store.read(self.key)
         old = (
             json.loads(previous.payload_json)
@@ -168,12 +174,27 @@ class TradingHealth:
         first = {code: min(now, timers.get(code, now)) for code in findings}
         # Direct age checks already debounce order/settlement/signal diagnostics.
         delays = {
+            "SIGNAL_CONSUMPTION_LAG": settings["health.signal_confirm_seconds"] * 1000,
             "PIPELINE_ENTRY_BLOCKED": settings["health.pipeline_seconds"] * 1000,
             "POSITION_SAFETY_BLOCKED": settings["health.safety_seconds"] * 1000,
         }
         active = sorted(
             code for code in findings if now - first[code] >= delays.get(code, 0)
         )
+        # Signals arrive in minute-sized batches. A single empty queue between
+        # batches is not a confirmed recovery; otherwise TG alternates alarm /
+        # recovery every minute. Persist the quiet timer across process restarts.
+        clear_since = {}
+        code = "SIGNAL_CONSUMPTION_LAG"
+        if code in old.get("active", []) and code not in findings:
+            clear_since[code] = min(now, old.get("clear_since_ms", {}).get(code, now))
+            if (
+                now - clear_since[code]
+                < settings["health.signal_recovery_seconds"] * 1000
+            ):
+                active.append(code)
+        elif code in old.get("active", []) and code in findings and code not in active:
+            active.append(code)
         result = self.store.change(
             self.key,
             expected_version=previous.version if previous else 0,
@@ -186,6 +207,7 @@ class TradingHealth:
                 "account_scope": asdict(self.scope),
                 "active": active,
                 "first_seen_ms": first,
+                "clear_since_ms": clear_since,
                 "findings": findings,
                 "expected_waits": expected_waits,
                 "capital": capital,

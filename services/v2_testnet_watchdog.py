@@ -244,7 +244,16 @@ class WatchdogDeliveryState:
 
 
 class HealthWatchdog:
-    def __init__(self, assess, *, notify, stop, interval_seconds, delivery_state=None):
+    def __init__(
+        self,
+        assess,
+        *,
+        notify,
+        stop,
+        interval_seconds,
+        delivery_state=None,
+        maintenance=None,
+    ):
         if (
             not callable(assess)
             or not callable(notify)
@@ -260,6 +269,9 @@ class HealthWatchdog:
         self.delivery_state = delivery_state
         self.loaded = delivery_state is None
         self.persisted = set()
+        if maintenance is not None and not callable(maintenance):
+            raise ValueError("callable watchdog maintenance required")
+        self.maintenance = maintenance
 
     def run_once(self):
         current = self.assess()
@@ -331,6 +343,11 @@ class HealthWatchdog:
                 self.persisted = set(self.reported)
             except Exception:  # noqa: BLE001, S110 - retry persistence next cycle
                 pass
+        if self.maintenance is not None:
+            try:
+                self.maintenance()
+            except Exception:  # noqa: BLE001 - independent pin queue must not disable health checks
+                print('{"status":"WATCHDOG_MAINTENANCE_RETRY"}', flush=True)
         return current
 
     def serve(self):
@@ -382,6 +399,14 @@ def main(environ=None):
         account_id=config.account_id,
         clock_ms=lambda: time.time_ns() // 1000000,
     )
+    from v2_core.trade_notifications import TradeLifecycleNotifications
+
+    pins = TradeLifecycleNotifications(
+        connect,
+        sink,
+        scope=AccountScope("BINANCE", config.account_id, "SANDBOX", "FUTURES"),
+        pin_messages=True,
+    )
     stop = threading.Event()
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop.set())
@@ -391,6 +416,7 @@ def main(environ=None):
         stop=stop,
         interval_seconds=config.interval_seconds,
         delivery_state=WatchdogDeliveryState(connect, config.account_id),
+        maintenance=lambda: pins._retry_pins(1),
     ).serve()
 
 

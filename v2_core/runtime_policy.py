@@ -122,6 +122,8 @@ SCHEMA = {
     "health.prepared_seconds": (90, 5, 3600),
     "health.settlement_seconds": (180, 10, 86400),
     "health.queue_seconds": (30, 5, 3600),
+    "health.signal_confirm_seconds": (0, 0, 3600),
+    "health.signal_recovery_seconds": (0, 0, 3600),
     "health.pipeline_seconds": (120, 5, 3600),
     "health.safety_seconds": (30, 5, 3600),
     "exit.adverse_funding": ("0.005", "0", "1"),

@@ -466,7 +466,7 @@ def create_testnet_process(
         telegram_sink, account_id=scope.account_id, clock_ms=clock_ms
     )
     trade_notifications = TradeLifecycleNotifications(
-        connect, telegram_sink, scope=scope
+        connect, telegram_sink, scope=scope, pin_messages=True
     )
     daemon = TestnetTradingDaemon(
         pipeline,

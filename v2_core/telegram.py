@@ -171,7 +171,11 @@ class TelegramOperationalSink:
         self._token, self._chat_id = token, chat_id
         self.environment, self._connection = environment, connection_factory
 
-    def __call__(self, event_id, scope, kind, payload):
+    @property
+    def pin_destination(self):
+        return self._token.split(":", 1)[0] + ":" + self._chat_id
+
+    def __call__(self, event_id, scope, kind, payload, *, receipt=None):
         if scope != self.environment:
             return False
         if kind in {"TRADE_OPENED", "TRADE_CLOSED"}:
@@ -247,6 +251,8 @@ class TelegramOperationalSink:
                 or str(value["result"]["chat"]["id"]) != self._chat_id
             ):
                 raise TelegramDeliveryError("NOTIFICATION_UNCONFIRMED")
+            if receipt is not None:
+                receipt(value["result"]["message_id"])
             return True
         except Exception:  # noqa: BLE001 - suppress credential-bearing URL/response errors
             raise TelegramDeliveryError("NOTIFICATION_UNCONFIRMED") from None
@@ -255,4 +261,39 @@ class TelegramOperationalSink:
                 try:
                     conn.close()
                 except Exception:  # noqa: BLE001, S110 - never replace delivery outcome
+                    pass
+
+    def pin(self, message_id):
+        if type(message_id) is not int or message_id <= 0:
+            raise ValueError("confirmed Telegram message ID required")
+        conn = None
+        try:
+            conn = self._connection("api.telegram.org", timeout=10)
+            conn.request(
+                "POST",
+                "/bot" + self._token + "/pinChatMessage",
+                body=json.dumps(
+                    {
+                        "chat_id": self._chat_id,
+                        "message_id": message_id,
+                        "disable_notification": True,
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            raw = response.read(65537)
+            if response.status != 200 or len(raw) > 65536:
+                raise TelegramDeliveryError("PIN_UNCONFIRMED")
+            value = json.loads(raw)
+            if value.get("ok") is not True or value.get("result") is not True:
+                raise TelegramDeliveryError("PIN_UNCONFIRMED")
+            return True
+        except Exception:  # noqa: BLE001 - never expose token-bearing Telegram errors
+            raise TelegramDeliveryError("PIN_UNCONFIRMED") from None
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001, S110 - preserve confirmed result
                     pass
