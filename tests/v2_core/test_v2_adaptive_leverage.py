@@ -13,6 +13,24 @@ from v2_core.runtime_policy import resolve
 database = database_fixture
 
 
+def test_daemon_permission_weights_cover_every_transport_read():
+    from services.v2_testnet_daemon_entry import PrivateRatePermit
+    from v2_core.transport import BinanceSignedTransport
+
+    assert set(PrivateRatePermit._READS) == BinanceSignedTransport._READS
+    calls = []
+
+    class Budget:
+        def permit(self, weight):
+            calls.append(weight)
+            return True
+
+    permit = PrivateRatePermit(Budget(), entries=False, protection=False, exits=False)
+    assert permit("GET", "/fapi/v1/leverageBracket")
+    assert calls == [1]
+    assert not permit("POST", "/fapi/v1/leverage")
+
+
 def policy():
     return resolve(
         {

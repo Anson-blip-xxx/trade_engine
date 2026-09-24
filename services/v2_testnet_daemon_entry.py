@@ -168,6 +168,7 @@ class PrivateRatePermit:
         "/fapi/v1/multiAssetsMargin": 30,
         "/fapi/v1/accountConfig": 5,
         "/fapi/v1/symbolConfig": 5,
+        "/fapi/v1/leverageBracket": 1,
     }
 
     def __init__(self, budget, *, entries, protection, exits):

@@ -90,3 +90,10 @@ Policy version 2 enables bounded recovery, adaptive leverage including condition
 position leverage was not modified. All three services were active with zero
 automatic restarts; dashboard HTTP 200 and real dashboard-role reads verified.
 No LIVE environment switch or fabricated demonstration trade was performed.
+
+Post-rollout inspection found the signed transport read allowlist and daemon
+weight allowlist disagreed on leverageBracket, causing false QUOTA_DENIED.
+Registered its GET weight (1), added allowlist parity regression, and verified
+the real daemon permission adapter plus persistent PG budgets with GET-only
+Testnet requests. Follow-up process/strategy/adaptive tests: 41 passed. This
+fix does not increase request limits or grant any additional write capability.
