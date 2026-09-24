@@ -80,3 +80,13 @@ Testnet execution demonstrates mechanics, not live-market profitability.
 - Real-history signal funnel changed from a timed-out correlated query to
   set-based joins; measured approximately 0.2 seconds on the current dataset.
 - Ruff, JavaScript syntax and git whitespace checks passed.
+
+## Testnet rollout
+
+Release `2adf024466db09ec33865f5543c93f455ddc6703` installed in a root-owned,
+read-only release directory. Daemon, watchdog and dashboard switched together.
+Policy version 2 enables bounded recovery, adaptive leverage including conditional
+8x, and TV-first scheduling; all capital-anchor fields were preserved. Existing
+position leverage was not modified. All three services were active with zero
+automatic restarts; dashboard HTTP 200 and real dashboard-role reads verified.
+No LIVE environment switch or fabricated demonstration trade was performed.
