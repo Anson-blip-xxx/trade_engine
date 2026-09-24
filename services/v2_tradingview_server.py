@@ -57,7 +57,7 @@ def load_config(environ):
     details = credential.lstat()
     if (
         not stat.S_ISREG(details.st_mode)
-        or details.st_mode & 0o077
+        or stat.S_IMODE(details.st_mode) not in {0o400, 0o440, 0o600}
         or not 32 <= details.st_size <= 513
     ):
         raise ValueError("protected webhook credential required")

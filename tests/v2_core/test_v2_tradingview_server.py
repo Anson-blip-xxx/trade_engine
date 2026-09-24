@@ -19,6 +19,16 @@ def test_loads_protected_systemd_credential_without_mutating_process_environment
     assert dict(os.environ) == before
 
 
+def test_loads_systemd_credential_mode(tmp_path):
+    source = tmp_path / "tradingview-webhook-secret"
+    source.write_text("a" * 64 + "\n")
+    source.chmod(0o440)
+    assert (
+        load_config({"CREDENTIALS_DIRECTORY": str(tmp_path)})["V2_TV_WEBHOOK_SECRET"]
+        == "a" * 64
+    )
+
+
 @pytest.mark.parametrize("mode", [0o644, 0o640])
 def test_rejects_readable_secret(tmp_path, mode):
     source = tmp_path / "tradingview-webhook-secret"
