@@ -161,6 +161,17 @@ class TradingPipeline:
                     and result.get("status") == "CLEAR"
                     and not failed(result)
                 )
+            # Expiry is bookkeeping, not admission: keep draining stale input
+            # even while a safety stage blocks opening new positions.
+            maintenance = phase(
+                "signal_maintenance",
+                lambda: {
+                    s.worker.scope.producer + ":" + s.worker.source: s.expire_pending(
+                        limit=1000
+                    )
+                    for s in self.schedulers
+                },
+            )
             # Market failure must not prevent recovery/PM/exit/settlement above.
             market = phase("market", self.market.run_once)
             market_ok = (
@@ -180,13 +191,19 @@ class TradingPipeline:
                 and not failed(regime)
             )
             can_admit = (
-                all(safety) and not failed(recovered) and market_ok and regime_ok
+                all(safety)
+                and not failed(recovered)
+                and not failed(maintenance)
+                and market_ok
+                and regime_ok
             )
             if can_admit:
                 for scheduler in self.schedulers:
 
                     def schedule_and_measure(target=scheduler):
-                        processed = target.run_once(limit=limit)
+                        # The deployed S3 frame contains 19 symbols. Admission
+                        # must not inherit the smaller order-recovery batch of 10.
+                        processed = target.run_once(limit=max(limit, 20))
                         return {**processed, "progress": target.progress()}
 
                     result = phase(

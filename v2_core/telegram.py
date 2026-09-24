@@ -144,6 +144,16 @@ def _trade_text(scope, kind, _event_id, payload):
     return "\n".join(lines)
 
 
+BUSINESS_HEALTH_MESSAGES = {
+    "ORDER_PROGRESS_STALLED": "订单未及时推进：提交/未知状态或市价单回执超过 60 秒，或待提交超过 90 秒。请核对交易所回执和本地订单，不要盲目重复下单。",
+    "SETTLEMENT_OVERDUE": "已平仓但超过 3 分钟仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",
+    "SIGNAL_CONSUMPTION_LAG": "存在超过 30 秒仍未消费的信号。请检查安全阻塞、消费队列与处理速度；过期信号不会追单。",
+    "PIPELINE_ENTRY_BLOCKED": "开仓链路持续阻塞超过 2 分钟。请检查 PostgreSQL 交易健康记录中的阻塞阶段，不要直接放宽风控。",
+    "POSITION_SAFETY_BLOCKED": "保护单或退出环节持续阻塞超过 30 秒。请优先核实持仓、止损保护和退出回执。",
+    "BUSINESS_HEALTH_UNAVAILABLE": "业务健康检查失败，当前无法确认订单与链路健康。进程存活不代表交易正常。",
+}
+
+
 class TelegramOperationalSink:
     def __init__(
         self, *, token, chat_id, environment, connection_factory=HTTPSConnection
@@ -165,6 +175,25 @@ class TelegramOperationalSink:
             return False
         if kind in {"TRADE_OPENED", "TRADE_CLOSED"}:
             text = _trade_text(scope, kind, event_id, payload)
+        elif kind == "TRADING_HEALTH":
+            code = payload.get("error_code")
+            if code not in BUSINESS_HEALTH_MESSAGES or payload.get("status") not in {
+                "UNAVAILABLE",
+                "RECOVERED",
+            }:
+                return False
+            recovered = payload["status"] == "RECOVERED"
+            text = "\n".join(
+                [
+                    f"{'✅ 已恢复' if recovered else '🚨 交易链路告警'} [V2 {scope}]",
+                    f"账户：{payload['account_id']}",
+                    f"类型：{code}",
+                    "本项异常条件已解除；不代表所有环节均已恢复。"
+                    if recovered
+                    else BUSINESS_HEALTH_MESSAGES[code],
+                    f"时间：{_time(payload['observed_at_ms'])}",
+                ]
+            )
         elif kind not in {
             "ACCOUNT_INVENTORY",
             "MARKET_FAILURE",

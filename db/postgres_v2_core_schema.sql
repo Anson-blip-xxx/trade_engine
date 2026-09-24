@@ -613,3 +613,11 @@ BEGIN
 END $$;
 CREATE TRIGGER v2_risk_reservations_guard BEFORE UPDATE OR DELETE ON v2_risk_reservations
 FOR EACH ROW EXECUTE FUNCTION v2_guard_risk_reservation();
+
+-- Dashboard role receives SELECT on this filtered view, never all business state.
+CREATE VIEW v2_business_health_dashboard WITH (security_barrier=true) AS
+SELECT scope->>'account_id' AS account_id,payload
+FROM v2_business_state WHERE NOT deleted
+  AND scope->>'namespace'='trading-health-v1' AND scope->>'key'='latest'
+  AND scope->>'environment'='SANDBOX' AND scope->>'exchange'='BINANCE'
+  AND scope->>'product'='FUTURES';

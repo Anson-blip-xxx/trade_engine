@@ -1302,6 +1302,69 @@ def scheduler_due(database):
         )
 
 
+def test_scheduler_fresh_signal_bypasses_expired_backlog(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    old = [scheduler_signal(database, f"old-{i}", expires=2) for i in range(30)]
+    fresh = scheduler_signal(database, "fresh")
+    worker, _ = strategy_worker(database)
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {"price": "100"})
+    assert scheduler.run_once(1) == {fresh: "PREPARED"}
+    assert scheduler.expire_pending(limit=20) == 20
+    assert scheduler.expire_pending(limit=20) == 10
+    assert scheduler.expire_pending() == 0
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE outcome='EXPIRED'"
+        ).fetchone() == (30,)
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_decisions WHERE signal_id=ANY(%s::uuid[])",
+            (old,),
+        ).fetchone() == (0,)
+    assert scheduler.progress()["caught_up"] is True
+
+
+def test_twenty_signal_batch_covers_current_nineteen_symbol_frame(database):
+    from v2_core.scheduling import StrategyScheduler
+    from v2_core.strategy import StrategyDecision
+
+    for i in range(30):
+        scheduler_signal(database, f"historical-{i}", expires=2)
+    fresh = {scheduler_signal(database, f"frame-{i}") for i in range(19)}
+    worker, _ = strategy_worker(
+        database, decide=lambda *_: StrategyDecision("IGNORED", "QA filter")
+    )
+    results = StrategyScheduler(worker, context_provider=lambda _: {}).run_once(20)
+    assert fresh <= results.keys()
+    assert all(results[key] == "IGNORED" for key in fresh)
+
+
+def test_scheduler_expiry_preserves_active_lease_and_decision(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    now = [3]
+    worker, _ = strategy_worker(database, now=lambda: now[0])
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {"price": "100"})
+    decided = scheduler_signal(database, "decided")
+    assert scheduler.run_once(1) == {decided: "PREPARED"}
+    leased = scheduler_signal(database, "leased", expires=2)
+    with database() as conn:
+        conn.execute(
+            """INSERT INTO v2_strategy_tasks(consumer,signal_id,lease_token,lease_until)
+            VALUES (%s,%s,%s,clock_timestamp()+interval '60 seconds')""",
+            (worker.scope.consumer, leased, str(uuid4())),
+        )
+    now[0] = 100
+    assert scheduler.expire_pending() == 0
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome FROM v2_signal_receipts WHERE signal_id=%s", (decided,)
+        ).fetchone() == ("INTENT",)
+        assert conn.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (leased,)
+        ).fetchone() == (0,)
+
+
 def test_strategy_scheduler_failed_signal_does_not_starve_later_signal(database):
     from v2_core.scheduling import StrategyScheduler
 
@@ -1416,6 +1479,27 @@ def test_strategy_scheduler_expiry_bypasses_failed_context_and_future_defers(dat
         assert conn.execute(
             "SELECT count(*) FROM v2_strategy_tasks WHERE completed_at IS NULL"
         ).fetchone() == (1,)
+
+
+def test_concurrent_expiry_maintenance_is_idempotent(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    for i in range(25):
+        scheduler_signal(database, f"expire-concurrent-{i}", expires=2)
+
+    def sweep(_):
+        worker, _ = strategy_worker(database)
+        return StrategyScheduler(worker, context_provider=lambda _: {}).expire_pending()
+
+    with ThreadPoolExecutor(4) as pool:
+        assert sum(pool.map(sweep, range(4))) == 25
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_signal_receipts").fetchone() == (
+            25,
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_tasks WHERE completed_at IS NOT NULL"
+        ).fetchone() == (25,)
 
 
 def test_strategy_scheduler_concurrent_workers_claim_once(database):

@@ -154,6 +154,35 @@ def case(database):
     return pipeline, calls, account, envelopes, now
 
 
+def test_expiry_maintenance_runs_while_entry_safety_blocked(case, database):
+    from v2_core.signals import Signals
+
+    pipeline, _, _, _, now = case
+    pipeline.settlement.status = "BLOCKED"
+    signal_id = Signals(database).admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key="expired",
+        snapshot={
+            "observed_at": now - 100000,
+            "expires_at_ms": now - 1,
+            "symbol": "BTCUSDT",
+            "signal": "TREND_UP",
+            "features": {},
+        },
+    )
+    result = pipeline.run_once()
+    assert result["status"] == "ENTRY_BLOCKED"
+    assert result["phases"]["signal_maintenance"] == {"s6:s3": 1, "s8:s3": 1}
+    assert "s6" not in result["phases"]
+    with database() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s AND outcome='EXPIRED'",
+            (signal_id,),
+        ).fetchone() == (2,)
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+
+
 def test_real_s3_detection_through_context_strategy_and_pg_order(case, database):
     pipeline, calls, _, _, _ = case
     result = pipeline.run_once()

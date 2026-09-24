@@ -1,11 +1,12 @@
-"""Independent, read-only health supervision for the V2 Testnet stack.
+"""Independent health supervision for the V2 Testnet stack.
 
 The watchdog deliberately has no exchange client and no trading permissions.
-It keeps only notification transition state in memory: PostgreSQL remains the
-authoritative daemon heartbeat and no local file is used as a fallback.
+Trading records are read-only. Diagnostic timers and notification confirmations
+are PostgreSQL state; no local file is used as a fallback.
 """
 
 import argparse
+import json
 import os
 import re
 import signal
@@ -20,8 +21,8 @@ from services.v2_testnet_inventory import config_fields, deployment_database
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds
-from v2_core.state import StateKey
-from v2_core.telegram import TelegramOperationalSink
+from v2_core.state import BusinessState, StateKey
+from v2_core.telegram import BUSINESS_HEALTH_MESSAGES, TelegramOperationalSink
 
 
 @dataclass(frozen=True)
@@ -122,13 +123,14 @@ class DaemonHeartbeat:
 class DependencyAssessment:
     """Return only fixed diagnostic codes; never endpoint or exception text."""
 
-    def __init__(self, *, postgres, redis, clickhouse, heartbeat):
+    def __init__(self, *, postgres, redis, clickhouse, heartbeat, business=None):
         if not all(callable(item) for item in (postgres, redis, clickhouse, heartbeat)):
             raise ValueError("explicit watchdog probes required")
         self.postgres = postgres
         self.redis = redis
         self.clickhouse = clickhouse
         self.heartbeat = heartbeat
+        self.business = business
 
     @staticmethod
     def _ready(probe):
@@ -153,6 +155,11 @@ class DependencyAssessment:
                 ):
                     heartbeat = "DAEMON_HEARTBEAT_INVALID"
                 failures.add(heartbeat)
+            if self.business is not None:
+                try:
+                    failures.update(self.business())
+                except Exception:  # noqa: BLE001 - never leak SQL or credentials
+                    failures.add("BUSINESS_HEALTH_UNAVAILABLE")
         if not self._ready(self.redis):
             failures.add("REDIS_UNAVAILABLE")
         if not self._ready(self.clickhouse):
@@ -196,11 +203,48 @@ class WatchdogTelegramNotifier:
             "observed_at_ms": observed,
         }
         identity = "watchdog:" + digest(canonical(payload))
-        return self.sink(identity, "SANDBOX", "TRADING_DAEMON", payload)
+        kind = (
+            "TRADING_HEALTH"
+            if event["error_code"] in BUSINESS_HEALTH_MESSAGES
+            else "TRADING_DAEMON"
+        )
+        return self.sink(identity, "SANDBOX", kind, payload)
+
+
+class WatchdogDeliveryState:
+    """Persist acknowledged transitions; send-before-CAS is at-least-once."""
+
+    def __init__(self, connect, account_id):
+        self.store = BusinessState(connect)
+        self.key = StateKey(
+            "BINANCE",
+            account_id,
+            "SANDBOX",
+            "FUTURES",
+            "watchdog-delivery-v1",
+            "latest",
+        )
+
+    def load(self):
+        value = self.store.read(self.key)
+        return set(json.loads(value.payload_json)["reported"]) if value else set()
+
+    def save(self, reported):
+        value = self.store.read(self.key)
+        version = value.version if value else 0
+        result = self.store.change(
+            self.key,
+            expected_version=version,
+            request_key=f"delivery:{version + 1}",
+            payload={"reported": sorted(reported)},
+            reason="WATCHDOG_DELIVERY_ACKNOWLEDGED",
+        )
+        if result.code != "APPLIED":
+            raise ValueError("WATCHDOG_DELIVERY_CONFLICT")
 
 
 class HealthWatchdog:
-    def __init__(self, assess, *, notify, stop, interval_seconds):
+    def __init__(self, assess, *, notify, stop, interval_seconds, delivery_state=None):
         if (
             not callable(assess)
             or not callable(notify)
@@ -213,9 +257,19 @@ class HealthWatchdog:
         self.assess, self.notify, self.stop = assess, notify, stop
         self.interval = interval_seconds
         self.reported = set()
+        self.delivery_state = delivery_state
+        self.loaded = delivery_state is None
+        self.persisted = set()
 
     def run_once(self):
         current = self.assess()
+        if not self.loaded:
+            try:
+                self.persisted = self.delivery_state.load()
+                self.reported.update(self.persisted)
+                self.loaded = True
+            except Exception:  # noqa: BLE001, S110 - dependency alarm still works without PG
+                pass
         if not isinstance(current, frozenset) or any(
             not isinstance(code, str)
             or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", code)
@@ -230,19 +284,52 @@ class HealthWatchdog:
         }
         for code in sorted(current - self.reported):
             try:
-                if self.notify(
-                    {"status": "UNAVAILABLE", "error_code": code, "account_scope": scope}
-                ) is True:
+                if (
+                    self.notify(
+                        {
+                            "status": "UNAVAILABLE",
+                            "error_code": code,
+                            "account_scope": scope,
+                        }
+                    )
+                    is True
+                ):
                     self.reported.add(code)
             except Exception:  # noqa: BLE001, S110 - retry next cycle
                 pass
         for code in sorted(self.reported - current):
+            # Missing diagnostic evidence is not evidence of recovery.
+            if code.startswith("DAEMON_") and "POSTGRES_UNAVAILABLE" in current:
+                continue
+            if code in BUSINESS_HEALTH_MESSAGES and current & {
+                "POSTGRES_UNAVAILABLE",
+                "BUSINESS_HEALTH_UNAVAILABLE",
+                "WATCHDOG_ASSESSMENT_INVALID",
+            }:
+                continue
             try:
-                if self.notify(
-                    {"status": "RECOVERED", "error_code": code, "account_scope": scope}
-                ) is True:
+                if (
+                    self.notify(
+                        {
+                            "status": "RECOVERED",
+                            "error_code": code,
+                            "account_scope": scope,
+                        }
+                    )
+                    is True
+                ):
                     self.reported.remove(code)
             except Exception:  # noqa: BLE001, S110 - retry next cycle
+                pass
+        if (
+            self.delivery_state is not None
+            and self.loaded
+            and self.reported != self.persisted
+        ):
+            try:
+                self.delivery_state.save(self.reported)
+                self.persisted = set(self.reported)
+            except Exception:  # noqa: BLE001, S110 - retry persistence next cycle
                 pass
         return current
 
@@ -253,6 +340,8 @@ class HealthWatchdog:
 
 
 def main(environ=None):
+    from services.v2_trading_health import TradingHealth
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--credentials", required=True)
     args = parser.parse_args()
@@ -274,6 +363,14 @@ def main(environ=None):
         redis=redis_ready,
         clickhouse=clickhouse_ready,
         heartbeat=heartbeat,
+        business=TradingHealth(
+            connect,
+            account_id=config.account_id,
+            tv_enabled=(os.environ if environ is None else environ).get(
+                "V2_ENABLE_TV_SIGNALS"
+            )
+            == "true",
+        ),
     )
     sink = TelegramOperationalSink(
         token=secrets["TG_NOTIFY_TOKEN"],
@@ -293,6 +390,7 @@ def main(environ=None):
         notify=notifier,
         stop=stop,
         interval_seconds=config.interval_seconds,
+        delivery_state=WatchdogDeliveryState(connect, config.account_id),
     ).serve()
 
 

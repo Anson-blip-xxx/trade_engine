@@ -50,6 +50,16 @@ function renderTrades(data) {
 function renderSignals(data) {
   $("signal-list").innerHTML = data.signals.length ? data.signals.map((s) => `<div class="signal"><div class="signal-top"><strong>${esc(s.symbol)}</strong><span class="signal-source">${s.source === "tv_bridge" ? "TRADINGVIEW":"S3"}</span></div><div class="signal-event">${esc(s.signal)}</div><div class="signal-time">触发 ${atMs(s.observed_at_ms)} · 收到 ${at(s.received_at)}${s.strength ? " · 强度 "+esc(s.strength):""}</div></div>`).join("") : '<div class="placeholder">暂无近期信号</div>';
 }
+function renderHealth(data) {
+  const labels = {ORDER_PROGRESS_STALLED:"订单推进超时",SETTLEMENT_OVERDUE:"平仓后结算超时",SIGNAL_CONSUMPTION_LAG:"信号消费延迟",PIPELINE_ENTRY_BLOCKED:"开仓链路持续阻塞",POSITION_SAFETY_BLOCKED:"保护 / 退出环节阻塞"};
+  $("health-list").innerHTML = (data.health || []).length ? data.health.map(({account_id,payload:h}) => {
+    const stale = !Number.isFinite(h.observed_at_ms) || Date.now()-h.observed_at_ms > 60000 || h.observed_at_ms > Date.now()+5000;
+    const active = h.active || [], findings = h.findings || {};
+    const title = stale ? "检查数据过期 / 状态未知" : active.length ? "需要处理："+active.map(x=>labels[x] || x).join("、") : Object.keys(findings).length ? "发现异常，正在持续性确认" : "本次检查未发现超时异常";
+    const rows = Object.entries(findings).map(([code,detail]) => `<details class="detail-row"><summary>${esc(labels[code] || code)}</summary><pre>${esc(JSON.stringify(detail,null,2))}</pre></details>`).join("");
+    return `<div class="detail-row"><strong class="${stale || active.length ? "negative" : ""}">${esc(title)}</strong><div>${esc(account_id)} · 检查于 ${atMs(h.observed_at_ms)} · UTC+8</div>${rows}</div>`;
+  }).join("") : '<div class="placeholder">业务监测尚未产生结果，不能据此认定交易健康。</div>';
+}
 function detailItem(label,value) { return `<div class="detail-item"><label>${esc(label)}</label><span>${esc(value)}</span></div>`; }
 function detailSection(title,body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 async function openTrade(id) {
@@ -88,8 +98,8 @@ async function refresh() {
     if (!response.ok) throw new Error("unavailable");
     state.data = await response.json();
     $("error").hidden=true;
-    renderMetrics(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data);
-  } catch { $("error").hidden=false; }
+    renderMetrics(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data); renderHealth(state.data);
+  } catch { $("error").hidden=false; $("health-list").textContent="读取失败：交易链路健康状态未知，请勿依赖旧状态。"; }
   finally { $("refresh").disabled=false; }
 }
 $("trade-rows").addEventListener("click",(event) => { const row=event.target.closest("tr[data-id]"); if(row) openTrade(row.dataset.id); });

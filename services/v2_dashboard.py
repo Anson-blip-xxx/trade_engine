@@ -36,6 +36,12 @@ class DashboardData:
 
     def overview(self):
         with self.connect() as conn:
+            health = _rows(
+                conn.execute("""
+                SELECT account_id,payload FROM v2_business_health_dashboard
+                ORDER BY account_id LIMIT 20
+            """)
+            )
             trades = _rows(
                 conn.execute("""
                 SELECT i.intent_id::text AS id,i.created_at,i.producer,i.status,
@@ -118,6 +124,7 @@ class DashboardData:
             "trades": trades,
             "signals": signals,
             "settlements": settlements,
+            "health": health,
         }
 
     def trade(self, trade_id):

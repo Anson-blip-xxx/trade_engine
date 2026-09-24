@@ -1,4 +1,4 @@
-"""Durable, fair strategy admission scheduling; never dispatches an order.
+"""Durable, freshness-aware strategy scheduling; never dispatches an order.
 
 Leases reduce duplicate pure evaluation, not guarantee exactly-once execution.
 StrategyWorker's immutable decision and idempotent admission are the authority.
@@ -29,6 +29,70 @@ class StrategyScheduler:
             context_required,
         )
         self._connect = worker._connect
+
+    def expire_pending(self, *, limit=1000):
+        """Retire never-decided expired signals in one bounded transaction.
+
+        The original inbox and immutable receipt remain the audit. Signal locks
+        serialize with StrategyWorker's first-decision commit. Recheck after
+        acquiring locks so a concurrent committed decision is never discarded.
+        Existing decisions/intents and active leases keep their recovery path.
+        """
+        if type(limit) is not int or not 1 <= limit <= 5000:
+            raise ValueError("bounded expiry batch required")
+        worker, consumer, now = (
+            self.worker,
+            self.worker.scope.consumer,
+            self.worker.runtime._now(),
+        )
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT s.signal_id FROM v2_inbound_signals s
+                WHERE s.source=%s AND s.environment=%s
+                AND (s.snapshot->>'expires_at_ms')::bigint<=%s
+                AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
+                    WHERE r.consumer=%s AND r.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                    WHERE d.consumer=%s AND d.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i WHERE i.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
+                    WHERE t.consumer=%s AND t.signal_id=s.signal_id
+                    AND t.lease_until>=clock_timestamp())
+                ORDER BY s.received_at,s.signal_id LIMIT %s FOR UPDATE OF s SKIP LOCKED""",
+                (
+                    worker.source,
+                    worker.scope.environment,
+                    now,
+                    consumer,
+                    consumer,
+                    consumer,
+                    limit,
+                ),
+            ).fetchall()
+            if not rows:
+                return 0
+            expired = conn.execute(
+                """INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason)
+                SELECT %s,s.signal_id,'EXPIRED','signal expired before scheduling'
+                FROM v2_inbound_signals s WHERE s.signal_id=ANY(%s::uuid[])
+                AND NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                    WHERE d.consumer=%s AND d.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i WHERE i.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
+                    WHERE t.consumer=%s AND t.signal_id=s.signal_id
+                    AND t.lease_until>=clock_timestamp())
+                ON CONFLICT DO NOTHING RETURNING signal_id""",
+                (consumer, [row[0] for row in rows], consumer, consumer),
+            ).fetchall()
+            if expired:
+                conn.execute(
+                    """INSERT INTO v2_strategy_tasks(consumer,signal_id,completed_at)
+                    SELECT %s,unnest(%s::uuid[]),clock_timestamp()
+                    ON CONFLICT(consumer,signal_id) DO UPDATE SET
+                        completed_at=EXCLUDED.completed_at,error_code=NULL""",
+                    (consumer, [row[0] for row in expired]),
+                )
+        return len(expired)
 
     def progress(self):
         """Return an atomic source-to-consumer catch-up snapshot."""
@@ -68,6 +132,7 @@ class StrategyScheduler:
         ):
             raise ValueError("bounded strategy cadence and lease required")
         worker, consumer = self.worker, self.worker.scope.consumer
+        now = worker.runtime._now()
         # No high-water mark: late commits and previously admitted-but-unprepared
         # intents remain discoverable. Previously scheduled tasks never starve
         # discovery of later signals, including when earlier tasks are failing.
@@ -78,8 +143,23 @@ class StrategyScheduler:
                 WHERE s.source=%s AND s.environment=%s
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
                     WHERE t.consumer=%s AND t.signal_id=s.signal_id)
-                ORDER BY s.received_at,s.signal_id LIMIT %s ON CONFLICT DO NOTHING""",
-                (consumer, worker.source, worker.scope.environment, consumer, limit),
+                ORDER BY CASE
+                    WHEN EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                        WHERE d.consumer=%s AND d.signal_id=s.signal_id) THEN 0
+                    WHEN (s.snapshot->>'observed_at')::bigint<=%s
+                        AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
+                    ELSE 2 END,s.received_at,s.signal_id
+                LIMIT %s ON CONFLICT DO NOTHING""",
+                (
+                    consumer,
+                    worker.source,
+                    worker.scope.environment,
+                    consumer,
+                    consumer,
+                    now,
+                    now,
+                    limit,
+                ),
             )
         results = {}
         for _ in range(limit):
@@ -95,7 +175,12 @@ class StrategyScheduler:
                     AND t.completed_at IS NULL AND t.next_attempt_at<=clock_timestamp()
                     AND (t.lease_until IS NULL OR t.lease_until<clock_timestamp())
                     AND NOT (t.signal_id=ANY(%s::uuid[]))
-                    ORDER BY t.next_attempt_at,t.signal_id LIMIT 1
+                    ORDER BY CASE
+                        WHEN EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                            WHERE d.consumer=t.consumer AND d.signal_id=t.signal_id) THEN 0
+                        WHEN (s.snapshot->>'observed_at')::bigint<=%s
+                            AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
+                        ELSE 2 END,t.next_attempt_at,t.signal_id LIMIT 1
                     FOR UPDATE OF t SKIP LOCKED)
                     UPDATE v2_strategy_tasks t SET attempts=attempts+1,lease_token=%s,
                     lease_until=clock_timestamp()+%s*interval '1 second'
@@ -106,6 +191,8 @@ class StrategyScheduler:
                         worker.source,
                         worker.scope.environment,
                         list(results),
+                        worker.runtime._now(),
+                        worker.runtime._now(),
                         token,
                         lease_seconds,
                         consumer,
