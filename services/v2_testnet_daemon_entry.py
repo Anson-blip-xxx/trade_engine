@@ -63,6 +63,8 @@ class TestnetProcessConfig:
     symbols: tuple[str, ...]
     external_position_exclusions: tuple[str, ...]
     exit_fee_rate: str
+    enable_tv_signals: bool = False
+    tv_admission_start_ms: int | None = None
 
     @classmethod
     def from_mapping(cls, values):
@@ -100,7 +102,22 @@ class TestnetProcessConfig:
         normalized = number(fee, minimum=0, maximum=Decimal(".01"))
         if fee != format(normalized, "f"):
             raise ValueError("canonical exit fee rate required")
-        return cls(daemon, targets, exclusions, fee)
+        tv_enabled = values.get("V2_ENABLE_TV_SIGNALS", "false")
+        if not isinstance(tv_enabled, str) or tv_enabled not in {"true", "false"}:
+            raise ValueError("explicit TV signal switch required")
+        tv_start = values.get("V2_TV_ADMISSION_START_MS")
+        if tv_enabled == "true":
+            if (
+                not isinstance(tv_start, str)
+                or not tv_start.isascii()
+                or not tv_start.isdigit()
+                or not 0 < int(tv_start) <= 2**53 - 1
+            ):
+                raise ValueError("TV admission start timestamp required")
+            tv_start = int(tv_start)
+        elif tv_start is not None:
+            raise ValueError("TV start timestamp requires TV signals enabled")
+        return cls(daemon, targets, exclusions, fee, tv_enabled == "true", tv_start)
 
     def public_summary(self):
         return {
@@ -108,6 +125,8 @@ class TestnetProcessConfig:
             "symbols": list(self.symbols),
             "external_position_exclusions": list(self.external_position_exclusions),
             "exit_fee_rate": self.exit_fee_rate,
+            "enable_tv_signals": self.enable_tv_signals,
+            "tv_admission_start_ms": self.tv_admission_start_ms,
             "notifications": True,
         }
 
@@ -391,7 +410,10 @@ def create_testnet_process(
         clock_ms=clock_ms,
     )
     schedulers = []
-    for strategy in ("S6", "S8"):
+    sources = [("S6", "s3"), ("S8", "s3")]
+    if config.enable_tv_signals:
+        sources.extend((("S6", "tv_bridge"), ("S8", "tv_bridge")))
+    for strategy, source in sources:
         producer = strategy.lower()
         history = DirectionalHistory(
             connect, scope=scope, producer=producer, clock_ms=clock_ms
@@ -417,6 +439,11 @@ def create_testnet_process(
                 analysis_mode="hard",
                 max_delay_ms=30000,
                 enable_admission=True,
+                source=source,
+                allowed_symbols=config.symbols if source == "tv_bridge" else (),
+                tv_start_ms=config.tv_admission_start_ms
+                if source == "tv_bridge"
+                else None,
             )
         )
     pipeline = create_directional_testnet_pipeline(

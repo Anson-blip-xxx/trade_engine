@@ -52,8 +52,24 @@ def test_process_config_is_explicit_public_and_never_accepts_environment_secrets
         "symbols": ["BTCUSDT", "ETHUSDT"],
         "external_position_exclusions": [],
         "exit_fee_rate": "0.0004",
+        "enable_tv_signals": False,
+        "tv_admission_start_ms": None,
         "notifications": True,
     }
+    enabled = TestnetProcessConfig.from_mapping(
+        settings(V2_ENABLE_TV_SIGNALS="true", V2_TV_ADMISSION_START_MS="1790245000000")
+    )
+    assert enabled.enable_tv_signals is True
+    assert enabled.tv_admission_start_ms == 1790245000000
+    for changes in (
+        {"V2_ENABLE_TV_SIGNALS": []},
+        {"V2_ENABLE_TV_SIGNALS": "yes"},
+        {"V2_ENABLE_TV_SIGNALS": "true"},
+        {"V2_TV_ADMISSION_START_MS": "1790245000000"},
+        {"V2_ENABLE_TV_SIGNALS": "true", "V2_TV_ADMISSION_START_MS": "0"},
+    ):
+        with pytest.raises(ValueError):
+            TestnetProcessConfig.from_mapping(settings(**changes))
     for change in (
         {"BINANCE_TESTNET_API_KEY": "secret"},
         {"V2_SYMBOLS": "BTCUSDT, BTCUSDT"},
@@ -170,7 +186,9 @@ def test_full_process_factory_wires_real_components_without_io(database):
     cache.flushdb()
     public_http = MarketHTTP()
     telegram = TelegramConnection()
-    config = TestnetProcessConfig.from_mapping(settings())
+    config = TestnetProcessConfig.from_mapping(
+        settings(V2_ENABLE_TV_SIGNALS="true", V2_TV_ADMISSION_START_MS="1790245000000")
+    )
     process = create_testnet_process(
         config,
         {
@@ -193,7 +211,9 @@ def test_full_process_factory_wires_real_components_without_io(database):
     assert isinstance(process.runtime.execution.submit, GuardedOpeningSubmit)
     assert isinstance(pipeline.followups, DirectionalFollowupStage)
     assert isinstance(pipeline.regime, ArchivedS0Stage)
-    assert [item.worker.scope.producer for item in pipeline.schedulers] == ["s6", "s8"]
+    assert [
+        (item.worker.scope.producer, item.worker.source) for item in pipeline.schedulers
+    ] == [("s6", "s3"), ("s8", "s3"), ("s6", "tv_bridge"), ("s8", "tv_bridge")]
     for scheduler in pipeline.schedulers:
         account = scheduler.context_provider.account
         assert account.public.environment == "SANDBOX"

@@ -21,6 +21,11 @@ def admission_decision(signal, context, config):
         or config.get("account_scope", {}).get("environment") != "SANDBOX"
     ):
         raise ValueError("explicit testnet admission configuration required")
+    if config.get("source") == "tv_bridge":
+        if signal["observed_at"] < config["tv_start_ms"]:
+            return StrategyDecision("IGNORED", "TV_BEFORE_ENABLE_TIME")
+        if signal["symbol"] not in config["allowed_symbols"]:
+            return StrategyDecision("IGNORED", "TV_SYMBOL_OUTSIDE_MARKET_UNIVERSE")
     # One evaluator for replay and admission prevents drifting strategy rules.
     evaluated = replay_decision(signal, context, {**config, "mode": "REPLAY_ONLY"})
     if evaluated.rationale != "DIRECTIONAL_REPLAY_ONLY":
@@ -39,7 +44,15 @@ def admission_decision(signal, context, config):
 
 
 def create_directional_admission_worker(
-    runtime, *, strategy, analysis_mode, max_delay_ms, enable_admission=False
+    runtime,
+    *,
+    strategy,
+    analysis_mode,
+    max_delay_ms,
+    enable_admission=False,
+    source="s3",
+    allowed_symbols=(),
+    tv_start_ms=None,
 ):
     # Fail at construction instead of consuming formal signals while disabled.
     if type(enable_admission) is not bool or not enable_admission:
@@ -54,17 +67,33 @@ def create_directional_admission_worker(
         raise ValueError("account-bound testnet runtime with risk reference required")
     if strategy not in {"S6", "S8"} or analysis_mode not in {"hard", "soft"}:
         raise ValueError("explicit directional strategy and analysis mode required")
+    if source not in {"s3", "tv_bridge"}:
+        raise ValueError("unsupported admission source")
+    if source == "tv_bridge" and (
+        type(tv_start_ms) is not int
+        or not 0 < tv_start_ms <= 2**53 - 1
+        or not isinstance(allowed_symbols, tuple)
+        or not allowed_symbols
+        or len(set(allowed_symbols)) != len(allowed_symbols)
+    ):
+        raise ValueError("TV admission requires bounded universe and start time")
     account = asdict(runtime.scope)
     return StrategyWorker(
         runtime,
         StrategyScope(**account, producer=strategy.lower()),
-        source="s3",
+        source=source,
         strategy_version="directional-admission-v2-1",
         config={
             "strategy": strategy,
             "analysis_mode": analysis_mode,
             "mode": "TESTNET_ADMISSION_ONLY",
             "account_scope": account,
+            "source": source,
+            **(
+                {"allowed_symbols": list(allowed_symbols), "tv_start_ms": tv_start_ms}
+                if source == "tv_bridge"
+                else {}
+            ),
         },
         decide=admission_decision,
         max_delay_ms=max_delay_ms,
@@ -73,10 +102,19 @@ def create_directional_admission_worker(
 
 def create_directional_admission_scheduler(runtime, *, context_provider, **settings):
     """Bounded PG scheduler; construction does not start a loop or send orders."""
+    worker = create_directional_admission_worker(runtime, **settings)
+    config = json.loads(worker.config_json)
     return StrategyScheduler(
-        create_directional_admission_worker(runtime, **settings),
+        worker,
         context_provider=context_provider,
-        context_required=lambda snapshot: supports_event(
-            settings["strategy"], snapshot["signal"]
+        context_required=lambda snapshot: (
+            supports_event(settings["strategy"], snapshot["signal"])
+            and (
+                worker.source != "tv_bridge"
+                or (
+                    snapshot["observed_at"] >= config["tv_start_ms"]
+                    and snapshot["symbol"] in config["allowed_symbols"]
+                )
+            )
         ),
     )

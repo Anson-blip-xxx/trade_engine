@@ -17,6 +17,85 @@ from v2_core.runner import RiskVerdict
 database = database_fixture
 
 
+def test_tv_scheduler_uses_real_gates_and_never_backfills_or_expands_universe(database):
+    _, runtime, _, context = scenario(database)
+    runtime.execution.risk_reference = lambda _: pytest.fail("no venue dispatch")
+    signals = runtime.data.signals
+
+    def record(key, observed, target):
+        return signals.admit(
+            source="tv_bridge",
+            environment="SANDBOX",
+            request_key=key,
+            snapshot={
+                "symbol": target,
+                "observed_at": observed,
+                "expires_at_ms": 10,
+                "signal": "TREND_UP",
+                "features": {
+                    "tv_signal": "TREND_UP_LONG",
+                    "strength": 70,
+                    "price": "100",
+                },
+            },
+        )
+
+    fresh = record("tv-fresh", 2, "BTCUSDT")
+    old = record("tv-old", 1, "BTCUSDT")
+    outside = record("tv-outside", 2, "ETHUSDT")
+    context_calls = []
+
+    def market(snapshot):
+        context_calls.append(snapshot["symbol"])
+        return deepcopy(context)
+
+    scheduler = create_directional_admission_scheduler(
+        runtime,
+        context_provider=market,
+        strategy="S6",
+        analysis_mode="hard",
+        max_delay_ms=5,
+        enable_admission=True,
+        source="tv_bridge",
+        allowed_symbols=("BTCUSDT",),
+        tv_start_ms=2,
+    )
+    result = scheduler.run_once()
+    assert result[fresh] == "PREPARED"
+    assert result[old] == result[outside] == "IGNORED"
+    assert context_calls == ["BTCUSDT"]
+    assert scheduler.progress()["caught_up"] is True
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM v2_signal_receipts WHERE outcome='INTENT'"
+            ).fetchone()[0]
+            == 1
+        )
+    assert scheduler.run_once() == {}
+
+
+def test_tv_scheduler_rejects_implicit_start_or_empty_universe(database):
+    _, runtime, _, context = scenario(database)
+    runtime.execution.risk_reference = lambda _: None
+    for settings in (
+        {"allowed_symbols": (), "tv_start_ms": 2},
+        {"allowed_symbols": ("BTCUSDT",), "tv_start_ms": None},
+    ):
+        with pytest.raises(ValueError, match="TV admission requires"):
+            create_directional_admission_scheduler(
+                runtime,
+                context_provider=lambda _: context,
+                strategy="S6",
+                analysis_mode="hard",
+                max_delay_ms=5,
+                enable_admission=True,
+                source="tv_bridge",
+                **settings,
+            )
+
+
 def formal(runtime, strategy="S6", **overrides):
     # This injected reference must not be called during admission.
     runtime.execution.risk_reference = lambda _: pytest.fail(

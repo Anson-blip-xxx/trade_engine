@@ -52,15 +52,16 @@ class TradingPipeline:
         ):
             raise ValueError("venue-guarded runtime required")
         schedulers = tuple(schedulers)
-        if len(schedulers) != 2 or {s.worker.scope.producer for s in schedulers} != {
-            "s6",
-            "s8",
-        }:
+        bindings = [(s.worker.scope.producer, s.worker.source) for s in schedulers]
+        if len(bindings) != len(set(bindings)) or set(bindings) not in (
+            {("s6", "s3"), ("s8", "s3")},
+            {("s6", "s3"), ("s8", "s3"), ("s6", "tv_bridge"), ("s8", "tv_bridge")},
+        ):
             raise ValueError("both formal directional consumers required")
         for scheduler in schedulers:
             if (
                 scheduler.worker.runtime is not runtime
-                or scheduler.worker.source != "s3"
+                or scheduler.worker.source not in {"s3", "tv_bridge"}
                 or scheduler.worker.strategy_version != "directional-admission-v2-1"
             ):
                 raise ValueError("single runtime and actual directional rules required")
@@ -189,7 +190,9 @@ class TradingPipeline:
                         return {**processed, "progress": target.progress()}
 
                     result = phase(
-                        scheduler.worker.scope.producer,
+                        scheduler.worker.scope.producer
+                        if scheduler.worker.source == "s3"
+                        else scheduler.worker.scope.producer + ":tv",
                         schedule_and_measure,
                     )
                     can_admit = can_admit and not failed(result)
