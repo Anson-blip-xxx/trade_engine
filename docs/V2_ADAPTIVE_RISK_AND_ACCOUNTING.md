@@ -97,3 +97,8 @@ Registered its GET weight (1), added allowlist parity regression, and verified
 the real daemon permission adapter plus persistent PG budgets with GET-only
 Testnet requests. Follow-up process/strategy/adaptive tests: 41 passed. This
 fix does not increase request limits or grant any additional write capability.
+
+Final runtime release: `a5ebecb8a51e54fa1363b73855d14ae08ee9cea0` on all three
+services, policy version 2 unchanged. Post-fix checks found two consecutive
+CYCLE_COMPLETE cycles with protection/exits/settlement CLEAR, no active health
+alerts and no undecided error tasks. Remote feature/v2-architecture updated.
