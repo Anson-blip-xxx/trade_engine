@@ -205,6 +205,9 @@ class BinanceDirectionalAccountContext:
     def __call__(self, signal):
         target = symbol(signal["symbol"])
         started = milliseconds(self.clock())
+        # Fail fast on an already full PG risk budget. The final budget read
+        # below and atomic submission reservation remain authoritative.
+        _risk_budget(self.connect, self.scope, target)
         before = self.request("GET", "/fapi/v3/positionRisk", {})
         account = self.request("GET", "/fapi/v3/account", {})
         account_config = self.request("GET", "/fapi/v1/accountConfig", {})

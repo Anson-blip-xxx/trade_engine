@@ -8,6 +8,13 @@ import re
 from copy import deepcopy
 from uuid import uuid4
 
+EXPECTED_ADMISSION_WAITS = frozenset(
+    {
+        "ACCOUNT_RISK_CAPACITY_UNAVAILABLE",
+        "EXISTING_SYMBOL_POSITION",
+    }
+)
+
 
 def diagnostic_code(exc):
     detail = str(exc)
@@ -226,8 +233,18 @@ class StrategyScheduler:
                     "status"
                 ]
             except Exception as exc:  # noqa: BLE001 - poison signals cannot stop other tasks
-                results[signal_id] = "UNAVAILABLE"
                 error = diagnostic_code(exc)
+                # Explicit capacity/position gates are expected waits, not a
+                # dependency failure that blocks unrelated prepared orders.
+                results[signal_id] = (
+                    "DEFERRED"
+                    if isinstance(exc, ValueError) and error in EXPECTED_ADMISSION_WAITS
+                    else "UNAVAILABLE"
+                )
+                if error in EXPECTED_ADMISSION_WAITS and not isinstance(
+                    exc, ValueError
+                ):
+                    error = type(exc).__name__
             delay = (
                 interval_seconds
                 if error is None

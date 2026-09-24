@@ -184,6 +184,18 @@ def build(database, *, sentiment=None):
     return provider, request, public, clock, stats
 
 
+def test_full_risk_budget_short_circuits_exchange_reads(database, monkeypatch):
+    provider, request, public, _, _ = build(database)
+
+    def full(*_):
+        raise ValueError("ACCOUNT_RISK_CAPACITY_UNAVAILABLE")
+
+    monkeypatch.setattr("services.v2_directional_account_context._risk_budget", full)
+    with pytest.raises(ValueError, match="ACCOUNT_RISK_CAPACITY_UNAVAILABLE"):
+        provider(signal())
+    assert request.calls == [] and public.calls == []
+
+
 def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
     provider, request, public, _, stats = build(database)
     result = provider(signal())
@@ -274,6 +286,8 @@ def test_history_observed_during_collection_is_not_rejected_as_future(database):
     result = provider(signal())
     assert result["history"] == stats
     assert result["observed_at_ms"] > observations[0]
+
+
 @pytest.mark.parametrize(
     "kind,value",
     [("PULSE_UP", "5.25"), ("TREND_UP", "4"), ("VIOLENT_BULLISH", "18")],

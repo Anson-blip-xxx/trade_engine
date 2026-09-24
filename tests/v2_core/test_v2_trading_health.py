@@ -1,6 +1,7 @@
 import json
 from dataclasses import asdict
 
+import pytest
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_intent_admission import database as database_fixture
 from test_v2_intent_admission import scheduler_signal, strategy_worker
@@ -16,6 +17,63 @@ from v2_core.state import BusinessState, StateKey
 
 database = database_fixture
 closed = closed_fixture
+
+
+@pytest.mark.parametrize(
+    "code", ["ACCOUNT_RISK_CAPACITY_UNAVAILABLE", "EXISTING_SYMBOL_POSITION"]
+)
+def test_expected_risk_wait_is_visible_not_a_fault_and_expires(database, code):
+    from v2_core.scheduling import StrategyScheduler
+
+    now = [40000]
+    signal_id = scheduler_signal(database, "waiting", expires=100000)
+    worker, _ = strategy_worker(database, now=lambda: now[0])
+    scheduler = StrategyScheduler(
+        worker, context_provider=lambda _: (_ for _ in ()).throw(ValueError(code))
+    )
+    assert scheduler.run_once(1) == {signal_id: "DEFERRED"}
+    # Finish the other consumer, so only the intentional S6 wait remains.
+    with database() as conn:
+        conn.execute(
+            "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason) VALUES (%s,%s,'IGNORED','QA')",
+            (worker.scope.consumer.replace('"s6"', '"s8"'), signal_id),
+        )
+    health = TradingHealth(
+        database, account_id="test-account", tv_enabled=True, clock_ms=lambda: now[0]
+    )
+    assert health() == frozenset()
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert state["expected_waits"]["s6:tv_bridge"]["count"] == 1
+    now[0] = 100001
+    assert scheduler.expire_pending() == 1
+    assert health() == frozenset()
+    assert (
+        json.loads(health.store.read(health.key).payload_json)["expected_waits"] == {}
+    )
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ValueError("ACCOUNT_RISK_POLICY_MISSING"),
+        RuntimeError("ACCOUNT_RISK_CAPACITY_UNAVAILABLE"),
+    ],
+)
+def test_missing_risk_evidence_or_wrong_exception_remains_a_failure(database, exc):
+    from v2_core.scheduling import StrategyScheduler
+
+    signal_id = scheduler_signal(database, "risk-error", expires=100000)
+    worker, _ = strategy_worker(database, now=lambda: 40000)
+    scheduler = StrategyScheduler(
+        worker, context_provider=lambda _: (_ for _ in ()).throw(exc)
+    )
+    assert scheduler.run_once(1) == {signal_id: "UNAVAILABLE"}
+    health = TradingHealth(
+        database, account_id="test-account", tv_enabled=True, clock_ms=lambda: 40000
+    )
+    assert "SIGNAL_CONSUMPTION_LAG" in health()
 
 
 def test_health_detects_flat_unsettled_episode_and_dashboard_exposes_details(

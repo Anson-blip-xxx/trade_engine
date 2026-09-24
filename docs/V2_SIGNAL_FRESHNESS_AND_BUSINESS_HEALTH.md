@@ -57,6 +57,18 @@ Signal delay can be an intentional consequence of a safety block; inspect both
 categories together. No signal for a long period is not itself a market-feed alarm;
 market failures remain covered by pipeline/dependency checks.
 
+An explicit `ACCOUNT_RISK_CAPACITY_UNAVAILABLE` or `EXISTING_SYMBOL_POSITION`
+ValueError is a DEFERRED admission, not a pipeline dependency failure. The task
+retains its reason/backoff and expires normally; no order or decision is invented.
+Health summaries list these in `expected_waits`, separately from unexplained lag.
+The deployed Testnet policy on 2026-09-24 allows one position and 100 USDT total
+notional; a filled 99.99486 USDT position legitimately leaves no second slot.
+This release does not change that policy. Missing/invalid risk evidence remains
+UNAVAILABLE and must not be mislabeled a normal capacity wait.
+Capacity is checked before exchange/context requests to avoid wasting calls and
+delaying protection cycles; the final context check and atomic submission risk
+reservation are retained to guard concurrent changes.
+
 No opening frequency or profit is guaranteed. Once current signals are caught up,
 measure strategy rejection reasons and coverage before changing thresholds.
 This release does not expand the trading universe or permit LIVE orders.

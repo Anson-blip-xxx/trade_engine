@@ -9,7 +9,9 @@ import time
 from dataclasses import asdict
 from uuid import uuid4
 
+from services.v2_trading_pipeline import failed
 from v2_core.account_risk import AccountScope
+from v2_core.scheduling import EXPECTED_ADMISSION_WAITS
 from v2_core.state import BusinessState, StateKey
 from v2_core.strategy import StrategyScope
 
@@ -28,6 +30,7 @@ class TradingHealth:
     def __call__(self):
         now = self.clock()
         findings = {}
+        expected_waits = {}
         scope = tuple(asdict(self.scope).values())
         with self.connect() as conn:
             orders = conn.execute(
@@ -85,18 +88,36 @@ class TradingHealth:
                 for producer in ("s6", "s8"):
                     consumer = StrategyScope(*scope, producer).consumer
                     row = conn.execute(
-                        """SELECT count(*),min((s.snapshot->>'observed_at')::bigint)
+                        """SELECT count(*) FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
+                        min((s.snapshot->>'observed_at')::bigint)
+                            FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
+                        count(*) FILTER(WHERE t.error_code=ANY(%s))
                         FROM v2_inbound_signals s
+                        LEFT JOIN v2_strategy_tasks t ON t.signal_id=s.signal_id AND t.consumer=%s
                         WHERE s.environment=%s AND s.source=%s
                         AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
                             WHERE r.consumer=%s AND r.signal_id=s.signal_id)
                         AND (s.snapshot->>'observed_at')::bigint<=%s""",
-                        (self.scope.environment, source, consumer, now - 30000),
+                        (
+                            sorted(EXPECTED_ADMISSION_WAITS),
+                            sorted(EXPECTED_ADMISSION_WAITS),
+                            sorted(EXPECTED_ADMISSION_WAITS),
+                            consumer,
+                            self.scope.environment,
+                            source,
+                            consumer,
+                            now - 30000,
+                        ),
                     ).fetchone()
                     if row[0]:
                         findings.setdefault("SIGNAL_CONSUMPTION_LAG", {})[
                             producer + ":" + source
                         ] = {"count": row[0], "oldest_at_ms": row[1]}
+                    if row[2]:
+                        expected_waits[producer + ":" + source] = {
+                            "count": row[2],
+                            "reason": "ACCOUNT_CAPACITY_OR_EXISTING_POSITION",
+                        }
             latest = conn.execute(
                 """SELECT payload FROM v2_business_state
                 WHERE scope @> %s::jsonb AND NOT deleted
@@ -110,11 +131,7 @@ class TradingHealth:
             ).fetchone()
         if latest and latest[0].get("status") == "ENTRY_BLOCKED":
             phases = latest[0].get("phases", {})
-            blocked = [
-                name
-                for name, value in phases.items()
-                if isinstance(value, dict) and value.get("status") == "BLOCKED"
-            ]
+            blocked = [name for name, value in phases.items() if failed(value)]
             findings["PIPELINE_ENTRY_BLOCKED"] = {"stages": blocked}
             if any(name in blocked for name in ("protection", "exits")):
                 findings["POSITION_SAFETY_BLOCKED"] = {"stages": blocked}
@@ -142,6 +159,7 @@ class TradingHealth:
                 "active": active,
                 "first_seen_ms": first,
                 "findings": findings,
+                "expected_waits": expected_waits,
             },
         )
         if result.code != "APPLIED":

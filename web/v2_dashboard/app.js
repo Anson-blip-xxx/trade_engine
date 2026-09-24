@@ -56,7 +56,8 @@ function renderHealth(data) {
     const stale = !Number.isFinite(h.observed_at_ms) || Date.now()-h.observed_at_ms > 60000 || h.observed_at_ms > Date.now()+5000;
     const active = h.active || [], findings = h.findings || {};
     const title = stale ? "检查数据过期 / 状态未知" : active.length ? "需要处理："+active.map(x=>labels[x] || x).join("、") : Object.keys(findings).length ? "发现异常，正在持续性确认" : "本次检查未发现超时异常";
-    const rows = Object.entries(findings).map(([code,detail]) => `<details class="detail-row"><summary>${esc(labels[code] || code)}</summary><pre>${esc(JSON.stringify(detail,null,2))}</pre></details>`).join("");
+    const rows = Object.entries(findings).map(([code,detail]) => `<details class="detail-row"><summary>${esc(labels[code] || code)}</summary><pre>${esc(JSON.stringify(detail,null,2))}</pre></details>`).join("") +
+      (Object.keys(h.expected_waits || {}).length ? `<details class="detail-row"><summary>正常风控等待：风险容量已满或目标币种已有仓位</summary><pre>${esc(JSON.stringify(h.expected_waits,null,2))}</pre></details>` : "");
     return `<div class="detail-row"><strong class="${stale || active.length ? "negative" : ""}">${esc(title)}</strong><div>${esc(account_id)} · 检查于 ${atMs(h.observed_at_ms)} · UTC+8</div>${rows}</div>`;
   }).join("") : '<div class="placeholder">业务监测尚未产生结果，不能据此认定交易健康。</div>';
 }
