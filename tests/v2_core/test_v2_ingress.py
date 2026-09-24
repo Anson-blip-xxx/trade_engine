@@ -90,6 +90,24 @@ def test_webhook_records_normalized_event_without_secret():
     assert headers["Cache-Control"] == "no-store"
 
 
+def test_webhook_preserves_directional_evidence_as_decimal_strings():
+    app, store = application()
+    code, _, _ = call(
+        app,
+        alert(chg_15m="8.125", chg_1h="12.5", vol_1h="18.75"),
+    )
+    assert code == 200
+    features = next(iter(store.rows.values()))["snapshot"]["features"]
+    assert features == {
+        "price": "100.25",
+        "strength": 70,
+        "tv_signal": "TREND_UP_LONG",
+        "chg_15m": "8.125",
+        "chg_1h": "12.5",
+        "vol_1h": "18.75",
+    }
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -115,6 +133,9 @@ def test_webhook_records_normalized_event_without_secret():
         {"comment": "do not persist arbitrary text"},
         {"taker_buy_ratio": "1.01"},
         {"orderflow_bias": "-1.1"},
+        {"chg_15m": "-100.01"},
+        {"chg_1h": "10000.01"},
+        {"vol_1h": "-0.01"},
     ],
 )
 def test_webhook_rejects_invalid_input_without_persistence(changes):

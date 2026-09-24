@@ -81,7 +81,13 @@ class TradingViewWebhook:
             "price",
             "strength",
         }
-        optional = {"taker_buy_ratio", "orderflow_bias"}
+        optional = {
+            "taker_buy_ratio",
+            "orderflow_bias",
+            "chg_15m",
+            "chg_1h",
+            "vol_1h",
+        }
         if not required <= payload.keys() or not payload.keys() <= required | optional:
             raise IntakeRejected("INVALID_ALERT_FIELDS")
         raw_symbol = payload["symbol"]
@@ -101,6 +107,9 @@ class TradingViewWebhook:
             for key, low, high in (
                 ("taker_buy_ratio", 0, 1),
                 ("orderflow_bias", -1, 1),
+                ("chg_15m", -100, 10000),
+                ("chg_1h", -100, 10000),
+                ("vol_1h", 0, 10000),
             ):
                 if key in payload:
                     value = amount(payload[key])

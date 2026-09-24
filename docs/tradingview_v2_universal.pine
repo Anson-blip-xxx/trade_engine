@@ -1,0 +1,101 @@
+// Trading Engine V2 — universal per-symbol candidate signal producer
+// Pine Script v6. Use on a standard 15-minute BINANCE perpetual chart.
+// This script emits candidates only. V2 remains responsible for venue checks,
+// market-context filters, account risk, execution, protection and exits.
+//
+// IMPORTANT:
+// - Create the TradingView alert with "Any alert() function call".
+// - The chart must be a BINANCE perpetual contract, for example BTCUSDT.P.
+// - The webhook secret is scoped only to this ingress. Never paste Binance keys.
+// - Changing inputs does not change an existing alert; recreate that alert.
+
+//@version=6
+indicator("Trade Engine V2 Universal Candidate v1", overlay = true)
+
+string webhookSecret = input.string("REPLACE_WITH_V2_WEBHOOK_SECRET", "V2 webhook secret")
+int ttlMs = input.int(90000, "Signal TTL (milliseconds)", minval = 15000, maxval = 300000, step = 5000)
+bool enableLong = input.bool(true, "Enable long candidates")
+bool enableShort = input.bool(true, "Enable short candidates")
+int fastLength = input.int(20, "Fast EMA", minval = 2, maxval = 200)
+int slowLength = input.int(60, "Slow EMA", minval = 3, maxval = 400)
+int volumeLength = input.int(20, "Volume baseline", minval = 5, maxval = 200)
+float minVolumeRatio = input.float(1.5, "Minimum volume ratio", minval = 1.0, maxval = 10.0, step = 0.1)
+float minAdx = input.float(20.0, "Minimum ADX", minval = 5.0, maxval = 60.0, step = 0.5)
+float pulse15m = input.float(5.0, "Pulse threshold 15m (%)", minval = 0.5, maxval = 30.0, step = 0.1)
+float pulse1h = input.float(8.0, "Pulse threshold 1h (%)", minval = 1.0, maxval = 60.0, step = 0.1)
+float pump15m = input.float(8.0, "Pump threshold 15m (%)", minval = 1.0, maxval = 50.0, step = 0.1)
+float pump1h = input.float(12.0, "Pump threshold 1h (%)", minval = 2.0, maxval = 100.0, step = 0.1)
+float violent1h = input.float(15.0, "Violent range threshold 1h (%)", minval = 2.0, maxval = 100.0, step = 0.5)
+
+if timeframe.in_seconds() != 15 * 60
+    runtime.error("Trade Engine V2 Universal Candidate must run on a 15-minute chart")
+
+float emaFast = ta.ema(close, fastLength)
+float emaSlow = ta.ema(close, slowLength)
+[diPlus, diMinus, adx] = ta.dmi(14, 14)
+float volumeAverage = ta.sma(volume, volumeLength)
+float volumeRatio = volumeAverage > 0 ? volume / volumeAverage : 0.0
+float chg15m = close[1] > 0 ? (close / close[1] - 1.0) * 100.0 : 0.0
+float chg1h = close[4] > 0 ? (close / close[4] - 1.0) * 100.0 : 0.0
+float low1h = ta.lowest(low, 4)
+float vol1h = low1h > 0 ? (ta.highest(high, 4) / low1h - 1.0) * 100.0 : 0.0
+float closePosition = high > low ? (close - low) / (high - low) : 0.5
+
+bool ready = bar_index >= math.max(slowLength, volumeLength) + 4 and barstate.isconfirmed
+bool liquidMove = volumeRatio >= minVolumeRatio
+bool trendLong = emaFast > emaSlow and adx >= minAdx and diPlus > diMinus
+bool trendShort = emaFast < emaSlow and adx >= minAdx and diMinus > diPlus
+bool pulseLong = liquidMove and (chg15m >= pulse15m or chg1h >= pulse1h) and closePosition >= 0.65
+bool pulseShort = liquidMove and (chg15m <= -pulse15m or chg1h <= -pulse1h) and closePosition <= 0.35
+bool pumpLong = volumeRatio >= 2.0 and (chg15m >= pump15m or chg1h >= pump1h) and closePosition >= 0.70
+bool pumpShort = volumeRatio >= 2.0 and (chg15m <= -pump15m or chg1h <= -pump1h) and closePosition <= 0.30
+bool violentLong = vol1h >= violent1h and close > (ta.highest(high, 4) + ta.lowest(low, 4)) / 2.0
+bool violentShort = vol1h >= violent1h and not violentLong
+
+// A bar emits at most one candidate. High-conviction fast moves have priority.
+string candidate = ""
+if ready
+    if enableLong and pumpLong
+        candidate := "PUMP_LONG"
+    else if enableShort and pumpShort
+        candidate := "PUMP_SHORT"
+    else if enableLong and violentLong
+        candidate := "VIOLENT_LONG"
+    else if enableShort and violentShort
+        candidate := "VIOLENT_SHORT"
+    else if enableLong and pulseLong
+        candidate := "PULSE_UP_LONG"
+    else if enableShort and pulseShort
+        candidate := "PULSE_DOWN_SHORT"
+    else if enableLong and trendLong and not trendLong[1]
+        candidate := "TREND_UP_LONG"
+    else if enableShort and trendShort and not trendShort[1]
+        candidate := "TREND_DOWN_SHORT"
+
+int rawStrength = int(math.round(math.abs(chg15m) * 8.0 + math.abs(chg1h) * 4.0 + math.max(0.0, volumeRatio - 1.0) * 10.0))
+int strength = math.max(20, math.min(99, rawStrength))
+
+decimal(float value) => str.tostring(value, "#.########")
+
+message(string signal) =>
+    string standardTicker = ticker.standard(syminfo.tickerid)
+    string eventId = "tv:" + standardTicker + ":15:" + str.tostring(time_close) + ":" + signal
+    "{" +
+      "\"secret\":\"" + webhookSecret + "\"," +
+      "\"event_id\":\"" + eventId + "\"," +
+      "\"observed_at\":" + str.tostring(time_close) + "," +
+      "\"expires_at_ms\":" + str.tostring(time_close + ttlMs) + "," +
+      "\"symbol\":\"" + standardTicker + "\"," +
+      "\"signal\":\"" + signal + "\"," +
+      "\"price\":\"" + decimal(close) + "\"," +
+      "\"strength\":" + str.tostring(strength) + "," +
+      "\"chg_15m\":\"" + decimal(chg15m) + "\"," +
+      "\"chg_1h\":\"" + decimal(chg1h) + "\"," +
+      "\"vol_1h\":\"" + decimal(vol1h) + "\"}"
+
+if str.length(candidate) > 0
+    alert(message(candidate), alert.freq_once_per_bar_close)
+
+plot(emaFast, "EMA fast", color = color.orange)
+plot(emaSlow, "EMA slow", color = color.blue)
+plotshape(str.length(candidate) > 0, "V2 candidate", shape.triangleup, location.belowbar, color.new(color.aqua, 0), size = size.tiny)

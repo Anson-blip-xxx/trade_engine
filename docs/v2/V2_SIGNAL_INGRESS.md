@@ -26,8 +26,8 @@ HTTP 200 `RECORDED` 只代表信号可靠登记（或原记录确认），不代
 认证使用固定时序比较，密钥不进入业务记录，错误响应不回显请求或数据库异常文本。
 
 必需字段：secret、event_id、observed_at、expires_at_ms、symbol、signal、price、strength。
-可选字段：taker_buy_ratio、orderflow_bias。其余字段拒绝，包括 source、environment、
-自由文本 comment；不能把凭据塞入审计上下文。
+可选字段：taker_buy_ratio、orderflow_bias、chg_15m、chg_1h、vol_1h。其余字段拒绝，
+包括 source、environment、自由文本 comment；不能把凭据塞入审计上下文。
 
 - event_id：1–128 位 ASCII 字母、数字或 `_.:/-`；生产者必须在首次生成时固定，
   重试不得重新生成，不用 symbol+signal 短期窗口替代真实事件身份。
@@ -39,6 +39,9 @@ HTTP 200 `RECORDED` 只代表信号可靠登记（或原记录确认），不代
   但不接受旧 payload 自动补事件时间/身份的行为。
 - price：正十进制字符串；strength：0–100 整数，不接受 bool。
   taker_buy_ratio 在 [0,1]、orderflow_bias 在 [-1,1]，也使用十进制字符串。
+  chg_15m / chg_1h 是百分比变化，范围 [-100,10000]；vol_1h 是一小时内
+  `(high-low)/low*100` 波动百分比，范围 [0,10000]。这三个字段仍是生产者证据，
+  不能由接收时间或后来的市场场景补写。
 
 旧 alert 模板没有稳定 ID/触发时间/期限，不能直接指向此接口；模板迁移须与
 生产者接线一起验收。本轮未修改远端 TradingView 配置。
