@@ -181,6 +181,67 @@ def test_explicit_external_position_does_not_block_final_settlement(database, cl
     assert payload["summary"]["excluded_positions"][0]["symbol"] == "ZORAUSDT"
 
 
+def test_excluded_external_funding_is_audited_without_polluting_episode(
+    database, closed
+):
+    runtime, episode, income = closed
+    baseline(database, runtime, episode)
+    income.rows.append(
+        {
+            "incomeType": "FUNDING_FEE",
+            "income": "-0.02",
+            "tradeId": "",
+            "tranId": 55,
+            "time": 5,
+            "symbol": "ZORAUSDT",
+        }
+    )
+    venue = Venue(income, final_balance="989.874")
+    blocked = DirectionalSettlementStage(
+        database, venue, scope=SCOPE, clock_ms=lambda: 70000
+    ).run_once()
+    assert blocked["status"] == "BLOCKED"
+    stage = DirectionalSettlementStage(
+        database,
+        venue,
+        scope=SCOPE,
+        clock_ms=lambda: 70000,
+        excluded_position_symbols=("ZORAUSDT",),
+    )
+    result = stage.run_once()
+    assert result["status"] == "CLEAR"
+    proof = runtime.data.trace(episode)["settlements"][0]["evidence"]
+    assert Decimal(proof["wallet_delta"]) == Decimal("-10.126")
+    assert Decimal(proof["attributed_wallet_delta"]) == Decimal("-10.106")
+    assert len(proof["external_income"]) == 1
+    assert proof["external_income"][0]["symbol"] == "ZORAUSDT"
+    assert proof["external_income"][0]["amount"] == "-0.020000000000000000"
+
+
+def test_excluded_external_nonfunding_cash_still_blocks(database, closed):
+    runtime, episode, income = closed
+    baseline(database, runtime, episode)
+    income.rows.append(
+        {
+            "incomeType": "COMMISSION",
+            "income": "-0.02",
+            "tradeId": "99",
+            "tranId": 55,
+            "time": 5,
+            "symbol": "ZORAUSDT",
+        }
+    )
+    result = DirectionalSettlementStage(
+        database,
+        Venue(income, final_balance="989.874"),
+        scope=SCOPE,
+        clock_ms=lambda: 70000,
+        excluded_position_symbols=("ZORAUSDT",),
+    ).run_once()
+    assert result["status"] == "BLOCKED"
+    assert runtime.data.trace(episode)["settlements"] == []
+
+
 def test_failure_after_funding_allocation_rolls_back_whole_settlement(
     database, closed, monkeypatch
 ):

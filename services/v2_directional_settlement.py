@@ -36,7 +36,11 @@ class DirectionalSettlementStage:
             limit,
         )
         self.cash = DirectionalCashAudit(
-            connect, request, scope=scope, clock_ms=clock_ms
+            connect,
+            request,
+            scope=scope,
+            clock_ms=clock_ms,
+            excluded_position_symbols=excluded_position_symbols,
         )
         self.coverage = AccountCoverageAudit(
             connect,
@@ -104,6 +108,65 @@ class DirectionalSettlementStage:
             result["outcome"] = self.outcomes.record(episode)
         return result
 
+    def _external_cash(
+        self, *, symbol, baseline_ms, final_ms, fill_start, fill_end, cash
+    ):
+        # Re-fetch the entire baseline-to-final wallet interval. A narrow
+        # episode import cannot justify subtracting unrelated account cash.
+        run = self.cash.importer.import_window(
+            start_ms=max(0, baseline_ms - 999), end_ms=final_ms
+        )
+        if run["status"] != "FETCHED":
+            raise ValueError("FINAL_INCOME_INCOMPLETE")
+        with self.connect() as conn:
+            values = conn.execute(
+                """SELECT income_id::text,income_type,source_id,symbol,amount::text,
+                currency,occurred_at_ms,evidence FROM v2_exchange_income
+                WHERE (exchange,account_id,environment,product)=(%s,%s,%s,%s)
+                AND occurred_at_ms BETWEEN %s AND %s
+                ORDER BY income_type,source_id LIMIT 20001""",
+                (*asdict(self.scope).values(), max(0, baseline_ms - 999), final_ms),
+            ).fetchall()
+        fields = (
+            "income_id",
+            "income_type",
+            "source_id",
+            "symbol",
+            "amount",
+            "currency",
+            "occurred_at_ms",
+            "evidence",
+        )
+        rows = [dict(zip(fields, value, strict=True)) for value in values]
+        if len(rows) != run["rows"]:
+            raise ValueError("FINAL_INCOME_WINDOW_CHANGED")
+        target, external = [], []
+        for row in rows:
+            if row["symbol"] == symbol:
+                if not fill_start - 999 <= row["occurred_at_ms"] <= fill_end + 999:
+                    raise ValueError("UNATTRIBUTED_TARGET_CASH")
+                target.append(row)
+            elif (
+                row["symbol"] in self.coverage.excluded_position_symbols
+                and row["income_type"] == "FUNDING_FEE"
+                and row["currency"] == "USDT"
+                and row["evidence"] == {"source": "binance-income", "trade_id": ""}
+                and row["occurred_at_ms"] > baseline_ms
+            ):
+                external.append(row)
+            else:
+                raise ValueError("UNATTRIBUTED_ACCOUNT_CASH")
+        if digest(canonical({"rows": target})) != cash["income_digest"]:
+            raise ValueError("CASH_OBSERVATION_SUPERSEDED")
+        episode_external_ids = sorted(
+            row["income_id"]
+            for row in external
+            if fill_start - 999 <= row["occurred_at_ms"] <= fill_end + 999
+        )
+        if episode_external_ids != sorted(cash["excluded_income_ids"]):
+            raise ValueError("EXTERNAL_CASH_OBSERVATION_SUPERSEDED")
+        return external, run["run_id"]
+
     def _settle_locked(self, episode, cash):
         baseline_order, baseline_proof, baseline, baseline_version = self._baseline(
             episode
@@ -128,12 +191,14 @@ class DirectionalSettlementStage:
             raise ValueError("FINAL_ACCOUNT_NOT_RECONCILED")
         with self.connect() as conn:
             window = conn.execute(
-                """SELECT min(f.occurred_at_ms),max(f.occurred_at_ms) FROM v2_fills f
-                JOIN v2_orders o USING(order_id) WHERE o.episode_id=%s""",
+                """SELECT min(f.occurred_at_ms),max(f.occurred_at_ms),max(i.payload->>'symbol')
+                FROM v2_fills f JOIN v2_orders o USING(order_id)
+                JOIN v2_trade_intents i ON i.intent_id=o.episode_id WHERE o.episode_id=%s""",
                 (episode,),
             ).fetchone()
         if (
             window[0] is None
+            or window[2] is None
             or baseline["finished_at_ms"] > window[0]
             or final["started_at_ms"] < window[1]
         ):
@@ -141,7 +206,17 @@ class DirectionalSettlementStage:
         start_wallet = amount(baseline["responses"]["account"]["totalWalletBalance"])
         final_wallet = amount(final["responses"]["account"]["totalWalletBalance"])
         provisional = Decimal(cash["provisional_net_pnl"])
-        if final_wallet - start_wallet != provisional:
+        external, income_run = self._external_cash(
+            symbol=window[2],
+            baseline_ms=baseline["finished_at_ms"],
+            final_ms=final["finished_at_ms"],
+            fill_start=window[0],
+            fill_end=window[1],
+            cash=cash,
+        )
+        external_amount = sum((Decimal(row["amount"]) for row in external), Decimal(0))
+        attributed_wallet_delta = final_wallet - start_wallet - external_amount
+        if attributed_wallet_delta != provisional:
             raise ValueError("WALLET_CASH_MISMATCH")
         cash_saved, cash_version = self._state("directional-cash-audit-v1", episode)
         if cash_saved != cash:
@@ -230,6 +305,16 @@ class DirectionalSettlementStage:
                 "final_inventory_digest": digest(canonical(final)),
                 "cash_audit_digest": digest(canonical(cash)),
                 "wallet_delta": str(final_wallet - start_wallet),
+                "attributed_wallet_delta": str(attributed_wallet_delta),
+                "external_income_run": income_run,
+                "external_income": [
+                    {
+                        "income_id": row["income_id"],
+                        "symbol": row["symbol"],
+                        "amount": row["amount"],
+                    }
+                    for row in external
+                ],
                 "net_pnl": report["net_pnl"],
                 "funding_income_ids": [
                     f["income_id"] for f in cash["funding_candidates"]

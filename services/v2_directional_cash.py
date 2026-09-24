@@ -147,7 +147,9 @@ def reconcile_cash(trace, report, rows, *, scope):
 
 
 class DirectionalCashAudit:
-    def __init__(self, connect, request, *, scope, clock_ms):
+    def __init__(
+        self, connect, request, *, scope, clock_ms, excluded_position_symbols=()
+    ):
         if (scope.exchange, scope.environment, scope.product) != (
             "BINANCE",
             "SANDBOX",
@@ -164,6 +166,16 @@ class DirectionalCashAudit:
             return request(method, path, params)
 
         self.connect, self.scope, self.clock = connect, scope, clock_ms
+        if (
+            not isinstance(excluded_position_symbols, tuple)
+            or len(set(excluded_position_symbols)) != len(excluded_position_symbols)
+            or any(
+                not isinstance(item, str) or not item.endswith("USDT")
+                for item in excluded_position_symbols
+            )
+        ):
+            raise ValueError("explicit external position exclusions required")
+        self.excluded_position_symbols = excluded_position_symbols
         self.importer = BinanceIncomeImporter(
             connect,
             read,
@@ -359,15 +371,30 @@ class DirectionalCashAudit:
             ).fetchone()
             if overlap:
                 raise ValueError("OVERLAPPING_ACCOUNT_EPISODE")
+            target_rows = [
+                row for row in rows if row["symbol"] == trace["request"]["symbol"]
+            ]
+            external_rows = [
+                row for row in rows if row["symbol"] != trace["request"]["symbol"]
+            ]
+            for row in external_rows:
+                if (
+                    row["symbol"] not in self.excluded_position_symbols
+                    or row["income_type"] != "FUNDING_FEE"
+                    or row["currency"] != "USDT"
+                    or row["evidence"] != {"source": "binance-income", "trade_id": ""}
+                ):
+                    raise ValueError("UNATTRIBUTED_CASH")
             proof = reconcile_cash(
                 current,
                 data.ledger.report(
                     episode, settlement_currency="USDT", connection=conn
                 ),
-                rows,
+                target_rows,
                 scope=self.scope,
             )
             proof.update(
+                excluded_income_ids=[row["income_id"] for row in external_rows],
                 income_run=run["run_id"],
                 observed_at_ms=self.clock(),
                 source="directional-cash-audit-v1",
