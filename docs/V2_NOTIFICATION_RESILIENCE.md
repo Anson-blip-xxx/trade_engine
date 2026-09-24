@@ -28,3 +28,14 @@ be confused with an independent consumer outage.
 An existing UNKNOWN close request remains a separate reconciliation incident.
 The exchange not-found response alone is not sufficient evidence to erase it or
 resubmit it. Existing native protection and safety gates must remain in place.
+
+## Testnet rollout
+
+Release `b0964e12debc6fc674ad9a2b7bf0d697a4f2452f` is deployed to the daemon,
+independent watchdog and dashboard. Policy version 3 enables the 60/120-second
+windows. The notification regression passed 92 tests. Post-rollout checks found
+all three services active without restart loops and the dashboard responding.
+The lag alert cleared after its stable recovery window; independent unresolved
+order/protection alerts remain visible. Real pin delivery awaits the next real
+trade lifecycle message; permissions and retry behavior have been verified, not
+a fabricated trade notification.
