@@ -30,6 +30,13 @@ SCHEMA = {
     "capital.halt_drawdown": ("0.10", "0.001", "0.5"),
     "capital.reduced_factor": ("0.5", "0", "1"),
     "capital.defensive_factor": ("0.25", "0", "1"),
+    "recovery.enabled": (False, None, None),
+    "recovery.cooldown_ms": (7200000, 60000, 604800000),
+    "recovery.max_attempts": (2, 1, 10),
+    "recovery.probe_factor": ("0.20", "0.01", "0.25"),
+    "recovery.loss_fraction": ("0.005", "0.0001", "0.02"),
+    "recovery.max_losses": (2, 1, 10),
+    "recovery.min_settlements": (3, 1, 100),
     "portfolio_risk.enabled": (False, None, None),
     "portfolio_risk.max_fraction": ("0.03", "0.001", "1"),
     "sizing.max_margin_fraction": ("1", "0.001", "1"),
@@ -72,6 +79,18 @@ SCHEMA = {
     "score.age_step_seconds": ("30", "1", "86400"),
     "score.max_age_penalty": ("10", "0", "100"),
     "leverage.low_score": (60, 0, 100),
+    "leverage.adaptive_enabled": (False, None, None),
+    "leverage.adaptive_high": (5, 2, 5),
+    "leverage.boost_enabled": (False, None, None),
+    "leverage.boost": (8, 2, 8),
+    "leverage.boost_score": (90, 85, 100),
+    "leverage.boost_max_atr": ("2", "0.1", "4"),
+    "leverage.boost_max_age_ms": (30000, 1000, 60000),
+    "leverage.boost_max_funding": ("0.0003", "0", "0.001"),
+    "leverage.boost_max_stop": ("0.04", "0.001", "0.04"),
+    "leverage.max_margin_consumption": ("0.60", "0.1", "0.7"),
+    "leverage.max_spread": ("0.001", "0.00001", "0.005"),
+    "leverage.depth_multiple": ("5", "1", "100"),
     "leverage.high_score": (85, 0, 100),
     "leverage.atr_threshold": ("4", "0", "100"),
     "leverage.low": (2, 1, 5),
@@ -94,6 +113,7 @@ SCHEMA = {
     "analysis.min_follow_pct": ("-0.8", "-100", "100"),
     "analysis.soft_factor": ("0.5", "0", "1"),
     "scheduler.signal_batch": (20, 1, 1000),
+    "scheduler.tv_first": (False, None, None),
     "scheduler.expiry_batch": (1000, 1, 5000),
     "scheduler.retry_seconds": (5, 1, 3600),
     "scheduler.lease_seconds": (300, 1, 3600),
@@ -173,6 +193,20 @@ def resolve(values=None):
         raise ValueError("CAPITAL_MODEL_REQUIRES_ANCHORED_BUDGET")
     if result["portfolio_risk.enabled"] and not result["capital.enabled"]:
         raise ValueError("PORTFOLIO_RISK_REQUIRES_CAPITAL_BUDGET")
+    if result["recovery.enabled"] and not result["capital.model_enabled"]:
+        raise ValueError("RECOVERY_REQUIRES_CAPITAL_MODEL")
+    if result["leverage.boost_enabled"] and not result["leverage.adaptive_enabled"]:
+        raise ValueError("BOOST_REQUIRES_ADAPTIVE_LEVERAGE")
+    if result["leverage.boost"] not in {2, 3, 5, 8}:
+        raise ValueError("UNSUPPORTED_BOOST_TIER")
+    if result["leverage.adaptive_enabled"] and not (
+        result["entry.force_isolated"]
+        and result["portfolio_risk.enabled"]
+        and result["leverage.low"]
+        <= result["leverage.medium"]
+        <= result["leverage.adaptive_high"]
+    ):
+        raise ValueError("ADAPTIVE_LEVERAGE_REQUIRES_ORDERED_ISOLATED_RISK_TIERS")
     if result["capital.enabled"] and Decimal(result["sizing.pool_fraction"]) != Decimal(
         result["capital.pool_fraction"]
     ):

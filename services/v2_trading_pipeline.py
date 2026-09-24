@@ -232,7 +232,14 @@ class TradingPipeline:
                 and regime_ok
             )
             if can_admit:
-                for scheduler in self.schedulers:
+                schedulers = (
+                    sorted(
+                        self.schedulers, key=lambda s: s.worker.source != "tv_bridge"
+                    )
+                    if settings["scheduler.tv_first"]
+                    else self.schedulers
+                )
+                for scheduler in schedulers:
 
                     def schedule_and_measure(target=scheduler):
                         # The deployed S3 frame contains 19 symbols. Admission

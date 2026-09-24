@@ -5,7 +5,7 @@ The provider must supply a scoped, fresh evaluation snapshot. This module does
 not read legacy state or pretend its injected account data is venue-verified.
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from v2_core.directional import (
     analysis_adjustment,
@@ -72,6 +72,37 @@ def replay_decision(signal, context, config):
 
     if plan.reason != "CANDIDATE":
         return result(plan.reason)
+    from v2_core.runtime_policy import resolve
+
+    settings = resolve(config.get("policy"))
+    if settings["leverage.adaptive_enabled"]:
+        from decimal import Decimal
+
+        from v2_core.adaptive_leverage import choose
+
+        # Use the full single-trade risk cap as the conservative depth/tier
+        # estimate. Final sizing may be smaller but cannot be larger.
+        cap = (
+            Decimal(snapshot["sizing"]["balance"])
+            * Decimal(settings["sizing.risk_fraction"])
+            / (
+                Decimal(plan.stop_fraction)
+                + Decimal(settings["sizing.cost_buffer_fraction"])
+            )
+        )
+        selected, proof = choose(
+            plan,
+            snapshot,
+            source=config.get("source"),
+            age_ms=now - signal["observed_at"],
+            settings=settings,
+            notional=cap,
+        )
+        features["leverage_decision"] = proof
+        if selected is None:
+            return result("NO_VERIFIED_SAFE_LEVERAGE")
+        plan = replace(plan, leverage=selected)
+        features["market_plan"] = asdict(plan)
     adjustment = analysis_adjustment(
         snapshot["history"], mode=config["analysis_mode"], policy=config.get("policy")
     )

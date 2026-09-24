@@ -78,7 +78,7 @@ def anchor(settings):
     )
 
 
-def health(account, settings, previous=None):
+def health(account, settings, previous=None, *, now_ms=None, outcomes=()):
     base = capital_base(account, settings)
     if not settings["capital.model_enabled"]:
         return {
@@ -102,16 +102,27 @@ def health(account, settings, previous=None):
             if drawdown >= Decimal(settings["capital.reduce_drawdown"])
             else "1"
         )
-        return {
+        result = {
             "base": str(base),
             "peak": str(peak),
             "drawdown": str(drawdown),
             "factor": factor,
             "anchor": anchor(settings),
         }
+        from v2_core.capital_recovery import transition
+
+        return transition(
+            result,
+            previous
+            if previous and previous.get("anchor") == result["anchor"]
+            else None,
+            settings,
+            now_ms=now_ms,
+            outcomes=outcomes,
+        )
 
 
-def current_health(connect, scope, account, settings):
+def current_health(connect, scope, account, settings, *, now_ms=None):
     if settings["capital.model_enabled"]:
         with connect() as conn:
             rows = conn.execute(
@@ -141,10 +152,28 @@ def current_health(connect, scope, account, settings):
         if saved and not saved.deleted
         else None
     )
-    return health(account, settings, previous)
+    outcomes = ()
+    recovery = (previous or {}).get("recovery", {})
+    if recovery.get("mode") == "PROBE":
+        with connect() as conn:
+            outcomes = tuple(
+                row[0]
+                for row in conn.execute(
+                    """SELECT s.evidence->>'net_pnl'
+                FROM v2_settlements s JOIN v2_trade_intents i ON i.intent_id=s.episode_id
+                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                AND i.created_at>=to_timestamp(%s/1000.0)
+                AND s.currency='USDT' AND s.evidence->>'source'='directional-settlement-v1'
+                AND s.revision=(SELECT max(t.revision) FROM v2_settlements t WHERE t.episode_id=s.episode_id)""",
+                    (*asdict(scope).values(), recovery["probe_started_at_ms"]),
+                ).fetchall()
+            )
+    return health(account, settings, previous, now_ms=now_ms, outcomes=outcomes)
 
 
 def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
+    if leverage > 5 and not settings["leverage.adaptive_enabled"]:
+        raise ValueError("CAPITAL_LEVERAGE_SAFETY_UNVERIFIED")
     if not settings["portfolio_risk.enabled"]:
         return {}
     with localcontext() as ctx:
@@ -153,14 +182,60 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
         if factor == 0:
             raise ValueError("CAPITAL_DRAWDOWN_HALT")
         plan = conn.execute(
-            """SELECT e.snapshot->'features'->'evaluation'->'market_plan'
+            """SELECT e.snapshot->'features'->'evaluation'->'market_plan',
+                e.snapshot->'features'->'evaluation'->'leverage_decision',i.payload->>'symbol'
             FROM v2_trade_intents i JOIN v2_decision_evidence e USING(evidence_ref)
             WHERE i.intent_id=%s AND (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)""",
             (episode, *asdict(scope).values()),
         ).fetchone()
         if not plan or not isinstance(plan[0], dict):
             raise ValueError("CAPITAL_STOP_PLAN_UNVERIFIED")
+        leverage_proof = plan[1]
+        symbol = plan[2]
         plan = plan[0]
+        if settings["leverage.adaptive_enabled"] or leverage > 5:
+            from v2_core.adaptive_leverage import BOOST_CHECKS, safe_margin
+
+            if (
+                not settings["leverage.adaptive_enabled"]
+                or not isinstance(leverage_proof, dict)
+                or leverage_proof.get("selected") != leverage
+                or leverage
+                not in {
+                    settings["leverage.low"],
+                    settings["leverage.medium"],
+                    settings["leverage.adaptive_high"],
+                    settings["leverage.boost"]
+                    if settings["leverage.boost_enabled"]
+                    else 0,
+                }
+                or leverage_proof.get("venue", {}).get("symbol") != symbol
+                or (
+                    leverage > 5
+                    and (
+                        not settings["leverage.boost_enabled"]
+                        or not all(
+                            leverage_proof.get("checks", {}).get(name) is True
+                            for name in BOOST_CHECKS
+                        )
+                    )
+                )
+                or not safe_margin(
+                    leverage,
+                    amount(plan["stop_fraction"], positive=True),
+                    notional,
+                    leverage_proof.get("venue"),
+                    settings,
+                )
+            ):
+                raise ValueError("CAPITAL_LEVERAGE_SAFETY_UNVERIFIED")
+            if leverage >= settings["leverage.adaptive_high"] and (
+                Decimal(leverage_proof["venue"]["spread_fraction"])
+                > Decimal(settings["leverage.max_spread"])
+                or Decimal(leverage_proof["venue"]["top_notional"])
+                < notional * Decimal(settings["leverage.depth_multiple"])
+            ):
+                raise ValueError("CAPITAL_LEVERAGE_LIQUIDITY_UNVERIFIED")
         if settings["entry.force_isolated"] and plan.get("margin_mode") != "ISOLATED":
             raise ValueError("CAPITAL_ISOLATED_MARGIN_REQUIRED")
         stop = amount(plan["stop_fraction"], positive=True)

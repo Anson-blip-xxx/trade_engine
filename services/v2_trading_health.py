@@ -45,7 +45,10 @@ class TradingHealth:
                 saved = json.loads(snapshot.payload_json)
                 capital = saved.get("capital_health")
                 if capital and capital.get("factor") == "0":
-                    findings["CAPITAL_DRAWDOWN_HALT"] = capital
+                    if capital.get("recovery", {}).get("mode") == "PAUSED":
+                        expected_waits["CAPITAL_RECOVERY_PAUSED"] = capital
+                    else:
+                        findings["CAPITAL_DRAWDOWN_HALT"] = capital
         scope = tuple(asdict(self.scope).values())
         with self.connect() as conn:
             orders = conn.execute(

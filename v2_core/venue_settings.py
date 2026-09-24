@@ -63,7 +63,7 @@ class TestnetSymbolSettings:
             not isinstance(terms, dict)
             or set(terms) != {"leverage", "margin_type"}
             or type(terms["leverage"]) is not int
-            or not 1 <= terms["leverage"] <= 5
+            or terms["leverage"] not in {1, 2, 3, 4, 5, 8}
             or terms["margin_type"] not in {"ISOLATED", "CROSSED"}
         ):
             raise ValueError("bounded desired symbol settings required")

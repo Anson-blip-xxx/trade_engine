@@ -221,6 +221,25 @@ class BinanceDirectionalAccountContext:
     def __call__(self, signal):
         target = symbol(signal["symbol"])
         started = milliseconds(self.clock())
+        from v2_core.runtime_policy import PolicyStore
+
+        profile = PolicyStore(self.connect, self.scope).read()
+        leverage_venue = None
+        if profile.values["leverage.adaptive_enabled"]:
+            from v2_core.adaptive_leverage import venue_facts
+
+            brackets = self.request(
+                "GET", "/fapi/v1/leverageBracket", {"symbol": target}
+            )
+            book = self.public("/fapi/v1/ticker/bookTicker", {"symbol": target})
+            leverage_venue = venue_facts(
+                brackets,
+                book,
+                target,
+                started=started,
+                finished=self.clock(),
+                max_age_ms=self.max_age,
+            )
         # Fail fast on an already full PG risk budget. The final budget read
         # below and atomic submission reservation remain authoritative.
         _risk_budget(self.connect, self.scope, target)
@@ -348,6 +367,7 @@ class BinanceDirectionalAccountContext:
             "account_risk_budget": risk_budget,
             "short_ratio": short_ratio,
             "funding_rate": funding,
+            "leverage_venue": leverage_venue,
             "market_sources": {
                 "contract_environment": self.public.environment,
                 "sentiment_environment": self.sentiment.environment,
@@ -444,4 +464,5 @@ class BinanceDirectionalAccountContext:
             },
             "expected_move_pct": expected_move(signal),
             "funding_rate": funding,
+            "leverage_venue": leverage_venue,
         }

@@ -27,7 +27,9 @@ def publish_capital_snapshot(
         raise ValueError("CAPITAL_SNAPSHOT_SUPERSEDED")
     profile = PolicyStore(connect, scope).read()
     payload = {
-        "capital_health": current_health(connect, scope, account, profile.values),
+        "capital_health": current_health(
+            connect, scope, account, profile.values, now_ms=started
+        ),
         "account_scope": asdict(scope),
         "started_at_ms": started,
         "valid_until_ms": deadline,
@@ -69,7 +71,7 @@ def reserve_capital(conn, scope, *, episode, notional, leverage, now):
         or not snapshot["started_at_ms"] <= now < snapshot["valid_until_ms"]
     ):
         raise ValueError("CAPITAL_SNAPSHOT_STALE")
-    if type(leverage) is not int or not 1 <= leverage <= 5:
+    if type(leverage) is not int or leverage not in {1, 2, 3, 4, 5, 8}:
         raise ValueError("CAPITAL_LEVERAGE_UNVERIFIED")
     rows = conn.execute(
         """SELECT r.notional::text,e.snapshot->'features'->'evaluation'->'market_plan'->>'leverage'

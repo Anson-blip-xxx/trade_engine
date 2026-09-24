@@ -96,6 +96,9 @@ class BinancePublicMarket:
             raise TypeError("normalized public parameters required")
         if path in {"/fapi/v1/time", "/fapi/v1/exchangeInfo"} and params == {}:
             weight = 1
+        elif path == "/fapi/v1/ticker/bookTicker" and set(params) == {"symbol"}:
+            symbol(params["symbol"])
+            weight = 2
         elif (path == "/fapi/v1/premiumIndex" and set(params) == {"symbol"}) or (
             path == "/futures/data/globalLongShortAccountRatio"
             and params == {"symbol": params.get("symbol"), "period": "1h", "limit": 3}

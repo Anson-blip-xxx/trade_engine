@@ -245,7 +245,7 @@ def size_candidate(
         or not settings["entry.min_score"] <= plan.score <= 100
     ):
         raise ValueError("invalid candidate score")
-    if type(plan.leverage) is not int or not 1 <= plan.leverage <= 5:
+    if type(plan.leverage) is not int or plan.leverage not in {1, 2, 3, 4, 5, 8}:
         raise ValueError("invalid candidate leverage")
     if plan.side not in {"LONG", "SHORT"}:
         raise ValueError("invalid candidate side")

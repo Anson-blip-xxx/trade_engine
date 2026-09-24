@@ -33,6 +33,7 @@ class BinanceSignedTransport:
             "/fapi/v1/multiAssetsMargin",
             "/fapi/v1/accountConfig",
             "/fapi/v1/symbolConfig",
+            "/fapi/v1/leverageBracket",
         }
     )
 
@@ -140,7 +141,7 @@ class BinanceSignedTransport:
                     path.endswith("/leverage")
                     and (
                         type(params.get("leverage")) is not int
-                        or not 1 <= params["leverage"] <= 5
+                        or params["leverage"] not in {1, 2, 3, 4, 5, 8}
                     )
                 )
                 or (

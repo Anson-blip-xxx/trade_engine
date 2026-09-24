@@ -10,6 +10,7 @@ from threading import BoundedSemaphore
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from services.v2_performance_reporting import performance, signal_funnel
 from v2_core.database import connection_factory
 
 _ZONE = ZoneInfo("Asia/Shanghai")
@@ -36,6 +37,17 @@ class DashboardData:
 
     def overview(self):
         with self.connect() as conn:
+            reports = performance(conn)
+            funnel = [
+                dict(
+                    zip(
+                        ("source", "received", "processed", "intents", "filled"),
+                        row,
+                        strict=True,
+                    )
+                )
+                for row in signal_funnel(conn)
+            ]
             health = _rows(
                 conn.execute("""
                 SELECT account_id,payload FROM v2_business_health_dashboard
@@ -84,6 +96,8 @@ class DashboardData:
             signals = _rows(
                 conn.execute("""
                 SELECT signal_id::text AS id,source,received_at,
+                  (SELECT jsonb_agg(jsonb_build_object('consumer',r.consumer,'outcome',r.outcome,'reason',r.reason))
+                   FROM v2_signal_receipts r WHERE r.signal_id=v2_inbound_signals.signal_id) AS decisions,
                   snapshot->>'symbol' AS symbol,snapshot->>'signal' AS signal,
                   snapshot->>'observed_at' AS observed_at_ms,
                   snapshot->'features'->>'strength' AS strength
@@ -101,26 +115,15 @@ class DashboardData:
                 WHERE i.environment='SANDBOX' AND i.producer IN ('s6','s8')
                   AND s.revision=(SELECT max(x.revision) FROM v2_settlements x
                                   WHERE x.episode_id=s.episode_id)
-                ORDER BY s.settled_at ASC LIMIT 250
+                ORDER BY s.settled_at ASC
             """)
             )
-        net = sum((Decimal(s["net_pnl"] or "0") for s in settlements), Decimal(0))
-        wins = sum(Decimal(s["net_pnl"] or "0") > 0 for s in settlements)
-        opens = sum(
-            Decimal(str(t["open_qty"])) > Decimal(str(t["close_qty"])) for t in trades
-        )
         return {
             "as_of": datetime.now(_ZONE).isoformat(),
             "scope": "BINANCE · FUTURES · TESTNET",
-            "summary": {
-                "trade_intents": len(trades),
-                "open_positions": opens,
-                "settled_trades": len(settlements),
-                "realized_pnl": format(net, "f"),
-                "win_rate": round(wins / len(settlements) * 100, 1)
-                if settlements
-                else None,
-            },
+            "summary": reports["summary"],
+            "daily": reports["daily"],
+            "signal_funnel": funnel,
             "trades": trades,
             "signals": signals,
             "settlements": settlements,

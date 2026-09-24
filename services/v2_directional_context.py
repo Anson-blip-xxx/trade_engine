@@ -63,5 +63,6 @@ class DirectionalContext:
                 "sizing": account["sizing"],
                 "expected_move_pct": account["expected_move_pct"],
                 "funding_rate": account["funding_rate"],
+                "leverage_venue": account.get("leverage_venue"),
             },
         }

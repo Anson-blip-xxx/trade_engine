@@ -42,7 +42,7 @@ class TestnetVenueReadiness:
     ):
         if (
             type(leverage) is not int
-            or not 1 <= leverage <= 5
+            or leverage not in {1, 2, 3, 4, 5, 8}
             or margin_type not in {"ISOLATED", "CROSSED"}
         ):
             raise ValueError("bounded explicit intended account settings required")

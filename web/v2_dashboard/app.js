@@ -31,6 +31,14 @@ function renderChart(data) {
   $("chart-value").textContent = money(data.summary.realized_pnl) + " USDT";
   $("chart-value").className = "chart-value " + (Number(data.summary.realized_pnl) >= 0 ? "positive" : "negative");
 }
+function renderAccounting(data) {
+  const daily = data.daily || {};
+  $("daily-report").innerHTML = `<div class="detail-row">${esc(daily.note)}</div>` +
+    (daily.cash || []).slice(0,14).map(row => `<div class="detail-row"><strong>${esc(row.day)} · ${esc(row.account_id)}</strong><br>当日实际收支：${money(row.net_pnl)} USDT${row.unvalued_events ? " · 存在未计价事件，数值未知" : ""}</div>`).join("") +
+    (daily.closed_trades || []).slice(0,14).map(row => `<div class="detail-row">${esc(row.day)} 完整交易业绩：${money(row.net_pnl)} USDT · ${num(row.trades,0)} 笔</div>`).join("") +
+    '<div class="detail-row">每日净值口径：历史快照不足时不推算，不用收支代替浮盈亏。</div>';
+  $("signal-funnel").innerHTML = (data.signal_funnel || []).map(row => `<div class="detail-row"><strong>${esc(row.source === "tv_bridge" ? "TradingView" : row.source)}</strong><br>收到 ${num(row.received,0)} → 已处理 ${num(row.processed,0)} → 形成意图 ${num(row.intents,0)} → 开仓成交 ${num(row.filled,0)}</div>`).join("") || '<div class="placeholder">今日尚未收到信号</div>';
+}
 function renderPositions(data) {
   const open = data.trades.filter(held);
   $("position-count").textContent = open.length + " 个仓位";
@@ -48,16 +56,17 @@ function renderTrades(data) {
   }).join("") : '<tr><td colspan="8" class="empty-cell">没有符合条件的交易</td></tr>';
 }
 function renderSignals(data) {
-  $("signal-list").innerHTML = data.signals.length ? data.signals.map((s) => `<div class="signal"><div class="signal-top"><strong>${esc(s.symbol)}</strong><span class="signal-source">${s.source === "tv_bridge" ? "TRADINGVIEW":"S3"}</span></div><div class="signal-event">${esc(s.signal)}</div><div class="signal-time">触发 ${atMs(s.observed_at_ms)} · 收到 ${at(s.received_at)}${s.strength ? " · 强度 "+esc(s.strength):""}</div></div>`).join("") : '<div class="placeholder">暂无近期信号</div>';
+  $("signal-list").innerHTML = data.signals.length ? data.signals.map((s) => `<div class="signal"><div class="signal-top"><strong>${esc(s.symbol)}</strong><span class="signal-source">${s.source === "tv_bridge" ? "TRADINGVIEW":"S3"}</span></div><div class="signal-event">${esc(s.signal)}</div><div class="signal-time">触发 ${atMs(s.observed_at_ms)} · 收到 ${at(s.received_at)}${s.strength ? " · 强度 "+esc(s.strength):""}</div><div class="signal-time">${(s.decisions || []).map(d=>esc(d.outcome)+" · "+esc(d.reason)).join("<br>") || "等待处理"}</div></div>`).join("") : '<div class="placeholder">暂无近期信号</div>';
 }
 function renderHealth(data) {
-  const labels = {ORDER_PROGRESS_STALLED:"订单推进超时",SETTLEMENT_OVERDUE:"平仓后结算超时",SIGNAL_CONSUMPTION_LAG:"信号消费延迟",PIPELINE_ENTRY_BLOCKED:"开仓链路持续阻塞",POSITION_SAFETY_BLOCKED:"保护 / 退出环节阻塞"};
+  const labels = {ORDER_PROGRESS_STALLED:"订单推进超时",SETTLEMENT_OVERDUE:"平仓后结算超时",SIGNAL_CONSUMPTION_LAG:"信号消费延迟",PIPELINE_ENTRY_BLOCKED:"开仓链路持续阻塞",POSITION_SAFETY_BLOCKED:"保护 / 退出环节阻塞",CAPITAL_DRAWDOWN_HALT:"累计风控硬停，禁止自动解锁"};
   $("health-list").innerHTML = (data.health || []).length ? data.health.map(({account_id,payload:h}) => {
     const stale = !Number.isFinite(h.observed_at_ms) || Date.now()-h.observed_at_ms > 60000 || h.observed_at_ms > Date.now()+5000;
     const active = h.active || [], findings = h.findings || {};
     const title = stale ? "检查数据过期 / 状态未知" : active.length ? "需要处理："+active.map(x=>labels[x] || x).join("、") : Object.keys(findings).length ? "发现异常，正在持续性确认" : "本次检查未发现超时异常";
     const rows = Object.entries(findings).map(([code,detail]) => `<details class="detail-row"><summary>${esc(labels[code] || code)}</summary><pre>${esc(JSON.stringify(detail,null,2))}</pre></details>`).join("") +
-      (Object.keys(h.expected_waits || {}).length ? `<details class="detail-row"><summary>正常风控等待：风险容量已满或目标币种已有仓位</summary><pre>${esc(JSON.stringify(h.expected_waits,null,2))}</pre></details>` : "");
+      (Object.keys(h.expected_waits || {}).length ? `<details class="detail-row"><summary>正常风控等待：冷却、容量或已有仓位</summary><pre>${esc(JSON.stringify(h.expected_waits,null,2))}</pre></details>` : "") +
+      (h.capital ? `<div class="detail-row">资金风险状态：${esc(h.capital.recovery?.mode || "ACTIVE")} · 试运行次数 ${num(h.capital.recovery?.attempts || 0,0)} · 风险系数 ${esc(h.capital.factor)}</div>` : "");
     return `<div class="detail-row"><strong class="${stale || active.length ? "negative" : ""}">${esc(title)}</strong><div>${esc(account_id)} · 检查于 ${atMs(h.observed_at_ms)} · UTC+8</div>${rows}</div>`;
   }).join("") : '<div class="placeholder">业务监测尚未产生结果，不能据此认定交易健康。</div>';
 }
@@ -99,7 +108,7 @@ async function refresh() {
     if (!response.ok) throw new Error("unavailable");
     state.data = await response.json();
     $("error").hidden=true;
-    renderMetrics(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data); renderHealth(state.data);
+    renderMetrics(state.data); renderAccounting(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data); renderHealth(state.data);
   } catch { $("error").hidden=false; $("health-list").textContent="读取失败：交易链路健康状态未知，请勿依赖旧状态。"; }
   finally { $("refresh").disabled=false; }
 }
