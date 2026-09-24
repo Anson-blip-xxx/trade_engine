@@ -17,8 +17,8 @@ import sys, time, os
 from pathlib import Path
 from typing import Optional
 
-_BASE = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_BASE / 'trading_engine'))
+_BASE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_BASE))
 
 from shared_executor import (
     _log, read_all_signals, read_s3_market_data,

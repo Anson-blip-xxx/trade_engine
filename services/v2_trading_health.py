@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from services.v2_trading_pipeline import failed
 from v2_core.account_risk import AccountScope
+from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import EXPECTED_ADMISSION_WAITS
 from v2_core.state import BusinessState, StateKey
 from v2_core.strategy import StrategyScope
@@ -29,8 +30,22 @@ class TradingHealth:
 
     def __call__(self):
         now = self.clock()
+        policy = PolicyStore(self.connect, self.scope).read()
+        settings = policy.values
         findings = {}
         expected_waits = {}
+        capital = None
+        if settings["capital.model_enabled"]:
+            snapshot = self.store.read(
+                StateKey(
+                    **asdict(self.scope), namespace="capital-snapshot-v1", key="latest"
+                )
+            )
+            if snapshot and not snapshot.deleted:
+                saved = json.loads(snapshot.payload_json)
+                capital = saved.get("capital_health")
+                if capital and capital.get("factor") == "0":
+                    findings["CAPITAL_DRAWDOWN_HALT"] = capital
         scope = tuple(asdict(self.scope).values())
         with self.connect() as conn:
             orders = conn.execute(
@@ -39,13 +54,18 @@ class TradingHealth:
                 FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
                 WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
                 AND ((o.status IN ('SUBMITTING','UNKNOWN') AND
-                        o.updated_at<clock_timestamp()-interval '60 seconds')
+                        o.updated_at<clock_timestamp()-%s*interval '1 second')
                     OR (o.status='ACKNOWLEDGED' AND o.order_type='MARKET' AND
-                        o.updated_at<clock_timestamp()-interval '60 seconds')
+                        o.updated_at<clock_timestamp()-%s*interval '1 second')
                     OR (o.status='PREPARED' AND
-                        o.updated_at<clock_timestamp()-interval '90 seconds'))
+                        o.updated_at<clock_timestamp()-%s*interval '1 second'))
                 ORDER BY o.updated_at LIMIT 20""",
-                scope,
+                (
+                    *scope,
+                    settings["health.order_seconds"],
+                    settings["health.order_seconds"],
+                    settings["health.prepared_seconds"],
+                ),
             ).fetchall()
             if orders:
                 findings["ORDER_PROGRESS_STALLED"] = {
@@ -69,7 +89,7 @@ class TradingHealth:
                 HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0
                 AND sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE 0 END)>0
                 AND max(f.occurred_at_ms)<%s ORDER BY max(f.occurred_at_ms) LIMIT 20""",
-                (*scope, now - 180000),
+                (*scope, now - settings["health.settlement_seconds"] * 1000),
             ).fetchall()
             if settlements:
                 findings["SETTLEMENT_OVERDUE"] = {
@@ -106,7 +126,7 @@ class TradingHealth:
                             self.scope.environment,
                             source,
                             consumer,
-                            now - 30000,
+                            now - settings["health.queue_seconds"] * 1000,
                         ),
                     ).fetchone()
                     if row[0]:
@@ -144,7 +164,10 @@ class TradingHealth:
         timers = old.get("first_seen_ms", {})
         first = {code: min(now, timers.get(code, now)) for code in findings}
         # Direct age checks already debounce order/settlement/signal diagnostics.
-        delays = {"PIPELINE_ENTRY_BLOCKED": 120000, "POSITION_SAFETY_BLOCKED": 30000}
+        delays = {
+            "PIPELINE_ENTRY_BLOCKED": settings["health.pipeline_seconds"] * 1000,
+            "POSITION_SAFETY_BLOCKED": settings["health.safety_seconds"] * 1000,
+        }
         active = sorted(
             code for code in findings if now - first[code] >= delays.get(code, 0)
         )
@@ -155,11 +178,14 @@ class TradingHealth:
             reason="TRADING_BUSINESS_HEALTH",
             payload={
                 "observed_at_ms": now,
+                "policy_version": policy.version,
+                "policy_digest": policy.digest,
                 "account_scope": asdict(self.scope),
                 "active": active,
                 "first_seen_ms": first,
                 "findings": findings,
                 "expected_waits": expected_waits,
+                "capital": capital,
             },
         )
         if result.code != "APPLIED":

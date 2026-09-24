@@ -63,6 +63,7 @@ def replay_decision(signal, context, config):
         regime=snapshot["regime"],
         short_ratio=snapshot["short_ratio"],
         age_ms=now - signal["observed_at"],
+        policy=config.get("policy"),
     )
     features = {"market_plan": asdict(plan), "execution_authorized": False}
 
@@ -71,7 +72,9 @@ def replay_decision(signal, context, config):
 
     if plan.reason != "CANDIDATE":
         return result(plan.reason)
-    adjustment = analysis_adjustment(snapshot["history"], mode=config["analysis_mode"])
+    adjustment = analysis_adjustment(
+        snapshot["history"], mode=config["analysis_mode"], policy=config.get("policy")
+    )
     features["analysis"] = asdict(adjustment)
     if adjustment.factor == "0":
         return result(adjustment.reason)
@@ -82,6 +85,7 @@ def replay_decision(signal, context, config):
         price=snapshot["price"],
         atr_pct=decimal_features(snapshot["market"]["1h"]["atr_pct"]),
         analysis_factor=adjustment.factor,
+        policy=config.get("policy"),
     )
     features["sizing"] = asdict(sized)
     if sized.reason != "SIZED":
@@ -92,6 +96,7 @@ def replay_decision(signal, context, config):
         price=snapshot["price"],
         expected_move_pct=snapshot["expected_move_pct"],
         funding_rate=snapshot["funding_rate"],
+        policy=config.get("policy"),
     )
     features["execution_market_gate"] = gate
     return result("DIRECTIONAL_REPLAY_ONLY" if gate == "MARKET_GATES_PASSED" else gate)

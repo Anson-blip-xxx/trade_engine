@@ -5,9 +5,12 @@ after their own evidence-based checks, never merely because a scan did not crash
 This composition is not a substitute for implementing or deploying those stages.
 """
 
+import json
 from dataclasses import asdict
 from uuid import uuid4
 
+from v2_core.evidence import canonical
+from v2_core.runtime_policy import PolicyStore, resolve
 from v2_core.state import BusinessState, StateKey
 from v2_core.venue_readiness import GuardedOpeningSubmit
 
@@ -145,8 +148,38 @@ class TradingPipeline:
                 return result
 
             save()
+            settings = resolve()
+
+            def load_policy():
+                nonlocal settings
+                selected = PolicyStore(self.connect, self.scope).read()
+                settings = selected.values
+                if selected.version:
+                    for scheduler in self.schedulers:
+                        current = json.loads(scheduler.worker.config_json)
+                        scheduler.worker.max_delay_ms = settings[
+                            "entry.decision_lifetime_ms"
+                        ]
+                        scheduler.worker.config_json = canonical(
+                            {
+                                **current,
+                                "policy": settings,
+                                "policy_version": selected.version,
+                                "policy_digest": selected.digest,
+                            }
+                        )
+                return {
+                    "status": "CURRENT",
+                    "version": selected.version,
+                    "digest": selected.digest,
+                }
+
+            configuration = phase("configuration", load_policy)
             recovered = phase(
-                "recovery", lambda: self.runtime.tick(overdue_ms=60000, limit=limit)
+                "recovery",
+                lambda: self.runtime.tick(
+                    overdue_ms=settings["scheduler.recovery_overdue_ms"], limit=limit
+                ),
             )
             safety = []
             for name, stage in (
@@ -167,7 +200,7 @@ class TradingPipeline:
                 "signal_maintenance",
                 lambda: {
                     s.worker.scope.producer + ":" + s.worker.source: s.expire_pending(
-                        limit=1000
+                        limit=settings["scheduler.expiry_batch"]
                     )
                     for s in self.schedulers
                 },
@@ -194,6 +227,7 @@ class TradingPipeline:
                 all(safety)
                 and not failed(recovered)
                 and not failed(maintenance)
+                and not failed(configuration)
                 and market_ok
                 and regime_ok
             )
@@ -203,7 +237,11 @@ class TradingPipeline:
                     def schedule_and_measure(target=scheduler):
                         # The deployed S3 frame contains 19 symbols. Admission
                         # must not inherit the smaller order-recovery batch of 10.
-                        processed = target.run_once(limit=max(limit, 20))
+                        processed = target.run_once(
+                            limit=settings["scheduler.signal_batch"],
+                            interval_seconds=settings["scheduler.retry_seconds"],
+                            lease_seconds=settings["scheduler.lease_seconds"],
+                        )
                         return {**processed, "progress": target.progress()}
 
                     result = phase(

@@ -6,6 +6,7 @@ returned; it never submits, cancels, protects or closes an exchange order.
 
 import json
 from dataclasses import asdict
+from decimal import Decimal
 from uuid import uuid4
 
 from v2_core.account_risk import AccountPolicy, AccountScope
@@ -114,6 +115,11 @@ def _risk_budget(connect, scope, target):
             WHERE a.scope=%s GROUP BY a.version,p.config""",
             (scope.key,),
         ).fetchone()
+        held_symbol = conn.execute(
+            """SELECT 1 FROM v2_risk_reservations r JOIN v2_trade_intents i ON i.intent_id=r.episode_id
+            WHERE r.scope=%s AND r.status='HELD' AND i.payload->>'symbol'=%s LIMIT 1""",
+            (scope.key, target),
+        ).fetchone()
     if row is None:
         raise ValueError("ACCOUNT_RISK_POLICY_MISSING")
     version, config, held_notional, held_positions = row
@@ -124,18 +130,28 @@ def _risk_budget(connect, scope, target):
     except (TypeError, ValueError, KeyError):
         raise ValueError("ACCOUNT_RISK_POLICY_INVALID") from None
     currency = "USDC" if target.endswith("USDC") else "USDT"
+    if (policy.max_positions is None or policy.max_notional is None) and held_symbol:
+        raise ValueError("EXISTING_SYMBOL_POSITION")
     if policy.currency != currency:
         raise ValueError("ACCOUNT_RISK_CURRENCY_MISMATCH")
     held = amount(format(held_notional, "f"))
-    remaining = amount(policy.max_notional, positive=True) - held
-    if held_positions >= policy.max_positions or remaining <= 0:
+    remaining = (
+        None
+        if policy.max_notional is None
+        else amount(policy.max_notional, positive=True) - held
+    )
+    if (
+        policy.max_positions is not None and held_positions >= policy.max_positions
+    ) or (remaining is not None and remaining <= 0):
         raise ValueError("ACCOUNT_RISK_CAPACITY_UNAVAILABLE")
     evidence = {
         "policy_version": version,
         "policy": config,
         "held_notional": format(held.normalize(), "f"),
         "held_positions": held_positions,
-        "available_notional": format(remaining.normalize(), "f"),
+        "available_notional": None
+        if remaining is None
+        else format(remaining.normalize(), "f"),
     }
     evidence["digest"] = digest(canonical(evidence))
     return evidence
@@ -251,16 +267,29 @@ class BinanceDirectionalAccountContext:
         used = amount(account["totalInitialMargin"]) + amount(
             account["totalOpenOrderInitialMargin"]
         )
+        from v2_core.runtime_policy import PolicyStore
+
+        profile = PolicyStore(self.connect, self.scope).read()
+        capital_health = None
+        if profile.values["capital.enabled"]:
+            from v2_core.capital_model import current_health
+
+            used = amount(account["totalInitialMargin"])
+            capital_health = current_health(
+                self.connect, self.scope, account, profile.values
+            )
+            balance = capital_health["base"]
         if used < 0:
             raise ValueError("INVALID_USED_MARGIN")
         rules = _rules(exchange, config, target)
-        rules["max_notional"] = format(
-            min(
-                amount(rules["max_notional"], positive=True),
-                amount(risk_budget["available_notional"], positive=True),
-            ).normalize(),
-            "f",
-        )
+        if risk_budget["available_notional"] is not None:
+            rules["max_notional"] = format(
+                min(
+                    amount(rules["max_notional"], positive=True),
+                    amount(risk_budget["available_notional"], positive=True),
+                ).normalize(),
+                "f",
+            )
         if not isinstance(ratio, list) or not ratio or not isinstance(ratio[-1], dict):
             raise ValueError("SHORT_RATIO_MISSING")
         if ratio[-1].get("symbol") != target:
@@ -312,6 +341,7 @@ class BinanceDirectionalAccountContext:
             "started_at_ms": started,
             "finished_at_ms": finished,
             "balance": balance,
+            "capital_health": capital_health,
             "available_margin": available,
             "used_pool_margin": format(used.normalize(), "f"),
             "rules": rules,
@@ -352,7 +382,12 @@ class BinanceDirectionalAccountContext:
             raise ValueError("ACCOUNT_CONTEXT_PERSIST_FAILED")
         snapshot = self.drawdown.record(
             BalanceObservation(
-                identity, balance, finished, digest(canonical(normalized))
+                identity,
+                account["totalWalletBalance"]
+                if profile.values["capital.model_enabled"]
+                else balance,
+                finished,
+                digest(canonical(normalized)),
             )
         )
         drawdown = json.loads(snapshot.payload_json)
@@ -366,6 +401,17 @@ class BinanceDirectionalAccountContext:
         )
         if finished >= deadline:
             raise ValueError("ACCOUNT_CONTEXT_STALE")
+        if profile.values["capital.enabled"]:
+            from v2_core.managed_portfolio import publish_capital_snapshot
+
+            publish_capital_snapshot(
+                self.connect,
+                self.scope,
+                account=account,
+                started=started,
+                deadline=deadline,
+                observation_id=identity,
+            )
         return {
             "account_scope": asdict(self.scope),
             "symbol": target,
@@ -387,7 +433,14 @@ class BinanceDirectionalAccountContext:
                 "available_margin": available,
                 "used_pool_margin": format(used.normalize(), "f"),
                 **rules,
-                "drawdown_factor": drawdown["state"]["factor"],
+                "drawdown_factor": str(
+                    min(
+                        Decimal(drawdown["state"]["factor"]),
+                        Decimal(capital_health["factor"])
+                        if capital_health
+                        else Decimal(1),
+                    )
+                ),
             },
             "expected_move_pct": expected_move(signal),
             "funding_rate": funding,

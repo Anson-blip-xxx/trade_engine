@@ -255,7 +255,10 @@ class DirectionalExitStage:
             partial_done=partial_done,
             exit_fee_rate=observation["exit_fee_rate"],
         )
-        decision = evaluate_directional_exit(facts)
+        from v2_core.runtime_policy import PolicyStore
+
+        policy = PolicyStore(self.connect, self.scope).read()
+        decision = evaluate_directional_exit(facts, policy=policy.values)
         quantity_step = trace["decision"]["features"]["context"]["directional"][
             "sizing"
         ]["quantity_step"]
@@ -272,12 +275,21 @@ class DirectionalExitStage:
             "facts": encoded_facts,
             "observation": observation,
             "decision": decision.evidence(),
+            "policy_version": policy.version,
+            "policy_digest": policy.digest,
+            "policy": policy.values,
             "peak_return_pct": decision.peak_return_pct,
             "partial_done": partial_done,
             "execution_authorized": False,
         }
         identity = digest(
-            canonical({"observation": observation, "decision": decision.evidence()})
+            canonical(
+                {
+                    "observation": observation,
+                    "decision": decision.evidence(),
+                    "policy_digest": policy.digest,
+                }
+            )
         )
         key, state = self._save(episode, payload, "observe:" + identity)
         if decision.action in {"WAIT", "WAIT_NATIVE_STOP"}:

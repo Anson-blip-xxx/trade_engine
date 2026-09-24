@@ -28,6 +28,7 @@ class TestnetSymbolSettings:
         clock_ms,
         allow_writes=False,
         excluded_position_symbols=(),
+        portfolio=None,
     ):
         if (
             not callable(connect)
@@ -36,13 +37,17 @@ class TestnetSymbolSettings:
             or not isinstance(scope, AccountScope)
             or (scope.exchange, scope.environment, scope.product)
             != ("BINANCE", "SANDBOX", "FUTURES")
-            or (getattr(request, "account_id", None), getattr(request, "environment", None))
+            or (
+                getattr(request, "account_id", None),
+                getattr(request, "environment", None),
+            )
             != (scope.account_id, scope.environment)
             or type(allow_writes) is not bool
         ):
             raise ValueError("explicit Testnet symbol settings coordinator required")
         self.connect, self.request, self.scope = connect, request, scope
         self.clock, self.allow_writes = clock_ms, allow_writes
+        self.portfolio = portfolio
         self.inventory = AccountInventory(
             request,
             scope=scope,
@@ -108,15 +113,24 @@ class TestnetSymbolSettings:
         if not self.allow_writes:
             return {"status": "WRITE_DISABLED", "changed": [], "state_id": None}
 
+        managed = self.portfolio is not None and self.portfolio.enabled()
+        before = self.portfolio.facts() if managed else None
         inventory = self.inventory.collect(str(uuid4()))
         summary = inventory.get("summary", {})
-        if (
-            inventory.get("failures")
-            or inventory.get("blockers")
-            or summary.get("positions")
-            or summary.get("ordinary_orders")
-            or summary.get("conditional_orders")
-        ):
+        blocked = (
+            self.portfolio.blockers(
+                inventory, order["symbol"], current_order=order_id, before=before
+            )
+            if managed
+            else (
+                inventory.get("failures")
+                or inventory.get("blockers")
+                or summary.get("positions")
+                or summary.get("ordinary_orders")
+                or summary.get("conditional_orders")
+            )
+        )
+        if blocked:
             return {"status": "ACCOUNT_NOT_FLAT", "changed": [], "state_id": None}
         payload = {
             "status": "CONFIGURING",
@@ -142,9 +156,10 @@ class TestnetSymbolSettings:
                 raise ValueError("symbol settings registration conflict")
         else:
             previous = json.loads(saved.payload_json)
-            if previous.get("desired") != desired or previous.get("symbol") != order[
-                "symbol"
-            ]:
+            if (
+                previous.get("desired") != desired
+                or previous.get("symbol") != order["symbol"]
+            ):
                 raise ValueError("symbol settings identity conflict")
 
         changed = []
@@ -183,11 +198,19 @@ class TestnetSymbolSettings:
                 else current["leverage"] == desired["leverage"]
             )
             if not matches:
-                return {"status": "UNCONFIRMED", "changed": changed, "state_id": key.identity}
+                return {
+                    "status": "UNCONFIRMED",
+                    "changed": changed,
+                    "state_id": key.identity,
+                }
             changed.append(field)
         current = self._read(order["symbol"])
         if not self._matches(current, desired):
-            return {"status": "UNCONFIRMED", "changed": changed, "state_id": key.identity}
+            return {
+                "status": "UNCONFIRMED",
+                "changed": changed,
+                "state_id": key.identity,
+            }
         snapshot = self.store.read(key)
         result = self.store.change(
             key,

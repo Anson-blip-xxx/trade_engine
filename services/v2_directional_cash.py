@@ -6,13 +6,16 @@ cash is necessary, not sufficient: wallet/exposure reconciliation remains separa
 """
 
 import json
+from contextlib import nullcontext
 from dataclasses import asdict
 from decimal import Decimal, localcontext
 from uuid import UUID, uuid4
 
 from v2_core.binance_income import BinanceIncomeImporter
 from v2_core.evidence import canonical, digest
+from v2_core.income_ownership import income_owner
 from v2_core.ledger import amount
+from v2_core.runtime_policy import PolicyStore
 from v2_core.service import TradingData
 from v2_core.state import BusinessState, StateKey
 
@@ -360,14 +363,26 @@ class DirectionalCashAudit:
             ]
             if len(rows) != run["rows"]:
                 raise ValueError("INCOME_WINDOW_CHANGED")
-            # Same-account overlapping episodes cannot establish exclusive funding ownership.
+            managed = (
+                PolicyStore(lambda: nullcontext(conn), self.scope)
+                .read()
+                .values["capital.enabled"]
+            )
+            # Same-symbol overlapping exposure still cannot own funding uniquely.
             overlap = conn.execute(
                 """SELECT 1 FROM v2_trade_intents i JOIN v2_orders o ON o.episode_id=i.intent_id
                 JOIN v2_fills f USING(order_id) WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                AND i.intent_id<>%s GROUP BY i.intent_id
+                AND i.intent_id<>%s AND (NOT %s OR i.payload->>'symbol'=%s) GROUP BY i.intent_id
                 HAVING min(f.occurred_at_ms)<=%s AND (max(f.occurred_at_ms)>=%s OR
                 sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)<>0) LIMIT 1""",
-                (*asdict(self.scope).values(), episode, end, start),
+                (
+                    *asdict(self.scope).values(),
+                    episode,
+                    managed,
+                    trace["request"]["symbol"],
+                    end,
+                    start,
+                ),
             ).fetchone()
             if overlap:
                 raise ValueError("OVERLAPPING_ACCOUNT_EPISODE")
@@ -378,6 +393,10 @@ class DirectionalCashAudit:
                 row for row in rows if row["symbol"] != trace["request"]["symbol"]
             ]
             for row in external_rows:
+                if managed and row["symbol"] not in self.excluded_position_symbols:
+                    if income_owner(conn, self.scope, row) == episode:
+                        raise ValueError("INCONSISTENT_CASH_OWNER")
+                    continue
                 if (
                     row["symbol"] not in self.excluded_position_symbols
                     or row["income_type"] != "FUNDING_FEE"
@@ -399,8 +418,6 @@ class DirectionalCashAudit:
                 observed_at_ms=self.clock(),
                 source="directional-cash-audit-v1",
             )
-            from contextlib import nullcontext
-
             key = StateKey(
                 **asdict(self.scope), namespace="directional-cash-audit-v1", key=episode
             )

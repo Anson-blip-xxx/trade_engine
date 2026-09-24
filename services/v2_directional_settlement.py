@@ -12,7 +12,9 @@ from v2_core.account_inventory import persist_inventory
 from v2_core.directional_outcomes import DirectionalOutcomeJournal
 from v2_core.evidence import canonical, digest
 from v2_core.income import IncomeJournal
+from v2_core.income_ownership import income_owner
 from v2_core.ledger import Ledger, amount
+from v2_core.runtime_policy import PolicyStore
 from v2_core.state import BusinessState, StateKey
 
 
@@ -72,12 +74,21 @@ class DirectionalSettlementStage:
             raise ValueError("SINGLE_OPENING_BASELINE_REQUIRED")
         proof, version = self._state("opening-readiness-v1", rows[0][0])
         inventory = proof.get("inventory")
+        inventory_blockers = (
+            set(inventory.get("blockers", ())) if isinstance(inventory, dict) else set()
+        )
+        if proof.get("capital_budget", {}).get("account_scope") == asdict(self.scope):
+            inventory_blockers -= {
+                "EXISTING_POSITION_REQUIRES_RECOVERY",
+                "EXISTING_ORDINARY_ORDERS",
+                "EXISTING_CONDITIONAL_ORDERS",
+            }
         if (
             proof.get("status") != "READY_FOR_GUARDED_SUBMISSION"
             or proof.get("blockers")
             or not isinstance(inventory, dict)
             or inventory.get("account_scope") != asdict(self.scope)
-            or inventory.get("blockers")
+            or inventory_blockers
             or inventory.get("failures")
         ):
             raise ValueError("VALID_OPENING_BASELINE_REQUIRED")
@@ -141,6 +152,7 @@ class DirectionalSettlementStage:
         if len(rows) != run["rows"]:
             raise ValueError("FINAL_INCOME_WINDOW_CHANGED")
         target, external = [], []
+        managed = PolicyStore(self.connect, self.scope).read().values["capital.enabled"]
         for row in rows:
             if row["symbol"] == symbol:
                 if not fill_start - 999 <= row["occurred_at_ms"] <= fill_end + 999:
@@ -153,6 +165,14 @@ class DirectionalSettlementStage:
                 and row["evidence"] == {"source": "binance-income", "trade_id": ""}
                 and row["occurred_at_ms"] > baseline_ms
             ):
+                external.append(row)
+            elif (
+                managed
+                and row["symbol"] != symbol
+                and row["occurred_at_ms"] > baseline_ms
+            ):
+                with self.connect() as conn:
+                    income_owner(conn, self.scope, row)
                 external.append(row)
             else:
                 raise ValueError("UNATTRIBUTED_ACCOUNT_CASH")

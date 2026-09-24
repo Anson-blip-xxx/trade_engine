@@ -9,17 +9,10 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from fractions import Fraction
 
-from decision.core import (
-    classify_entry_mode,
-    contract_score,
-    long_signal_allows_open,
-    long_trend_takeover_ready,
-    price_is_overextended,
-    pump_down_uptrend_guard,
-    short_signal_allows_open,
-)
-from risk.core import bounded_stop_pct, leverage_for_score
+from decision.core import long_signal_allows_open, price_is_overextended
+from v2_core.directional_rules import DirectionalRules
 from v2_core.ledger import amount
+from v2_core.runtime_policy import resolve
 
 _LONG = frozenset(("PULSE_UP", "TREND_UP", "VIOLENT_BULLISH", "PUMP_UP"))
 _SHORT = frozenset(
@@ -60,13 +53,16 @@ class DirectionalPlan:
     stop_fraction: str | None = None
 
 
-def evaluate_market(strategy, event, market, *, price, regime, short_ratio, age_ms):
+def evaluate_market(
+    strategy, event, market, *, price, regime, short_ratio, age_ms, policy=None
+):
     """Evaluate validated decimal-string inputs using frozen legacy pure rules.
 
     Missing indicators are errors, not zero/neutral defaults. Optional flow and
     short ratio must be explicitly None if unavailable. Time is event age, not
     wall time; freshness must be enforced against the original source deadline.
     """
+    rules = DirectionalRules(policy)
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")
     if not isinstance(regime, str) or not regime or regime != regime.strip():
@@ -123,56 +119,66 @@ def evaluate_market(strategy, event, market, *, price, regime, short_ratio, age_
 
     if strategy == "S6" and not long_signal_allows_open(kind, {"regime": regime}):
         return reject("regime_conflict")
-    if strategy == "S8" and not short_signal_allows_open(kind, strength):
+    if (
+        strategy == "S8"
+        and kind in {"TREND_DOWN", "VIOLENT_BEARISH", "PULSE_DOWN"}
+        and strength < rules.f("entry.short_min_strength")
+    ):
         return reject("strength_below_minimum")
-    if kind == "PUMP_DOWN" and pump_down_uptrend_guard(
-        px, windows["4h"], windows["24h"]
+    if (
+        kind == "PUMP_DOWN"
+        and px > windows["4h"]["ema20"]
+        and windows["4h"]["chg"] > 0
+        and windows["24h"]["chg"] >= rules.f("entry.pump_down_guard_chg")
     ):
         return reject("pump_down_uptrend")
     ema, atr, atr_pct = (windows["1h"][key] for key in ("ema20", "atr", "atr_pct"))
-    mode = classify_entry_mode(px, ema, windows["15m"]["rsi"], flow, side)
+    mode = rules.entry_mode(px, ema, windows["15m"]["rsi"], flow, side)
     takeover = strategy == "S6" and (
         kind == "PUMP_UP"
         or (
             kind == "VIOLENT_BULLISH"
-            and windows["4h"]["chg"] > 3
-            and windows["24h"]["chg"] > 10
+            and windows["4h"]["chg"] > rules.f("entry.takeover_chg_4h")
+            and windows["24h"]["chg"] > rules.f("entry.takeover_chg_24h")
         )
         or event["breakout_confirmed"]
     )
     if takeover:
-        if not long_trend_takeover_ready(px, windows):
+        if not rules.takeover_ready(px, windows):
             return reject("takeover_not_ready")
         mode = "S6B_TREND_TAKEOVER"
     elif mode == "UNCONFIRMED":
         return reject("entry_mode_unconfirmed")
-    extension_limit = 1.25 if kind.startswith("VIOLENT_") else 2.0
+    extension_limit = rules.f(
+        "entry.extension_violent"
+        if kind.startswith("VIOLENT_")
+        else "entry.extension_default"
+    )
     if (
         not takeover
         and mode == "RIGHT_MOMENTUM"
         and price_is_overextended(px, ema, atr, side, extension_limit)
     ):
         return reject("overextended")
-    if atr_pct > (12 if takeover else 6):
+    if atr_pct > rules.f("entry.max_takeover_atr" if takeover else "entry.max_atr"):
         return reject("atr_exceeded")
     extension = (px - ema if strategy == "S6" else ema - px) / atr
-    score = contract_score(
-        strength, kind, atr_pct, extension, flow, age_ms / 1000, side, ratio
-    )
-    if score < 30:
+    score = rules.score(strength, atr_pct, extension, flow, age_ms / 1000, side, ratio)
+    if score < rules.values["entry.min_score"]:
         return reject("score_below_minimum")
-    base_stop = (
-        0.10
+    base_stop = rules.f(
+        "stop.takeover"
         if takeover
-        else (
-            0.035
-            if kind == "PANIC_SELL"
-            else 0.04
-            if kind.startswith("PULSE_")
-            else 0.08
-        )
+        else "stop.panic"
+        if kind == "PANIC_SELL"
+        else "stop.pulse"
+        if kind.startswith("PULSE_")
+        else "stop.default"
     )
-    stop = bounded_stop_pct(base_stop, atr_pct, 0.12 if takeover else 0.08)
+    stop = min(
+        max(base_stop, atr_pct * rules.f("stop.atr_multiplier") / 100),
+        rules.f("stop.max_takeover" if takeover else "stop.max_default"),
+    )
     return DirectionalPlan(
         "CANDIDATE",
         strategy,
@@ -181,9 +187,18 @@ def evaluate_market(strategy, event, market, *, price, regime, short_ratio, age_
         score,
         mode,
         "S6B" if takeover else "S6A" if strategy == "S6" else "S8",
-        2 if takeover else leverage_for_score(kind, score, atr_pct),
+        min(
+            rules.values["leverage.takeover"],
+            rules.values["leverage.volatile"]
+            if atr_pct >= rules.f("leverage.atr_threshold")
+            else rules.values["leverage.takeover"],
+        )
+        if takeover
+        else rules.leverage(kind, score, atr_pct),
         "ISOLATED"
-        if kind.startswith(("PULSE_", "PUMP_")) or kind == "PANIC_SELL"
+        if rules.values["entry.force_isolated"]
+        or kind.startswith(("PULSE_", "PUMP_"))
+        or kind == "PANIC_SELL"
         else "CROSSED",
         str(stop),
     )
@@ -214,6 +229,7 @@ def size_candidate(
     max_notional,
     drawdown_factor,
     analysis_factor,
+    policy=None,
 ):
     """Decimal sizing: never increase size to satisfy venue minimums.
 
@@ -221,9 +237,13 @@ def size_candidate(
     minimum-margin uplift. Explicit factors may only reduce. Estimated stop
     loss excludes fees/slippage/gaps and is NOT a guaranteed maximum loss.
     """
+    settings = resolve(policy)
     if not isinstance(plan, DirectionalPlan) or plan.reason != "CANDIDATE":
         raise ValueError("market candidate required")
-    if type(plan.score) is not int or not 30 <= plan.score <= 100:
+    if (
+        type(plan.score) is not int
+        or not settings["entry.min_score"] <= plan.score <= 100
+    ):
         raise ValueError("invalid candidate score")
     if type(plan.leverage) is not int or not 1 <= plan.leverage <= 5:
         raise ValueError("invalid candidate leverage")
@@ -265,17 +285,31 @@ def size_candidate(
         ) * tick
         if stop_px <= 0 or (stop_px >= px if plan.side == "LONG" else stop_px <= px):
             return SizeResult("INVALID_STOP_TICK")
-        remaining = max(Decimal(0), bal * Decimal(".8") - used)
-        fraction = max(Decimal(".03"), Decimal(plan.score) / 100 * Decimal(".15"))
+        remaining = max(
+            Decimal(0), bal * Decimal(settings["sizing.pool_fraction"]) - used
+        )
+        fraction = max(
+            Decimal(settings["sizing.min_allocation"]),
+            Decimal(plan.score) / 100 * Decimal(settings["sizing.max_allocation"]),
+        )
         # Keep division rational until venue-step flooring, including repeating
         # decimal boundaries such as margin / 3 followed by leverage * 3.
         margin = Fraction(remaining * fraction)
-        if atr > 4:
-            margin *= max(Fraction(1, 5), 4 / Fraction(atr))
+        if atr > Decimal(settings["sizing.atr_threshold"]):
+            margin *= max(
+                Fraction(settings["sizing.volatility_floor"]),
+                Fraction(settings["sizing.atr_threshold"]) / Fraction(atr),
+            )
         margin = min(
             margin,
             Fraction(available),
-            Fraction(bal) / (100 * plan.leverage * Fraction(stop)),
+            Fraction(bal) * Fraction(settings["sizing.max_margin_fraction"]),
+            Fraction(bal)
+            * Fraction(settings["sizing.risk_fraction"])
+            / (
+                plan.leverage
+                * (Fraction(stop) + Fraction(settings["sizing.cost_buffer_fraction"]))
+            ),
         )
         margin *= Fraction(dd) * Fraction(analysis)
         raw = min(
@@ -306,12 +340,13 @@ class AnalysisAdjustment:
     factor: str
 
 
-def analysis_adjustment(stats, *, mode):
+def analysis_adjustment(stats, *, mode, policy=None):
     """Legacy rolling-history filter, without fail-open DB/cache fallbacks.
 
     An explicitly empty, successfully loaded history is distinct from missing
     statistics. Scope, 14-day range and freshness are the provider's obligation.
     """
+    settings = resolve(policy)
     if mode not in {"hard", "soft"}:
         raise ValueError("explicit hard/soft analysis mode required")
     trades = stats["trades"]
@@ -323,27 +358,31 @@ def analysis_adjustment(stats, *, mode):
     average = number(stats["avg_pct"])
     reason = (
         "INSUFFICIENT_HISTORY"
-        if trades < 6
+        if trades < settings["analysis.min_samples"]
         else "LOW_QUALITY"
-        if win_rate < 35 and quality < 40
+        if win_rate < Decimal(settings["analysis.min_win_rate"])
+        and quality < Decimal(settings["analysis.min_quality"])
         else "BAD_FOLLOW"
-        if follow < Decimal("-.8") and average <= 0
+        if follow < Decimal(settings["analysis.min_follow_pct"]) and average <= 0
         else "ACCEPTABLE_HISTORY"
     )
     return AnalysisAdjustment(
         reason,
-        ("0.5" if mode == "soft" else "0")
+        (settings["analysis.soft_factor"] if mode == "soft" else "0")
         if reason in {"LOW_QUALITY", "BAD_FOLLOW"}
         else "1",
     )
 
 
-def execution_market_gate(plan, sized, *, price, expected_move_pct, funding_rate):
+def execution_market_gate(
+    plan, sized, *, price, expected_move_pct, funding_rate, policy=None
+):
     """Remaining pure executor market gates; not account/protection approval.
 
     Zero expected move retains the legacy 'no estimate' behavior; missing or
     malformed data cannot silently turn into zero. Funding is signed fraction.
     """
+    settings = resolve(policy)
     if not isinstance(plan, DirectionalPlan) or plan.reason != "CANDIDATE":
         raise ValueError("candidate required")
     if not isinstance(sized, SizeResult) or sized.reason != "SIZED":
@@ -358,10 +397,15 @@ def execution_market_gate(plan, sized, *, price, expected_move_pct, funding_rate
     with localcontext() as ctx:
         ctx.prec = 100
         # Cross multiplication avoids division/rounding at the R:R=1 boundary.
-        if move > 0 and move * px < abs(px - stop) * 100:
+        if move > 0 and move * px < abs(px - stop) * 100 * Decimal(
+            settings["entry.min_reward_risk"]
+        ):
             return "REWARD_RISK_TOO_LOW"
-    if (plan.side == "LONG" and funding > Decimal(".001")) or (
-        plan.side == "SHORT" and funding < Decimal("-.001")
+    if (
+        plan.side == "LONG" and funding > Decimal(settings["entry.max_adverse_funding"])
+    ) or (
+        plan.side == "SHORT"
+        and funding < -Decimal(settings["entry.max_adverse_funding"])
     ):
         return "ADVERSE_FUNDING"
     return "MARKET_GATES_PASSED"

@@ -49,24 +49,28 @@ class AccountScope:
 @dataclass(frozen=True)
 class AccountPolicy:
     currency: str
-    max_notional: str
-    max_positions: int
+    max_notional: str | None
+    max_positions: int | None
     cooldown_ms: int
     reference_source: str
     max_reference_age_ms: int
 
     def __post_init__(self):
-        amount(self.max_notional, positive=True)
+        if self.max_notional is not None:
+            amount(self.max_notional, positive=True)
         identity(self.reference_source)
         if self.currency not in {"USDT", "USDC"}:
             raise ValueError("explicit quote currency required")
         for value, lower, upper in (
-            (self.max_positions, 1, 10000),
             (self.cooldown_ms, 0, 86400000),
             (self.max_reference_age_ms, 1, 3600000),
         ):
             if type(value) is not int or not lower <= value <= upper:
                 raise ValueError("bounded risk policy required")
+        if self.max_positions is not None and (
+            type(self.max_positions) is not int or not 1 <= self.max_positions <= 10000
+        ):
+            raise ValueError("bounded optional position cap required")
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,16 @@ class AccountRisk:
         if type(expected_version) is not int or expected_version < 0:
             raise ValueError("policy version required")
         config = asdict(policy)
+        if policy.max_notional is None or policy.max_positions is None:
+            from v2_core.runtime_policy import PolicyStore
+
+            if (
+                scope.environment != "SANDBOX"
+                or not PolicyStore(self._connect, scope)
+                .read()
+                .values["capital.enabled"]
+            ):
+                raise ValueError("UNCAPPED_POLICY_REQUIRES_TESTNET_CAPITAL_GUARD")
         with self._connect() as conn:
             _lock(conn, scope.key)
             current = conn.execute(
@@ -287,6 +301,51 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         (row[0],),
     ).fetchone()
     used, positions = _usage(conn, scope)
+    capital = None
+    from contextlib import nullcontext
+
+    from v2_core.runtime_policy import PolicyStore
+
+    capital_enabled = (
+        PolicyStore(lambda: nullcontext(conn), AccountScope(*row[1:5]))
+        .read()
+        .values["capital.enabled"]
+    )
+    if (
+        capital_enabled
+        and conn.execute(
+            """SELECT 1 FROM v2_risk_reservations r JOIN v2_trade_intents i ON i.intent_id=r.episode_id
+        WHERE r.scope=%s AND r.status='HELD' AND r.episode_id<>%s
+        AND i.payload->>'symbol'=%s LIMIT 1""",
+            (scope, row[0], row[5]["symbol"]),
+        ).fetchone()
+    ):
+        raise deny("RISK_SYMBOL_RESERVATION_HELD")
+    if (
+        capital_enabled
+        or policy["max_notional"] is None
+        or policy["max_positions"] is None
+    ):
+        from v2_core.managed_portfolio import reserve_capital
+
+        try:
+            with localcontext() as context:
+                context.prec = 100
+                capital = reserve_capital(
+                    conn,
+                    AccountScope(*row[1:5]),
+                    episode=row[0],
+                    notional=amount(row[5]["quantity"], positive=True)
+                    * amount(reference.price, positive=True),
+                    leverage=snapshot["features"]["evaluation"]["market_plan"][
+                        "leverage"
+                    ],
+                    now=now,
+                )
+        except (ValueError, KeyError, TypeError) as exc:
+            from v2_core.scheduling import diagnostic_code
+
+            raise deny(diagnostic_code(exc)) from None
     if existing:
         if existing[0] != "HELD":
             raise deny("RISK_RESERVATION_RELEASED")
@@ -295,8 +354,10 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         ):
             raise deny("RISK_REFERENCE_EXCEEDS_RESERVATION")
         if (
-            used > amount(policy["max_notional"], positive=True)
-            or positions > policy["max_positions"]
+            policy["max_notional"] is not None
+            and used > amount(policy["max_notional"], positive=True)
+        ) or (
+            policy["max_positions"] is not None and positions > policy["max_positions"]
         ):
             raise deny("RISK_ACCOUNT_OVER_LIMIT")
         return {
@@ -314,16 +375,23 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
             amount(row[5]["quantity"], positive=True)
             * amount(reference.price, positive=True)
         ).quantize(Decimal("1e-18"), rounding=ROUND_CEILING)
-        if notional >= Decimal("1e20") or used + notional > amount(
-            policy["max_notional"], positive=True
+        if notional >= Decimal("1e20") or (
+            policy["max_notional"] is not None
+            and used + notional > amount(policy["max_notional"], positive=True)
         ):
             raise deny("RISK_NOTIONAL_LIMIT")
-    if positions >= policy["max_positions"]:
+    if policy["max_positions"] is not None and positions >= policy["max_positions"]:
         raise deny("RISK_POSITION_LIMIT")
     conn.execute(
         """INSERT INTO v2_risk_reservations(episode_id,scope,policy_version,notional,reference)
         VALUES (%s,%s,%s,%s,%s)""",
-        (row[0], scope, version, notional, Jsonb(asdict(reference))),
+        (
+            row[0],
+            scope,
+            version,
+            notional,
+            Jsonb({**asdict(reference), **({"capital": capital} if capital else {})}),
+        ),
     )
     conn.execute(
         "UPDATE v2_risk_accounts SET last_reserved_at=clock_timestamp() WHERE scope=%s",

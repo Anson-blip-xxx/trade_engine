@@ -146,10 +146,11 @@ def _trade_text(scope, kind, _event_id, payload):
 
 BUSINESS_HEALTH_MESSAGES = {
     "ORDER_PROGRESS_STALLED": "订单未及时推进：提交/未知状态或市价单回执超过 60 秒，或待提交超过 90 秒。请核对交易所回执和本地订单，不要盲目重复下单。",
-    "SETTLEMENT_OVERDUE": "已平仓但超过 3 分钟仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",
-    "SIGNAL_CONSUMPTION_LAG": "存在超过 30 秒仍未消费的信号。请检查安全阻塞、消费队列与处理速度；过期信号不会追单。",
+    "SETTLEMENT_OVERDUE": "已平仓但超过配置时限仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",
+    "SIGNAL_CONSUMPTION_LAG": "存在超过配置时限仍未消费的信号。请检查安全阻塞、消费队列与处理速度；过期信号不会追单。",
     "PIPELINE_ENTRY_BLOCKED": "开仓链路持续阻塞超过 2 分钟。请检查 PostgreSQL 交易健康记录中的阻塞阶段，不要直接放宽风控。",
-    "POSITION_SAFETY_BLOCKED": "保护单或退出环节持续阻塞超过 30 秒。请优先核实持仓、止损保护和退出回执。",
+    "POSITION_SAFETY_BLOCKED": "保护单或退出环节持续阻塞超过配置时限。请优先核实持仓、止损保护和退出回执。",
+    "CAPITAL_DRAWDOWN_HALT": "资金模型回撤触及停开阈值，已禁止新开仓。原有仓位的止损保护、退出和结算继续运行；不会通过加杠杆补亏损。",
     "BUSINESS_HEALTH_UNAVAILABLE": "业务健康检查失败，当前无法确认订单与链路健康。进程存活不代表交易正常。",
 }
 

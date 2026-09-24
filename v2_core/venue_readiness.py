@@ -18,7 +18,9 @@ from v2_core.state import BusinessState, StateKey
 class TestnetVenueReadiness:
     __test__ = False
 
-    def __init__(self, request, *, scope, clock_ms, excluded_position_symbols=()):
+    def __init__(
+        self, request, *, scope, clock_ms, excluded_position_symbols=(), portfolio=None
+    ):
         if (scope.exchange, scope.environment, scope.product) != (
             "BINANCE",
             "SANDBOX",
@@ -26,6 +28,7 @@ class TestnetVenueReadiness:
         ):
             raise ValueError("testnet futures readiness only")
         self.request, self.scope, self.clock = request, scope, clock_ms
+        self.portfolio = portfolio
         self.inventory = AccountInventory(
             request,
             scope=scope,
@@ -34,7 +37,9 @@ class TestnetVenueReadiness:
             excluded_position_symbols=excluded_position_symbols,
         )
 
-    def inspect(self, *, symbol, quantity, leverage, margin_type, reference):
+    def inspect(
+        self, *, symbol, quantity, leverage, margin_type, reference, order_id=None
+    ):
         if (
             type(leverage) is not int
             or not 1 <= leverage <= 5
@@ -57,8 +62,16 @@ class TestnetVenueReadiness:
         ):
             raise ValueError("fresh testnet mark reference required")
         mark = amount(ref["mark_price"], positive=True)
+        managed = self.portfolio is not None and self.portfolio.enabled()
+        before = self.portfolio.facts() if managed else None
         inventory = self.inventory.collect(str(uuid4()))
-        blockers = set(inventory["blockers"])
+        blockers = set(
+            self.portfolio.blockers(
+                inventory, symbol, current_order=order_id, before=before
+            )
+            if managed
+            else inventory["blockers"]
+        )
         responses = {}
         try:
             responses["account_config"] = self.request(
@@ -97,7 +110,12 @@ class TestnetVenueReadiness:
                 ctx.prec = 100
                 notional = qty * mark
                 # Conservative reference buffer, NOT a guarantee against gaps or fees.
-                required = notional / Decimal(leverage) * Decimal("1.10")
+                margin_buffer = (
+                    self.portfolio.policy.read().values["capital.margin_buffer"]
+                    if managed
+                    else "1.10"
+                )
+                required = notional / Decimal(leverage) * Decimal(margin_buffer)
                 balance = inventory["summary"]["balance"]
                 available = amount(balance["availableBalance"])
                 assets = inventory["responses"]["account"]["assets"]
@@ -225,6 +243,11 @@ class GuardedOpeningSubmit:
                     leverage=terms["leverage"],
                     margin_type=terms["margin_type"],
                     reference=self.reference(order["symbol"]),
+                    **(
+                        {"order_id": order["order_id"]}
+                        if getattr(self.readiness, "portfolio", None)
+                        else {}
+                    ),
                 )
                 if settings is not None:
                     proof["symbol_settings"] = settings
@@ -261,7 +284,9 @@ class GuardedOpeningSubmit:
                         GROUP BY i.intent_id HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)<>0 LIMIT 1""",
                         tuple(asdict(scope).values()),
                     ).fetchone()
-                    if exposure:
+                    portfolio = getattr(self.readiness, "portfolio", None)
+                    managed = portfolio is not None and portfolio.enabled()
+                    if exposure and not managed:
                         proof["blockers"].append("LOCAL_EXPOSURE_REQUIRES_RECOVERY")
                         proof["status"] = "BLOCKED"
                     siblings = conn.execute(
@@ -273,6 +298,16 @@ class GuardedOpeningSubmit:
                     if siblings:
                         proof["blockers"].append("UNRESOLVED_LOCAL_ORDER")
                         proof["status"] = "BLOCKED"
+                    if managed:
+                        try:
+                            proof["capital_budget"] = portfolio.budget(
+                                conn, order_id=order["order_id"], proof=proof
+                            )
+                        except ValueError as exc:
+                            from v2_core.scheduling import diagnostic_code
+
+                            proof["blockers"].append(diagnostic_code(exc))
+                            proof["status"] = "BLOCKED"
                     from contextlib import nullcontext
 
                     written = BusinessState(lambda: nullcontext(conn)).change(

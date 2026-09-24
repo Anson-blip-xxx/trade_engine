@@ -191,31 +191,40 @@ class AccountCoverageAudit:
         ) as conn:
             if connection is None:
                 conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            episodes = conn.execute(
+
+            def read_pages(sql, params):
+                # A historical trade count is not an exposure limit. Read all
+                # rows in the same snapshot, using a bounded server-side fetch.
+                result = []
+                with conn.cursor(name="coverage_" + uuid4().hex) as cursor:
+                    cursor.execute(sql, params)
+                    while batch := cursor.fetchmany(1000):
+                        result.extend(batch)
+                return result
+
+            episodes = read_pages(
                 """SELECT i.intent_id::text,i.payload->>'symbol',i.payload->>'side',
                 COALESCE(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)::text,i.data_revision
                 FROM v2_trade_intents i LEFT JOIN v2_orders o ON o.episode_id=i.intent_id
                 LEFT JOIN v2_fills f USING(order_id)
                 WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                GROUP BY i.intent_id ORDER BY i.intent_id LIMIT 1001""",
+                GROUP BY i.intent_id ORDER BY i.intent_id""",
                 tuple(asdict(self.scope).values()),
-            ).fetchall()
-            orders = conn.execute(
+            )
+            orders = read_pages(
                 """SELECT o.order_id::text,i.payload->>'symbol',o.exchange_order_id,o.status,o.version,
                 o.leg,EXISTS(SELECT 1 FROM v2_fills f WHERE f.order_id=o.order_id)
                 FROM v2_orders o JOIN v2_trade_intents i ON o.episode_id=i.intent_id
                 WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                ORDER BY o.order_id LIMIT 1001""",
+                ORDER BY o.order_id""",
                 tuple(asdict(self.scope).values()),
-            ).fetchall()
-            protections = conn.execute(
+            )
+            protections = read_pages(
                 """SELECT state_id::text,payload,version FROM v2_business_state
                 WHERE NOT deleted AND scope->>'namespace'='testnet-protection-v1' AND scope @> %s::jsonb
-                ORDER BY state_id LIMIT 1001""",
+                ORDER BY state_id""",
                 (canonical(asdict(self.scope)),),
-            ).fetchall()
-        if any(len(rows) > 1000 for rows in (episodes, orders, protections)):
-            raise ValueError("COVERAGE_SCAN_CAPACITY_EXCEEDED")
+            )
         return {
             "episodes": [
                 dict(

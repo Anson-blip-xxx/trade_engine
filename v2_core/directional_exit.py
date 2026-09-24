@@ -10,6 +10,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 
 from v2_core.directional import number
 from v2_core.ledger import amount
+from v2_core.runtime_policy import resolve
 
 _PARAMETERS = {
     "S6A": {
@@ -86,7 +87,8 @@ def _exact(value):
     return encoded
 
 
-def evaluate_directional_exit(facts):
+def evaluate_directional_exit(facts, *, policy=None):
+    settings = resolve(policy)
     if not isinstance(facts, ExitFacts) or facts.system_tag not in _PARAMETERS:
         raise ValueError("supported directional exit facts required")
     if facts.side not in {"BUY", "SELL"} or type(facts.partial_done) is not bool:
@@ -132,11 +134,14 @@ def evaluate_directional_exit(facts):
             else closes[-1] >= closes[-2] and closes[-1] > average
         )
         reversed_1h = (
-            ema9 < ema20 * Decimal(".98")
+            ema9 < ema20 * (1 - Decimal(settings["exit.ema_reversal_fraction"]))
             if facts.side == "BUY"
-            else ema9 > ema20 * Decimal("1.02")
+            else ema9 > ema20 * (1 + Decimal(settings["exit.ema_reversal_fraction"]))
         )
-        params = _PARAMETERS[facts.system_tag]
+        params = {
+            name: settings[f"exit.{facts.system_tag}.{name}"]
+            for name in _PARAMETERS[facts.system_tag]
+        }
 
         def result(action, reason, fraction="0"):
             return ExitDecision(
@@ -151,8 +156,11 @@ def evaluate_directional_exit(facts):
             )
 
         # Extreme adverse funding is evaluated first, matching the legacy PM.
-        if (facts.side == "BUY" and funding > Decimal(".005")) or (
-            facts.side == "SELL" and funding < Decimal("-.005")
+        if (
+            facts.side == "BUY" and funding > Decimal(settings["exit.adverse_funding"])
+        ) or (
+            facts.side == "SELL"
+            and funding < -Decimal(settings["exit.adverse_funding"])
         ):
             return result("CLOSE", "ADVERSE_FUNDING")
         # Native stop owns this price boundary; do not race it with a market POST.
@@ -160,13 +168,21 @@ def evaluate_directional_exit(facts):
             facts.side == "SELL" and mark >= stop
         ):
             return result("WAIT_NATIVE_STOP", "NATIVE_STOP_BOUNDARY")
-        if return_pct < Decimal(-5):
+        if return_pct < -Decimal(settings["exit.emergency_loss_pct"]):
             return result("CLOSE", "EMERGENCY_LOSS")
-        if facts.held_ms >= 5 * 60000 and return_pct <= Decimal(-2) and momentum_weak:
+        if (
+            facts.held_ms >= settings["exit.early_loss_minutes"] * 60000
+            and return_pct <= -Decimal(settings["exit.early_loss_pct"])
+            and momentum_weak
+        ):
             return result("CLOSE", "EARLY_LOSS_MOMENTUM_WEAK")
         # Normalize stagnation to the episode's planned loss and estimated exit
         # fee.  This replaces the legacy asymmetric absolute 1-USDT threshold.
-        if facts.held_ms >= 90 * 60000 and gross > 0 and risk_multiple < Decimal(".25"):
+        if (
+            facts.held_ms >= settings["exit.stagnation_minutes"] * 60000
+            and gross > 0
+            and risk_multiple < Decimal(settings["exit.stagnation_r"])
+        ):
             return result("CLOSE", "LOW_YIELD_STAGNATION")
         if not facts.partial_done and return_pct >= Decimal(params["partial_pct"]):
             return result("PARTIAL", "PARTIAL_TAKE_PROFIT", params["partial_ratio"])
@@ -175,9 +191,9 @@ def evaluate_directional_exit(facts):
         ):
             return result("CLOSE", "PEAK_DRAWDOWN")
         if (
-            facts.held_ms >= 60 * 60000
+            facts.held_ms >= settings["exit.reversal_minutes"] * 60000
             and return_pct >= 0
-            and return_pct < 40
+            and return_pct < Decimal(settings["exit.reversal_max_return_pct"])
             and reversed_1h
         ):
             return result("CLOSE", "ONE_HOUR_REVERSAL")

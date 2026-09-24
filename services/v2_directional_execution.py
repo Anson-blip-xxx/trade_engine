@@ -29,6 +29,15 @@ def bind_directional_venue_gate(
     if isinstance(runtime.execution.submit, GuardedOpeningSubmit):
         raise ValueError("venue gate already bound")  # noqa: TRY004 - composition state
     scope = runtime.scope
+    from v2_core.managed_portfolio import ManagedPortfolio
+
+    portfolio = ManagedPortfolio(
+        runtime.data._connect,
+        request,
+        scope=scope,
+        clock_ms=runtime.clock_ms,
+        exclusions=excluded_position_symbols,
+    )
 
     def plan(order):
         with runtime.data._connect() as conn:
@@ -56,6 +65,7 @@ def bind_directional_venue_gate(
             scope=scope,
             clock_ms=runtime.clock_ms,
             excluded_position_symbols=excluded_position_symbols,
+            portfolio=portfolio,
         ),
         reference=mark_reference,
         plan=plan,
@@ -67,6 +77,7 @@ def bind_directional_venue_gate(
             clock_ms=runtime.clock_ms,
             allow_writes=enabled,
             excluded_position_symbols=excluded_position_symbols,
+            portfolio=portfolio,
         ).ensure,
         enabled=enabled,
         reduce_only_enabled=reduce_only_enabled,
