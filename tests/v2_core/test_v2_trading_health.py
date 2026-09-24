@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import asdict
 
 import pytest
@@ -39,7 +40,10 @@ def test_expected_risk_wait_is_visible_not_a_fault_and_expires(database, code):
             (worker.scope.consumer.replace('"s6"', '"s8"'), signal_id),
         )
     health = TradingHealth(
-        database, account_id="test-account", tv_enabled=True, clock_ms=lambda: now[0]
+        database,
+        account_id="test-account",
+        tv_enabled=True,
+        clock_ms=lambda: time.time_ns() // 1000000 + 31000,
     )
     assert health() == frozenset()
     state = json.loads(health.store.read(health.key).payload_json)
@@ -71,7 +75,10 @@ def test_missing_risk_evidence_or_wrong_exception_remains_a_failure(database, ex
     )
     assert scheduler.run_once(1) == {signal_id: "UNAVAILABLE"}
     health = TradingHealth(
-        database, account_id="test-account", tv_enabled=True, clock_ms=lambda: 40000
+        database,
+        account_id="test-account",
+        tv_enabled=True,
+        clock_ms=lambda: time.time_ns() // 1000000 + 31000,
     )
     assert "SIGNAL_CONSUMPTION_LAG" in health()
 
@@ -132,7 +139,10 @@ def test_health_signal_lag_receipt_clears_both_consumers(database):
 
     signal_id = scheduler_signal(database, "old")
     health = TradingHealth(
-        database, account_id="test-account", tv_enabled=True, clock_ms=lambda: 100000
+        database,
+        account_id="test-account",
+        tv_enabled=True,
+        clock_ms=lambda: time.time_ns() // 1000000 + 31000,
     )
     assert health() == frozenset({"SIGNAL_CONSUMPTION_LAG"})
     for producer in ("s6", "s8"):
@@ -146,6 +156,13 @@ def test_health_signal_lag_receipt_clears_both_consumers(database):
         assert conn.execute(
             "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (signal_id,)
         ).fetchone() == (2,)
+
+
+def test_old_event_just_received_is_not_a_queue_delay(database):
+    scheduler_signal(database, "old-candle-just-arrived")
+    health = TradingHealth(database, account_id="test-account", tv_enabled=True)
+    assert health() == frozenset()
+    assert json.loads(health.store.read(health.key).payload_json)["findings"] == {}
 
 
 def test_health_order_age_and_account_isolation(database):

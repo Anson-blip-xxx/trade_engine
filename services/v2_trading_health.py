@@ -89,7 +89,7 @@ class TradingHealth:
                     consumer = StrategyScope(*scope, producer).consumer
                     row = conn.execute(
                         """SELECT count(*) FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
-                        min((s.snapshot->>'observed_at')::bigint)
+                        min(floor(extract(epoch FROM s.received_at)*1000)::bigint)
                             FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
                         count(*) FILTER(WHERE t.error_code=ANY(%s))
                         FROM v2_inbound_signals s
@@ -97,7 +97,7 @@ class TradingHealth:
                         WHERE s.environment=%s AND s.source=%s
                         AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
                             WHERE r.consumer=%s AND r.signal_id=s.signal_id)
-                        AND (s.snapshot->>'observed_at')::bigint<=%s""",
+                        AND s.received_at<=to_timestamp(%s/1000.0)""",
                         (
                             sorted(EXPECTED_ADMISSION_WAITS),
                             sorted(EXPECTED_ADMISSION_WAITS),
@@ -112,7 +112,7 @@ class TradingHealth:
                     if row[0]:
                         findings.setdefault("SIGNAL_CONSUMPTION_LAG", {})[
                             producer + ":" + source
-                        ] = {"count": row[0], "oldest_at_ms": row[1]}
+                        ] = {"count": row[0], "oldest_received_at_ms": row[1]}
                     if row[2]:
                         expected_waits[producer + ":" + source] = {
                             "count": row[2],

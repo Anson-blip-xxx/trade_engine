@@ -27,7 +27,7 @@ The systemd watchdog evaluates the following per Binance Testnet account:
 | --- | --- |
 | ORDER_PROGRESS_STALLED | SUBMITTING/UNKNOWN or market ACKNOWLEDGED unchanged >60s; PREPARED >90s |
 | SETTLEMENT_OVERDUE | Actual opening fills, zero ledger exposure, ACTIVE episode, last fill >180s |
-| SIGNAL_CONSUMPTION_LAG | S3 / enabled TradingView input has no consumer receipt after 30s |
+| SIGNAL_CONSUMPTION_LAG | S3 / enabled TradingView input has no consumer receipt >30s after PG receipt; candle/event timestamp is not queue time |
 | PIPELINE_ENTRY_BLOCKED | Latest completed cycle remains ENTRY_BLOCKED for >120s |
 | POSITION_SAFETY_BLOCKED | Protection/exit phase stays BLOCKED for >30s |
 | BUSINESS_HEALTH_UNAVAILABLE | Inspection failed; never interpret as healthy |
