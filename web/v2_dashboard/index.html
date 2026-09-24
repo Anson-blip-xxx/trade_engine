@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ATLAS / V2 · 交易驾驶舱</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">A<span>✦</span></span><div><strong>ATLAS</strong><small>TRADE ENGINE / V2</small></div></div>
+      <div class="rail-label">WORKSPACE</div>
+      <nav class="nav"><a class="active" href="#overview"><span>▦</span> 总览</a><a href="#positions"><span>◈</span> 仓位</a><a href="#trades"><span>⇄</span> 交易记录</a><a href="#signals"><span>⌁</span> 信号流</a></nav>
+      <div class="rail-bottom"><div class="live-tag"><i></i> TESTNET 运行中</div><p>只读控制台<br>数据来自 V2 PostgreSQL</p><span>北京时间 · UTC+8</span></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div class="crumb">WORKSPACE <span>/</span> TRADING OVERVIEW</div><div class="top-actions"><div class="clock" id="clock">--:--:-- CST</div><button id="refresh" title="刷新数据">↻ <span>刷新</span></button></div></header>
+      <section class="hero" id="overview">
+        <div><div class="eyebrow"><span class="signal-dot"></span> LIVE MONITORING <span class="eyebrow-line"></span> BINANCE TESTNET</div><h1>交易驾驶舱<span class="hero-star">✦</span></h1><p>从信号触发到成交、结算，每一步都有迹可循。</p></div>
+        <div class="hero-meta"><span>当前环境</span><strong>V2 / SANDBOX</strong><small id="asof">等待数据同步</small></div>
+      </section>
+      <div id="error" class="error" hidden>数据暂不可用，正在等待服务恢复。<button id="retry">重试</button></div>
+      <section class="metrics">
+        <article class="metric"><div class="metric-head">已实现净收益 <span>↗</span></div><div class="metric-main" id="pnl">—</div><div class="metric-note">已结算 · USDT</div><div class="metric-glow mint"></div></article>
+        <article class="metric"><div class="metric-head">账本未平仓 <span>◈</span></div><div class="metric-main" id="open">—</div><div class="metric-note">按成交数量计算</div><div class="metric-glow orange"></div></article>
+        <article class="metric"><div class="metric-head">开仓意图 <span>⇄</span></div><div class="metric-main" id="intents">—</div><div class="metric-note">S6 / S8 测试网</div><div class="metric-glow blue"></div></article>
+        <article class="metric"><div class="metric-head">已结算胜率 <span>◌</span></div><div class="metric-main" id="winrate">—</div><div class="metric-note" id="settled">基于已结算交易</div><div class="metric-glow violet"></div></article>
+      </section>
+      <section class="two-col" id="positions">
+        <article class="panel pnl-panel"><div class="section-head"><div><div class="kicker">PERFORMANCE</div><h2>收益轨迹</h2></div><span class="pill">已结算净收益</span></div><div class="chart-value" id="chart-value">—</div><div class="chart-sub">累计 USDT · 按结算时间</div><div class="chart-wrap"><svg id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" aria-label="累计收益图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#63f0c5" stop-opacity=".27"/><stop offset="100%" stop-color="#63f0c5" stop-opacity="0"/></linearGradient></defs><path id="chart-area" fill="url(#fill)"></path><path id="chart-line" fill="none" stroke="#63f0c5" stroke-width="2.5" vector-effect="non-scaling-stroke"></path></svg><div id="chart-empty" class="chart-empty" hidden>结算后将在这里形成收益曲线</div></div><div class="chart-foot"><span>最早结算</span><span>最近结算</span></div></article>
+        <article class="panel positions-panel"><div class="section-head"><div><div class="kicker">ACTIVE BOOK</div><h2>当前仓位</h2></div><span class="pill" id="position-count">0 个仓位</span></div><div id="position-list" class="position-list"><div class="placeholder">正在读取仓位...</div></div><div class="panel-note">账本仓位基于已记录成交；此处不显示实时浮动盈亏。</div></article>
+      </section>
+      <section class="panel trades-panel" id="trades"><div class="section-head trades-heading"><div><div class="kicker">EXECUTION JOURNAL</div><h2>最近交易</h2></div><div class="tools"><div class="tabs"><button class="selected" data-filter="all">全部</button><button data-filter="open">持仓</button><button data-filter="settled">已结算</button></div><input id="search" type="search" placeholder="搜索币种" aria-label="搜索币种"></div></div>
+        <div class="table-scroll"><table><thead><tr><th>币种 / 策略</th><th>方向</th><th>状态</th><th>开仓均价</th><th>成交数量</th><th>已结算收益</th><th>开仓时间</th><th></th></tr></thead><tbody id="trade-rows"><tr><td colspan="8" class="empty-cell">正在加载交易记录...</td></tr></tbody></table></div><div class="table-footer">点击任意交易查看决策证据、订单与成交明细 <span id="trade-count">—</span></div></section>
+      <section class="panel signals-panel" id="signals"><div class="section-head"><div><div class="kicker">SIGNAL STREAM</div><h2>最新信号</h2></div><span class="pill">TradingView + S3</span></div><div id="signal-list" class="signal-list"><div class="placeholder">等待信号...</div></div></section>
+      <footer>ATLAS V2 <span>·</span> 只读监控 <span>·</span> 所有时间 UTC+8 <span>·</span> 自动刷新 30 秒</footer>
+    </main>
+  </div>
+  <div id="drawer-shade" class="drawer-shade" hidden></div><aside id="drawer" class="drawer" aria-label="交易详情" aria-hidden="true"><div class="drawer-head"><div><small>TRADE INSPECTOR</small><h2 id="drawer-title">交易详情</h2></div><button id="drawer-close" aria-label="关闭详情">×</button></div><div id="drawer-body" class="drawer-body"></div></aside>
+</body>
+</html>
