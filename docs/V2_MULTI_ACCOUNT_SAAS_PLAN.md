@@ -119,6 +119,11 @@ silently re-enable A. Hard-risk halts survive switches, key rotation and restart
 
 ## Delivery and QA gates
 
+The internal double-entry capital journal foundation is now implemented; see
+`V2_CAPITAL_JOURNAL.md`. It remains isolated-QA only. Milestone 2 is not complete:
+exchange ingestion, transfer matching, reconciliation and cash-flow-aware risk
+integration still need delivery. Registry and journal do not authorize execution.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.
