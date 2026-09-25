@@ -126,6 +126,39 @@ class BinanceFutures:
             # Only these transport gates are guaranteed to precede any write.
             if str(exc) in {"ENDPOINT_OR_WRITE_DISABLED", "QUOTA_DENIED"}:
                 raise SubmissionNotSent(str(exc)) from None
+            # Exact synchronous parameter/auth validation failures only. Never
+            # infer rejection from 5xx, timeout, duplicate IDs or query -2013.
+            if (
+                str(exc) == "EXCHANGE_RESPONSE_ERROR"
+                and type(exc.status) is int
+                and exc.status == 400
+                and type(exc.code) is int
+                and exc.code
+                in {
+                    -1021,
+                    -1022,
+                    -1100,
+                    -1101,
+                    -1102,
+                    -1103,
+                    -1111,
+                    -1115,
+                    -1116,
+                    -1117,
+                    -1121,
+                    -1130,
+                }
+            ):
+                return ExchangeObservation(
+                    order["client_order_id"],
+                    "REJECTED",
+                    evidence={
+                        "source": "binance-submit",
+                        "reason": "VENUE_REQUEST_VALIDATION_REJECTED",
+                        "submission_sent": True,
+                        "transport": exc.diagnostic_evidence(),
+                    },
+                )
             raise
         order_id, _ = self._order(order, raw)
         # Even a FILLED response lacks per-fill commissions. Query before finality.

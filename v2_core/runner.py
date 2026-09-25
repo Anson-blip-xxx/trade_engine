@@ -14,6 +14,7 @@ from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import Ledger, lock_order_episode
 from v2_core.orders import Orders
 from v2_core.scoping import predicate, require_scope, validate_scope
+from v2_core.transport import ExchangeTransportError
 
 
 @dataclass(frozen=True)
@@ -180,12 +181,15 @@ class ExecutionRunner:
                 evidence={"reason": exc.reason, "submission_sent": False},
             )
             return "REJECTED" if applied else "RACE_LOST"
-        except Exception:  # noqa: BLE001 - transport may have accepted the order
+        except Exception as exc:  # noqa: BLE001 - transport may have accepted the order
+            evidence = {"reason": "submission response unavailable"}
+            if isinstance(exc, ExchangeTransportError):
+                evidence["transport"] = exc.diagnostic_evidence()
             self.orders.transition(
                 order_id,
                 expected_version=before["version"] + 1,
                 status="UNKNOWN",
-                evidence={"reason": "submission response unavailable"},
+                evidence=evidence,
             )
             return "UNKNOWN"
         return self._apply(order_id, observation)

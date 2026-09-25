@@ -16,6 +16,24 @@ class ExchangeTransportError(RuntimeError):
         super().__init__(category)
         self.status, self.code, self.retry_after = status, code, retry_after
 
+    def diagnostic_evidence(self):
+        # Never persist str(exc), response text, URLs or arbitrary attributes.
+        category = str(self)
+        safe = {
+            "EXCHANGE_RESPONSE_ERROR",
+            "NETWORK_OUTCOME_UNKNOWN",
+            "INVALID_RESPONSE",
+            "RESPONSE_TOO_LARGE",
+            "ENDPOINT_OR_WRITE_DISABLED",
+            "QUOTA_DENIED",
+        }
+        result = {"category": category if category in safe else "TRANSPORT_ERROR"}
+        if type(self.status) is int and 100 <= self.status <= 599:
+            result["http_status"] = self.status
+        if type(self.code) is int and -100000 <= self.code <= 100000:
+            result["exchange_code"] = self.code
+        return result
+
 
 class BinanceSignedTransport:
     _HOSTS: ClassVar = {"LIVE": "fapi.binance.com", "SANDBOX": "demo-fapi.binance.com"}
