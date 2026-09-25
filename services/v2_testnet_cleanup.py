@@ -105,6 +105,9 @@ def make_plan(observation):
 
 
 class Cleanup:
+    def key(self, action):
+        return state_key(action["key"])
+
     def __init__(self, store, request, *, pause=time.sleep):
         if (request.account_id, request.environment) != (SCOPE.account_id, "SANDBOX"):
             raise ValueError("TESTNET_ONLY")
@@ -211,7 +214,7 @@ class Cleanup:
         return {"order": raw, "fills": fills}
 
     def run_action(self, action):
-        key = state_key(action["key"])
+        key = self.key(action)
         current = self.store.read(key)
         if current is None:
             needed = self.preflight(action)
