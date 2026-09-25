@@ -7,6 +7,7 @@ workers. No automatic retry of any external write after its durable CAS.
 
 import json
 import re
+import time
 from dataclasses import asdict
 from uuid import UUID, uuid5
 
@@ -214,14 +215,40 @@ class ScopedCleanup(Cleanup):
             result = {}
             for action in self.plan()["actions"]:
                 result[action["key"]] = self.run_action(action)
-            self.flat()
-            if (
-                self.request("GET", "/fapi/v1/openAlgoOrders", {"symbol": self.symbol})
-                != []
-            ):
-                raise ValueError("CONDITIONAL_ORDERS_REMAIN")
+            self.verify_target()
             return {
                 "status": "TARGET_FLAT",
                 "actions": result,
                 "historical_unknown_resolved": False,
             }
+
+    def verify_target(self):
+        """Read-only venue recheck; retain each observation in PG audit history."""
+        if self.store.read(self.key({"key": "plan"})) is None:
+            raise ValueError("MAINTENANCE_PLAN_REQUIRED")
+        self.flat()
+        algos = self.request("GET", "/fapi/v1/openAlgoOrders", {"symbol": self.symbol})
+        if algos != []:
+            raise ValueError("CONDITIONAL_ORDERS_REMAIN")
+        self.flat()
+        key = self.key({"key": "flat-verification"})
+        prior = self.store.read(key)
+        version = prior.version if prior else 0
+        result = self.store.change(
+            key,
+            expected_version=version,
+            request_key=f"verify:{version + 1}",
+            payload={
+                "symbol": self.symbol,
+                "case_id": self.case_id,
+                "observed_at_ms": time.time_ns() // 1000000,
+                "venue_flat": True,
+                "ordinary_orders_empty": True,
+                "conditional_orders_empty": True,
+                "historical_unknown_resolved": False,
+                "accounting_status": "MAINTENANCE_FILL_RECORDED_RECONCILIATION_PENDING",
+            },
+            reason="SCOPED_MAINTENANCE_FLAT_VERIFIED",
+        )
+        if result.code != "APPLIED":
+            raise ValueError("VERIFICATION_CONFLICT")
