@@ -133,6 +133,11 @@ both venue event times and eliminating internal cash transfers on consolidation.
 See `V2_CAPITAL_TRANSFERS.md`. Automatic evidence collection, unmatched aging and
 full verified reconciliation remain pending; this does not complete milestone 2.
 
+The internal transfer monitor now persists due times, debounced incidents,
+reminders/recovery, delivery retry and explicit TG destination binding. See
+`V2_CAPITAL_MONITOR.md`. This is QA-tested infrastructure, not an activated
+multi-account scheduler or public tenant notification control plane.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.

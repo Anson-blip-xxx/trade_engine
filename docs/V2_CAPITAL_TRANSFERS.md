@@ -66,6 +66,8 @@ and TIMESTAMPTZ. Do not shift epoch timestamps by eight hours.
 
 - Automated venue evidence acquisition and identity verification.
 - Durable unmatched-transfer aging, scheduling and tenant-specific alerts.
+  The internal durable monitor and bound TG adapter are implemented separately;
+  see `V2_CAPITAL_MONITOR.md`. Background runner/route activation remains pending.
 - External deposits/withdrawals, fees, cross-cutoff and multi-currency matching.
 - Verified wallet coverage, cash-flow-aware risk integration and account switching.
 - Authenticated/RLS-protected SaaS and real two-account Testnet acceptance.

@@ -145,6 +145,7 @@ def _trade_text(scope, kind, _event_id, payload):
 
 
 BUSINESS_HEALTH_MESSAGES = {
+    "CAPITAL_TRANSFER_OVERDUE": "存在超过配置时限仍未完成配对或已被冲正的划转流水。请核对双边凭证、期初边界与钱包差额；不会自动补造流水，本告警不代表交易权限变更。",
     "ORDER_PROGRESS_STALLED": "订单未及时推进：提交/未知状态或市价单回执超过 60 秒，或待提交超过 90 秒。请核对交易所回执和本地订单，不要盲目重复下单。",
     "SETTLEMENT_OVERDUE": "已平仓但超过配置时限仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",
     "SIGNAL_CONSUMPTION_LAG": "存在超过配置时限仍未消费的信号。请检查安全阻塞、消费队列与处理速度；过期信号不会追单。",
