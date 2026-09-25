@@ -148,6 +148,12 @@ drain, serialized with preparation/submission permits and leaving close/recovery
 paths available. See `V2_ACCOUNT_DRAINING.md`. Existing permits may still reach the
 venue; no target activation, key replacement or completed switch is claimed.
 
+Durable switch preparation now claims both source and target, pins credential
+versions, and atomically records explicit source drain with its audit transition.
+Cancellation is supported only before draining. See `V2_ACCOUNT_SWITCHES.md`.
+Target venue identity/readiness and exclusive runner ownership remain unimplemented
+activation gates; preparation claims alone do not block target trading workers.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.
