@@ -21,6 +21,12 @@ def identifier(value):
     return str(value)
 
 
+def wire_amount(value):
+    """Exact fixed-point serialization; remove only insignificant zero padding."""
+    result = format(amount(value, positive=True), "f")
+    return result.rstrip("0").rstrip(".") if "." in result else result
+
+
 class BinanceFutures:
     def __init__(self, request, *, account_id, environment, max_pages=20):
         if not callable(request) or not account_id or not environment:
@@ -97,7 +103,10 @@ class BinanceFutures:
         return order_id, executed
 
     def submit(self, order):
-        if order.get("request_evidence", {}).get("origin") == "BINANCE_ALGO_CHILD":
+        if order.get("request_evidence", {}).get("origin") in {
+            "BINANCE_ALGO_CHILD",
+            "APPROVED_TESTNET_MAINTENANCE",
+        }:
             raise SubmissionNotSent("EXCHANGE_CREATED_ORDER_QUERY_ONLY")
         self._scope(order)
         try:
@@ -111,14 +120,15 @@ class BinanceFutures:
             "side": order["side"],
             "positionSide": "BOTH",
             "type": order["order_type"],
-            "quantity": order["quantity"],
+            "quantity": wire_amount(order["quantity"]),
             "newClientOrderId": order["client_order_id"],
             "newOrderRespType": "RESULT",
             "reduceOnly": "true" if order["reduce_only"] else "false",
         }
         if order["order_type"] == "LIMIT":
             params.update(
-                price=order["limit_price"], timeInForce=order["time_in_force"]
+                price=wire_amount(order["limit_price"]),
+                timeInForce=order["time_in_force"],
             )
         try:
             raw = self.request("POST", "/fapi/v1/order", params)
@@ -171,7 +181,10 @@ class BinanceFutures:
 
     def query(self, order):
         binding = order.get("request_evidence", {})
-        if binding.get("origin") == "BINANCE_ALGO_CHILD":
+        if binding.get("origin") in {
+            "BINANCE_ALGO_CHILD",
+            "APPROVED_TESTNET_MAINTENANCE",
+        }:
             if (
                 order.get("leg") != "CLOSE"
                 or order.get("reduce_only") is not True
@@ -190,7 +203,14 @@ class BinanceFutures:
                 else replace(
                     result,
                     client_order_id=order["client_order_id"],
-                    evidence={**result.evidence, "native_child_binding": binding},
+                    evidence={
+                        **result.evidence,
+                        (
+                            "native_child_binding"
+                            if binding["origin"] == "BINANCE_ALGO_CHILD"
+                            else "maintenance_binding"
+                        ): binding,
+                    },
                 )
             )
         self._scope(order)

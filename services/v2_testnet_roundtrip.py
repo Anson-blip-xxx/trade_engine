@@ -114,7 +114,7 @@ def close_owned(runtime, request):
     trace = runtime.data.trace(EPISODE)
     closes = [o for o in trace["orders"] if o["leg"] == "CLOSE"]
     for close in closes:
-        if close["status"] not in {"FILLED", "CANCELLED", "REJECTED"}:
+        if close["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}:
             # Only PREPARED can submit; ambiguous outcomes remain query-only.
             runtime.execution.dispatch(close["order_id"])
             await_fill(runtime, close["order_id"])

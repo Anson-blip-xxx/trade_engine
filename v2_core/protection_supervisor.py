@@ -55,7 +55,7 @@ class ProtectionSupervisor:
             trace = TradingData(self.connect).trace(spec.episode)
             legs = {o["order_id"]: o["leg"] for o in trace["orders"]}
             if any(
-                o["status"] not in {"FILLED", "CANCELLED", "REJECTED"}
+                o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
                 for o in trace["orders"]
             ):
                 return {

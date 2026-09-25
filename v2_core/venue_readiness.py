@@ -292,7 +292,7 @@ class GuardedOpeningSubmit:
                     siblings = conn.execute(
                         """SELECT 1 FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
                         WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                        AND o.order_id<>%s AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','PREPARED') LIMIT 1""",
+                        AND o.order_id<>%s AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED','PREPARED') LIMIT 1""",
                         (*asdict(scope).values(), order["order_id"]),
                     ).fetchone()
                     if siblings:

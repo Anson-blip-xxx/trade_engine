@@ -70,7 +70,7 @@ def coverage_from_facts(scope, facts, inventory, *, excluded_position_symbols=()
             if any(len(items) != 1 for items in owners.values()):
                 blockers.add("NONEXCLUSIVE_SYMBOL_OWNERSHIP")
             if any(
-                o["status"] not in {"FILLED", "CANCELLED", "REJECTED"}
+                o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
                 and not (
                     o["status"] == "PREPARED"
                     and o.get("leg") == "OPEN"

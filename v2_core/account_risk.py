@@ -420,7 +420,7 @@ def release_terminal(conn, episode_id):
         return False
     _lock(conn, row[0])
     nonterminal = conn.execute(
-        "SELECT 1 FROM v2_orders WHERE episode_id=%s AND status NOT IN ('FILLED','CANCELLED','REJECTED') LIMIT 1",
+        "SELECT 1 FROM v2_orders WHERE episode_id=%s AND status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED') LIMIT 1",
         (episode_id,),
     ).fetchone()
     totals = dict(

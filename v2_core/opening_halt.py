@@ -26,6 +26,21 @@ def key_for(conn, episode):
 def require_opening_allowed(conn, episode):
     # Caller holds the intent root lock, matching the halt writer's lock order.
     key = key_for(conn, episode)
+    symbol = conn.execute(
+        "SELECT payload->>'symbol' FROM v2_trade_intents WHERE intent_id=%s", (episode,)
+    ).fetchone()[0]
+    quarantine = StateKey(
+        key.exchange,
+        key.account_id,
+        key.environment,
+        key.product,
+        namespace="symbol-opening-quarantine-v1",
+        key=symbol,
+    )
+    if BusinessState(lambda: nullcontext(conn)).read(quarantine) is not None:
+        raise AccountRiskDenied(
+            "SYMBOL_OPENING_QUARANTINED", {"quarantine_id": quarantine.identity}
+        )
     if BusinessState(lambda: nullcontext(conn)).read(key) is not None:
         # Even an unexpected tombstone fails closed; no silent unhalt.
         raise AccountRiskDenied("EPISODE_OPENING_HALTED", {"halt_id": key.identity})

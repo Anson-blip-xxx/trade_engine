@@ -87,7 +87,8 @@ CREATE TABLE v2_orders (
     time_in_force TEXT,
     request_evidence JSONB NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(request_evidence)='object'),
     status TEXT NOT NULL DEFAULT 'PREPARED' CHECK (status IN (
-        'PREPARED','SUBMITTING','UNKNOWN','ACKNOWLEDGED','FILLED','CANCELLED','REJECTED')),
+        'PREPARED','SUBMITTING','UNKNOWN','ACKNOWLEDGED','FILLED','CANCELLED','REJECTED','RECONCILED')),
+    CHECK (status <> 'RECONCILED' OR leg='CLOSE'),
     version BIGINT NOT NULL DEFAULT 1 CHECK (version > 0),
     exchange_order_id TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),

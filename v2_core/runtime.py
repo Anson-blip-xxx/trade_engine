@@ -6,6 +6,7 @@ or construct a live transport. Acceptance and dispatch are distinct operations.
 
 import json
 
+from v2_core.account_risk import AccountRiskDenied
 from v2_core.attention import RecoveryAttention
 from v2_core.intents import AdmissionCode
 from v2_core.runner import ExecutionRunner, RiskVerdict
@@ -122,6 +123,17 @@ class DataRuntime:
             return {"status": "RECEIVED", "intent_id": identity}
         try:
             order_id, client_id = self.data.orders.prepare(identity)
+        except AccountRiskDenied as exc:
+            if str(exc) != "SYMBOL_OPENING_QUARANTINED":
+                raise
+            self.data.intents.terminate_unstarted(
+                identity, status="REJECTED", reason="SYMBOL_OPENING_QUARANTINED"
+            )
+            return {
+                "status": self.data.trace(identity)["status"],
+                "intent_id": identity,
+                "reason": "SYMBOL_OPENING_QUARANTINED",
+            }
         except Exception as exc:
             if (
                 getattr(exc, "sqlstate", None) != "23505"

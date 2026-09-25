@@ -22,7 +22,7 @@ from v2_core.protection import TestnetProtection
 from v2_core.service import TradingData
 from v2_core.state import BusinessState, StateKey
 
-_TERMINAL = {"FILLED", "CANCELLED", "REJECTED"}
+_TERMINAL = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
 
 
 class DirectionalExitStage:

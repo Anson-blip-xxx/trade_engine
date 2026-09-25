@@ -196,7 +196,7 @@ class ExecutionRunner:
 
     def recover(self, order_id):
         current = self.snapshot(order_id)
-        if current["status"] in {"FILLED", "CANCELLED", "REJECTED"}:
+        if current["status"] in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}:
             return current["status"]
         if current["status"] == "PREPARED":
             return "PREPARED"
@@ -237,7 +237,7 @@ class ExecutionRunner:
         }:
             raise ValueError("unsupported exchange observation")
         if (
-            current["status"] in {"FILLED", "CANCELLED", "REJECTED"}
+            current["status"] in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
             and current["status"] != observation.status
         ):
             raise ValueError("conflicting terminal exchange observation")
@@ -251,7 +251,7 @@ class ExecutionRunner:
             and current["status"] in {"UNKNOWN", "ACKNOWLEDGED"}
         ):
             return observation.status
-        if current["status"] in {"FILLED", "CANCELLED", "REJECTED"}:
+        if current["status"] in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}:
             raise ValueError("conflicting terminal exchange observation")
         applied = orders.transition(
             order_id,

@@ -13,7 +13,7 @@ from v2_core.ledger import lock_order_episode
 from v2_core.runner import ExecutionRunner
 from v2_core.state import BusinessState, StateKey
 
-FINAL = frozenset({"FILLED", "CANCELLED", "REJECTED"})
+FINAL = frozenset({"FILLED", "CANCELLED", "REJECTED", "RECONCILED"})
 
 
 class TestnetOpeningCancel:

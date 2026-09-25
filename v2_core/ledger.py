@@ -479,7 +479,8 @@ class Ledger:
                     raise ValueError("settlement evidence conflict")
                 return False
             if not orders or any(
-                row[1] not in {"FILLED", "CANCELLED", "REJECTED"} for row in orders
+                row[1] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
+                for row in orders
             ):
                 raise ValueError("orders are not terminal")
             totals = conn.execute(

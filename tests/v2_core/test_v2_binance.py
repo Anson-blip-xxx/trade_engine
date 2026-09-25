@@ -92,6 +92,27 @@ def test_notfound_is_not_permission_to_resubmit():
 
 
 @pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("1.000000000000000000", "1"),
+        ("0.010000000000000000", "0.01"),
+        ("0.000000000000000001", "0.000000000000000001"),
+        (
+            "12345678901234567890.123456789012345678",
+            "12345678901234567890.123456789012345678",
+        ),
+    ],
+)
+def test_submit_removes_only_insignificant_database_decimal_padding(value, expected):
+    transport = Transport(raw={**response(), "origQty": value, "executedQty": value})
+    assert (
+        adapter(transport).submit({**order(), "quantity": value}).status
+        == "ACKNOWLEDGED"
+    )
+    assert transport.calls[1][2]["quantity"] == expected
+
+
+@pytest.mark.parametrize(
     "changes", [{"account_id": "other"}, {"environment": "LIVE"}, {"product": "SPOT"}]
 )
 def test_scope_rejected_before_network(changes):

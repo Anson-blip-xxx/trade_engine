@@ -109,6 +109,12 @@ class DirectionalOutcomeJournal:
                 "opening_notional": exact(opened),
                 "closing_quantity": exact(quantity),
             }
+            if conn.execute(
+                "SELECT 1 FROM v2_orders WHERE episode_id=%s AND request_evidence->>'origin'='APPROVED_TESTNET_MAINTENANCE' LIMIT 1",
+                (episode,),
+            ).fetchone():
+                evidence["exit_origin"] = "USER_APPROVED_MAINTENANCE"
+                evidence["strategy_learning_eligible"] = False
             values = (
                 episode,
                 *asdict(self.scope).values(),
@@ -230,6 +236,8 @@ class DirectionalHistory:
                 AND f.horizon_minutes=60 WHERE
                 (o.exchange,o.account_id,o.environment,o.product)=(%s,%s,%s,%s)
                 AND o.producer=%s AND o.symbol=%s AND o.event_type=%s
+                AND NOT EXISTS (SELECT 1 FROM v2_orders m WHERE m.episode_id=o.episode_id
+                    AND m.request_evidence->>'origin'='APPROVED_TESTNET_MAINTENANCE')
                 AND o.closed_at_ms>=%s AND o.closed_at_ms<=%s
                 ORDER BY o.closed_at_ms,o.episode_id""",
                 (

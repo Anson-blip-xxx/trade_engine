@@ -197,7 +197,7 @@ class ManagedPortfolio:
               AND NOT EXISTS(SELECT 1 FROM v2_orders o JOIN v2_fills f USING(order_id)
                   WHERE o.episode_id=r.episode_id)
               AND EXISTS(SELECT 1 FROM v2_orders o WHERE o.episode_id=r.episode_id
-                  AND o.status NOT IN ('FILLED','CANCELLED','REJECTED'))""",
+                  AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED'))""",
             (self.scope.key, order_id),
         ).fetchall()
         with localcontext() as context:

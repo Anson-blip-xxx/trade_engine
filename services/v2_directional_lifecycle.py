@@ -79,7 +79,7 @@ class DirectionalProtectionStage:
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
                     AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
                     AND o.leg='OPEN' AND o.status<>'PREPARED'
-                    AND (o.status NOT IN ('FILLED','CANCELLED','REJECTED') OR
+                    AND (o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED') OR
                         (SELECT COALESCE(sum(CASE WHEN x.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)
                          FROM v2_orders x JOIN v2_fills f USING(order_id) WHERE x.episode_id=i.intent_id)>0)
                     ORDER BY (o.order_id::text<=%s),o.order_id LIMIT %s""",

@@ -11,11 +11,12 @@ _NAMESPACE = UUID("9697e015-22b4-4f6c-bda1-f7e81b6dd4aa")
 _TRANSITIONS = {
     "PREPARED": {"SUBMITTING", "CANCELLED"},
     "SUBMITTING": {"UNKNOWN", "ACKNOWLEDGED", "FILLED", "REJECTED", "CANCELLED"},
-    "UNKNOWN": {"ACKNOWLEDGED", "FILLED", "CANCELLED", "REJECTED"},
+    "UNKNOWN": {"ACKNOWLEDGED", "FILLED", "CANCELLED", "REJECTED", "RECONCILED"},
     "ACKNOWLEDGED": {"UNKNOWN", "FILLED", "CANCELLED", "REJECTED"},
     "FILLED": set(),
     "CANCELLED": set(),
     "REJECTED": set(),
+    "RECONCILED": set(),
 }
 
 
@@ -128,6 +129,17 @@ class Orders:
             else:
                 request_evidence = json.loads(encoded)
                 native_child = request_evidence.get("origin") == "BINANCE_ALGO_CHILD"
+                maintenance = (
+                    request_evidence.get("origin") == "APPROVED_TESTNET_MAINTENANCE"
+                )
+                if maintenance:
+                    from v2_core.maintenance_binding import require_binding
+
+                    if order_type != "MARKET":
+                        raise ValueError("maintenance adoption must be market")
+                    require_binding(
+                        conn, intent_id, request_evidence, requested, request_key
+                    )
                 if native_child and not (
                     isinstance(request_evidence.get("parent_algo_id"), int)
                     and request_evidence["parent_algo_id"] > 0
@@ -164,7 +176,7 @@ class Orders:
                     SELECT o.quantity,COALESCE(sum(f.quantity),0) AS filled
                     FROM v2_orders o LEFT JOIN v2_fills f USING(order_id)
                     WHERE o.episode_id=%s AND o.leg='CLOSE'
-                      AND o.status NOT IN ('FILLED','CANCELLED','REJECTED')
+                      AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED')
                     GROUP BY o.order_id) reservations""",
                     (intent_id,),
                 ).fetchone()[0]
@@ -175,7 +187,9 @@ class Orders:
                     # exchange, so represent it even though local reservations
                     # overlap; Binance prevents either order reversing exposure.
                     available = (
-                        opened - closed - (Decimal(0) if native_child else reserved)
+                        opened
+                        - closed
+                        - (Decimal(0) if native_child or maintenance else reserved)
                     )
                 if requested > available:
                     raise ValueError("close quantity exceeds confirmed fills")
@@ -254,6 +268,16 @@ class Orders:
                 raise ValueError("illegal order transition")
             if row[3] is not None and exchange_order_id not in (None, row[3]):
                 raise ValueError("exchange order identity cannot change")
+            if status == "RECONCILED":
+                from v2_core.maintenance_resolution import require_resolution
+
+                if (
+                    row[4] != "CLOSE"
+                    or row[3] is not None
+                    or exchange_order_id is not None
+                ):
+                    raise ValueError("ONLY_UNKNOWN_UNBOUND_CLOSE_CAN_BE_RECONCILED")
+                require_resolution(conn, order_id, str(row[2]), evidence)
             if (
                 status in {"ACKNOWLEDGED", "FILLED", "REJECTED", "CANCELLED"}
                 and not evidence

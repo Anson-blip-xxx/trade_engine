@@ -30,7 +30,8 @@ def reconcile_cash(trace, report, rows, *, scope):
         raise ValueError("DIRECTIONAL_EVIDENCE_REQUIRED")
     orders = {o["order_id"]: o for o in trace["orders"]}
     if not orders or any(
-        o["status"] not in {"FILLED", "CANCELLED", "REJECTED"} for o in orders.values()
+        o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
+        for o in orders.values()
     ):
         raise ValueError("ORDERS_NOT_FINAL")
     if (
@@ -306,7 +307,7 @@ class DirectionalCashAudit:
         if trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY":
             raise ValueError("DIRECTIONAL_EVIDENCE_REQUIRED")
         if not trace["fills"] or any(
-            o["status"] not in {"FILLED", "CANCELLED", "REJECTED"}
+            o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
             for o in trace["orders"]
         ):
             return {"status": "WAITING_CLOSE", "settlement_authorized": False}

@@ -286,7 +286,11 @@ class TradeLifecycleNotifications:
             raise ValueError("FINAL_ACCOUNTING_REQUIRED")
         reasons = [row[0].get("reason") for row in order_rows if row[0].get("reason")]
         native = any(row[0].get("origin") == "BINANCE_ALGO_CHILD" for row in order_rows)
-        if native:
+        if any(
+            row[0].get("origin") == "APPROVED_TESTNET_MAINTENANCE" for row in order_rows
+        ):
+            reason = "USER_APPROVED_MAINTENANCE（授权维护平仓，非策略自动退出）"
+        elif native:
             reason = "NATIVE_" + protection["spec"]["kind"]
         elif exit_state is not None:
             reason = exit_state[0]["decision"]["reason"]
