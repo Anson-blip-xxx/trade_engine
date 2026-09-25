@@ -38,10 +38,15 @@ flat with no target ordinary/conditional orders. Its venue order, commissions
 and fill evidence are retained in the separate maintenance journal; all runtime
 services were restored. No historical rows were deleted or falsified.
 
-**Not yet complete:** adopting this maintenance fill into the strategy episode,
+**Initially outstanding at the cleanup-only checkpoint:** adopting this maintenance fill into the strategy episode,
 explicit administrative disposition of the unresolved request, complete fee and
 funding reconciliation, and corresponding performance/notification attribution.
 Until those gates are implemented and tested, the old UNKNOWN and account opening
 block remain. A future disposition must preserve the original uncertain venue
 outcome and prevent a late reduce-only request affecting a future position; merely
 changing a terminal status or ignoring the alert is not an acceptable fix.
+
+These accounting/disposition gates have since been completed with the explicit
+local RECONCILED state, full venue trade-history comparison, immutable UNKNOWN
+history and persistent symbol quarantine. See
+[the verified reconciliation rollout](V2_MAINTENANCE_RECONCILIATION.md).

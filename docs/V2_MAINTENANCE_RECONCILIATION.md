@@ -53,3 +53,23 @@ After a RECONCILED row exists, do not roll back to a binary that does not unders
 that state. Stop execution and use a compatible forward fix; do not downgrade or
 erase evidence to fit an old schema. The additive internal tenant registry from
 the SaaS work is unrelated and is not activated by this migration.
+
+## Verified Testnet rollout
+
+Runtime release: `c3c05e457a3f922768126e672828e15d25baef26`.
+The full V2 regression passed 1458 tests; a subsequent 86-test selection covered
+the final exact numeric serialization and durable quarantine-rejection changes
+alongside maintenance adoption/resolution, notification and outcome regressions.
+
+The approved incident passed actual GET-only adoption and disposition. The
+normal settlement pipeline then reconciled fills, commissions, funding and
+wallet movement, marked the episode SETTLED and released its risk reservation.
+The maintenance outcome is marked ineligible for automatic strategy learning.
+The real closing Telegram notification was delivered and confirmed PINNED.
+Three subsequent pipeline cycles completed with protection, exits and settlement
+CLEAR; the latest health observation had no active alerts. All three services
+were active and the dashboard returned HTTP 200.
+
+This restores the account-level pipeline, not permission to trade the quarantined
+symbol or activate LIVE. New orders still depend on normal strategy/risk checks.
+The SaaS roadmap remains separate and is not claimed complete by this incident fix.

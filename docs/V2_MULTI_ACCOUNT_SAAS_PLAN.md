@@ -7,6 +7,11 @@ LIVE launch, account transfer, forced close, or replacement of current keys.
 
 ## Implemented foundation
 
+The preceding Testnet incident-reconciliation gate is now completed: actual
+maintenance fills were adopted, locally disposed with symbol quarantine, and
+settled through the normal cash/wallet pipeline. This does not activate the SaaS
+registry or complete the multi-account acceptance gates below.
+
 `v2_core/account_registry.py` and the additive
 `db/migrations/20260925_tenant_registry.sql` provide tenant registration, globally
 unique logical account enrollment, UUID-only credential references, versioned
