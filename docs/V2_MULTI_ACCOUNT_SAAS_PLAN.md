@@ -128,6 +128,11 @@ of persisted venue PnL/commission/funding facts and unverified wallet comparison
 see `V2_CAPITAL_INCOME.md`. Runtime worker/coverage and venue-identity acceptance
 remain pending; no SaaS migration has been deployed to the trading database.
 
+Attested two-leg transfer accounting is also implemented in isolated QA, retaining
+both venue event times and eliminating internal cash transfers on consolidation.
+See `V2_CAPITAL_TRANSFERS.md`. Automatic evidence collection, unmatched aging and
+full verified reconciliation remain pending; this does not complete milestone 2.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.

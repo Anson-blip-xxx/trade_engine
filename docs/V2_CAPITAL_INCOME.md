@@ -42,7 +42,7 @@ Mapping version `binance-cash-v1` intentionally supports only:
 | COMMISSION | Negative fee |
 | FUNDING_FEE | Signed funding |
 
-Positive commissions, unsupported types (including transfers and rebates), missing
+Positive commissions, unsupported types (including unpaired transfers and rebates), missing
 currency baselines and reversed projected entries remain explicit review items.
 Supported zero facts appear in run counts, with no zero-value journal. No transfer
 is guessed to be a deposit or silently counted as trading profit. New mappings
@@ -100,6 +100,10 @@ UI/report day boundaries use Asia/Shanghai before conversion. No naive date or
 UTC+8 offset is written into an epoch timestamp.
 
 ## Outstanding acceptance
+
+Attested internal transfer pairs can now be accounted at their two original event
+times through the opt-in transfer receipt view; see `V2_CAPITAL_TRANSFERS.md`.
+This is not automatic venue evidence verification or complete transfer coverage.
 
 - Verified venue identity, retained snapshot evidence and trustworthy cutoff capture.
 - Worker scheduling, retained/overlapping exchange windows, coverage proofs and

@@ -20,6 +20,8 @@ BOOKS = {
     "FEE": "FEES",
     "FEE_REBATE": "FEES",
     "FUNDING": "FUNDING",
+    "TRANSFER_OUT": "TRANSFER_CLEARING",
+    "TRANSFER_IN": "TRANSFER_CLEARING",
 }
 
 
@@ -81,8 +83,11 @@ class CapitalJournal:
         delta = amount(cash_delta)
         if (
             not delta
-            or (kind in ("OPENING", "DEPOSIT", "FEE_REBATE") and delta < 0)
-            or (kind in ("WITHDRAWAL", "FEE") and delta > 0)
+            or (
+                kind in ("OPENING", "DEPOSIT", "FEE_REBATE", "TRANSFER_IN")
+                and delta < 0
+            )
+            or (kind in ("WITHDRAWAL", "FEE", "TRANSFER_OUT") and delta > 0)
         ):
             raise ValueError("invalid cash direction")
         tenant, registry = uid(tenant_id), uid(registry_id)

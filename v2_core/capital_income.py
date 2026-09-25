@@ -24,8 +24,19 @@ MAPPING = {
 
 
 class CapitalIncomeProjection:
-    def __init__(self, connect):
+    def __init__(self, connect, *, include_transfers=False):
+        if type(include_transfers) is not bool:
+            raise ValueError("explicit transfer projection mode required")
         self.connect = connect
+        self._include_transfers = include_transfers
+        self._receipt_table = (
+            "v2_capital_all_income_receipts"
+            if include_transfers
+            else "v2_capital_income_receipts"
+        )
+        self._related_journal = (
+            "r.related_journal_id" if include_transfers else "r.journal_id"
+        )
 
     def enroll_baseline(
         self,
@@ -102,13 +113,13 @@ class CapitalIncomeProjection:
             CapitalJournal._lock(c, tenant)
             CapitalJournal._account(c, tenant, registry)
             rows = c.execute(
-                """SELECT i.income_id::text,i.income_type,i.amount,i.currency,i.occurred_at_ms,
-                b.through_ms,r.journal_id::text,EXISTS(SELECT 1 FROM v2_capital_journals undo WHERE undo.reverses=r.journal_id),
+                f"""SELECT i.income_id::text,i.income_type,i.amount,i.currency,i.occurred_at_ms,
+                b.through_ms,r.journal_id::text,EXISTS(SELECT 1 FROM v2_capital_journals undo WHERE undo.reverses IN (r.journal_id,{self._related_journal})),
                 EXISTS(SELECT 1 FROM v2_capital_journals undo WHERE undo.reverses=b.journal_id)
                 FROM v2_exchange_income i JOIN v2_tenant_accounts a
                 ON (a.exchange,a.account_id,a.environment,a.product)=(i.exchange,i.account_id,i.environment,i.product)
                 LEFT JOIN v2_capital_baselines b ON (b.tenant_id,b.registry_id,b.currency)=(a.tenant_id,a.registry_id,i.currency)
-                LEFT JOIN v2_capital_income_receipts r ON r.income_id=i.income_id
+                LEFT JOIN {self._receipt_table} r ON r.income_id=i.income_id
                 WHERE a.tenant_id=%s AND a.registry_id=%s AND i.occurred_at_ms BETWEEN %s AND %s
                 AND (%s::bigint IS NULL OR (i.occurred_at_ms,i.income_id)>(%s::bigint,%s::uuid))
                 ORDER BY i.occurred_at_ms,i.income_id LIMIT %s""",
@@ -135,6 +146,7 @@ class CapitalIncomeProjection:
                 "truncated": len(rows) > limit,
                 "coverage_status": "NOT_PROVEN",
                 "execution_authorized": False,
+                "include_transfers": self._include_transfers,
                 "after": after,
                 "next_cursor": {
                     "at_ms": rows[limit - 1][4],
@@ -170,7 +182,11 @@ class CapitalIncomeProjection:
                         result["replayed"] += 1
                         continue
                 elif income_type not in MAPPING:
-                    reason = "UNSUPPORTED_INCOME_TYPE"
+                    reason = (
+                        "TRANSFER_COUNTERPARTY_UNMATCHED"
+                        if income_type == "TRANSFER" and self._include_transfers
+                        else "UNSUPPORTED_INCOME_TYPE"
+                    )
                 elif income_type == "COMMISSION" and value > 0:
                     reason = "INVALID_COMMISSION_DIRECTION"
                 if reason:
@@ -230,6 +246,7 @@ class CapitalIncomeProjection:
                     "currency": currency,
                     "wallet_amount": decimal_text(observed),
                     "as_of_ms": as_of_ms,
+                    "include_transfers": self._include_transfers,
                 }
             )
         )
@@ -259,13 +276,13 @@ class CapitalIncomeProjection:
                 .get("book_cash", "0")
             )
             unresolved = c.execute(
-                """SELECT count(*) FROM v2_exchange_income i JOIN v2_tenant_accounts a
+                f"""SELECT count(*) FROM v2_exchange_income i JOIN v2_tenant_accounts a
                 ON (a.exchange,a.account_id,a.environment,a.product)=(i.exchange,i.account_id,i.environment,i.product)
-                LEFT JOIN v2_capital_income_receipts r ON r.income_id=i.income_id
+                LEFT JOIN {self._receipt_table} r ON r.income_id=i.income_id
                 WHERE a.tenant_id=%s AND a.registry_id=%s AND i.currency=%s
                 AND i.occurred_at_ms>%s AND i.occurred_at_ms<=%s AND
                 ((r.income_id IS NULL AND NOT(i.amount=0 AND i.income_type IN ('REALIZED_PNL','COMMISSION','FUNDING_FEE')))
-                 OR EXISTS(SELECT 1 FROM v2_capital_journals undo WHERE undo.reverses=r.journal_id AND undo.occurred_at_ms<=%s))""",
+                 OR EXISTS(SELECT 1 FROM v2_capital_journals undo WHERE undo.reverses IN (r.journal_id,{self._related_journal}) AND undo.occurred_at_ms<=%s))""",
                 (tenant, registry, currency, baseline[0], as_of_ms, as_of_ms),
             ).fetchone()[0]
             baseline_reversed = bool(
@@ -289,6 +306,7 @@ class CapitalIncomeProjection:
                 "status": "DIFFERENCE" if difference else "AMOUNT_MATCH_UNVERIFIED",
                 "coverage_status": "NOT_PROVEN",
                 "execution_authorized": False,
+                "include_transfers": self._include_transfers,
             }
             c.execute(
                 "INSERT INTO v2_capital_wallet_checks(tenant_id,registry_id,observation_ref,request_digest,result) VALUES (%s,%s,%s,%s,%s)",

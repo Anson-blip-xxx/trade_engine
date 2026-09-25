@@ -26,6 +26,10 @@ over-precision amounts are rejected without rounding. Currencies are not convert
 | Matched transfer | Source negative | Destination cash positive |
 | Reversal | Exact opposite of original | Exact opposite of original |
 
+The optional `20260925_capital_transfers.sql` migration adds `TRANSFER_OUT` and
+`TRANSFER_IN`, each balancing cash with `TRANSFER_CLEARING` at its original event
+time. See `V2_CAPITAL_TRANSFERS.md` for evidence and integration requirements.
+
 Transfers must remain within the same tenant, exchange, environment and product.
 They record an **already matched** movement, not a request to move exchange funds.
 Internal transfers eliminate in consolidated reports; SANDBOX and LIVE must be
