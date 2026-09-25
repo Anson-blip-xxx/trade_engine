@@ -7,6 +7,7 @@ There is deliberately no automatic unhalt or timeout-based reset.
 from contextlib import nullcontext
 from uuid import UUID
 
+from v2_core.account_draining import require_not_draining
 from v2_core.account_risk import AccountRiskDenied
 from v2_core.state import BusinessState, StateKey
 
@@ -26,6 +27,7 @@ def key_for(conn, episode):
 def require_opening_allowed(conn, episode):
     # Caller holds the intent root lock, matching the halt writer's lock order.
     key = key_for(conn, episode)
+    require_not_draining(conn, key)
     symbol = conn.execute(
         "SELECT payload->>'symbol' FROM v2_trade_intents WHERE intent_id=%s", (episode,)
     ).fetchone()[0]

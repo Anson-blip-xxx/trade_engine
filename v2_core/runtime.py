@@ -124,15 +124,18 @@ class DataRuntime:
         try:
             order_id, client_id = self.data.orders.prepare(identity)
         except AccountRiskDenied as exc:
-            if str(exc) != "SYMBOL_OPENING_QUARANTINED":
+            if str(exc) not in {
+                "SYMBOL_OPENING_QUARANTINED",
+                "ACCOUNT_OPENING_DRAINING",
+            }:
                 raise
             self.data.intents.terminate_unstarted(
-                identity, status="REJECTED", reason="SYMBOL_OPENING_QUARANTINED"
+                identity, status="REJECTED", reason=str(exc)
             )
             return {
                 "status": self.data.trace(identity)["status"],
                 "intent_id": identity,
-                "reason": "SYMBOL_OPENING_QUARANTINED",
+                "reason": str(exc),
             }
         except Exception as exc:
             if (

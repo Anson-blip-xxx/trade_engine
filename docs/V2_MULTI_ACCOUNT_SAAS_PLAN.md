@@ -143,6 +143,11 @@ account transaction fencing, bounded tenant batches and atomic scan/failure/retr
 records. See `V2_CAPITAL_MONITOR_RUNNER.md`. No host scheduler is activated and
 this monitoring control does not implement trading-account switch/draining.
 
+The first trading switch boundary is now implemented: a monotonic account opening
+drain, serialized with preparation/submission permits and leaving close/recovery
+paths available. See `V2_ACCOUNT_DRAINING.md`. Existing permits may still reach the
+venue; no target activation, key replacement or completed switch is claimed.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.
