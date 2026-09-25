@@ -53,7 +53,8 @@ These are historical cash books, **not exchange equity, available margin or open
 budgets**. Unrealized PnL and margin reservations are not represented here. Negative
 cash is allowed as accounting evidence, never treated as permission to spend.
 Opening balance enrollment must establish an explicit cutoff and must not also
-import pre-cutoff cash events; ingestion is not yet implemented.
+import pre-cutoff cash events. Internal baseline enrollment and projection of
+persisted exchange facts are now implemented; see `V2_CAPITAL_INCOME.md`.
 
 Event epoch milliseconds and PostgreSQL ingestion `TIMESTAMPTZ` are both retained.
 `as_of_ms` includes events through that instant. UI/export day boundaries must use
@@ -64,8 +65,9 @@ ingestion-time snapshot. Corrections take effect at their own event time.
 ## Remaining integration gates
 
 - Verified venue-account identity and explicit enrollment of opening balances.
-- Durable exchange cash-event ingestion, pagination/checkpoints, trade settlement
-  linkage, transfer two-leg matching and wallet reconciliation.
+- Production scheduling/coverage for exchange cash-event ingestion, trade settlement
+  linkage, transfer two-leg matching and verified wallet reconciliation. Internal
+  replayable fact projection and unverified wallet comparisons are implemented.
 - Cash-flow-aware risk anchors; this journal must not bypass current risk controls.
 - Authenticated server-derived tenant identity, application-role RLS, scoped public
   APIs and exports. An internal method's tenant UUID is **not authentication**.

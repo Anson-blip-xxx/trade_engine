@@ -27,7 +27,7 @@ tests. No registry migration or account/key replacement has been applied to the
 running trading database.
 
 Still required: venue identity verification and secret-provider binding,
-application-role/RLS isolation, authenticated routing, scoped capital journal,
+application-role/RLS isolation, authenticated routing, scoped capital integration,
 switch fencing and the two-account end-to-end acceptance gates below. Logical
 scope uniqueness alone cannot detect two different IDs for one venue account.
 
@@ -123,6 +123,10 @@ The internal double-entry capital journal foundation is now implemented; see
 `V2_CAPITAL_JOURNAL.md`. It remains isolated-QA only. Milestone 2 is not complete:
 exchange ingestion, transfer matching, reconciliation and cash-flow-aware risk
 integration still need delivery. Registry and journal do not authorize execution.
+The next internal layer now supports immutable baseline cutoffs, atomic projection
+of persisted venue PnL/commission/funding facts and unverified wallet comparisons;
+see `V2_CAPITAL_INCOME.md`. Runtime worker/coverage and venue-identity acceptance
+remain pending; no SaaS migration has been deployed to the trading database.
 
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
