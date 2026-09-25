@@ -138,6 +138,11 @@ reminders/recovery, delivery retry and explicit TG destination binding. See
 `V2_CAPITAL_MONITOR.md`. This is QA-tested infrastructure, not an activated
 multi-account scheduler or public tenant notification control plane.
 
+An opt-in SANDBOX monitor runner now adds versioned persisted configuration,
+account transaction fencing, bounded tenant batches and atomic scan/failure/retry
+records. See `V2_CAPITAL_MONITOR_RUNNER.md`. No host scheduler is activated and
+this monitoring control does not implement trading-account switch/draining.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.

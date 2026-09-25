@@ -39,6 +39,8 @@ events for the same active incident.
 This supplies durable scheduling **decisions**, not a new background process.
 A future tenant-account runner must invoke due scans, monitor its own heartbeat
 and check delivery backlog. No systemd timer or existing watchdog is changed here.
+The internal SANDBOX control/runner is now implemented in
+`V2_CAPITAL_MONITOR_RUNNER.md`; host activation and heartbeat checks remain pending.
 
 ## Delivery
 
