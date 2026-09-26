@@ -154,6 +154,12 @@ Cancellation is supported only before draining. See `V2_ACCOUNT_SWITCHES.md`.
 Target venue identity/readiness and exclusive runner ownership remain unimplemented
 activation gates; preparation claims alone do not block target trading workers.
 
+An encrypted credential vault and unmounted owner account-console candidate now
+cover encrypted key+secret enrollment, aliases and selected-account statistics.
+See `V2_ENCRYPTED_ACCOUNT_CONSOLE.md`. This does not replace the runtime plaintext
+credential file, deploy a key provider, expose a public write API, or enable
+execution switching. Those are explicit rollout gates, not completed work.
+
 1. Account/tenant registry and credential-binding guards; additive migration and
    explicit enrollment of existing history, no trading or key replacement.
 2. Scoped capital journal, reconciliation and cash-flow-aware performance.

@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V2 · 账户控制台</title><link rel="stylesheet" href="/accounts/app.css"></head>
+<body><main><header><span>ATLAS / V2</span><h1>账户控制台</h1><p>加密凭据 · 独立统计 · 安全切换准备</p></header>
+<aside>当前为账户管理预发布功能。选择账户仅切换统计视图，不切换交易进程。新密钥登记后尚未验证交易所身份，不能自动开仓。</aside>
+<p id="notice" role="status"></p><section><h2>账户视图</h2><select id="account" aria-label="选择统计账户"></select><p id="state"></p><form id="rename"><input id="alias" maxlength="120" required aria-label="账户别名"><button>更新别名</button></form><div id="summary" class="metrics"></div><h3>最近交易</h3><div id="trades"></div></section>
+<section><h2>添加 API 凭据</h2><p>API Key 和 Secret 都加密入库；提交后不回显。请勿在别名中填写密钥。</p><form id="add" autocomplete="off"><label>别名<input name="alias" maxlength="120" required></label><label>环境<select name="environment"><option value="SANDBOX">Binance Testnet</option></select></label><label>API Key<input type="password" name="api_key" autocomplete="new-password" minlength="16" maxlength="512" required></label><label>API Secret<input type="password" name="api_secret" autocomplete="new-password" minlength="16" maxlength="512" required></label><button>加密保存并登记</button></form></section>
+<section><h2>执行账户切换准备</h2><p>此操作只创建准备单，不停用 A，也不启用 B。目标验证和独占执行门禁尚未接入，不能将此视为切换完成。</p><form id="switch"><label>来源 A<select id="source"></select></label><label>目标 B<select id="target"></select></label><button>创建准备单</button></form><p id="switch-state"></p></section>
+</main><script src="/accounts/app.js" defer></script></body></html>

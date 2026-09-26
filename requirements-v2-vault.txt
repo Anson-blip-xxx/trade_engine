@@ -1,0 +1,5 @@
+# Optional isolated account-management runtime; NOT current trading runtime.
+# Package integrity/hash lock and deployment preflight are separate rollout gates.
+cryptography==49.0.0
+cffi==2.1.1
+pycparser==3.0
