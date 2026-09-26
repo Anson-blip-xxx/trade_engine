@@ -11,6 +11,26 @@ from v2_core.ingress import identity, milliseconds, symbol
 class PublicMarketError(RuntimeError):
     """Fixed diagnostic code only; never raw endpoint responses."""
 
+    @property
+    def reason_code(self):
+        allowed = {
+            "PUBLIC_MARKET_DISABLED",
+            "PUBLIC_ENDPOINT_DISABLED",
+            "QUOTA_DENIED",
+            "RATE_LIMITED",
+            "PUBLIC_HTTP_ERROR",
+            "PUBLIC_RESPONSE_TOO_LARGE",
+            "PUBLIC_API_ERROR",
+            "PUBLIC_TRANSPORT_FAILURE",
+        }
+        return (
+            self.args[0]
+            if len(self.args) == 1
+            and isinstance(self.args[0], str)
+            and self.args[0] in allowed
+            else "PUBLIC_UNKNOWN"
+        )
+
 
 class PublicRateBudget:
     def __init__(self, connection_factory, *, scope, limit):

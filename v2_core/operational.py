@@ -22,7 +22,10 @@ class OperationalProjector(Projector):
 
 class MarketOperationalProjector(OperationalProjector):
     def _scope_filter(self):
-        return "e.event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED')", ()
+        return (
+            "e.event_type IN ('MARKET_FAILURE','MARKET_RECOVERED','CANDLE_QUARANTINED')",
+            (),
+        )
 
 
 class MarketAlerts:
@@ -74,10 +77,33 @@ class MarketAlerts:
         # Ignore all other fields: exception messages, headers and credentials are
         # not a notification contract. DB time survives application clock changes.
         with self._connect() as conn:
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                ("market-incident:" + self.environment,),
+            )
             bucket = conn.execute(
                 "SELECT floor(extract(epoch FROM clock_timestamp())/300)::bigint"
             ).fetchone()[0]
             key = f"failure:{stage}:{error}:{bucket}"
+            payload = {"stage": stage, "error_code": error, "bucket": bucket}
+            if stage == "COLLECT":
+                from v2_core.public_market import PublicMarketError
+
+                now = conn.execute(
+                    "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint"
+                ).fetchone()[0]
+                first = self._active_failure(conn)
+                started = first[1] if first else now
+                payload.update(
+                    reason_code=PublicMarketError(
+                        result.get("reason_code", "PUBLIC_UNKNOWN")
+                    ).reason_code,
+                    started_at_ms=started,
+                    observed_at_ms=now,
+                    duration_ms=max(0, now - started),
+                )
+                # A recovered/reopened incident must not collide within the same bucket.
+                key += ":" + str(started)
             conn.execute(
                 """INSERT INTO v2_operational_outbox(event_id,scope_id,dedup_key,event_type,payload)
                 VALUES (%s,%s,%s,'MARKET_FAILURE',%s) ON CONFLICT(scope_id,dedup_key) DO NOTHING""",
@@ -85,7 +111,49 @@ class MarketAlerts:
                     str(uuid4()),
                     self.environment,
                     key,
-                    Jsonb({"stage": stage, "error_code": error, "bucket": bucket}),
+                    Jsonb(payload),
+                ),
+            )
+        return True
+
+    def _active_failure(self, conn):
+        return conn.execute(
+            """SELECT event_id::text, COALESCE((payload->>'started_at_ms')::bigint, floor(extract(epoch FROM created_at)*1000)::bigint)
+            FROM v2_operational_outbox WHERE scope_id=%s AND event_type='MARKET_FAILURE'
+            AND payload->>'stage'='COLLECT' AND created_at > COALESCE(
+              (SELECT max(created_at) FROM v2_operational_outbox WHERE scope_id=%s AND event_type='MARKET_RECOVERED'), '-infinity'::timestamptz)
+            ORDER BY created_at,event_id LIMIT 1""",
+            (self.environment, self.environment),
+        ).fetchone()
+
+    def recovered(self):
+        """Called only after a newly collected batch successfully finishes processing."""
+        with self._connect() as conn:
+            conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                ("market-incident:" + self.environment,),
+            )
+            first = self._active_failure(conn)
+            if first is None:
+                return False
+            now = conn.execute(
+                "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint"
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO v2_operational_outbox(event_id,scope_id,dedup_key,event_type,payload)
+                VALUES (%s,%s,%s,'MARKET_RECOVERED',%s) ON CONFLICT(scope_id,dedup_key) DO NOTHING""",
+                (
+                    str(uuid4()),
+                    self.environment,
+                    "recovered:" + first[0],
+                    Jsonb(
+                        {
+                            "stage": "COLLECT",
+                            "started_at_ms": first[1],
+                            "observed_at_ms": now,
+                            "duration_ms": max(0, now - first[1]),
+                        }
+                    ),
                 ),
             )
         return True

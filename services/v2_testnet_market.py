@@ -6,6 +6,7 @@ the complete trading daemon. A future universe change needs versioned source IDs
 
 import argparse
 import json
+import os
 import signal
 import threading
 import time
@@ -45,6 +46,7 @@ def main():
         sink = TelegramOperationalSink(
             token=cfg["TG_NOTIFY_TOKEN"],
             chat_id=cfg["TG_NOTIFY_CHAT_ID"],
+            alerts_chat_id=os.environ.get("V2_TG_ALERT_CHAT_ID"),
             environment="SANDBOX",
         )
         notify = lambda event: sink(

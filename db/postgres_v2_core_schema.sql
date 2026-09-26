@@ -539,13 +539,14 @@ CREATE TABLE v2_operational_outbox (
     event_id UUID PRIMARY KEY,
     scope_id TEXT NOT NULL CHECK (scope_id IN ('SANDBOX','LIVE')),
     dedup_key TEXT NOT NULL,
-    event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_FAILURE','CANDLE_QUARANTINED','ACCOUNT_INVENTORY','PROTECTION_RECOVERY')),
+    event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_FAILURE','MARKET_RECOVERED','CANDLE_QUARANTINED','ACCOUNT_INVENTORY','PROTECTION_RECOVERY')),
     payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     UNIQUE(scope_id,dedup_key)
 );
 CREATE TRIGGER v2_operational_outbox_immutable BEFORE UPDATE OR DELETE ON v2_operational_outbox
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+CREATE INDEX v2_market_incident_history ON v2_operational_outbox(scope_id,event_type,created_at,event_id);
 CREATE TABLE v2_operational_receipts (
     consumer TEXT NOT NULL,
     event_id UUID NOT NULL REFERENCES v2_operational_outbox(event_id),

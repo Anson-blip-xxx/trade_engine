@@ -392,6 +392,9 @@ def main(environ=None):
     sink = TelegramOperationalSink(
         token=secrets["TG_NOTIFY_TOKEN"],
         chat_id=secrets["TG_NOTIFY_CHAT_ID"],
+        alerts_chat_id=(os.environ if environ is None else environ).get(
+            "V2_TG_ALERT_CHAT_ID"
+        ),
         environment="SANDBOX",
     )
     notifier = WatchdogTelegramNotifier(

@@ -140,6 +140,11 @@ class MarketSupervisor:
         result = self._run_once()
         if self.alerts is not None:
             try:
+                if (
+                    "collected_frame_id" in result
+                    and result.get("status") == "ACKNOWLEDGED"
+                ):
+                    self.alerts.recovered()
                 result["alert_delivery"] = self.alerts.flush()
             except Exception as exc:  # noqa: BLE001 - PG outage needs external monitoring
                 result["alert_delivery"] = {
@@ -170,8 +175,19 @@ class MarketSupervisor:
                 else {**result, "collected_frame_id": frame_id}
             )
         except Exception as exc:  # noqa: BLE001 - supervisor emits safe diagnostics only
+            from v2_core.public_market import PublicMarketError
+
             return self._report(
-                {"status": "RETRY", "stage": stage, "error_code": type(exc).__name__}
+                {
+                    "status": "RETRY",
+                    "stage": stage,
+                    "error_code": type(exc).__name__,
+                    **(
+                        {"reason_code": exc.reason_code}
+                        if isinstance(exc, PublicMarketError)
+                        else {}
+                    ),
+                }
             )
 
     def _report(self, result):

@@ -6,6 +6,7 @@ are selected from the provided legacy config without importing legacy modules.
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -100,6 +101,7 @@ def main():
         sink = TelegramOperationalSink(
             token=cfg["TG_NOTIFY_TOKEN"],
             chat_id=cfg["TG_NOTIFY_CHAT_ID"],
+            alerts_chat_id=os.environ.get("V2_TG_ALERT_CHAT_ID"),
             environment=scope.environment,
         )
         # Scope filters apply before claims; no mutations of another account's queue.

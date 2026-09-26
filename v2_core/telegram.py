@@ -158,7 +158,13 @@ BUSINESS_HEALTH_MESSAGES = {
 
 class TelegramOperationalSink:
     def __init__(
-        self, *, token, chat_id, environment, connection_factory=HTTPSConnection
+        self,
+        *,
+        token,
+        chat_id,
+        environment,
+        connection_factory=HTTPSConnection,
+        alerts_chat_id=None,
     ):
         if (
             not isinstance(token, str)
@@ -171,6 +177,18 @@ class TelegramOperationalSink:
             raise ValueError("explicit Telegram credentials and environment required")
         self._token, self._chat_id = token, chat_id
         self.environment, self._connection = environment, connection_factory
+        self._alerts = None
+        if alerts_chat_id is not None:
+            if not isinstance(alerts_chat_id, str) or not re.fullmatch(
+                r"[1-9][0-9]{0,19}", alerts_chat_id
+            ):
+                raise ValueError("positive private Telegram alert destination required")
+            self._alerts = TelegramOperationalSink(
+                token=token,
+                chat_id=alerts_chat_id,
+                environment=environment,
+                connection_factory=connection_factory,
+            )
 
     @property
     def pin_destination(self):
@@ -179,8 +197,45 @@ class TelegramOperationalSink:
     def __call__(self, event_id, scope, kind, payload, *, receipt=None):
         if scope != self.environment:
             return False
+        if self._alerts is not None and kind not in {"TRADE_OPENED", "TRADE_CLOSED"}:
+            return self._alerts(event_id, scope, kind, payload, receipt=receipt)
         if kind in {"TRADE_OPENED", "TRADE_CLOSED"}:
             text = _trade_text(scope, kind, event_id, payload)
+        elif (
+            kind in {"MARKET_FAILURE", "MARKET_RECOVERED"}
+            and "observed_at_ms" in payload
+        ):
+            reasons = {
+                "QUOTA_DENIED": "本地请求额度不足或限流冷却中",
+                "RATE_LIMITED": "交易所接口限流",
+                "PUBLIC_HTTP_ERROR": "交易所 HTTP 响应异常",
+                "PUBLIC_TRANSPORT_FAILURE": "网络、超时或响应解析异常",
+                "PUBLIC_API_ERROR": "交易所响应格式或 API 错误",
+                "PUBLIC_RESPONSE_TOO_LARGE": "接口响应超过安全大小限制",
+                "PUBLIC_MARKET_DISABLED": "行情接口未启用",
+                "PUBLIC_ENDPOINT_DISABLED": "请求端点未启用",
+            }
+            recovered = kind == "MARKET_RECOVERED"
+            text = "\n".join(
+                [
+                    f"{'✅ 行情采集恢复' if recovered else '⚠️ 行情采集异常'} [V2 {scope}]",
+                    "后续行情批次已成功处理；不代表全部交易环节健康。"
+                    if recovered
+                    else "原因："
+                    + reasons.get(payload.get("reason_code"), "未分类采集异常"),
+                    "原因码："
+                    + str(
+                        "RECOVERED"
+                        if recovered
+                        else payload.get("reason_code")
+                        if payload.get("reason_code") in reasons
+                        else "PUBLIC_UNKNOWN"
+                    ),
+                    f"持续时间：{max(0, int(payload['duration_ms'])) // 1000} 秒（截至本次记录）",
+                    f"开始：{_time(payload['started_at_ms'])}",
+                    f"时间：{_time(payload['observed_at_ms'])}",
+                ]
+            )
         elif kind == "TRADING_HEALTH":
             code = payload.get("error_code")
             if code not in BUSINESS_HEALTH_MESSAGES or payload.get("status") not in {
