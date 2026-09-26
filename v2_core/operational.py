@@ -120,7 +120,7 @@ class MarketAlerts:
         return conn.execute(
             """SELECT event_id::text, COALESCE((payload->>'started_at_ms')::bigint, floor(extract(epoch FROM created_at)*1000)::bigint)
             FROM v2_operational_outbox WHERE scope_id=%s AND event_type='MARKET_FAILURE'
-            AND payload->>'stage'='COLLECT' AND created_at > COALESCE(
+            AND payload->>'stage'='COLLECT' AND payload ? 'started_at_ms' AND created_at > COALESCE(
               (SELECT max(created_at) FROM v2_operational_outbox WHERE scope_id=%s AND event_type='MARKET_RECOVERED'), '-infinity'::timestamptz)
             ORDER BY created_at,event_id LIMIT 1""",
             (self.environment, self.environment),

@@ -13,6 +13,15 @@ from v2_core.telegram import TelegramDeliveryError, TelegramOperationalSink
 database = database_fixture
 
 
+def test_legacy_failure_has_no_invented_duration(database):
+    with database() as c:
+        c.execute(
+            "INSERT INTO v2_operational_outbox(event_id,scope_id,dedup_key,event_type,payload) VALUES (gen_random_uuid(),'SANDBOX','legacy','MARKET_FAILURE','{\"stage\":\"COLLECT\",\"error_code\":\"PublicMarketError\"}')"
+        )
+    worker = MarketAlerts(database, environment="SANDBOX", notify=lambda _: True)
+    assert not worker.recovered()
+
+
 def test_durable_recovery_and_reopen(database):
     received = []
     worker = MarketAlerts(

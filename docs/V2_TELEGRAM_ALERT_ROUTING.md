@@ -19,6 +19,8 @@ Transport failures still group network/timeout/parse errors; no speculative caus
 Repeated failures remain coalesced in five-minute buckets. Incident history is
 durable in the existing operational outbox, serialized by environment lock.
 No process-memory or local-file incident state is introduced.
+Pre-upgrade failure records lack incident boundaries and are excluded from duration
+and recovery reconstruction; historical failures must not imply continuous outage.
 
 A MARKET_RECOVERED event is emitted once after a newly collected batch is
 ACKNOWLEDGED. Idle, pending or retry states do not count as recovery. Recovery
