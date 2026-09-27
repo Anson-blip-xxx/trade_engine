@@ -126,8 +126,9 @@ def test_stale_worker_and_retired_binding_cannot_submit(routes):
         store.submit_guard(**{**args, "worker_token": str(uuid4())}),
     ):
         pass
-    with pytest.raises(ValueError, match="DRAIN"):
-        request(store, console, registry, expected_epoch=1)
+    pending = request(store, console, registry, expected_epoch=1)
+    assert pending["epoch"] == 2
+    assert store.inspect(console.tenant, "SANDBOX")["phase"] == "ACTIVE"
     with pytest.raises(ValueError, match="ROTATION_REQUIRES_HANDOVER"):
         console.rotate(
             registry,

@@ -59,6 +59,8 @@ class ExecutionRoutes:
         ).fetchone()
         if pending:
             r = pending[0]
+            if actual and actual[0] >= r["epoch"]:
+                return actual
             return (
                 r["epoch"],
                 r["target_registry"],
@@ -94,7 +96,18 @@ class ExecutionRoutes:
     def inspect(self, tenant_id, environment):
         tenant, environment = uid(tenant_id), self._environment(environment)
         with self.connect() as c:
-            return self._result(self._read(c, tenant, environment))
+            result = self._result(self._read(c, tenant, environment))
+            latest = c.execute(
+                "SELECT result FROM v2_execution_route_events WHERE tenant_id=%s AND environment=%s ORDER BY epoch DESC LIMIT 1",
+                (tenant, environment),
+            ).fetchone()
+            result["request_epoch"] = max(
+                result["epoch"], latest[0]["epoch"] if latest else 0
+            )
+            result["pending_request"] = (
+                latest[0] if latest and latest[0]["epoch"] > result["epoch"] else None
+            )
+            return result
 
     def request(
         self,
@@ -137,12 +150,18 @@ class ExecutionRoutes:
                 return prior[1]
             self._binding(c, tenant, registry, environment, binding_version)
             current = self._read(c, tenant, environment)
-            if (current[0] if current else 0) != expected_epoch:
+            latest = (
+                c.execute(
+                    "SELECT max(epoch) FROM v2_execution_route_events WHERE tenant_id=%s AND environment=%s",
+                    (tenant, environment),
+                ).fetchone()[0]
+                or 0
+            )
+            if max(current[0] if current else 0, latest) != expected_epoch:
                 raise ValueError("ROUTE_EPOCH_CONFLICT")
             # Do not revoke a live worker's exit/protection capability here.
             # Active handover needs a controller-managed drain, not a DB pointer flip.
-            if current and current[3] in {"ACTIVE", "DRAINING"}:
-                raise ValueError("ACTIVE_ROUTE_REQUIRES_DRAIN")
+            # Queue the desired target; never modify ACTIVE/DRAINING route here.
             blockers = ["EXECUTION_CONTROLLER_NOT_ATTACHED"]
             if environment == "LIVE":
                 blockers.append("LIVE_DEPLOYMENT_NOT_APPROVED")

@@ -1,0 +1,39 @@
+[Unit]
+Description=V2 encrypted Testnet account execution controller
+Requires=postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
+After=network-online.target postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trade-engine-v2/execution-controller
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_execution_supervisor
+EnvironmentFile=/etc/trade-engine-v2/testnet-daemon.env
+EnvironmentFile=/etc/trade-engine-v2/telegram-alerts.env
+EnvironmentFile=/etc/trade-engine-v2/execution-controller.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+LoadCredentialEncrypted=v2-master-v1:/etc/credstore.encrypted/trade-v2-master-v1.cred
+LoadCredentialEncrypted=v2-notifications:/etc/credstore.encrypted/trade-v2-notifications.cred
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
