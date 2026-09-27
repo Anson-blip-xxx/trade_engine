@@ -19,6 +19,10 @@ tradeable. Supporting these requires end-to-end symbol validation changes,
 including order signing, protective orders and TradingView normalization.
 
 The hub fetches a bulk lightweight 24h ticker every 30 seconds and ranks movers.
+After the first observation it weights ticker-to-ticker price change ahead of
+absolute 24h change; configurable short/day weights prevent yesterday's large
+movers from permanently occupying today's fast queue. Invalid individual ticker
+rows are excluded from ranking, not treated as valid prices.
 It reserves background slots for fair coverage, while prioritizing the configured
 regime benchmark basket, held risk reservations and unexpired TV/demand symbols.
 The first full history is 1440 closed one-minute candles. Subsequent refreshes
@@ -33,6 +37,9 @@ projections. No local JSON/CSV business-state store is introduced. Archive write
 are verified before publishing; cache loss reconstructs the history from CH.
 Conflicting archive duplicates are rejected, not hidden by ReplacingMergeTree.
 Redis updates use monotonic CAS and reject same-time conflicting content.
+Candles from each bounded cycle are inserted as one CH batch to avoid hundreds
+of one-row parts/minute. Real driver FixedString hashes are normalized from bytes
+before comparison, with the same behavior covered by regression tests.
 
 S3 lifecycle state is partitioned by symbol, allowing independent publications
 at the same minute without the old global monotonically-increasing frame clash.
@@ -63,6 +70,9 @@ lock covers check and immutable first-decision insertion. A subsequent correlate
 signal links to the winning decision and is ignored rather than opening twice.
 Committed decisions are reused after a crash; existing risk reservation and
 order idempotency remain the final execution protections.
+The opening risk reference also uses the new per-symbol PG frame receipt and
+reconstructed CH candles. It recomputes the frame digest and rejects stale or
+superseded observations; it does not depend on legacy whole-universe deliveries.
 
 ## Budgets and operational controls
 

@@ -232,6 +232,43 @@ def select_batch(universe, heads, *, observed, now, policy, urgent, movers):
     return background + priority[: policy.batch_symbols - len(background)]
 
 
+def rank_movers(rows, universe, previous, policy):
+    """Recent ticker-to-ticker change outranks an already old 24h move."""
+    from services.v2_s3_candles import amount
+
+    if not isinstance(rows, list) or len(rows) > 10000:
+        raise ValueError("MARKET_TICKER_INVALID")
+    prices = {}
+    scored = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("symbol") not in universe:
+            continue
+        target = row["symbol"]
+        if target in prices:
+            raise ValueError("MARKET_TICKER_DUPLICATE")
+        try:
+            price = Decimal(amount(row["lastPrice"], positive=True)[0])
+            daily = Decimal(row["priceChangePercent"])
+            if not daily.is_finite():
+                continue
+        except (ValueError, KeyError, ArithmeticError):
+            continue
+        short = (
+            abs(price / previous[target] - 1) * 100
+            if target in previous
+            else Decimal(0)
+        )
+        scored.append(
+            (
+                short * policy.mover_short_weight
+                + abs(daily) * policy.mover_day_weight,
+                target,
+            )
+        )
+        prices[target] = price
+    return [s for _, s in sorted(scored, reverse=True)], prices
+
+
 class SharedMarketHub:
     def __init__(self, connect, *, transport, cache, archive, clock_ms, monotonic_ms):
         self.connect, self.transport, self.cache, self.clock, self.monotonic = (
@@ -268,6 +305,7 @@ class SharedMarketHub:
         self.catalog_at = self.ticker_at = self.time_at = 0
         self.offset = 0
         self.movers = []
+        self.ticker_prices = {}
 
     def _head(self, target, observed, status, reason, frame_id=None):
         with self.connect() as c:
@@ -345,16 +383,9 @@ class SharedMarketHub:
         observed = (now + self.offset - 2000) // 60000 * 60000
         if now - self.ticker_at >= policy.ticker_seconds * 1000:
             rows = self.transport("/fapi/v1/ticker/24hr", {})
-            scored = []
-            if not isinstance(rows, list) or len(rows) > 10000:
-                raise ValueError("MARKET_TICKER_INVALID")
-            for row in rows:
-                if row.get("symbol") in universe:
-                    value = Decimal(row["priceChangePercent"])
-                    if not value.is_finite():
-                        raise ValueError("MARKET_TICKER_INVALID")
-                    scored.append((abs(value), row["symbol"]))
-            self.movers = [s for _, s in sorted(scored, reverse=True)]
+            self.movers, self.ticker_prices = rank_movers(
+                rows, universe, self.ticker_prices, policy
+            )
             self.ticker_at = now
         with self.connect() as c:
             rows = c.execute(
@@ -415,6 +446,7 @@ class SharedMarketHub:
             "regime": regime,
             "universe": len(universe),
             "listed": len(listed),
+            "lightweight_coverage": len(self.ticker_prices),
             "unsupported_symbols": [
                 name for name, row in listed.items() if not row["supported"]
             ],

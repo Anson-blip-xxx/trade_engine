@@ -110,7 +110,10 @@ class Public:
         if path.endswith("/exchangeInfo"):
             return catalog_response(self.names)
         if path.endswith("/24hr"):
-            return [{"symbol": s, "priceChangePercent": "1"} for s in self.names]
+            return [
+                {"symbol": s, "priceChangePercent": "1", "lastPrice": "100"}
+                for s in self.names
+            ]
         assert path.endswith("/klines")
         if p["symbol"] in self.failed:
             raise TimeoutError("MARKET_TIMEOUT")
@@ -286,6 +289,25 @@ def test_full_market_batching_does_not_whitelist_or_starve_background():
         for s in batch:
             heads[s] = {"observed": 86400000, "attempted": 100000000 + step * 60000}
     assert set(heads) == set(names)
+
+
+def test_recent_pump_outweighs_stale_daily_mover_and_invalid_symbol_is_isolated():
+    from decimal import Decimal
+
+    from services.v2_shared_market import rank_movers
+
+    rows = [
+        {"symbol": "OLDUSDT", "lastPrice": "100", "priceChangePercent": "40"},
+        {"symbol": "NEWUSDT", "lastPrice": "102", "priceChangePercent": "2"},
+        {"symbol": "BADUSDT", "lastPrice": "0", "priceChangePercent": "999"},
+    ]
+    ranking, prices = rank_movers(
+        rows,
+        {"OLDUSDT", "NEWUSDT", "BADUSDT"},
+        {"OLDUSDT": Decimal(100), "NEWUSDT": Decimal(100)},
+        MarketPolicy(),
+    )
+    assert ranking == ["NEWUSDT", "OLDUSDT"] and "BADUSDT" not in prices
 
 
 def test_hub_isolates_failure_and_publishes_same_minute_for_multiple_symbols(shared):

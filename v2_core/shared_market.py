@@ -22,6 +22,8 @@ class MarketPolicy:
     shared_weight_limit: int = 1800
     market_weight_limit: int = 900
     minimum_free_disk_gib: int = 8
+    mover_short_weight: int = 100
+    mover_day_weight: int = 1
     regime_symbols: tuple = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
 
     def __post_init__(self):
@@ -39,6 +41,8 @@ class MarketPolicy:
             "shared_weight_limit": (100, 2400),
             "market_weight_limit": (50, 1800),
             "minimum_free_disk_gib": (4, 100),
+            "mover_short_weight": (1, 1000),
+            "mover_day_weight": (0, 1000),
         }
         for field, (lo, hi) in limits.items():
             value = getattr(self, field)
