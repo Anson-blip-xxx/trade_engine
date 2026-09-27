@@ -183,6 +183,50 @@ def test_expiry_maintenance_runs_while_entry_safety_blocked(case, database):
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
 
 
+def test_dynamic_nonmatching_events_do_not_block_valid_prepared_order(case, database):
+    from v2_core.evidence import canonical
+
+    pipeline, _, _, _, now = case
+    for scheduler in pipeline.schedulers:
+        scheduler.worker.config_json = canonical(
+            {**json.loads(scheduler.worker.config_json), "dynamic_universe": True}
+        )
+        original = scheduler.context_provider
+        scheduler.context_provider = lambda signal, provider=original: {
+            **provider(signal),
+            "signal_fusion": {"window_ms": 60000},
+            "universe_admission": {
+                "environment": "SANDBOX",
+                "symbol": signal["symbol"],
+                "eligible": True,
+            },
+        }
+    ignored = pipeline.runtime.data.signals.admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key="high-vol-no-direction",
+        snapshot={
+            "symbol": "ETHUSDT",
+            "signal": "HIGH_VOL",
+            "observed_at": now,
+            "expires_at_ms": now + 60000,
+            "features": {},
+        },
+    )
+    result = pipeline.run_once()
+    assert result["status"] == "CYCLE_COMPLETE", result
+    assert (
+        result["phases"]["s6"][ignored] == result["phases"]["s8"][ignored] == "IGNORED"
+    )
+    with database() as c:
+        assert (
+            c.execute(
+                "SELECT count(*) FROM v2_orders WHERE status='PREPARED'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
 def test_real_s3_detection_through_context_strategy_and_pg_order(case, database):
     pipeline, calls, _, _, _ = case
     result = pipeline.run_once()

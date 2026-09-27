@@ -8,6 +8,7 @@ from test_v2_directional_replay import scenario, worker
 from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_admission import (
+    admission_decision,
     create_directional_admission_scheduler,
     create_directional_admission_worker,
 )
@@ -15,6 +16,94 @@ from services.v2_directional_protection import DirectionalStopRecovery
 from v2_core.runner import RiskVerdict
 
 database = database_fixture
+
+
+@pytest.mark.parametrize("source", ["s3", "tv_bridge"])
+@pytest.mark.parametrize(
+    "strategy,event",
+    [
+        ("S6", "HIGH_VOL"),
+        ("S8", "HIGH_VOL"),
+        ("S6", "TREND_DOWN"),
+        ("S8", "TREND_UP"),
+    ],
+)
+def test_dynamic_nonmatching_events_complete_without_context(
+    database, source, strategy, event
+):
+    _, runtime, _, _ = scenario(database)
+    runtime.execution.risk_reference = lambda _: pytest.fail("no dispatch")
+    signal = runtime.data.signals.admit(
+        source=source,
+        environment="SANDBOX",
+        request_key="nonmatching-dynamic",
+        snapshot={
+            "symbol": "ETHUSDT",
+            "observed_at": 2,
+            "expires_at_ms": 10,
+            "signal": event,
+            "features": {},
+        },
+    )
+    scheduler = create_directional_admission_scheduler(
+        runtime,
+        context_provider=lambda _: pytest.fail(
+            "nonmatching events need no market/account reads"
+        ),
+        strategy=strategy,
+        analysis_mode="hard",
+        max_delay_ms=5,
+        enable_admission=True,
+        source=source,
+        dynamic_universe=True,
+        tv_start_ms=1,
+    )
+    # Existing scenario signal may be supported: schedule this case only.
+    with database() as c:
+        other = c.execute(
+            "SELECT signal_id FROM v2_inbound_signals WHERE signal_id<>%s", (signal,)
+        ).fetchall()
+        for (identifier,) in other:
+            c.execute(
+                "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason) VALUES(%s,%s,'IGNORED','QA unrelated fixture') ON CONFLICT DO NOTHING",
+                (scheduler.worker.scope.consumer, identifier),
+            )
+    result = scheduler.run_once()
+    assert result[signal] == "IGNORED"
+    with database() as c:
+        assert c.execute(
+            "SELECT outcome,reason FROM v2_signal_receipts WHERE signal_id=%s AND consumer=%s",
+            (signal, scheduler.worker.scope.consumer),
+        ).fetchone() == ("IGNORED", "UNSUPPORTED_DIRECTIONAL_EVENT")
+        assert c.execute(
+            "SELECT error_code,completed_at IS NOT NULL FROM v2_strategy_tasks WHERE signal_id=%s AND consumer=%s",
+            (signal, scheduler.worker.scope.consumer),
+        ).fetchone() == (None, True)
+        assert c.execute("SELECT count(*) FROM v2_orders").fetchone()[0] == 0
+    assert scheduler.run_once() == {}
+
+
+def test_dynamic_actionable_event_still_requires_contract_proof():
+    config = {
+        "mode": "TESTNET_ADMISSION_ONLY",
+        "account_scope": {"environment": "SANDBOX"},
+        "strategy": "S6",
+        "dynamic_universe": True,
+    }
+    with pytest.raises(ValueError, match="CONTRACT_ADMISSION_EVIDENCE_REQUIRED"):
+        admission_decision(
+            {"signal": "TREND_UP", "symbol": "BTCUSDT", "features": {}}, {}, config
+        )
+    with pytest.raises(ValueError, match="conflicting event type"):
+        admission_decision(
+            {
+                "signal": "HIGH_VOL",
+                "symbol": "BTCUSDT",
+                "features": {"type": "TREND_UP"},
+            },
+            {},
+            config,
+        )
 
 
 def test_tv_scheduler_uses_real_gates_and_never_backfills_or_expands_universe(database):

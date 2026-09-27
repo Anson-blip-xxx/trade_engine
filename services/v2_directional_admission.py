@@ -29,6 +29,11 @@ def admission_decision(signal, context, config):
             and signal["symbol"] not in config["allowed_symbols"]
         ):
             return StrategyDecision("IGNORED", "TV_SYMBOL_OUTSIDE_MARKET_UNIVERSE")
+    # Scheduler intentionally does not acquire context for another strategy's
+    # event. Preserve replay's event-integrity check and terminal ignore before
+    # asking for market proof; only actionable events require that proof.
+    if not supports_event(config["strategy"], signal["signal"]):
+        return replay_decision(signal, context, {**config, "mode": "REPLAY_ONLY"})
     if config.get("dynamic_universe", False):
         proof = context.get("universe_admission")
         if (
