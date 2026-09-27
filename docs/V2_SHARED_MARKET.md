@@ -200,8 +200,10 @@ this serial worker. The accepted operating model is full lightweight discovery
 plus prioritized/fair, freshness-gated deep computation. Increasing batch size
 alone is not evidence that more CPU/network capacity exists.
 
-Remaining boundary: Web verification retains its independent quota pending
-approval/design of a minimally privileged shared-quota interface. Non-ASCII
+The Web independent-quota boundary recorded at this acceptance was subsequently
+resolved by the user-approved consume-only interface in release `63f9302-web-quota`;
+see [Web quota acceptance](V2_WEB_VERIFICATION_QUOTA.md). Web now shares the host
+bucket without direct table access or a quota-reset operation. Non-ASCII
 contract execution remains unsupported. LIVE activation, profitability, and
 multi-day stability are not established by this acceptance. Historical analysis
 and simulated/testnet outcomes must not be represented as live returns.

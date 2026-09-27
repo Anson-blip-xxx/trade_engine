@@ -72,4 +72,28 @@ market, frontend, rotation and no-file-data-core regressions are also run.
 `git diff --check` and import under the deployed account-admin Python environment
 also passed. This is a targeted regression, not a repeat of the entire V2 suite.
 
-Deployment acceptance is recorded after the tested candidate is installed.
+## Recorded deployment acceptance — 2026-09-27, UTC+8
+
+Account-admin now points to `/opt/trade-engine-v2/releases/63f9302-web-quota`.
+Only account-admin was stopped/started; the market hub and execution-controller
+PIDs remained unchanged. All three services were active with zero automatic
+restarts at the final check. Dashboard still points to its earlier release.
+
+Effective PostgreSQL privileges confirmed:
+
+- Web can execute both quota functions, but PUBLIC cannot.
+- Neither budget table grants Web SELECT, INSERT, UPDATE, DELETE or TRUNCATE.
+- Web cannot INSERT, UPDATE or DELETE the versioned policy table.
+- Both functions are owned by `ubuntu`, a non-superuser, with their fixed safe
+  search path. No new privileged database role was provisioned.
+
+At approximately 18:36 UTC+8, both existing SANDBOX accounts returned uncached
+`SIGNED_READ_ACCEPTED` from the deployed Web verification endpoint. Each returned
+`execution_authorized=false`; immediate repeat calls hit the verification cache.
+No LIVE account verification was requested. Unauthenticated account-list access
+returned HTTP 403; authenticated account-list access returned HTTP 200.
+
+Trading authorization was deliberately not changed: route epoch 16 remained
+`DRAINING / RECOVERING_SOURCE`, and `V2_CONTROLLER_ENABLE_ENTRIES=false` remained
+in force. This acceptance proves the quota and signed-read integration, not
+opening execution, LIVE readiness, trading profitability or multi-day stability.
