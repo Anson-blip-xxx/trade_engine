@@ -17,6 +17,69 @@ from v2_core.directional import (
 from v2_core.evidence import canonical
 from v2_core.strategy import StrategyDecision, StrategyScope, StrategyWorker
 
+# These rejects cannot become candidates by adding account sentiment/history.
+# In particular score_below_minimum is NOT safe: real sentiment can add points.
+MARKET_ONLY_REJECTIONS = frozenset(
+    {
+        "regime_conflict",
+        "strength_below_minimum",
+        "pump_down_uptrend",
+        "entry_mode_unconfirmed",
+        "takeover_not_ready",
+        "overextended",
+        "atr_exceeded",
+    }
+)
+
+
+def source_policy(signal, config):
+    from v2_core.runtime_policy import resolve
+
+    policy = resolve(config.get("policy"))
+    selected = (
+        config.get("source") == "tv_bridge"
+        and signal["signal"] in {"TREND_UP", "TREND_DOWN"}
+        and policy["tv.trend_policy_enabled"]
+    )
+    proof = {
+        "version": "source-thresholds-v1",
+        "source": config.get("source", "s3"),
+        "profile": "tv-trend-v1" if selected else "directional-default-v1",
+        "raw_strength": signal["features"]["strength"],
+    }
+    if selected:
+        policy = {
+            **policy,
+            "entry.short_min_strength": policy["tv.trend_min_strength"],
+            "entry.min_score": policy["tv.trend_min_score"],
+        }
+    proof.update(
+        min_score=policy["entry.min_score"],
+        short_min_strength=policy["entry.short_min_strength"],
+    )
+    return policy, proof
+
+
+def market_plan(signal, context, config):
+    event, snapshot = signal["features"], context["directional"]
+    policy, proof = source_policy(signal, config)
+    plan = evaluate_market(
+        config["strategy"],
+        {
+            "type": signal["signal"],
+            "strength": decimal_features(event["strength"]),
+            "breakout_confirmed": event.get("breakout_confirmed", False),
+            "taker_buy_ratio": decimal_features(event.get("taker_buy_ratio")),
+        },
+        decimal_features(snapshot["market"]),
+        price=snapshot["price"],
+        regime=snapshot["regime"],
+        short_ratio=snapshot["short_ratio"],
+        age_ms=context["assembled_at"] - signal["observed_at"],
+        policy=policy,
+    )
+    return plan, proof
+
 
 def decimal_features(value):
     """S3 keeps exact integer strengths/indicators; do not stringify bool/float."""
@@ -50,31 +113,23 @@ def replay_decision(signal, context, config):
     ):
         raise ValueError("replay context expired or future")
     snapshot = context["directional"]
-    plan = evaluate_market(
-        config["strategy"],
-        {
-            "type": signal["signal"],
-            "strength": decimal_features(event["strength"]),
-            "breakout_confirmed": event.get("breakout_confirmed", False),
-            "taker_buy_ratio": decimal_features(event.get("taker_buy_ratio")),
-        },
-        decimal_features(snapshot["market"]),
-        price=snapshot["price"],
-        regime=snapshot["regime"],
-        short_ratio=snapshot["short_ratio"],
-        age_ms=now - signal["observed_at"],
-        policy=config.get("policy"),
-    )
-    features = {"market_plan": asdict(plan), "execution_authorized": False}
+    plan, scoring = market_plan(signal, context, config)
+    if context.get("market_only") and plan.reason not in MARKET_ONLY_REJECTIONS:
+        raise ValueError("FULL_ACCOUNT_CONTEXT_REQUIRED")
+    features = {
+        "market_plan": asdict(plan),
+        "source_scoring": scoring,
+        "execution_authorized": False,
+    }
 
     def result(reason):
         return StrategyDecision("IGNORED", reason, features_json=canonical(features))
 
     if plan.reason != "CANDIDATE":
         return result(plan.reason)
-    from v2_core.runtime_policy import resolve
-
-    settings = resolve(config.get("policy"))
+    # Sizing validates the candidate against the same source-specific minimum.
+    # All other risk/capital settings remain identical to the frozen policy.
+    settings, _ = source_policy(signal, config)
     if settings["leverage.adaptive_enabled"]:
         from decimal import Decimal
 
@@ -104,7 +159,7 @@ def replay_decision(signal, context, config):
         plan = replace(plan, leverage=selected)
         features["market_plan"] = asdict(plan)
     adjustment = analysis_adjustment(
-        snapshot["history"], mode=config["analysis_mode"], policy=config.get("policy")
+        snapshot["history"], mode=config["analysis_mode"], policy=settings
     )
     features["analysis"] = asdict(adjustment)
     if adjustment.factor == "0":
@@ -116,7 +171,7 @@ def replay_decision(signal, context, config):
         price=snapshot["price"],
         atr_pct=decimal_features(snapshot["market"]["1h"]["atr_pct"]),
         analysis_factor=adjustment.factor,
-        policy=config.get("policy"),
+        policy=settings,
     )
     features["sizing"] = asdict(sized)
     if sized.reason != "SIZED":
@@ -127,7 +182,7 @@ def replay_decision(signal, context, config):
         price=snapshot["price"],
         expected_move_pct=snapshot["expected_move_pct"],
         funding_rate=snapshot["funding_rate"],
-        policy=config.get("policy"),
+        policy=settings,
     )
     features["execution_market_gate"] = gate
     return result("DIRECTIONAL_REPLAY_ONLY" if gate == "MARKET_GATES_PASSED" else gate)

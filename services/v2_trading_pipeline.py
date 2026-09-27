@@ -6,6 +6,7 @@ This composition is not a substitute for implementing or deploying those stages.
 """
 
 import json
+import time
 from dataclasses import asdict
 from uuid import uuid4
 
@@ -231,6 +232,18 @@ class TradingPipeline:
                 and market_ok
                 and regime_ok
             )
+
+            def prepared_orders():
+                with self.connect() as conn:
+                    return conn.execute(
+                        """SELECT o.order_id::text FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+                        WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                        AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                        AND o.leg='OPEN' AND o.status='PREPARED' ORDER BY o.updated_at,o.order_id LIMIT %s""",
+                        (*asdict(self.scope).values(), limit),
+                    ).fetchall()
+
+            measured = []
             if can_admit:
                 schedulers = (
                     sorted(
@@ -239,35 +252,45 @@ class TradingPipeline:
                     if settings["scheduler.tv_first"]
                     else self.schedulers
                 )
-                for scheduler in schedulers:
+                deadline = (
+                    time.monotonic() + settings["scheduler.evaluation_budget_ms"] / 1000
+                )
+                for index, scheduler in enumerate(schedulers):
+                    # Durable prepared orders have an original deadline. Do not
+                    # strand them behind another batch of venue/account reads.
+                    if self.enable_entries and prepared_orders():
+                        break
+                    remaining = int((deadline - time.monotonic()) * 1000)
+                    if remaining <= 0:
+                        break
 
-                    def schedule_and_measure(target=scheduler):
-                        # The deployed S3 frame contains 19 symbols. Admission
-                        # must not inherit the smaller order-recovery batch of 10.
+                    allowance = max(1, remaining // (len(schedulers) - index))
+
+                    def schedule_and_measure(target=scheduler, budget=allowance):
                         processed = target.run_once(
                             limit=settings["scheduler.signal_batch"],
                             interval_seconds=settings["scheduler.retry_seconds"],
                             lease_seconds=settings["scheduler.lease_seconds"],
+                            budget_ms=budget,
+                            stop_on_prepared=self.enable_entries,
                         )
-                        return {**processed, "progress": target.progress()}
+                        # Historical catch-up counts can be expensive. They are
+                        # diagnostic, never a prerequisite for dispatch/protection.
+                        return processed
 
-                    result = phase(
+                    name = (
                         scheduler.worker.scope.producer
                         if scheduler.worker.source == "s3"
-                        else scheduler.worker.scope.producer + ":tv",
-                        schedule_and_measure,
+                        else scheduler.worker.scope.producer + ":tv"
                     )
+                    result = phase(name, schedule_and_measure)
+                    measured.append((name, scheduler))
                     can_admit = can_admit and not failed(result)
+                    if not can_admit:
+                        break
             entries = {}
             if self.enable_entries and can_admit:
-                with self.connect() as conn:
-                    orders = conn.execute(
-                        """SELECT o.order_id::text FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
-                        WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                        AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
-                        AND o.leg='OPEN' AND o.status='PREPARED' ORDER BY o.updated_at,o.order_id LIMIT %s""",
-                        (*asdict(self.scope).values(), limit),
-                    ).fetchall()
+                orders = prepared_orders()
                 for (order_id,) in orders:
                     result = phase(
                         "dispatch:" + order_id,
@@ -292,6 +315,13 @@ class TradingPipeline:
                         ):
                             can_admit = False
                         break
+            for name, scheduler in measured:
+                try:
+                    journal["phases"][name]["progress"] = scheduler.progress()
+                except Exception as exc:  # noqa: BLE001 - diagnostic only, safe code
+                    journal["phases"][name]["progress"] = {
+                        "error_code": type(exc).__name__
+                    }
             journal.update(
                 status="CYCLE_COMPLETE" if can_admit else "ENTRY_BLOCKED",
                 entry_dispatch_enabled=self.enable_entries,

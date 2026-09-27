@@ -8,7 +8,7 @@ import json
 from dataclasses import asdict
 
 from services.v2_directional_replay import replay_decision
-from v2_core.directional import supports_event
+from v2_core.directional import directional_events, supports_event
 from v2_core.evidence import canonical
 from v2_core.runtime import DataRuntime
 from v2_core.scheduling import StrategyScheduler
@@ -128,6 +128,7 @@ def create_directional_admission_scheduler(runtime, *, context_provider, **setti
     config = json.loads(worker.config_json)
     return StrategyScheduler(
         worker,
+        priority_events=directional_events(settings["strategy"]),
         context_provider=context_provider,
         context_required=lambda snapshot: (
             supports_event(settings["strategy"], snapshot["signal"])

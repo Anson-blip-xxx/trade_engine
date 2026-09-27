@@ -5,6 +5,7 @@ StrategyWorker's immutable decision and idempotent admission are the authority.
 """
 
 import re
+import time
 from copy import deepcopy
 from uuid import uuid4
 
@@ -24,7 +25,15 @@ def diagnostic_code(exc):
 
 
 class StrategyScheduler:
-    def __init__(self, worker, *, context_provider, context_required=None):
+    def __init__(
+        self,
+        worker,
+        *,
+        context_provider,
+        context_required=None,
+        priority_events=(),
+        monotonic=time.monotonic,
+    ):
         context_required = (
             (lambda _: True) if context_required is None else context_required
         )
@@ -36,6 +45,11 @@ class StrategyScheduler:
             context_required,
         )
         self._connect = worker._connect
+        if not isinstance(priority_events, tuple) or any(
+            not isinstance(v, str) or not v for v in priority_events
+        ):
+            raise ValueError("explicit priority event types required")
+        self.priority_events, self.monotonic = priority_events, monotonic
 
     def expire_pending(self, *, limit=1000):
         """Retire never-decided expired signals in one bounded transaction.
@@ -130,7 +144,15 @@ class StrategyScheduler:
             "caught_up": undiscovered == 0 and incomplete == 0,
         }
 
-    def run_once(self, limit=100, *, interval_seconds=5, lease_seconds=300):
+    def run_once(
+        self,
+        limit=100,
+        *,
+        interval_seconds=5,
+        lease_seconds=300,
+        budget_ms=None,
+        stop_on_prepared=False,
+    ):
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid strategy batch limit")
         if any(
@@ -138,6 +160,13 @@ class StrategyScheduler:
             for v in (interval_seconds, lease_seconds)
         ):
             raise ValueError("bounded strategy cadence and lease required")
+        if budget_ms is not None and (
+            type(budget_ms) is not int or not 1 <= budget_ms <= 60000
+        ):
+            raise ValueError("bounded strategy time budget required")
+        if type(stop_on_prepared) is not bool:
+            raise ValueError("explicit prepared-order yield required")
+        deadline = None if budget_ms is None else self.monotonic() + budget_ms / 1000
         worker, consumer = self.worker, self.worker.scope.consumer
         now = worker.runtime._now()
         # No high-water mark: late commits and previously admitted-but-unprepared
@@ -155,7 +184,9 @@ class StrategyScheduler:
                         WHERE d.consumer=%s AND d.signal_id=s.signal_id) THEN 0
                     WHEN (s.snapshot->>'observed_at')::bigint<=%s
                         AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
-                    ELSE 2 END,s.received_at,s.signal_id
+                    ELSE 2 END,
+                    CASE WHEN s.snapshot->>'signal'=ANY(%s::text[]) THEN 0 ELSE 1 END,
+                    (s.snapshot->>'expires_at_ms')::bigint,s.received_at,s.signal_id
                 LIMIT %s ON CONFLICT DO NOTHING""",
                 (
                     consumer,
@@ -165,11 +196,14 @@ class StrategyScheduler:
                     consumer,
                     now,
                     now,
+                    list(self.priority_events),
                     limit,
                 ),
             )
         results = {}
         for _ in range(limit):
+            if deadline is not None and self.monotonic() >= deadline:
+                break
             token = str(uuid4())
             # Claim just before execution, not an entire batch whose leases can
             # expire while preceding callbacks are running.
@@ -187,7 +221,9 @@ class StrategyScheduler:
                             WHERE d.consumer=t.consumer AND d.signal_id=t.signal_id) THEN 0
                         WHEN (s.snapshot->>'observed_at')::bigint<=%s
                             AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
-                        ELSE 2 END,t.next_attempt_at,t.signal_id LIMIT 1
+                        ELSE 2 END,
+                        CASE WHEN s.snapshot->>'signal'=ANY(%s::text[]) THEN 0 ELSE 1 END,
+                        (s.snapshot->>'expires_at_ms')::bigint,t.next_attempt_at,t.signal_id LIMIT 1
                     FOR UPDATE OF t SKIP LOCKED)
                     UPDATE v2_strategy_tasks t SET attempts=attempts+1,lease_token=%s,
                     lease_until=clock_timestamp()+%s*interval '1 second'
@@ -200,6 +236,7 @@ class StrategyScheduler:
                         list(results),
                         worker.runtime._now(),
                         worker.runtime._now(),
+                        list(self.priority_events),
                         token,
                         lease_seconds,
                         consumer,
@@ -270,4 +307,6 @@ class StrategyScheduler:
                     )
             except Exception:  # noqa: BLE001 - lease expiry retries lost scheduling acknowledgement
                 results[signal_id] = "UNAVAILABLE"
+            if stop_on_prepared and results[signal_id] == "PREPARED":
+                break
         return results

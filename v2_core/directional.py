@@ -20,6 +20,12 @@ _SHORT = frozenset(
 )
 
 
+def directional_events(strategy):
+    if strategy not in {"S6", "S8"}:
+        raise ValueError("unsupported directional strategy")
+    return tuple(sorted(_LONG if strategy == "S6" else _SHORT))
+
+
 def supports_event(strategy, event_type):
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")

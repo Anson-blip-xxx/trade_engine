@@ -576,6 +576,21 @@ def create_testnet_process(
     if config.enable_tv_signals:
         sources.extend((("S6", "tv_bridge"), ("S8", "tv_bridge")))
     for strategy, source in sources:
+        from services.v2_directional_replay import MARKET_ONLY_REJECTIONS, market_plan
+        from v2_core.runtime_policy import PolicyStore
+
+        def market_screen(signal, snapshot, selected=strategy, origin=source):
+            plan, _ = market_plan(
+                signal,
+                snapshot,
+                {
+                    "strategy": selected,
+                    "source": origin,
+                    "policy": PolicyStore(connect, scope).read().values,
+                },
+            )
+            return plan.reason in MARKET_ONLY_REJECTIONS
+
         producer = strategy.lower()
         history = DirectionalHistory(
             connect, scope=scope, producer=producer, clock_ms=clock_ms
@@ -591,7 +606,11 @@ def create_testnet_process(
             sentiment_market=sentiment_market,
         )
         context = DirectionalContext(
-            market_context, account, scope=scope, clock_ms=clock_ms
+            market_context,
+            account,
+            scope=scope,
+            clock_ms=clock_ms,
+            market_screen=market_screen,
         )
         if shared_market:
             from services.v2_shared_market_context import DynamicMarketContext

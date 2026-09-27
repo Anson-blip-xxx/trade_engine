@@ -9,7 +9,9 @@ from dataclasses import asdict
 
 
 class DirectionalContext:
-    def __init__(self, market_context, account_context, *, scope, clock_ms):
+    def __init__(
+        self, market_context, account_context, *, scope, clock_ms, market_screen=None
+    ):
         if scope.environment != "SANDBOX" or not all(
             callable(p) for p in (market_context, account_context, clock_ms)
         ):
@@ -20,9 +22,38 @@ class DirectionalContext:
             scope,
             clock_ms,
         )
+        self.market_screen = market_screen
 
     def __call__(self, signal):
         market = deepcopy(self.market(signal))
+        now = self.clock()
+        if (
+            market["environment"] != self.scope.environment
+            or market["symbol"] != signal["symbol"]
+            or any(
+                type(t) is not int or t < 0
+                for t in (now, market["assembled_at"], market["valid_until_ms"])
+            )
+            or not market["assembled_at"] <= now < market["valid_until_ms"]
+            or not signal["observed_at"] <= now < signal["expires_at_ms"]
+        ):
+            raise ValueError("stale or invalid market context")
+        if self.market_screen is not None:
+            windows = market["sources"]["s3"]["features"]
+            screening = {
+                **market,
+                "account_scope": asdict(self.scope),
+                "assembled_at": now,
+                "market_only": True,
+                "directional": {
+                    "market": windows,
+                    "price": windows["15m"]["close"],
+                    "regime": market["sources"]["s0"]["features"]["regime"],
+                    "short_ratio": None,
+                },
+            }
+            if self.market_screen(signal, screening):
+                return screening
         account = deepcopy(self.account(signal))
         now = self.clock()
         if (

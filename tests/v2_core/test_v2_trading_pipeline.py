@@ -533,3 +533,34 @@ def test_same_cycle_s3_strategy_injected_fill_and_actual_stop_install(
     assert result["phases"]["after_dispatch_protection"]["status"] == "CLEAR"
     assert len(result["entries"]) == len(venue.writes) == 1
     assert venue.writes[0]["triggerPrice"] == "92"
+
+
+def test_prepared_dispatch_precedes_other_scheduler_and_history_counts(
+    case, monkeypatch
+):
+    pipeline, calls, _, _, _ = case
+    pipeline.enable_entries = True
+    monkeypatch.setattr(
+        pipeline.schedulers[1],
+        "run_once",
+        lambda **_: pytest.fail("must dispatch prepared order first"),
+    )
+    original = pipeline.schedulers[0].progress
+    monkeypatch.setattr(
+        pipeline.schedulers[0],
+        "progress",
+        lambda: calls.append("progress") or original(),
+    )
+    monkeypatch.setattr(
+        pipeline.runtime.execution,
+        "dispatch",
+        lambda _: calls.append("dispatch") or "FILLED",
+    )
+    monkeypatch.setattr(
+        pipeline.runtime.execution,
+        "recover",
+        lambda _: calls.append("recover") or "FILLED",
+    )
+    result = pipeline.run_once()
+    assert calls[-4:] == ["dispatch", "recover", "protection", "progress"]
+    assert len(result["entries"]) == 1
