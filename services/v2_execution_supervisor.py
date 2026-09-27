@@ -7,6 +7,7 @@ import threading
 from contextlib import contextmanager
 
 from services.v2_execution_controller import ExecutionController
+from services.v2_managed_health import build_managed_health
 from services.v2_managed_testnet import TestnetPorts, database
 
 
@@ -44,6 +45,7 @@ def main():
         spawn=ports.spawn,
     )
     stop = threading.Event()
+    health = build_managed_health(tenant, values, stop)
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     with database()() as lease:
@@ -58,6 +60,9 @@ def main():
                 lease.execute("SELECT 1")
                 lease.commit()
                 controller.step()
+                # Independent of child success: alive and CYCLE are not proof
+                # that actual opening/protection/settlement is progressing.
+                health.step(controller.actual())
                 stop.wait(10)
         finally:
             actual = controller.actual()

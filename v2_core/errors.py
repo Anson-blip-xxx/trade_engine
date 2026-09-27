@@ -11,6 +11,7 @@ class SubmissionNotSent(ValueError):
             "EXCHANGE_CREATED_ORDER_QUERY_ONLY",
             "VENUE_READINESS_BLOCKED",
             "EXECUTION_FENCED",
+            "EXECUTION_GUARD_PERMISSION_DENIED",
         }:
             raise ValueError("unsupported no-submission evidence")
         super().__init__(

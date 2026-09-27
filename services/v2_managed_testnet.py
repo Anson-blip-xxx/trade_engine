@@ -10,10 +10,10 @@ import os
 import time
 from contextlib import contextmanager, nullcontext
 from decimal import Decimal
-from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
+from services.v2_execution_guard import create_execution_guard
 from services.v2_systemd_master_keys import SystemdMasterKeys
 from services.v2_testnet_daemon_entry import (
     PrivateRatePermit,
@@ -23,7 +23,6 @@ from services.v2_testnet_daemon_entry import (
 from v2_core.account_inventory import AccountInventory, persist_inventory
 from v2_core.account_risk import AccountPolicy, AccountRisk, AccountScope
 from v2_core.database import connection_factory
-from v2_core.execution_routes import ExecutionRoutes
 from v2_core.public_market import PublicRateBudget
 from v2_core.runtime_credentials import resolve_runtime_credentials
 from v2_core.runtime_policy import PolicyStore
@@ -240,8 +239,8 @@ def child_main(tenant, target, values, stop, release, channel):
         cache.ping()
         archive.command("SELECT 1")
         connect = database()
-        guard = partial(
-            ExecutionRoutes(connect).submit_guard,
+        guard = create_execution_guard(
+            connect,
             tenant_id=tenant,
             environment="SANDBOX",
             registry_id=target["target_registry"],
@@ -249,6 +248,10 @@ def child_main(tenant, target, values, stop, release, channel):
             epoch=target["epoch"],
             worker_token=target["worker_token"],
         )
+        # Verify real deployment ACLs using the exact fencing role and row locks.
+        # STARTING is permitted here, but every exchange write still needs the
+        # ordinary ACTIVE/MANAGE fence after the controller releases this child.
+        guard.preflight()
         sink = TelegramOperationalSink(
             token=notifications["TG_NOTIFY_TOKEN"],
             chat_id=notifications["TG_NOTIFY_CHAT_ID"],
@@ -277,7 +280,7 @@ def child_main(tenant, target, values, stop, release, channel):
             if stop.is_set():
                 return
         while not stop.is_set():
-            with connect() as c:
+            with guard.connect() as c:
                 row = c.execute(
                     "SELECT phase,worker_token::text FROM v2_execution_routes WHERE tenant_id=%s AND environment='SANDBOX'",
                     (tenant,),
@@ -297,9 +300,13 @@ def child_main(tenant, target, values, stop, release, channel):
             except Exception:  # noqa: BLE001
                 channel.send("DEGRADED")
             stop.wait(config.daemon.interval_seconds)
-    except Exception:  # noqa: BLE001 - never disclose exception contexts containing credentials
+    except Exception as exc:  # noqa: BLE001 - only a fixed SQLSTATE classification crosses IPC
         try:
-            channel.send("FAILED")
+            channel.send(
+                "FAILED:EXECUTION_GUARD_PERMISSION_DENIED"
+                if getattr(exc, "sqlstate", None) == "42501"
+                else "FAILED"
+            )
         except Exception:  # noqa: BLE001,S110 - closed IPC channel must not disclose context
             pass
     finally:
@@ -332,11 +339,16 @@ class ChildWorker:
         child.close()
 
     def ready(self):
-        return (
-            self.channel.poll(25)
-            and self.channel.recv() == "READY"
-            and self.process.is_alive()
-        )
+        self.startup_failure = None
+        if not self.channel.poll(25):
+            return False
+        try:
+            message = self.channel.recv()
+        except EOFError:
+            return False
+        if message == "FAILED:EXECUTION_GUARD_PERMISSION_DENIED":
+            self.startup_failure = "EXECUTION_GUARD_PERMISSION_DENIED"
+        return message == "READY" and self.process.is_alive()
 
     def release(self):
         self.release_event.set()

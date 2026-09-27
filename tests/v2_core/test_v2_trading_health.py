@@ -256,3 +256,273 @@ def test_watchdog_persists_delivery_and_does_not_claim_recovery_without_evidence
         ("POSTGRES_UNAVAILABLE", "UNAVAILABLE"),
         ("POSTGRES_UNAVAILABLE", "RECOVERED"),
     }
+
+
+def opening(
+    database,
+    *,
+    status="REJECTED",
+    account_id="test-account",
+    reason=None,
+    symbol="BTCUSDT",
+):
+    """Create durable QA outcomes, not a transport or simulated health response."""
+    from dataclasses import replace
+
+    from test_v2_intent_admission import evidence, intent
+
+    from v2_core.evidence import EvidenceStore
+    from v2_core.intents import AdmissionCode, IntentStore
+    from v2_core.ledger import Ledger
+    from v2_core.orders import Orders
+
+    original = replace(intent(), account_id=account_id)
+    if symbol != original.symbol:
+        proof = evidence()
+        proof = replace(
+            proof,
+            snapshot_json=json.dumps(
+                {**json.loads(proof.snapshot_json), "symbol": symbol}
+            ),
+        )
+        EvidenceStore(database).put(proof)
+        original = replace(original, symbol=symbol, evidence_ref=proof.evidence_ref)
+    assert IntentStore(database).admit(original).code is AdmissionCode.ACCEPTED
+    orders = Orders(database)
+    order_id, _ = orders.prepare(original.intent_id)
+    assert orders.transition(
+        order_id, expected_version=1, status="SUBMITTING", evidence={"source": "QA"}
+    )
+    if status == "FILLED":
+        Ledger(database).record_fill(
+            order_id=order_id,
+            exchange_fill_id="qa-fill",
+            quantity=original.quantity,
+            price="100",
+            fee="0",
+            fee_currency="USDT",
+            occurred_at_ms=time.time_ns() // 1000000,
+            evidence={"source": "QA"},
+        )
+    assert orders.transition(
+        order_id,
+        expected_version=2,
+        status=status,
+        exchange_order_id="qa-venue-order"
+        if status in {"FILLED", "ACKNOWLEDGED"}
+        else None,
+        evidence={
+            "reason": reason or "VENUE_READINESS_BLOCKED",
+            "submission_sent": status != "REJECTED",
+        },
+    )
+    return order_id
+
+
+def test_opening_rejection_threshold_scope_and_no_raw_error_disclosure(database):
+    health = TradingHealth(database, account_id="test-account")
+    opening(database)
+    opening(database, account_id="different-account")
+    opening(database)
+    assert health() == frozenset()
+    opening(database, reason="permission denied SELECT secret-password")
+    assert health() == frozenset({"OPENING_SUBMISSION_STALLED"})
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert state["opening"]["rejected"] == 3
+    assert state["opening"]["accepted"] == 0
+    assert state["opening"]["rejection_codes"] == {
+        "VENUE_READINESS_BLOCKED": 2,
+        "UNCLASSIFIED_REJECTION": 1,
+    }
+    assert "secret-password" not in json.dumps(state)
+    assert TradingHealth(database, account_id="different-account")() == frozenset()
+    assert TradingHealth(database, account_id="untouched-account")() == frozenset()
+
+
+def test_permission_failure_is_immediate_and_silence_is_not_recovery(database):
+    opening(database, reason="EXECUTION_GUARD_PERMISSION_DENIED")
+    now = [time.time_ns() // 1000000 + 1]
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now[0])
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})
+    now[0] += 901000
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})
+    saved = json.loads(health.store.read(health.key).payload_json)
+    assert saved["opening"]["rejected"] == 0
+    assert saved["findings"]["EXECUTION_GUARD_PERMISSION_DENIED"][
+        "awaiting_successful_submission"
+    ]
+    opening(database, status="FILLED")
+    # A newer durable venue outcome proves recovery even after the window aged
+    # out; no clock sleeps or business-record mutations are necessary for QA.
+    restarted = TradingHealth(
+        database, account_id="test-account", clock_ms=lambda: now[0]
+    )
+    assert restarted() == frozenset()
+
+
+def test_successful_fill_is_not_a_zero_submission_window(database):
+    health = TradingHealth(database, account_id="test-account")
+    for _ in range(3):
+        opening(database)
+    opening(database, status="FILLED")
+    # Three failures out of four attempts are below the default 80% threshold.
+    assert health() == frozenset()
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert state["opening"]["accepted"] == 1
+    opening(database, symbol="ETHUSDT")
+    assert health() == frozenset({"OPENING_REJECTION_RATE_HIGH"})
+
+
+def test_opening_health_policy_is_account_scoped_and_bounded(database):
+    from v2_core.runtime_policy import PolicyStore, resolve
+
+    health = TradingHealth(database, account_id="test-account")
+    for _ in range(3):
+        opening(database)
+    policy = PolicyStore(database, health.scope)
+    policy.patch(
+        {"health.opening_min_rejections": 4, "health.opening_window_seconds": 60},
+        expected_version=0,
+        reason="QA bounded rejection policy",
+    )
+    assert health() == frozenset()
+    opening(database)
+    assert health() == frozenset({"OPENING_SUBMISSION_STALLED"})
+    for changes in (
+        {"health.opening_window_seconds": 59},
+        {"health.opening_window_seconds": 86401},
+        {"health.opening_min_rejections": 1},
+        {"health.opening_min_rejections": 1001},
+        {"health.opening_reject_fraction": "0"},
+        {"health.opening_reject_fraction": "1.1"},
+    ):
+        with pytest.raises(ValueError):
+            resolve(changes)
+
+
+def test_repeated_opening_health_notification_is_deduplicated(database):
+    for _ in range(3):
+        opening(database)
+    health = TradingHealth(database, account_id="test-account")
+    events = []
+    for _ in range(2):
+        HealthWatchdog(
+            health,
+            notify=lambda event: events.append(event) or True,
+            stop=Stop(),
+            interval_seconds=15,
+            delivery_state=WatchdogDeliveryState(database, "test-account"),
+        ).run_once()
+    assert len(events) == 1
+    assert events[0]["error_code"] == "OPENING_SUBMISSION_STALLED"
+
+
+def test_acknowledged_then_cancelled_is_successful_submission_not_rejection(database):
+    from v2_core.orders import Orders
+
+    order_id = opening(database, status="ACKNOWLEDGED")
+    assert Orders(database).transition(
+        order_id,
+        expected_version=3,
+        status="CANCELLED",
+        evidence={"fills_complete": True, "reason": "QA venue cancel"},
+    )
+    for _ in range(3):
+        opening(database)
+    health = TradingHealth(database, account_id="test-account")
+    assert health() == frozenset()
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert state["opening"]["accepted"] == 1
+
+
+def test_close_permission_rejections_are_urgent_not_an_opening_failure(database):
+    from v2_core.orders import Orders
+
+    order_id = opening(database, status="FILLED")
+    with database() as conn:
+        intent_id, quantity = conn.execute(
+            "SELECT episode_id::text,quantity::text FROM v2_orders WHERE order_id=%s",
+            (order_id,),
+        ).fetchone()
+    orders = Orders(database)
+    for index in range(3):
+        closing, _ = orders.prepare(
+            intent_id,
+            leg="CLOSE",
+            request_key="qa-close-" + str(index),
+            quantity=quantity,
+        )
+        assert orders.transition(
+            closing, expected_version=1, status="SUBMITTING", evidence={"source": "QA"}
+        )
+        assert orders.transition(
+            closing,
+            expected_version=2,
+            status="REJECTED",
+            evidence={
+                "reason": "EXECUTION_GUARD_PERMISSION_DENIED",
+                "submission_sent": False,
+            },
+        )
+    health = TradingHealth(database, account_id="test-account")
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert state["opening"]["rejected"] == 0
+
+
+def test_empty_window_and_other_account_success_do_not_clear_opening_incident(database):
+    for _ in range(3):
+        opening(database)
+    now = [time.time_ns() // 1000000 + 1]
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now[0])
+    assert health() == frozenset({"OPENING_SUBMISSION_STALLED"})
+    now[0] += 901000
+    opening(database, status="FILLED", account_id="another-account")
+    assert health() == frozenset({"OPENING_SUBMISSION_STALLED"})
+    saved = json.loads(health.store.read(health.key).payload_json)
+    assert saved["opening"]["rejected"] == saved["opening"]["accepted"] == 0
+    assert saved["findings"]["OPENING_SUBMISSION_STALLED"][
+        "awaiting_successful_submission"
+    ]
+    opening(database, status="FILLED")
+    assert health() == frozenset()
+    assert (
+        json.loads(health.store.read(health.key).payload_json)["opening_incidents"]
+        == {}
+    )
+
+
+def test_old_acceptance_recent_cancel_does_not_prove_permission_recovery(database):
+    from v2_core.orders import Orders
+
+    accepted = opening(database, status="ACKNOWLEDGED")
+    opening(database, symbol="ETHUSDT", reason="EXECUTION_GUARD_PERMISSION_DENIED")
+    assert Orders(database).transition(
+        accepted,
+        expected_version=3,
+        status="CANCELLED",
+        evidence={"fills_complete": True, "reason": "QA later cancellation"},
+    )
+    health = TradingHealth(database, account_id="test-account")
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})
+    opening(database, status="ACKNOWLEDGED")
+    assert health() == frozenset()
+
+
+def test_late_recovery_of_old_submission_is_not_guard_recovery(database):
+    from v2_core.orders import Orders
+
+    old_order = opening(database, status="UNKNOWN")
+    opening(database, symbol="ETHUSDT", reason="EXECUTION_GUARD_PERMISSION_DENIED")
+    assert Orders(database).transition(
+        old_order,
+        expected_version=3,
+        status="ACKNOWLEDGED",
+        exchange_order_id="qa-late-recovery",
+        evidence={"source": "read-only recovery"},
+    )
+    now = [time.time_ns() // 1000000 + 1]
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now[0])
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})
+    now[0] += 901000
+    assert health() == frozenset({"EXECUTION_GUARD_PERMISSION_DENIED"})

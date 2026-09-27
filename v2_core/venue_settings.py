@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from v2_core.account_inventory import AccountInventory
 from v2_core.account_risk import AccountScope
+from v2_core.errors import SubmissionNotSent
 from v2_core.evidence import canonical, digest
 from v2_core.state import BusinessState, StateKey
 
@@ -189,6 +190,25 @@ class TestnetSymbolSettings:
                 continue
             try:
                 self.request("POST", path, params)
+            except SubmissionNotSent as exc:
+                # A failed local fence is proven not sent. Do not reinterpret
+                # it as an ambiguous exchange response or hide its cause.
+                snapshot = self.store.read(key)
+                self.store.change(
+                    key,
+                    expected_version=snapshot.version,
+                    request_key="blocked:" + field,
+                    payload={
+                        **payload,
+                        "status": "BLOCKED",
+                        "stage": field,
+                        "error_code": exc.reason,
+                        "submission_sent": False,
+                        "changed": changed,
+                    },
+                    reason="VENUE_SYMBOL_SETTINGS_NOT_SENT",
+                )
+                raise
             except Exception:  # noqa: BLE001, S110 - resolve only by fresh GET
                 pass
             current = self._read(order["symbol"])

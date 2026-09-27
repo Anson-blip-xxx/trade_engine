@@ -205,6 +205,51 @@ def test_unverified_symbol_settings_prevent_readiness_and_send(case):
     assert venue.calls == [] and sent == []
 
 
+def test_guard_permission_failure_survives_settings_gate_and_runner(case):
+    from contextlib import contextmanager
+
+    from psycopg.errors import InsufficientPrivilege
+    from test_v2_venue_settings import SettingsVenue
+
+    from v2_core.guarded_transport import GuardedSignedRequest
+    from v2_core.venue_settings import TestnetSymbolSettings
+
+    data, order, venue, gate, runner, sent = case
+    settings_venue = SettingsVenue()
+    settings_venue.account_id = SCOPE.account_id
+    settings_venue.environment = SCOPE.environment
+
+    @contextmanager
+    def denied_guard(**_):
+        raise InsufficientPrivilege("credential and SQL details must not escape")
+        yield
+
+    gate.configure = TestnetSymbolSettings(
+        data._connect,
+        GuardedSignedRequest(
+            settings_venue,
+            account_id=SCOPE.account_id,
+            environment=SCOPE.environment,
+            guard=denied_guard,
+        ),
+        scope=SCOPE,
+        clock_ms=lambda: 1000,
+        allow_writes=True,
+    ).ensure
+    assert runner.dispatch(order) == "REJECTED"
+    assert not sent and not settings_venue.posts and not venue.calls
+    with data._connect() as connection:
+        row = connection.execute(
+            "SELECT e.evidence FROM v2_order_events e JOIN v2_orders o USING(order_id) "
+            "WHERE o.order_id=%s AND e.version=o.version",
+            (order,),
+        ).fetchone()
+    assert row[0] == {
+        "reason": "EXECUTION_GUARD_PERMISSION_DENIED",
+        "submission_sent": False,
+    }
+
+
 def test_bad_actual_leverage_is_definitely_not_sent(case):
     _, order, venue, _, runner, sent = case
     venue.rows["/fapi/v1/symbolConfig"][0]["leverage"] = 20
@@ -316,13 +361,16 @@ def test_explicit_external_position_does_not_mask_target_or_orders():
         clock_ms=lambda: 1000,
         excluded_position_symbols=("ZORAUSDT",),
     )
-    assert readiness.inspect(
-        symbol="BTCUSDT",
-        quantity="1",
-        leverage=2,
-        margin_type="ISOLATED",
-        reference=REF,
-    )["status"] == "READY_FOR_GUARDED_SUBMISSION"
+    assert (
+        readiness.inspect(
+            symbol="BTCUSDT",
+            quantity="1",
+            leverage=2,
+            margin_type="ISOLATED",
+            reference=REF,
+        )["status"]
+        == "READY_FOR_GUARDED_SUBMISSION"
+    )
     with pytest.raises(ValueError, match="excluded"):
         readiness.inspect(
             symbol="ZORAUSDT",

@@ -297,6 +297,15 @@ class TradingPipeline:
                         lambda oid=order_id: self.runtime.execution.dispatch(oid),
                     )
                     entries[order_id] = result
+                    # A completed Python call is not a successful opening. A
+                    # local rejection used to leave this cycle CYCLE_COMPLETE,
+                    # concealing a broken write path from business monitoring.
+                    if result not in ("ACKNOWLEDGED", "FILLED"):
+                        can_admit = False
+                        journal["phases"]["entry_dispatch"] = {
+                            "status": "BLOCKED",
+                            "error_code": "OPENING_DISPATCH_UNSUCCESSFUL",
+                        }
                     # Any possibly accepted opening stops this cycle's admissions.
                     # Recover its fills and invoke PM immediately, even after timeout.
                     if result not in ("DENIED", "REJECTED", "CANCELLED", "PREPARED"):
@@ -314,6 +323,11 @@ class TradingPipeline:
                             or failed(journal["phases"]["after_dispatch_recovery"])
                         ):
                             can_admit = False
+                        break
+                    # Do not hammer the same broken submission path with all
+                    # prepared orders. The next cycle still starts with recovery,
+                    # protection and exits; this is not a persistent account halt.
+                    if not can_admit:
                         break
             for name, scheduler in measured:
                 try:

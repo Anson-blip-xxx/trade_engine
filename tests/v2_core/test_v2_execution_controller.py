@@ -132,11 +132,16 @@ def test_source_process_must_confirm_stop(controller):
     assert ctrl.actual()["blockers"] == ["SOURCE_PROCESS_NOT_STOPPED"]
 
 
-def test_failed_child_cannot_be_reported_active(controller):
+@pytest.mark.parametrize(
+    "failure",
+    [None, "EXECUTION_GUARD_PERMISSION_DENIED", "qa-private-sql-token"],
+)
+def test_failed_child_cannot_be_reported_active(controller, failure):
     ctrl, store, console, _state = controller
     request(store, console, add(console)["registry_id"])
     worker = Worker()
     worker.ready_flag = False
+    worker.startup_failure = failure
     ctrl.spawn = lambda _: worker
     ctrl.step()
     assert (
@@ -144,6 +149,14 @@ def test_failed_child_cannot_be_reported_active(controller):
         and not worker.released
         and not worker.running
     )
+    expected = ["WORKER_START_FAILED"]
+    if failure == "EXECUTION_GUARD_PERMISSION_DENIED":
+        expected.append(failure)
+    assert ctrl.actual()["blockers"] == expected
+    with console.connect() as connection:
+        assert connection.execute(
+            "SELECT blockers FROM v2_execution_controller_events WHERE phase='BLOCKED' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone() == (expected,)
 
 
 def test_controller_never_consumes_live_request(controller):

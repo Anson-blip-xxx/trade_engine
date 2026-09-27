@@ -326,6 +326,9 @@ class GuardedOpeningSubmit:
                     or not proof["finished_at_ms"] <= now < proof["deadline_ms"]
                 ):
                     raise ValueError("readiness blocked or expired")
+            except SubmissionNotSent:
+                # Preserve a typed, redacted cause across settings/readiness.
+                raise
             except Exception:  # noqa: BLE001 - no call to submit has occurred
                 raise SubmissionNotSent("VENUE_READINESS_BLOCKED") from None
             # Never catch this exception as definitely not sent.

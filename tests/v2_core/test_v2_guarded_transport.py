@@ -86,6 +86,31 @@ def test_failure_after_send_never_reports_unsent():
     assert len(events) == 1
 
 
+@pytest.mark.parametrize(
+    "path,params",
+    [
+        ("/fapi/v1/marginType", {"symbol": "BTCUSDT", "marginType": "ISOLATED"}),
+        ("/fapi/v1/leverage", {"symbol": "BTCUSDT", "leverage": 3}),
+        ("/fapi/v1/order", {"reduceOnly": "true"}),
+        ("/fapi/v1/algoOrder", {"closePosition": "true"}),
+    ],
+)
+def test_permission_failure_is_specific_and_safe_before_any_write(path, params):
+    from psycopg.errors import InsufficientPrivilege
+
+    events = []
+
+    @contextmanager
+    def guard(**kw):
+        raise InsufficientPrivilege("secret token and SQL must never escape")
+        yield
+
+    with pytest.raises(SubmissionNotSent) as raised:
+        wrap(Request(events), guard)("POST", path, params)
+    assert str(raised.value) == "EXECUTION_GUARD_PERMISSION_DENIED"
+    assert not events
+
+
 def test_vault_writer_cannot_skip_execution_binding():
     from types import SimpleNamespace
 

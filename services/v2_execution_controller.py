@@ -148,7 +148,13 @@ class ExecutionController:
             )
             self.worker.release()
         except Exception:  # noqa: BLE001 - fixed diagnostics only
-            self.record(target, "BLOCKED", blockers=["WORKER_START_FAILED"])
+            blockers = ["WORKER_START_FAILED"]
+            if (
+                getattr(self.worker, "startup_failure", None)
+                == "EXECUTION_GUARD_PERMISSION_DENIED"
+            ):
+                blockers.append("EXECUTION_GUARD_PERMISSION_DENIED")
+            self.record(target, "BLOCKED", blockers=blockers)
             if self.worker is not None:
                 self.worker.stop()
             self.worker = None

@@ -222,10 +222,9 @@ def process_credentials(path, *, values, config, connect):
 
 def execution_guard_for(values, *, config, connect):
     """Managed vault workers cannot start a write-capable legacy fallback."""
-    from functools import partial
     from uuid import UUID
 
-    from v2_core.execution_routes import ExecutionRoutes
+    from services.v2_execution_guard import create_execution_guard
 
     fields = {"V2_EXECUTION_EPOCH", "V2_EXECUTION_WORKER_TOKEN"}
     requested = any(key in values for key in fields)
@@ -249,8 +248,8 @@ def execution_guard_for(values, *, config, connect):
         ):
             raise ValueError("PINNED_EXECUTION_VERSION_REQUIRED")
     token = str(UUID(values["V2_EXECUTION_WORKER_TOKEN"]))
-    return partial(
-        ExecutionRoutes(connect).submit_guard,
+    return create_execution_guard(
+        connect,
         tenant_id=values["V2_VAULT_TENANT_ID"],
         environment="SANDBOX",
         registry_id=values["V2_VAULT_REGISTRY_ID"],

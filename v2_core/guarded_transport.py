@@ -42,8 +42,12 @@ class GuardedSignedRequest:
         try:
             context = self.guard(operation=self.operation(method, path, params))
             context.__enter__()
-        except Exception:  # noqa: BLE001 - no write was invoked; never leak DB/token diagnostics
-            raise SubmissionNotSent("EXECUTION_FENCED") from None
+        except Exception as exc:  # noqa: BLE001 - no write invoked; only a fixed safe code
+            raise SubmissionNotSent(
+                "EXECUTION_GUARD_PERMISSION_DENIED"
+                if getattr(exc, "sqlstate", None) == "42501"
+                else "EXECUTION_FENCED"
+            ) from None
         try:
             return self.request(method, path, params)
         finally:

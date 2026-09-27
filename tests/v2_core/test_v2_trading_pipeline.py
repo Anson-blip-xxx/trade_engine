@@ -564,3 +564,33 @@ def test_prepared_dispatch_precedes_other_scheduler_and_history_counts(
     result = pipeline.run_once()
     assert calls[-4:] == ["dispatch", "recover", "protection", "progress"]
     assert len(result["entries"]) == 1
+
+
+@pytest.mark.parametrize(
+    "outcome", ["DENIED", "REJECTED", "CANCELLED", "PREPARED", "RACE_LOST"]
+)
+def test_unsuccessful_opening_is_blocked_but_next_cycle_keeps_safety_running(
+    case, monkeypatch, outcome
+):
+    pipeline, calls, _, _, _ = case
+    pipeline.enable_entries = True
+    execution = pipeline.runtime.execution
+    monkeypatch.setattr(
+        execution, "dispatch", lambda _: calls.append("dispatch") or outcome
+    )
+    monkeypatch.setattr(
+        execution, "recover", lambda _: calls.append("recover") or "UNKNOWN"
+    )
+    result = pipeline.run_once()
+    assert result["status"] == "ENTRY_BLOCKED"
+    assert result["phases"]["entry_dispatch"] == {
+        "status": "BLOCKED",
+        "error_code": "OPENING_DISPATCH_UNSUCCESSFUL",
+    }
+    assert list(result["entries"].values()) == [outcome]
+    assert calls.count("dispatch") == 1
+    calls.clear()
+    pipeline.run_once()
+    assert calls.index("protection") < calls.index("dispatch")
+    assert calls.index("exits") < calls.index("dispatch")
+    assert calls.index("settlement") < calls.index("dispatch")

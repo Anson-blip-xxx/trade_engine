@@ -145,6 +145,10 @@ def _trade_text(scope, kind, _event_id, payload):
 
 
 BUSINESS_HEALTH_MESSAGES = {
+    "EXECUTION_GUARD_PERMISSION_DENIED": "执行权限检查失败，交易请求在发送前已被拦截。请检查执行进程的数据库角色和绑定锁权限；开仓、保护及平仓都需要正确权限，禁止绕过安全守卫。",
+    "EXECUTION_CONTROLLER_BLOCKED": "受管执行进程启动或运行受阻，当前不能确认完整交易链路可用。请检查执行路由的阻塞原因与启动权限自检，不要仅以服务存活判断交易正常。",
+    "OPENING_SUBMISSION_STALLED": "近期有多次开仓尝试，但全部在交易所受理前被拒绝。请查看账户交易健康记录中的具体拒单原因；不是没有市场信号，也不会追补过期信号。",
+    "OPENING_REJECTION_RATE_HIGH": "近期实际开仓尝试的拒单比例超过配置阈值。请检查账户交易健康记录和交易所回执，不要通过放宽风控掩盖执行故障。",
     "CAPITAL_TRANSFER_OVERDUE": "存在超过配置时限仍未完成配对或已被冲正的划转流水。请核对双边凭证、期初边界与钱包差额；不会自动补造流水，本告警不代表交易权限变更。",
     "ORDER_PROGRESS_STALLED": "订单未及时推进：提交/未知状态或市价单回执超过 60 秒，或待提交超过 90 秒。请核对交易所回执和本地订单，不要盲目重复下单。",
     "SETTLEMENT_OVERDUE": "已平仓但超过配置时限仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",

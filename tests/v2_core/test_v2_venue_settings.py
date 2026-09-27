@@ -67,9 +67,7 @@ def coordinator(database, venue, *, enabled):
 
 
 def state(database, order_id):
-    key = StateKey(
-        **asdict(SCOPE), namespace="venue-symbol-settings-v1", key=order_id
-    )
+    key = StateKey(**asdict(SCOPE), namespace="venue-symbol-settings-v1", key=order_id)
     snapshot = BusinessState(database).read(key)
     return None if snapshot is None else json.loads(snapshot.payload_json)
 
@@ -145,6 +143,30 @@ def test_unconfirmed_write_fails_closed(database):
     assert state(database, item["order_id"])["status"] == "CONFIGURING"
 
 
+@pytest.mark.parametrize(
+    "reason", ["EXECUTION_FENCED", "EXECUTION_GUARD_PERMISSION_DENIED"]
+)
+def test_proven_unsent_setting_failure_is_not_swallowed(database, reason):
+    from v2_core.errors import SubmissionNotSent
+
+    class FencedVenue(SettingsVenue):
+        def __call__(self, method, path, params):
+            if method == "POST":
+                raise SubmissionNotSent(reason)
+            return super().__call__(method, path, params)
+
+    venue, item = FencedVenue(), order()
+    with pytest.raises(SubmissionNotSent) as error:
+        coordinator(database, venue, enabled=True).ensure(
+            item, {"leverage": 2, "margin_type": "ISOLATED"}
+        )
+    assert error.value.reason == reason and not venue.posts
+    saved = state(database, item["order_id"])
+    assert saved["status"] == "BLOCKED"
+    assert saved["stage"] == "margin_type"
+    assert saved["error_code"] == reason and saved["submission_sent"] is False
+
+
 @pytest.mark.parametrize("exposure", ["position", "ordinary", "conditional"])
 def test_nonempty_account_blocks_before_any_write(database, exposure):
     venue, item = SettingsVenue(), order()
@@ -155,9 +177,7 @@ def test_nonempty_account_blocks_before_any_write(database, exposure):
     elif exposure == "ordinary":
         venue.rows["/fapi/v1/openOrders"] = [{"symbol": "BTCUSDT", "orderId": 1}]
     else:
-        venue.rows["/fapi/v1/openAlgoOrders"] = [
-            {"symbol": "BTCUSDT", "algoId": 1}
-        ]
+        venue.rows["/fapi/v1/openAlgoOrders"] = [{"symbol": "BTCUSDT", "algoId": 1}]
     result = coordinator(database, venue, enabled=True).ensure(
         item, {"leverage": 2, "margin_type": "ISOLATED"}
     )
@@ -178,9 +198,10 @@ def test_explicit_external_position_does_not_block_other_symbol_settings(databas
         allow_writes=True,
         excluded_position_symbols=("ZORAUSDT",),
     )
-    assert service.ensure(
-        item, {"leverage": 2, "margin_type": "ISOLATED"}
-    )["status"] == "VERIFIED"
+    assert (
+        service.ensure(item, {"leverage": 2, "margin_type": "ISOLATED"})["status"]
+        == "VERIFIED"
+    )
     excluded = {**item, "order_id": str(uuid4()), "symbol": "ZORAUSDT"}
     with pytest.raises(ValueError, match="excluded"):
         service.ensure(excluded, {"leverage": 2, "margin_type": "ISOLATED"})

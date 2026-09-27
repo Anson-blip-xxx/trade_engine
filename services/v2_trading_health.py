@@ -7,6 +7,7 @@ state; no exchange client, automatic cancellation or local-file fallback.
 import json
 import time
 from dataclasses import asdict
+from decimal import Decimal
 from uuid import uuid4
 
 from services.v2_trading_pipeline import failed
@@ -15,6 +16,180 @@ from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import EXPECTED_ADMISSION_WAITS
 from v2_core.state import BusinessState, StateKey
 from v2_core.strategy import StrategyScope
+
+# Only these machine codes may cross from durable rejection evidence into the
+# health report. Legacy/raw transport errors must never become dashboard/TG text.
+_REJECTION_CODES = frozenset(
+    {
+        "VENUE_PREFLIGHT_UNAVAILABLE",
+        "VENUE_MODE_UNSUPPORTED",
+        "ENDPOINT_OR_WRITE_DISABLED",
+        "QUOTA_DENIED",
+        "EXCHANGE_CREATED_ORDER_QUERY_ONLY",
+        "VENUE_READINESS_BLOCKED",
+        "EXECUTION_FENCED",
+        "EXECUTION_GUARD_PERMISSION_DENIED",
+    }
+)
+_OPENING_INCIDENTS = frozenset(
+    {
+        "OPENING_SUBMISSION_STALLED",
+        "OPENING_REJECTION_RATE_HIGH",
+        "EXECUTION_GUARD_PERMISSION_DENIED",
+    }
+)
+
+
+def opening_health(conn, scope, settings, now):
+    """Summarize OPEN outcomes and urgent guard faults on either order leg.
+
+    Count orders, not repeated event rows. An acknowledgement, venue identity or
+    durable fill is positive acceptance evidence even after a later cancellation.
+    This is observation only: uncertain submissions still require reconciliation.
+    """
+    rows = conn.execute(
+        """SELECT o.leg,o.status,
+            (o.exchange_order_id IS NOT NULL OR EXISTS (
+                SELECT 1 FROM v2_order_events a WHERE a.order_id=o.order_id
+                AND a.status IN ('ACKNOWLEDGED','FILLED')) OR EXISTS (
+                SELECT 1 FROM v2_fills f WHERE f.order_id=o.order_id)) AS accepted,
+            CASE WHEN COALESCE(e.evidence->>'error_code',e.evidence->>'reason')=ANY(%s)
+                THEN COALESCE(e.evidence->>'error_code',e.evidence->>'reason')
+                ELSE 'UNCLASSIFIED_REJECTION' END AS reason_code,
+            count(*),max(floor(extract(epoch FROM o.updated_at)*1000)::bigint),
+            max((SELECT floor(extract(epoch FROM max(a.created_at))*1000)::bigint
+                FROM v2_order_events a WHERE a.order_id=o.order_id
+                AND a.status IN ('ACKNOWLEDGED','FILLED'))),
+            max((SELECT floor(extract(epoch FROM max(s.created_at))*1000)::bigint
+                FROM v2_order_events s WHERE s.order_id=o.order_id
+                AND s.status='SUBMITTING' AND EXISTS (
+                    SELECT 1 FROM v2_order_events a WHERE a.order_id=s.order_id
+                    AND a.status IN ('ACKNOWLEDGED','FILLED')
+                    AND a.version>s.version AND a.created_at>=s.created_at)))
+        FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+        JOIN v2_order_events e ON e.order_id=o.order_id AND e.version=o.version
+        WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+        AND o.status<>'PREPARED'
+        AND o.updated_at>=to_timestamp(%s/1000.0)
+        AND o.updated_at<to_timestamp(%s/1000.0)
+        GROUP BY o.leg,o.status,accepted,reason_code""",
+        (
+            sorted(_REJECTION_CODES),
+            *scope,
+            now - settings["health.opening_window_seconds"] * 1000,
+            now + 1,
+        ),
+    ).fetchall()
+    summary = {
+        "window_seconds": settings["health.opening_window_seconds"],
+        "rejected": 0,
+        "accepted": 0,
+        "unresolved": 0,
+        "rejection_codes": {},
+        "last_accepted_at_ms": None,
+        "last_rejected_at_ms": None,
+    }
+    findings = {}
+    permission_rejections = 0
+    last_permission_failure = None
+    last_guarded_acceptance = None
+    for (
+        leg,
+        status,
+        accepted,
+        code,
+        count,
+        last_at,
+        last_accepted,
+        submitted_at,
+    ) in rows:
+        if last_accepted is not None and submitted_at is not None:
+            # A read-only recovery can discover an old fill after a new guard
+            # failure. Only an accepted attempt STARTED after that failure proves
+            # that the write path recovered; observation time alone cannot.
+            last_guarded_acceptance = max(
+                submitted_at, last_guarded_acceptance or submitted_at
+            )
+        if status == "REJECTED" and code == "EXECUTION_GUARD_PERMISSION_DENIED":
+            permission_rejections += count
+            last_permission_failure = max(last_at, last_permission_failure or last_at)
+        if leg != "OPEN":
+            continue
+        if accepted:
+            summary["accepted"] += count
+            if last_accepted is not None:
+                summary["last_accepted_at_ms"] = max(
+                    last_accepted, summary["last_accepted_at_ms"] or last_accepted
+                )
+        elif status == "REJECTED":
+            summary["rejected"] += count
+            summary["last_rejected_at_ms"] = max(
+                last_at, summary["last_rejected_at_ms"] or last_at
+            )
+            summary["rejection_codes"][code] = (
+                summary["rejection_codes"].get(code, 0) + count
+            )
+        if status in {"SUBMITTING", "UNKNOWN"}:
+            summary["unresolved"] += count
+    if permission_rejections and (
+        last_guarded_acceptance is None
+        or last_permission_failure >= last_guarded_acceptance
+    ):
+        # A denied database guard is never a normal symbol/risk rejection and
+        # needs attention on its first occurrence, not after three lost signals.
+        findings["EXECUTION_GUARD_PERMISSION_DENIED"] = {
+            "rejected": permission_rejections,
+            "last_rejected_at_ms": last_permission_failure,
+        }
+    rejected, accepted = summary["rejected"], summary["accepted"]
+    if rejected >= settings["health.opening_min_rejections"]:
+        if accepted == 0:
+            findings["OPENING_SUBMISSION_STALLED"] = summary
+        elif Decimal(rejected) / Decimal(rejected + accepted) >= Decimal(
+            settings["health.opening_reject_fraction"]
+        ):
+            findings["OPENING_REJECTION_RATE_HIGH"] = summary
+    return summary, findings
+
+
+def retain_opening_incidents(connect, scope, old, findings, now):
+    """Silence is not recovery: retain a failure until a newer venue acceptance.
+
+    This ledger-backed latch only affects monitoring. It does not disable entries
+    or bypass their gates, and survives monitor/process restarts.
+    """
+    incidents = {}
+    for code in _OPENING_INCIDENTS:
+        if code in findings:
+            incidents[code] = findings[code]
+            continue
+        previous = old.get("opening_incidents", {}).get(code)
+        if not previous:
+            continue
+        with connect() as conn:
+            recovered = conn.execute(
+                """SELECT 1 FROM v2_orders o
+                JOIN v2_trade_intents i ON i.intent_id=o.episode_id
+                JOIN v2_order_events e ON e.order_id=o.order_id
+                JOIN v2_order_events submitted ON submitted.order_id=o.order_id
+                    AND submitted.status='SUBMITTING' AND submitted.version<e.version
+                    AND submitted.created_at<=e.created_at
+                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                AND (o.leg='OPEN' OR %s)
+                AND e.status IN ('ACKNOWLEDGED','FILLED')
+                AND submitted.created_at>=to_timestamp(%s/1000.0)
+                AND e.created_at<to_timestamp(%s/1000.0) LIMIT 1""",
+                (
+                    *scope,
+                    code == "EXECUTION_GUARD_PERMISSION_DENIED",
+                    previous["last_rejected_at_ms"] + 1,
+                    now + 1,
+                ),
+            ).fetchone()
+        if not recovered:
+            incidents[code] = {**previous, "awaiting_successful_submission": True}
+            findings[code] = incidents[code]
+    return incidents
 
 
 class TradingHealth:
@@ -51,6 +226,8 @@ class TradingHealth:
                         findings["CAPITAL_DRAWDOWN_HALT"] = capital
         scope = tuple(asdict(self.scope).values())
         with self.connect() as conn:
+            opening, opening_findings = opening_health(conn, scope, settings, now)
+            findings.update(opening_findings)
             orders = conn.execute(
                 """SELECT o.order_id::text,i.payload->>'symbol',o.status,
                     extract(epoch FROM clock_timestamp()-o.updated_at)::bigint
@@ -170,6 +347,9 @@ class TradingHealth:
             if previous and not previous.deleted
             else {}
         )
+        opening_incidents = retain_opening_incidents(
+            self.connect, scope, old, findings, now
+        )
         timers = old.get("first_seen_ms", {})
         first = {code: min(now, timers.get(code, now)) for code in findings}
         # Direct age checks already debounce order/settlement/signal diagnostics.
@@ -211,6 +391,8 @@ class TradingHealth:
                 "findings": findings,
                 "expected_waits": expected_waits,
                 "capital": capital,
+                "opening": opening,
+                "opening_incidents": opening_incidents,
             },
         )
         if result.code != "APPLIED":
