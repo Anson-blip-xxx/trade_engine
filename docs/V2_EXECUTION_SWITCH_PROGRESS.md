@@ -26,3 +26,7 @@ new-account risk/capital bootstrap; isolated LIVE runtime/database/cache and
 notifications; real two-account Testnet handover including crash/rollback cases.
 All requests currently show EXECUTION_CONTROLLER_NOT_ATTACHED; LIVE also shows
 LIVE_DEPLOYMENT_NOT_APPROVED. Saving a request does not launch any trading worker.
+
+Follow-up: the candidate Testnet process composition and executable vault startup
+now wire the transaction-held mutation guard; see `V2_MANAGED_EXECUTION_FENCE.md`.
+This does not retrofit the disabled legacy deployment or activate a new worker.

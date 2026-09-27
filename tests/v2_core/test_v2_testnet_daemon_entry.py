@@ -179,7 +179,8 @@ def test_mark_reference_binds_symbol_tick_and_freshness():
         BinanceTestnetMark(public, clock_ms=lambda: 10000)("BTCUSDT")
 
 
-def test_full_process_factory_wires_real_components_without_io(database):
+@pytest.mark.parametrize("managed", [False, True])
+def test_full_process_factory_wires_real_components_without_io(database, managed):
     redis = pytest.importorskip("redis")
     cache = redis.Redis(
         unix_socket_path=os.environ["V2_REDIS_TEST_SOCKET"], decode_responses=True
@@ -207,6 +208,11 @@ def test_full_process_factory_wires_real_components_without_io(database):
         monotonic_ms=lambda: 0,
         signed_connection_factory=lambda *_: pytest.fail("signed I/O during build"),
         public_connection_factory=public_http,
+        execution_guard=(
+            lambda **_: pytest.fail("guard should not execute during composition")
+        )
+        if managed
+        else None,
     )
     pipeline = process.daemon.pipeline
     assert isinstance(process.runtime.execution.submit, GuardedOpeningSubmit)
@@ -219,6 +225,9 @@ def test_full_process_factory_wires_real_components_without_io(database):
         account = scheduler.context_provider.account
         assert account.public.environment == "SANDBOX"
         assert account.sentiment.environment == "LIVE"
+        from v2_core.guarded_transport import GuardedSignedRequest
+
+        assert isinstance(account.request, GuardedSignedRequest) is managed
     assert pipeline.enable_entries is False
     assert pipeline.protection.allow_writes is False
     assert pipeline.exits.allow_writes is False

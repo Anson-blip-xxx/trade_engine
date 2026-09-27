@@ -10,6 +10,7 @@ class SubmissionNotSent(ValueError):
             "QUOTA_DENIED",
             "EXCHANGE_CREATED_ORDER_QUERY_ONLY",
             "VENUE_READINESS_BLOCKED",
+            "EXECUTION_FENCED",
         }:
             raise ValueError("unsupported no-submission evidence")
         super().__init__(

@@ -26,6 +26,12 @@ def routes(case):
                 / "db/migrations/20260928_execution_routes.sql"
             ).read_text()
         )
+        c.execute(
+            (
+                Path(__file__).resolve().parents[2]
+                / "db/migrations/20260928_execution_draining.sql"
+            ).read_text()
+        )
     return ExecutionRoutes(console.connect), console
 
 
@@ -107,7 +113,14 @@ def test_stale_worker_and_retired_binding_cannot_submit(routes):
             (console.tenant, registry, token),
         )
     with store.submit_guard(**args):
-        pass
+        import psycopg
+
+        with pytest.raises(psycopg.errors.LockNotAvailable), console.connect() as c:
+            c.execute("SET LOCAL lock_timeout='100ms'")
+            c.execute(
+                "UPDATE v2_execution_routes SET phase='DRAINING' WHERE tenant_id=%s",
+                (console.tenant,),
+            )
     with (
         pytest.raises(ValueError, match="FENCED"),
         store.submit_guard(**{**args, "worker_token": str(uuid4())}),
@@ -115,12 +128,32 @@ def test_stale_worker_and_retired_binding_cannot_submit(routes):
         pass
     with pytest.raises(ValueError, match="DRAIN"):
         request(store, console, registry, expected_epoch=1)
+    with pytest.raises(ValueError, match="ROTATION_REQUIRES_HANDOVER"):
+        console.rotate(
+            registry,
+            request_id=str(uuid4()),
+            expected_version=1,
+            api_key="qa-replacement-key-12345",
+            api_secret="qa-replacement-secret-12345",
+        )
+    with console.connect() as c:
+        c.execute(
+            "UPDATE v2_execution_routes SET phase='DRAINING' WHERE tenant_id=%s",
+            (console.tenant,),
+        )
+    with pytest.raises(ValueError, match="FENCED"), store.submit_guard(**args):
+        pass
+    with store.submit_guard(**args, operation="MANAGE"):
+        pass
     with console.connect() as c:
         c.execute(
             "INSERT INTO v2_account_retirements(tenant_id,registry_id,reason) VALUES (%s,%s,'USER_REMOVED_INVALID_CREDENTIAL')",
             (console.tenant, registry),
         )
-    with pytest.raises(ValueError, match="REJECTED"), store.submit_guard(**args):
+    with (
+        pytest.raises(ValueError, match="REJECTED"),
+        store.submit_guard(**args, operation="MANAGE"),
+    ):
         pass
 
 

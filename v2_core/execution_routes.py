@@ -51,7 +51,7 @@ class ExecutionRoutes:
             "FROM v2_execution_routes WHERE tenant_id=%s AND environment=%s",
             (tenant, environment),
         ).fetchone()
-        if actual and actual[3] == "ACTIVE":
+        if actual and actual[3] in {"ACTIVE", "DRAINING"}:
             return actual
         pending = c.execute(
             "SELECT result FROM v2_execution_route_events WHERE tenant_id=%s AND environment=%s ORDER BY epoch DESC LIMIT 1",
@@ -141,7 +141,7 @@ class ExecutionRoutes:
                 raise ValueError("ROUTE_EPOCH_CONFLICT")
             # Do not revoke a live worker's exit/protection capability here.
             # Active handover needs a controller-managed drain, not a DB pointer flip.
-            if current and current[3] == "ACTIVE":
+            if current and current[3] in {"ACTIVE", "DRAINING"}:
                 raise ValueError("ACTIVE_ROUTE_REQUIRES_DRAIN")
             blockers = ["EXECUTION_CONTROLLER_NOT_ATTACHED"]
             if environment == "LIVE":
@@ -184,6 +184,7 @@ class ExecutionRoutes:
         binding_version,
         epoch,
         worker_token,
+        operation="OPEN",
     ):
         """Hold the route through actual bounded I/O; never use a cached boolean."""
         tenant, registry, token = map(uid, (tenant_id, registry_id, worker_token))
@@ -192,6 +193,7 @@ class ExecutionRoutes:
             or binding_version < 1
             or type(epoch) is not int
             or epoch < 1
+            or operation not in {"OPEN", "MANAGE"}
         ):
             raise ValueError("EXECUTION_FENCED")
         environment = self._environment(environment)
@@ -201,7 +203,14 @@ class ExecutionRoutes:
                 "FROM v2_execution_routes WHERE tenant_id=%s AND environment=%s FOR SHARE",
                 (tenant, environment),
             ).fetchone()
-            if row != (registry, binding_version, epoch, token, "ACTIVE"):
+            if (
+                row is None
+                or row[:4] != (registry, binding_version, epoch, token)
+                or (
+                    row[4] != "ACTIVE"
+                    and not (row[4] == "DRAINING" and operation == "MANAGE")
+                )
+            ):
                 raise ValueError("EXECUTION_FENCED")
             self._binding(c, tenant, registry, environment, binding_version)
             yield

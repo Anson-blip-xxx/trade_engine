@@ -70,6 +70,14 @@ class AccountConsole:
                 ).fetchone()
             ):
                 raise ValueError("ACCOUNT_NOT_FOUND")
+            if (
+                c.execute("SELECT to_regclass('v2_execution_routes')").fetchone()[0]
+                and c.execute(
+                    "SELECT 1 FROM v2_execution_routes WHERE tenant_id=%s AND target_registry=%s AND phase IN ('ACTIVE','DRAINING')",
+                    (self.tenant, registry),
+                ).fetchone()
+            ):
+                raise ValueError("RUNNING_ACCOUNT_ROTATION_REQUIRES_HANDOVER")
             nested = lambda: nullcontext(c)
             CredentialVault(
                 nested, key_provider=self.key_provider, active_key_id=self.active_key_id

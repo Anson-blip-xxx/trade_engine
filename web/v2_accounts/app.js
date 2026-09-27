@@ -95,7 +95,7 @@ $("rotate").addEventListener("submit",async event=>{
   finally {body.api_key="";body.api_secret="";if(version===generation)button.disabled=false;}
 });
 function routeText(result) {
-  const phases={STOPPED:"无已确认执行者",BLOCKED:"申请被阻断，尚未切换",REQUESTED:"等待执行控制器处理",ACTIVE:"执行者已确认"};
+  const phases={STOPPED:"无已确认执行者",BLOCKED:"申请被阻断，尚未切换",REQUESTED:"等待执行控制器处理",ACTIVE:"执行者已确认",DRAINING:"旧账户退出中：仅管理已有仓位"};
   const reasons={EXECUTION_CONTROLLER_NOT_ATTACHED:"执行控制器尚未接入",LIVE_DEPLOYMENT_NOT_APPROVED:"生产隔离部署与上线验收尚未完成",TARGET_CREDENTIAL_NOT_VERIFIED:"目标凭据尚未验证通过"};
   const target=accounts.find(a=>a.registry_id===result.target_registry);
   return `${phases[result.phase] || "未知状态"}${target ? " · 目标 "+target.alias : ""} · 版本 ${result.epoch}${result.blockers?.length ? " · "+result.blockers.map(x=>reasons[x]||x).join("；") : ""}`;
@@ -105,7 +105,7 @@ async function showRoute(environment, version) {
     const result=await api(`/api/accounts/execution/${environment}`);
     if(version!==generation)return;
     routeEpoch=result.epoch; $("route-state").textContent=routeText(result);
-    $("route-request").disabled=!accounts.some(a=>a.registry_id===$("account").value) || result.phase==="ACTIVE";
+    $("route-request").disabled=!accounts.some(a=>a.registry_id===$("account").value) || ["ACTIVE","DRAINING"].includes(result.phase);
   }catch(e){if(version===generation)$("route-state").textContent="执行状态不可用；禁止申请切换。";}
 }
 $("route-request").addEventListener("click",async()=>{

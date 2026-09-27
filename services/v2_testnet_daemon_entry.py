@@ -201,6 +201,46 @@ def process_credentials(path, *, values, config, connect):
     }
 
 
+def execution_guard_for(values, *, config, connect):
+    """Managed vault workers cannot start a write-capable legacy fallback."""
+    from functools import partial
+    from uuid import UUID
+
+    from v2_core.execution_routes import ExecutionRoutes
+
+    fields = {"V2_EXECUTION_EPOCH", "V2_EXECUTION_WORKER_TOKEN"}
+    requested = any(key in values for key in fields)
+    if not requested:
+        if (
+            values.get("V2_CREDENTIAL_SOURCE") == "vault"
+            and config.daemon.write_enabled
+        ):
+            raise ValueError("MANAGED_EXECUTION_BINDING_REQUIRED")
+        return None
+    if not fields <= values.keys() or values.get("V2_CREDENTIAL_SOURCE") != "vault":
+        raise ValueError("MANAGED_VAULT_MODE_REQUIRED")
+    for key in ("V2_EXECUTION_EPOCH", "V2_VAULT_BINDING_VERSION"):
+        raw = values.get(key, "")
+        if (
+            not isinstance(raw, str)
+            or not raw.isascii()
+            or not raw.isdecimal()
+            or not 1 <= len(raw) <= 18
+            or int(raw) < 1
+        ):
+            raise ValueError("PINNED_EXECUTION_VERSION_REQUIRED")
+    token = str(UUID(values["V2_EXECUTION_WORKER_TOKEN"]))
+    return partial(
+        ExecutionRoutes(connect).submit_guard,
+        tenant_id=values["V2_VAULT_TENANT_ID"],
+        environment="SANDBOX",
+        registry_id=values["V2_VAULT_REGISTRY_ID"],
+        binding_version=int(values["V2_VAULT_BINDING_VERSION"]),
+        epoch=int(values["V2_EXECUTION_EPOCH"]),
+        worker_token=token,
+    )
+
+
 class PrivateRatePermit:
     _READS: ClassVar = {
         "/fapi/v1/algoOrder": 1,
@@ -318,6 +358,7 @@ def create_testnet_process(
     monotonic_ms,
     signed_connection_factory=None,
     public_connection_factory=None,
+    execution_guard=None,
 ):
     if (
         not isinstance(config, TestnetProcessConfig)
@@ -410,6 +451,15 @@ def create_testnet_process(
             else {}
         ),
     )
+    if execution_guard is not None:
+        from v2_core.guarded_transport import GuardedSignedRequest
+
+        request = GuardedSignedRequest(
+            request,
+            account_id=scope.account_id,
+            environment=scope.environment,
+            guard=execution_guard,
+        )
     venue = BinanceFutures(
         request, account_id=scope.account_id, environment=scope.environment
     )
@@ -536,6 +586,12 @@ def main(environ=None):
         os.environ if environ is None else environ
     )
     connect = deployment_database()
+    execution_guard = execution_guard_for(
+        os.environ if environ is None else environ, config=config, connect=connect
+    )
+    if execution_guard is not None:
+        with execution_guard(operation="MANAGE"):
+            pass  # Reject unowned startup before decrypting credentials or building clients.
     secrets = process_credentials(
         args.credentials,
         values=os.environ if environ is None else environ,
@@ -576,6 +632,7 @@ def main(environ=None):
             telegram_sink=sink,
             clock_ms=lambda: time.time_ns() // 1000000,
             monotonic_ms=lambda: time.monotonic_ns() // 1000000,
+            execution_guard=execution_guard,
         )
         print(
             json.dumps(
