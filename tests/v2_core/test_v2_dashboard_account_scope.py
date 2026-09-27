@@ -14,7 +14,8 @@ __all__ = ["case", "database", "routes", "setup"]
 
 def test_dashboard_follows_actual_not_requested_account_and_scopes_details(routes):
     store, console = routes
-    a, b = add(console)["registry_id"], add(console)["registry_id"]
+    a = add(console, alias="Initial Alpha")["registry_id"]
+    b = add(console, alias="Initial Beta")["registry_id"]
     with console.connect() as c:
         aid = c.execute(
             "SELECT account_id FROM v2_tenant_accounts WHERE registry_id=%s", (a,)
@@ -32,6 +33,15 @@ def test_dashboard_follows_actual_not_requested_account_and_scopes_details(route
         )
     first = data.overview()
     assert first["execution_account"]["registry_id"] == a
+    assert first["execution_account"]["alias"] == "Initial Alpha"
+    console.rename(
+        a, alias="Renamed Alpha", expected_version=0, request_id=str(uuid4())
+    )
+    assert data.overview()["execution_account"]["alias"] == "Renamed Alpha"
+    assert (
+        next(x for x in console.accounts() if x["registry_id"] == a)["alias"]
+        == "Renamed Alpha"
+    )
     assert first["summary"]["trade_intents"] == 1
     assert len(first["trades"]) == 1
     assert data.trade(trade.intent_id) is not None
@@ -51,6 +61,7 @@ def test_dashboard_follows_actual_not_requested_account_and_scopes_details(route
         )
     second = data.overview()
     assert second["execution_account"]["registry_id"] == b
+    assert second["execution_account"]["alias"] == "Initial Beta"
     assert second["summary"]["trade_intents"] == 0
     assert second["summary"]["realized_pnl"] == "0"
     assert second["trades"] == second["settlements"] == second["health"] == []

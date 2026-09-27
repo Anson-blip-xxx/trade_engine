@@ -45,7 +45,7 @@ class DashboardData:
         rows = _rows(
             conn.execute(
                 """
-            SELECT a.registry_id::text,a.account_id,COALESCE(n.alias,'未命名账户') AS alias,
+            SELECT a.registry_id::text,a.account_id,COALESCE(n.alias,a.display_name) AS alias,
               r.epoch,r.phase,r.blockers
             FROM v2_execution_routes r JOIN v2_tenant_accounts a
               ON a.tenant_id=r.tenant_id AND a.registry_id=r.target_registry
