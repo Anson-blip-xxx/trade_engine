@@ -144,3 +144,64 @@ request weights, error reasons, CPU/RSS and disk growth before entry acceptance.
 Rollback: stop the new hub, restore the previous controller release symlink and
 disable shared mode, restart only that controller. Keep the new schema/history;
 no database deletion is needed. Retain the entry-disable setting throughout.
+
+## Recorded acceptance — 2026-09-27, UTC+8
+
+Deployed runtime release: `8c3ffc8-shared-market` under
+`/opt/trade-engine-v2/releases/`; both the hub and execution-controller symlinks
+point there. The hub is enabled at boot with automatic failure restart. Both
+services were active with zero automatic restarts at final verification.
+The controller remains DRAINING/RECOVERING_SOURCE after the controlled restart,
+with `V2_CONTROLLER_ENABLE_ENTRIES=false`; no new opening authority was enabled.
+
+QA evidence:
+
+- Broad isolated V2 regression on the frozen initial feature candidate:
+  **1764 passed in 798.13 seconds**. An earlier run had two compatibility-test
+  failures; these were fixed and this repeat run was clean.
+- Subsequent real-driver normalization and recent-mover scoring changes:
+  **75 targeted tests passed**, including the new feature, risk reference and
+  no-local-file data-core boundary. The full suite was not rerun a third time
+  after these small changes; do not label that targeted run a full regression.
+- Ruff and `git diff --check` passed for the changed implementation.
+- A real CH read verified all 1440 bars of an archived history after correcting
+  the FixedString bytes/string mismatch. No archived data was deleted to mask it.
+- PostgreSQL confirms Web has **no UPDATE privilege** on the shared budget table;
+  the rejected privilege expansion was not applied.
+
+Real integration evidence:
+
+- All **524 supported contracts** eventually completed at least one deep
+  collection successfully. The four unsupported names remain explicitly exposed.
+- Final hub snapshot reported **524/524 lightweight coverage**, **256 fresh deep
+  contexts** and 268 waiting for a fresh deep refresh. These metrics are distinct:
+  success once is not a guarantee of a current tradable context.
+- At 16:30 real TV signals for NILUSDT, FILUSDT and ORDIUSDT reached the new
+  consumer. Their immutable decisions contain `universe_admission.eligible=true`
+  and `signal_fusion.version=shared-context-v1`. FIL and ORDI are outside the old
+  fixed scan list. Their long-side outcomes were respectively `overextended`,
+  `score_below_minimum`, and `entry_mode_unconfirmed`; no forced order was sent.
+  Opposite-side consumers recorded expiry, not late entry.
+- The running pipeline reported market CURRENT, regime PROJECTED, and protection,
+  exits, settlement and followups CLEAR. Entry dispatch stayed disabled.
+
+An eight-minute warmup sample collected 92 distinct hub batches: mean 4837.7 ms,
+P95 6003 ms, max 6322 ms. Hub memory was approximately 63.6–66.0 MiB and CPU about
+60.8% of one core (approximately 15.2% of this four-core host). This sample overlapped
+isolated QA and cold warmup, and preceded the final recent-mover sorting release;
+it is not a multi-day steady-state benchmark. A final-release snapshot after
+warmup showed a 2930 ms batch and about 55.4 MiB memory, not a new percentile claim.
+
+During the sample CH held approximately 627310 candle rows in eight active parts,
+60.7 MB on disk; the PG database grew from about 3631 MiB to 3648 MiB. Most CH
+growth here was one-time 24h bootstrap, not a measured daily retention rate.
+Continuous per-minute deep computation for every contract was NOT achieved by
+this serial worker. The accepted operating model is full lightweight discovery
+plus prioritized/fair, freshness-gated deep computation. Increasing batch size
+alone is not evidence that more CPU/network capacity exists.
+
+Remaining boundary: Web verification retains its independent quota pending
+approval/design of a minimally privileged shared-quota interface. Non-ASCII
+contract execution remains unsupported. LIVE activation, profitability, and
+multi-day stability are not established by this acceptance. Historical analysis
+and simulated/testnet outcomes must not be represented as live returns.
