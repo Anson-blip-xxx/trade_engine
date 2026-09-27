@@ -69,5 +69,28 @@ and settlement. No replayed signals, synthetic candidates or LIVE credentials.
 - Final serial regression of all affected execution, health, startup, settings,
   notification and policy paths: 229 passed in 136.43 seconds. This includes
   incremental startup/recovery tests added while the broad suite was running.
-- Deployed lifecycle results: pending; this document does not yet claim a real
-  successful opening/exit or profitable trading.
+- Additional deployed-environment finding: systemd exposes root-owned credentials
+  with a service-UID POSIX ACL (mode 0440, directory 0550). The new monitor's first
+  private-file-only check incorrectly rejected this legitimate shape. The follow-up
+  uses descriptor/O_NOFOLLOW reads, exact existing service-UID ACL validation and
+  the secure memory-mount check, not blanket group-read permission. Actual deployed
+  credential validation passes; a further 87 targeted tests pass.
+
+## Actual natural-signal Testnet lifecycle
+
+- Episode: `8a5b9295-e1c8-5215-a4f9-3be3574ec14b`.
+- Fresh S3 signal: `451df440-6a5d-5483-9339-1053a3d1da78`, RAREUSDT TREND_UP,
+  real collected market evidence, accepted by the unchanged S6 admission rules.
+- 07:20:22.845 UTC+8: BUY 2,682 at 0.02274, exchange order `185172990`.
+- Venue settings independently read back as ISOLATED, leverage 3,
+  auto-add-margin false; desired settings state VERIFIED and readiness recorded.
+- Native close-position STOP_MARKET `1000000221094193` installed at 0.02092.
+- 07:22:24.768 UTC+8: normal reduce-only TIME_STOP exit filled 2,682 at 0.02229,
+  exchange order `185173788`. Native protection then expired, no residual position
+  or conditional order remained in the independent venue read.
+- Settlement revision 2 completed at 07:23:34 UTC+8. Ledger opened/closed quantities
+  agree; gross PnL -1.2069 USDT, fees 0.06038523, net -1.26728523. The directional
+  outcome/analysis row was written and the ledger reports SETTLED.
+- This short-time-stop acceptance proves execution/accounting, **not profitability**.
+  It is not a TradingView-origin lifecycle sample. Monitor delivery/pin acceptance
+  and restoration of temporary configuration are recorded separately below.

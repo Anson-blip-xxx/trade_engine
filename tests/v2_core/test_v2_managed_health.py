@@ -1,6 +1,10 @@
 import json
+import os
+import stat
+import struct
 import threading
 from dataclasses import asdict
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -245,6 +249,138 @@ def test_notification_credentials_reject_symlink_and_public_permissions(tmp_path
     path.chmod(0o644)
     with pytest.raises(ValueError):
         managed._notification_credentials(str(tmp_path))
+
+
+@pytest.mark.parametrize("directory", [False, True])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "wrong-uid",
+        "group-read",
+        "public-read",
+        "wrong-owner",
+        "missing",
+        "extra-entry",
+    ],
+)
+def test_notification_fd_requires_exact_systemd_service_acl(
+    monkeypatch, directory, defect
+):
+    permission = 5 if directory else 4
+    entries = [
+        (1, permission, 0xFFFFFFFF),
+        (2, permission, os.geteuid()),
+        (4, 0, 0xFFFFFFFF),
+        (16, permission, 0xFFFFFFFF),
+        (32, 0, 0xFFFFFFFF),
+    ]
+    if defect == "wrong-uid":
+        entries[1] = (2, permission, os.geteuid() + 1)
+    elif defect == "group-read":
+        entries[2] = (4, 4, 0xFFFFFFFF)
+    elif defect == "public-read":
+        entries[4] = (32, 4, 0xFFFFFFFF)
+    elif defect == "extra-entry":
+        entries.append((2, permission, os.geteuid() + 1))
+    acl = struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", *entry) for entry in entries
+    )
+    details = SimpleNamespace(
+        st_mode=(stat.S_IFDIR | 0o550) if directory else (stat.S_IFREG | 0o440),
+        st_uid=os.geteuid() + 1 if defect == "wrong-owner" else 0,
+    )
+    monkeypatch.setattr(managed.os, "fstat", lambda _: details)
+
+    def get_acl(_fd, key):
+        assert key == "system.posix_acl_access"
+        if defect == "missing":
+            raise OSError("no ACL")
+        return acl
+
+    monkeypatch.setattr(managed.os, "getxattr", get_acl)
+    if defect == "missing":
+        with pytest.raises(OSError):
+            managed._notification_fd_protected(7, directory=directory)
+    else:
+        assert managed._notification_fd_protected(7, directory=directory) == (
+            defect is None
+        )
+
+
+@pytest.mark.parametrize(
+    "defect", [None, "disk", "directory-disk", "wrong-root", "wrong-uid", "group-read"]
+)
+def test_notification_acl_credentials_checked_before_any_secret_bytes(
+    tmp_path, monkeypatch, defect
+):
+    directory = tmp_path / "qa.service"
+    directory.mkdir(mode=0o700)
+    path = directory / "v2-notifications"
+    content = {"TG_NOTIFY_TOKEN": "123:abcdefghijklmnop", "TG_NOTIFY_CHAT_ID": "-123"}
+    path.write_text(json.dumps(content))
+    path.chmod(0o600)
+    real_fstat, real_read = os.fstat, os.read
+    folder_inode, file_inode = directory.stat().st_ino, path.stat().st_ino
+    reads, mount_checks = [], []
+
+    def fstat(fd):
+        original = real_fstat(fd)
+        if original.st_ino not in {folder_inode, file_inode}:
+            return original
+        is_directory = original.st_ino == folder_inode
+        return SimpleNamespace(
+            st_mode=(stat.S_IFDIR | 0o550) if is_directory else (stat.S_IFREG | 0o440),
+            st_uid=0,
+            st_size=original.st_size,
+        )
+
+    def get_acl(fd, _name):
+        permission = 5 if real_fstat(fd).st_ino == folder_inode else 4
+        entries = [
+            (1, permission, 0xFFFFFFFF),
+            (2, permission, os.geteuid() + (defect == "wrong-uid")),
+            (4, 4 if defect == "group-read" else 0, 0xFFFFFFFF),
+            (16, permission, 0xFFFFFFFF),
+            (32, 0, 0xFFFFFFFF),
+        ]
+        return struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", *entry) for entry in entries
+        )
+
+    def mount(fd):
+        inode = real_fstat(fd).st_ino
+        mount_checks.append(inode)
+        return not (
+            defect == "disk"
+            and inode == file_inode
+            or defect == "directory-disk"
+            and inode == folder_inode
+        )
+
+    def read(fd, size):
+        reads.append(fd)
+        return real_read(fd, size)
+
+    monkeypatch.setattr(
+        managed.SystemdMasterKeys,
+        "ROOT",
+        tmp_path if defect != "wrong-root" else tmp_path / "other",
+    )
+    monkeypatch.setattr(managed.os, "fstat", fstat)
+    monkeypatch.setattr(managed.os, "getxattr", get_acl)
+    monkeypatch.setattr(managed.os, "read", read)
+    monkeypatch.setattr(managed, "secure_mount", mount)
+    if defect is None:
+        assert managed._notification_credentials(str(directory)) == content
+        assert len(reads) == 1
+        assert mount_checks == [folder_inode, file_inode]
+    else:
+        with pytest.raises(
+            ValueError, match="^PROTECTED_NOTIFICATION_CREDENTIAL_REQUIRED$"
+        ):
+            managed._notification_credentials(str(directory))
+        assert reads == []
 
 
 def test_factory_real_health_detects_rejected_orders_routes_dm_and_retries_pin(

@@ -12,6 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from services.v2_dependency_preflight import clickhouse_ready, redis_ready
+from services.v2_systemd_master_keys import SystemdMasterKeys, secure_mount
 from services.v2_testnet_watchdog import (
     DaemonHeartbeat,
     DependencyAssessment,
@@ -121,24 +122,69 @@ class ManagedHealthMonitor:
         return result
 
 
+def _notification_fd_protected(fd, *, directory=False):
+    details = os.fstat(fd)
+    mode = stat.S_IMODE(details.st_mode)
+    acl = (
+        os.getxattr(fd, "system.posix_acl_access")
+        if mode == (0o550 if directory else 0o440)
+        else None
+    )
+    # Notification-only private files remain supported. Master keys retain
+    # their stricter 0400 rule; do not change SystemdMasterKeys for this adapter.
+    if not directory and mode == 0o600 and details.st_uid in {0, os.geteuid()}:
+        return True
+    return SystemdMasterKeys._protected(details, directory=directory, acl=acl)
+
+
 def _notification_credentials(directory):
-    path = Path(directory) / "v2-notifications"
-    details = path.lstat()
-    if (
-        not path.is_absolute()
-        or not stat.S_ISREG(details.st_mode)
-        or details.st_mode & 0o077
-        or not 1 <= details.st_size <= 65536
-    ):
-        raise ValueError("PROTECTED_NOTIFICATION_CREDENTIAL_REQUIRED")
-    result = json.loads(path.read_bytes())
-    if (
-        not isinstance(result, dict)
-        or set(result) != {"TG_NOTIFY_TOKEN", "TG_NOTIFY_CHAT_ID"}
-        or any(not isinstance(value, str) or not value for value in result.values())
-    ):
-        raise ValueError("NOTIFICATION_FIELDS_REQUIRED")
-    return result
+    descriptors = []
+    try:
+        path = Path(directory)
+        if not path.is_absolute():
+            raise ValueError()
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        parent = os.open(path.parent, flags | os.O_DIRECTORY)
+        descriptors.append(parent)
+        folder = os.open(path.name, flags | os.O_DIRECTORY, dir_fd=parent)
+        descriptors.append(folder)
+        if not _notification_fd_protected(folder, directory=True):
+            raise ValueError()
+        fd = os.open("v2-notifications", flags | os.O_NONBLOCK, dir_fd=folder)
+        descriptors.append(fd)
+        details = os.fstat(fd)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or not _notification_fd_protected(fd)
+            or not 1 <= details.st_size <= 65536
+        ):
+            raise ValueError()
+        acl_mount = (
+            stat.S_IMODE(os.fstat(folder).st_mode) == 0o550
+            or stat.S_IMODE(details.st_mode) == 0o440
+        )
+        if acl_mount and (
+            path.parent != SystemdMasterKeys.ROOT
+            or not secure_mount(folder)
+            or not secure_mount(fd)
+        ):
+            raise ValueError()
+        material = os.read(fd, 65537)
+        if len(material) != details.st_size:
+            raise ValueError()
+        result = json.loads(material)
+        if (
+            not isinstance(result, dict)
+            or set(result) != {"TG_NOTIFY_TOKEN", "TG_NOTIFY_CHAT_ID"}
+            or any(not isinstance(value, str) or not value for value in result.values())
+        ):
+            raise ValueError()
+        return result
+    except Exception:  # noqa: BLE001 - no credential bytes, paths or ACL details in errors
+        raise ValueError("PROTECTED_NOTIFICATION_CREDENTIAL_REQUIRED") from None
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
 
 
 def build_managed_health(tenant, values, stop):
