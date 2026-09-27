@@ -306,6 +306,12 @@ def child_main(tenant, target, values, stop, release, channel):
 
 class ChildWorker:
     def __init__(self, tenant, target, values):
+        self.last_progress = time.monotonic()
+        self.progress_timeout = int(
+            values.get("V2_CONTROLLER_PROGRESS_TIMEOUT_SECONDS", "300")
+        )
+        if not 30 <= self.progress_timeout <= 3600:
+            raise ValueError("BOUNDED_PROGRESS_TIMEOUT_REQUIRED")
         self.entries_enabled = (
             values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") == "true"
         )
@@ -332,11 +338,17 @@ class ChildWorker:
     def alive(self):
         while self.channel.poll():
             try:
-                if self.channel.recv() == "FAILED":
+                message = self.channel.recv()
+                if message == "FAILED":
                     return False
+                if message in {"CYCLE", "DEGRADED"}:
+                    self.last_progress = time.monotonic()
             except EOFError:
                 return False
         return self.process.is_alive()
+
+    def healthy(self):
+        return time.monotonic() - self.last_progress <= self.progress_timeout
 
     def stop(self):
         self.stop_event.set()

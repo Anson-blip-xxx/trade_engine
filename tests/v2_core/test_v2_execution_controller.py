@@ -86,6 +86,28 @@ def test_preflight_failure_never_starts_worker(controller):
     assert ctrl.actual()["phase"] == "BLOCKED" and not state["workers"]
 
 
+def test_target_failure_keeps_healthy_source_running(controller):
+    ctrl, store, console, state = controller
+    a = add(console)["registry_id"]
+    b = add(console)["registry_id"]
+    request(store, console, a)
+    ctrl.step()
+    original = ctrl.actual()
+    state["preflight"] = ["NO_AVAILABLE_BALANCE"]
+    request(store, console, b, expected_epoch=1)
+    ctrl.step()
+    ctrl.step()
+    assert (
+        ctrl.actual() == original
+        and len(state["workers"]) == 1
+        and state["workers"][0][1].running
+    )
+    pending = store.inspect(console.tenant, "SANDBOX")["pending_request"]
+    assert pending["phase"] == "REJECTED" and pending["blockers"] == [
+        "NO_AVAILABLE_BALANCE"
+    ]
+
+
 def test_restart_recovers_manage_only(controller):
     ctrl, store, console, state = controller
     request(store, console, add(console)["registry_id"])
@@ -137,3 +159,13 @@ def test_controller_never_consumes_live_request(controller):
     )
     ctrl.step()
     assert ctrl.actual() is None and not state["workers"]
+
+
+def test_stalled_worker_cannot_keep_opening(controller):
+    ctrl, store, console, state = controller
+    request(store, console, add(console)["registry_id"])
+    ctrl.step()
+    state["workers"][0][1].healthy = lambda: False
+    ctrl.step()
+    assert ctrl.actual()["phase"] == "DRAINING"
+    assert ctrl.actual()["blockers"] == ["WORKER_PROGRESS_STALE"]

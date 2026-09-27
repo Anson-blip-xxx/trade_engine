@@ -98,7 +98,9 @@ function routeText(result) {
   const phases={STOPPED:"无已确认执行者",BLOCKED:"申请被阻断，尚未切换",REQUESTED:"等待执行控制器处理",STARTING:"等待新进程确认就绪",ACTIVE:"执行者已确认",DRAINING:"旧账户退出中：仅管理已有仓位"};
   const reasons={EXECUTION_CONTROLLER_NOT_ATTACHED:"等待独立控制器处理",LIVE_DEPLOYMENT_NOT_APPROVED:"生产隔离部署与上线验收尚未完成",TARGET_CREDENTIAL_NOT_VERIFIED:"目标凭据尚未验证通过",ENTRY_DISABLED_ACCEPTANCE:"切换验收模式：新开仓关闭",RECOVERING_SOURCE:"恢复旧账户，仅管理已有仓位",TARGET_PREFLIGHT_FAILED:"目标账户就绪检查失败",SOURCE_PROCESS_NOT_STOPPED:"旧进程尚未确认停止",ACCOUNT_LEDGER_NOT_CLEAR:"账户仍有未结业务"};
   const target=accounts.find(a=>a.registry_id===result.target_registry);
-  return `${phases[result.phase] || "未知状态"}${target ? " · 账户 "+target.alias : ""} · 版本 ${result.epoch}${result.pending_request ? " · 有新切换申请等待处理" : ""}${result.blockers?.length ? " · "+result.blockers.map(x=>reasons[x]||x).join("；") : ""}`;
+  const pending=result.pending_request;
+  const pendingText=pending?.phase === "REJECTED" ? " · 最新切换被拒绝，当前账户保持运行："+pending.blockers.map(x=>x === "NO_AVAILABLE_BALANCE" ? "目标没有可用测试资金" : reasons[x]||x).join("；") : pending ? " · 有新切换申请等待处理" : "";
+  return `${phases[result.phase] || "未知状态"}${target ? " · 账户 "+target.alias : ""} · 版本 ${result.epoch}${pendingText}${result.blockers?.length ? " · "+result.blockers.map(x=>reasons[x]||x).join("；") : ""}`;
 }
 async function showRoute(environment, version) {
   try {

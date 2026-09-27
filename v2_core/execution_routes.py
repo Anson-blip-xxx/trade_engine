@@ -107,6 +107,22 @@ class ExecutionRoutes:
             result["pending_request"] = (
                 latest[0] if latest and latest[0]["epoch"] > result["epoch"] else None
             )
+            if (
+                result["pending_request"]
+                and c.execute(
+                    "SELECT to_regclass('v2_execution_controller_events')"
+                ).fetchone()[0]
+            ):
+                rejection = c.execute(
+                    "SELECT blockers FROM v2_execution_controller_events WHERE tenant_id=%s AND environment=%s AND epoch=%s AND phase='REJECTED' ORDER BY created_at DESC LIMIT 1",
+                    (tenant, environment, result["pending_request"]["epoch"]),
+                ).fetchone()
+                if rejection:
+                    result["pending_request"] = {
+                        **result["pending_request"],
+                        "phase": "REJECTED",
+                        "blockers": rejection[0],
+                    }
             return result
 
     def request(

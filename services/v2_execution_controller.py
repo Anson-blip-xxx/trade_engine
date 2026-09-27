@@ -50,7 +50,28 @@ class ExecutionController:
                 "SELECT result FROM v2_execution_route_events WHERE tenant_id=%s AND environment='SANDBOX' ORDER BY epoch DESC LIMIT 1",
                 (self.tenant,),
             ).fetchone()
+            if (
+                row
+                and c.execute(
+                    "SELECT 1 FROM v2_execution_controller_events WHERE tenant_id=%s AND environment='SANDBOX' AND epoch=%s AND phase='REJECTED'",
+                    (self.tenant, row[0]["epoch"]),
+                ).fetchone()
+            ):
+                return None
         return row[0] if row else None
+
+    def reject(self, target, blockers):
+        with self.connect() as c:
+            c.execute(
+                "INSERT INTO v2_execution_controller_events(event_id,tenant_id,environment,epoch,target_registry,phase,blockers) VALUES (%s,%s,'SANDBOX',%s,%s,'REJECTED',%s)",
+                (
+                    str(uuid4()),
+                    self.tenant,
+                    target["epoch"],
+                    target["target_registry"],
+                    Jsonb(blockers),
+                ),
+            )
 
     def record(self, target, phase, *, token=None, blockers=()):
         if phase in {"ACTIVE", "STARTING", "DRAINING"} and not token:
@@ -140,10 +161,28 @@ class ExecutionController:
             if self.worker is None or not self.worker.alive():
                 # Revoke the old token before recovery. Never restart into OPEN mode.
                 self.record(actual, "STOPPED", blockers=["WORKER_RECOVERY_REQUIRED"])
+                if self.worker is not None and not self.worker.stop():
+                    self.record(
+                        actual, "BLOCKED", blockers=["SOURCE_PROCESS_NOT_STOPPED"]
+                    )
+                    return
                 self.start(actual, recovering=True)
+                return
+            if hasattr(self.worker, "healthy") and not self.worker.healthy():
+                self.record(
+                    actual,
+                    "DRAINING",
+                    token=actual["worker_token"],
+                    blockers=["WORKER_PROGRESS_STALE"],
+                )
                 return
             if desired is None or desired["epoch"] <= actual["epoch"]:
                 return
+            if actual["phase"] == "ACTIVE":
+                blockers = self.preflight(desired)
+                if blockers:
+                    self.reject(desired, blockers)
+                    return  # Preserve the healthy source worker and its exact authority.
             self.record(actual, "DRAINING", token=actual["worker_token"])
             blockers = self.source_clear(actual)
             if blockers:
