@@ -1,6 +1,6 @@
 "use strict";
 const $ = id => document.getElementById(id);
-let accounts = [], generation = 0, routeEpoch = null;
+let accounts = [], generation = 0, routeEpoch = null, routeRead = 0, routeBusy = false;
 const notice = text => { $("notice").textContent = text; };
 async function api(path, body) {
   const response = await fetch(path, {method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", headers: body ? {"Content-Type":"application/json", "X-V2-Action":"account-management"} : {}, ...(body ? {body:JSON.stringify(body)} : {})});
@@ -37,6 +37,8 @@ async function showAccount() {
   $("summary").replaceChildren(); $("trades").replaceChildren(); $("state").textContent = "";
   const account = accounts.find(a=>a.registry_id === id);
   routeEpoch=null; $("route-request").disabled=true; $("route-state").textContent="正在读取执行状态…";
+  $("route-target").textContent=account ? `目标账户：${account.alias} · ${account.environment}` : "请先选择目标账户";
+  $("route-request").textContent=account?.environment === "LIVE" ? "生产执行暂未开放" : "切换执行账户";
   $("rotate-submit").disabled = !account;
   $("rotation-target").textContent = account ? `修改目标：${account.alias} · ${account.environment} · 凭据版本 ${account.binding_version}` : "请先选择账户";
   if ($("rotate").elements) { $("rotate").elements.api_key.value=""; $("rotate").elements.api_secret.value=""; }
@@ -44,7 +46,9 @@ async function showAccount() {
   $("verification").textContent = account?.environment === "LIVE" ? "生产账户仅加密保存，验证与交易均未启用。" : "正在读取验证记录…";
   if (!account) { $("state").textContent = "尚无已登记账户"; $("verification").textContent="请选择账户"; showRoute($("environment").value || "SANDBOX", version); return; }
   $("alias").value = account.alias;
-  $("state").textContent = `${account.status} · ${account.encrypted_credential_present ? "凭据已加密保存" : "尚无加密凭据"} · 未授权交易`;
+  $("state").textContent = `${account.status} · ${account.encrypted_credential_present ? "凭据已加密保存" : "尚无加密凭据"} · 当前为统计视图，实际执行状态见上方`;
+  // Execution controls must not depend on statistics or verification availability.
+  void showRoute(account.environment, version);
   try {
     const result = await api(`/api/accounts/${id}/overview`);
     if (version !== generation || $("account").value !== result.registry_id) return;
@@ -53,7 +57,6 @@ async function showAccount() {
     }
     for (const trade of result.trades) { const p=document.createElement("p"); p.textContent=`${trade.symbol} · ${trade.status} · ${trade.created_at} · 净收益 ${trade.net_pnl_usdt ?? "未结算"}`; $("trades").append(p); }
     if(account.environment === "SANDBOX") await showVerification(id, version);
-    if(version===generation) await showRoute(account.environment, version);
   } catch (e) { if(version === generation) notice(e.message); }
 }
 $("account").addEventListener("change", showAccount);
@@ -103,22 +106,27 @@ function routeText(result) {
   return `${phases[result.phase] || "未知状态"}${target ? " · 账户 "+target.alias : ""} · 版本 ${result.epoch}${pendingText}${result.blockers?.length ? " · "+result.blockers.map(x=>reasons[x]||x).join("；") : ""}`;
 }
 async function showRoute(environment, version) {
+  if(routeBusy)return;
+  const read=++routeRead;
   try {
     const result=await api(`/api/accounts/execution/${environment}`);
-    if(version!==generation)return;
+    if(version!==generation || read!==routeRead || routeBusy)return;
     routeEpoch=result.request_epoch ?? result.epoch; $("route-state").textContent=routeText(result);
-    $("route-request").disabled=!accounts.some(a=>a.registry_id===$("account").value);
-  }catch(e){if(version===generation)$("route-state").textContent="执行状态不可用；禁止申请切换。";}
+    $("route-request").disabled=environment!=="SANDBOX" || !accounts.some(a=>a.registry_id===$("account").value);
+  }catch(e){if(version===generation && read===routeRead){routeEpoch=null;$("route-request").disabled=true;$("route-state").textContent="执行状态不可用；禁止申请切换。";}}
 }
+$("route-refresh").addEventListener("click",()=>showRoute($("environment").value || "SANDBOX",generation));
 $("route-request").addEventListener("click",async()=>{
   const account=accounts.find(a=>a.registry_id===$("account").value), version=generation;
-  if(!account || routeEpoch===null)return;
+  if(!account || account.environment!=="SANDBOX" || routeEpoch===null || routeBusy)return;
+  if(!window.confirm(`确认将 Testnet 执行账户切换为“${account.alias}”？不会强制平仓，也不会解除新开仓限制。`))return;
+  routeBusy=true; ++routeRead;
   $("route-request").disabled=true;
   try {
     const result=await api(`/api/accounts/execution/${account.environment}`,{target_registry:account.registry_id,binding_version:account.binding_version,expected_epoch:routeEpoch,request_id:crypto.randomUUID()});
     if(version===generation){routeEpoch=result.epoch;$("route-state").textContent=routeText(result);}
   }catch(e){if(version===generation)$("route-state").textContent="申请未完成，请刷新核对状态；未授权自动切换。";}
-  finally {if(version===generation)$("route-request").disabled=false;}
+  finally {routeBusy=false;await showRoute($("environment").value || "SANDBOX",generation);}
 });
 loadAccounts().catch(e=>notice(e.message));
 if(typeof setInterval === "function") setInterval(()=>{
