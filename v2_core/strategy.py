@@ -225,6 +225,63 @@ class StrategyWorker:
                 )
                 _, stored, receipt = self._read(conn, signal_id)
                 if stored is None and receipt is None:
+                    # Cross-source candidates share one rolling opportunity window.
+                    # The lock covers check + first immutable decision, including
+                    # crashes before the winning decision is admitted as an intent.
+                    if (
+                        json.loads(self.config_json).get("dynamic_universe")
+                        and result.action == "OPEN"
+                    ):
+                        fusion = frozen_context.get("signal_fusion", {})
+                        window = fusion.get("window_ms")
+                        if type(window) is not int or not 1000 <= window <= 300000:
+                            raise ValueError("SIGNAL_FUSION_POLICY_REQUIRED")
+                        lock = (
+                            "fusion:"
+                            + self.scope.consumer
+                            + ":"
+                            + signal["symbol"]
+                            + ":"
+                            + result.side
+                        )
+                        conn.execute(
+                            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                            (lock,),
+                        )
+                        fusion_now = max(now, self.runtime._now())
+                        winner = conn.execute(
+                            "SELECT d.decision_id::text,d.signal_id::text FROM v2_strategy_decisions d "
+                            "JOIN v2_decision_evidence e USING(evidence_ref) WHERE d.consumer=%s AND d.action='OPEN' AND d.side=%s "
+                            "AND e.snapshot->>'symbol'=%s AND e.snapshot->>'source'<>%s "
+                            "AND (e.snapshot->>'decided_at')::bigint BETWEEN %s AND %s ORDER BY e.created_at LIMIT 1",
+                            (
+                                self.scope.consumer,
+                                result.side,
+                                signal["symbol"],
+                                self.source,
+                                fusion_now - window,
+                                fusion_now,
+                            ),
+                        ).fetchone()
+                        if winner:
+                            result = StrategyDecision(
+                                "IGNORED", "CORRELATED_SIGNAL_ALREADY_ADMITTED"
+                            )
+                            snapshot["rationale"] = result.rationale
+                            snapshot["result"] = {
+                                "action": result.action,
+                                "side": None,
+                                "quantity": None,
+                            }
+                            snapshot["features"]["evaluation"] = {
+                                "winning_decision": winner[0],
+                                "winning_signal": winner[1],
+                            }
+                            proof = DecisionEvidence(
+                                self.strategy_version,
+                                self.config_json,
+                                canonical(snapshot),
+                            )
                     EvidenceStore(lambda: nullcontext(conn)).put(proof)
                     conn.execute(
                         """INSERT INTO v2_strategy_decisions(decision_id,consumer,signal_id,evidence_ref,action,side,quantity)

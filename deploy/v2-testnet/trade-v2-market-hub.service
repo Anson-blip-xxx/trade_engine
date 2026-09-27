@@ -1,0 +1,33 @@
+[Unit]
+Description=V2 shared incremental Testnet market data (no order credentials)
+Requires=postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
+After=network-online.target postgresql@16-tradev2.service trade-v2-cache.service trade-v2-clickhouse.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trade-engine-v2/market-hub
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_market_hub_entry
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+LimitCORE=0
+MemoryMax=700M
+CPUQuota=120%
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

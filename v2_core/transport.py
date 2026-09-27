@@ -236,6 +236,21 @@ class BinanceSignedTransport:
                 headers=headers,
             )
             response = conn.getresponse()
+            if response.status in (418, 429) and callable(
+                getattr(self._permit, "penalize", None)
+            ):
+                raw_retry = response.getheader("Retry-After", "")
+                retry = (
+                    int(raw_retry)
+                    if isinstance(raw_retry, str)
+                    and raw_retry.isascii()
+                    and raw_retry.isdigit()
+                    and len(raw_retry) <= 8
+                    else 0
+                )
+                self._permit.penalize(
+                    min(259200, max(86400 if response.status == 418 else 60, retry))
+                )
             raw = response.read(2_000_001)
             if len(raw) > 2_000_000:
                 raise ExchangeTransportError("RESPONSE_TOO_LARGE")

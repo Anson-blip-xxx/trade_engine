@@ -65,6 +65,7 @@ class TestnetProcessConfig:
     exit_fee_rate: str
     enable_tv_signals: bool = False
     tv_admission_start_ms: int | None = None
+    shared_market: bool = False
 
     @classmethod
     def from_mapping(cls, values):
@@ -73,12 +74,21 @@ class TestnetProcessConfig:
                 "daemon secrets must come from a protected credential file"
             )
         daemon = TestnetDaemonConfig.from_mapping(values)
-        raw = values.get("V2_SYMBOLS")
-        if not isinstance(raw, str) or not raw or any(char.isspace() for char in raw):
-            raise ValueError("explicit canonical Testnet symbols required")
-        items = raw.split(",")
-        if not 1 <= len(items) <= 20 or len(set(items)) != len(items):
-            raise ValueError("bounded unique Testnet symbols required")
+        mode = values.get("V2_SHARED_MARKET", "false")
+        if mode not in {"true", "false"}:
+            raise ValueError("EXPLICIT_SHARED_MARKET_MODE_REQUIRED")
+        items = []
+        if mode != "true":
+            raw = values.get("V2_SYMBOLS")
+            if (
+                not isinstance(raw, str)
+                or not raw
+                or any(char.isspace() for char in raw)
+            ):
+                raise ValueError("explicit canonical Testnet symbols required")
+            items = raw.split(",")
+            if not 1 <= len(items) <= 20 or len(set(items)) != len(items):
+                raise ValueError("bounded unique Testnet symbols required")
         targets = tuple(symbol(item) for item in items)
         raw_exclusions = values.get("V2_EXTERNAL_POSITION_EXCLUSIONS", "")
         if not isinstance(raw_exclusions, str) or any(
@@ -117,12 +127,21 @@ class TestnetProcessConfig:
             tv_start = int(tv_start)
         elif tv_start is not None:
             raise ValueError("TV start timestamp requires TV signals enabled")
-        return cls(daemon, targets, exclusions, fee, tv_enabled == "true", tv_start)
+        return cls(
+            daemon,
+            targets,
+            exclusions,
+            fee,
+            tv_enabled == "true",
+            tv_start,
+            mode == "true",
+        )
 
     def public_summary(self):
         return {
             **self.daemon.public_summary(),
             "symbols": list(self.symbols),
+            **({"market_universe": "DYNAMIC_CATALOG"} if self.shared_market else {}),
             "external_position_exclusions": list(self.external_position_exclusions),
             "exit_fee_rate": self.exit_fee_rate,
             "enable_tv_signals": self.enable_tv_signals,
@@ -277,12 +296,17 @@ class PrivateRatePermit:
             return False
         if method == "GET" and path not in self._READS:
             return False
+        if getattr(self.budget, "max_request_weight", 10) >= weight:
+            return self.budget.permit(weight) is True
         while weight:
             chunk = min(weight, 10)
             if self.budget.permit(chunk) is not True:
                 return False
             weight -= chunk
         return True
+
+    def penalize(self, seconds):
+        self.budget.penalize(seconds)
 
 
 class BinanceTestnetMark:
@@ -359,6 +383,7 @@ def create_testnet_process(
     signed_connection_factory=None,
     public_connection_factory=None,
     execution_guard=None,
+    shared_market=None,
 ):
     if (
         not isinstance(config, TestnetProcessConfig)
@@ -378,39 +403,57 @@ def create_testnet_process(
     market_notify = lambda event: telegram_sink(
         event["event_id"], event["environment"], event["kind"], event
     )
-    market = create_market_pipeline(
-        connect,
-        clickhouse=clickhouse,
-        redis_client=redis_client,
-        config={
-            "environment": "SANDBOX",
-            "symbols": list(config.symbols),
-            "egress_scope": "v2-testnet-public",
-            "weight_limit": 1200,
-            "max_pending": 3,
-            "max_age_ms": 120000,
-            "lifetime_ms": 90000,
-            "enabled": True,
-        },
-        notify=market_notify,
-        clock_ms=clock_ms,
-        monotonic_ms=monotonic_ms,
-        **(
-            {"http_connection_factory": public_connection_factory}
-            if public_connection_factory is not None
-            else {}
-        ),
-    )
-    regime = create_s0_stage(
-        connect,
-        archive=market.source.archive,
-        redis_client=redis_client,
-        environment="SANDBOX",
-        symbols=config.symbols,
-        clock_ms=clock_ms,
-        max_age_ms=90000,
-        lifetime_ms=120000,
-    )
+    shared_market = config.shared_market if shared_market is None else shared_market
+    if type(shared_market) is not bool:
+        raise ValueError("EXPLICIT_SHARED_MARKET_MODE_REQUIRED")
+    if shared_market:
+        from services.v2_shared_market_context import (
+            SharedMarketStage,
+            SharedRegimeStage,
+        )
+
+        market = SharedMarketStage(
+            connect,
+            cache=redis_client,
+            archive=clickhouse,
+            clock_ms=clock_ms,
+            connection_factory=public_connection_factory,
+        )
+        regime = SharedRegimeStage(market)
+    else:
+        market = create_market_pipeline(
+            connect,
+            clickhouse=clickhouse,
+            redis_client=redis_client,
+            config={
+                "environment": "SANDBOX",
+                "symbols": list(config.symbols),
+                "egress_scope": "v2-testnet-public",
+                "weight_limit": 1200,
+                "max_pending": 3,
+                "max_age_ms": 120000,
+                "lifetime_ms": 90000,
+                "enabled": True,
+            },
+            notify=market_notify,
+            clock_ms=clock_ms,
+            monotonic_ms=monotonic_ms,
+            **(
+                {"http_connection_factory": public_connection_factory}
+                if public_connection_factory is not None
+                else {}
+            ),
+        )
+        regime = create_s0_stage(
+            connect,
+            archive=market.source.archive,
+            redis_client=redis_client,
+            environment="SANDBOX",
+            symbols=config.symbols,
+            clock_ms=clock_ms,
+            max_age_ms=90000,
+            lifetime_ms=120000,
+        )
     public_market = market.collector.transport
     sentiment_market = BinancePublicMarket(
         environment="LIVE",
@@ -425,6 +468,11 @@ def create_testnet_process(
     private_budget = PublicRateBudget(
         connect, scope="v2-testnet-private:" + scope.account_id, limit=2400
     )
+    if shared_market:
+        from v2_core.shared_market import HostBudget
+
+        private_budget = HostBudget(connect, environment="SANDBOX")
+        sentiment_market.budget = HostBudget(connect, environment="LIVE")
     permit = PrivateRatePermit(
         private_budget,
         entries=daemon_cfg.enable_entries,
@@ -477,6 +525,17 @@ def create_testnet_process(
         state = json.loads(drawdown.current().payload_json)
         return state["state"]["factor"] != "0"
 
+    reference = None
+    if shared_market:
+        from services.v2_shared_market import IncrementalArchive
+        from services.v2_shared_risk_reference import SharedRiskReference
+
+        reference = SharedRiskReference(
+            connect,
+            scope=scope,
+            archive=IncrementalArchive(clickhouse, "SANDBOX"),
+            clock_ms=clock_ms,
+        )
     runtime = create_guarded_runtime(
         connect,
         scope=scope,
@@ -487,6 +546,7 @@ def create_testnet_process(
         query=venue.query,
         risk_check=risk_check,
         enabled=daemon_cfg.enable_entries or daemon_cfg.enable_reduce_only_exits,
+        risk_reference=reference,
     )
     mark = BinanceTestnetMark(public_market, clock_ms=clock_ms)
     bind_directional_venue_gate(
@@ -507,6 +567,10 @@ def create_testnet_process(
         read=cache.read,
         clock_ms=clock_ms,
     )
+    if shared_market:
+        from services.v2_shared_market_context import ConfiguredMarketContext
+
+        market_context = ConfiguredMarketContext(connect, cache, clock_ms)
     schedulers = []
     sources = [("S6", "s3"), ("S8", "s3")]
     if config.enable_tv_signals:
@@ -529,6 +593,12 @@ def create_testnet_process(
         context = DirectionalContext(
             market_context, account, scope=scope, clock_ms=clock_ms
         )
+        if shared_market:
+            from services.v2_shared_market_context import DynamicMarketContext
+
+            context = DynamicMarketContext(
+                connect, delegate=context, clock_ms=clock_ms, source=source
+            )
         schedulers.append(
             create_directional_admission_scheduler(
                 runtime,
@@ -538,6 +608,7 @@ def create_testnet_process(
                 max_delay_ms=30000,
                 enable_admission=True,
                 source=source,
+                dynamic_universe=shared_market,
                 allowed_symbols=config.symbols if source == "tv_bridge" else (),
                 tv_start_ms=config.tv_admission_start_ms
                 if source == "tv_bridge"

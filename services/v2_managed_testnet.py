@@ -69,6 +69,13 @@ def private_for(tenant, target, scope):
 
 def readonly_request(tenant, target, scope):
     private = private_for(tenant, target, scope)
+    budget = PublicRateBudget(
+        database(), scope="v2-testnet-private:" + scope.account_id, limit=2400
+    )
+    if os.environ.get("V2_SHARED_MARKET", "false") == "true":
+        from v2_core.shared_market import HostBudget
+
+        budget = HostBudget(database(), environment="SANDBOX")
     return BinanceSignedTransport(
         account_id=scope.account_id,
         environment="SANDBOX",
@@ -76,9 +83,7 @@ def readonly_request(tenant, target, scope):
         api_secret=private["api_secret"],
         clock_ms=lambda: time.time_ns() // 1000000,
         permit=PrivateRatePermit(
-            PublicRateBudget(
-                database(), scope="v2-testnet-private:" + scope.account_id, limit=2400
-            ),
+            budget,
             entries=False,
             protection=False,
             exits=False,
@@ -265,6 +270,7 @@ def child_main(tenant, target, values, stop, release, channel):
             clock_ms=lambda: time.time_ns() // 1000000,
             monotonic_ms=lambda: time.monotonic_ns() // 1000000,
             execution_guard=guard,
+            shared_market=values.get("V2_SHARED_MARKET", "false") == "true",
         )
         channel.send("READY")
         while not release.wait(0.5):

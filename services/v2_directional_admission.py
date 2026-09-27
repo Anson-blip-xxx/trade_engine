@@ -24,8 +24,21 @@ def admission_decision(signal, context, config):
     if config.get("source") == "tv_bridge":
         if signal["observed_at"] < config["tv_start_ms"]:
             return StrategyDecision("IGNORED", "TV_BEFORE_ENABLE_TIME")
-        if signal["symbol"] not in config["allowed_symbols"]:
+        if (
+            not config.get("dynamic_universe", False)
+            and signal["symbol"] not in config["allowed_symbols"]
+        ):
             return StrategyDecision("IGNORED", "TV_SYMBOL_OUTSIDE_MARKET_UNIVERSE")
+    if config.get("dynamic_universe", False):
+        proof = context.get("universe_admission")
+        if (
+            not isinstance(proof, dict)
+            or proof.get("environment") != "SANDBOX"
+            or proof.get("symbol") != signal["symbol"]
+        ):
+            raise ValueError("CONTRACT_ADMISSION_EVIDENCE_REQUIRED")
+        if proof.get("eligible") is not True:
+            return StrategyDecision("IGNORED", "SYMBOL_NOT_TRADING")
     # One evaluator for replay and admission prevents drifting strategy rules.
     evaluated = replay_decision(signal, context, {**config, "mode": "REPLAY_ONLY"})
     if evaluated.rationale != "DIRECTIONAL_REPLAY_ONLY":
@@ -53,6 +66,7 @@ def create_directional_admission_worker(
     source="s3",
     allowed_symbols=(),
     tv_start_ms=None,
+    dynamic_universe=False,
 ):
     # Fail at construction instead of consuming formal signals while disabled.
     if type(enable_admission) is not bool or not enable_admission:
@@ -73,10 +87,12 @@ def create_directional_admission_worker(
         type(tv_start_ms) is not int
         or not 0 < tv_start_ms <= 2**53 - 1
         or not isinstance(allowed_symbols, tuple)
-        or not allowed_symbols
+        or (not allowed_symbols and not dynamic_universe)
         or len(set(allowed_symbols)) != len(allowed_symbols)
     ):
         raise ValueError("TV admission requires bounded universe and start time")
+    if type(dynamic_universe) is not bool:
+        raise ValueError("EXPLICIT_UNIVERSE_MODE_REQUIRED")
     account = asdict(runtime.scope)
     return StrategyWorker(
         runtime,
@@ -89,6 +105,7 @@ def create_directional_admission_worker(
             "mode": "TESTNET_ADMISSION_ONLY",
             "account_scope": account,
             "source": source,
+            **({"dynamic_universe": True} if dynamic_universe else {}),
             **(
                 {"allowed_symbols": list(allowed_symbols), "tv_start_ms": tv_start_ms}
                 if source == "tv_bridge"
@@ -113,7 +130,10 @@ def create_directional_admission_scheduler(runtime, *, context_provider, **setti
                 worker.source != "tv_bridge"
                 or (
                     snapshot["observed_at"] >= config["tv_start_ms"]
-                    and snapshot["symbol"] in config["allowed_symbols"]
+                    and (
+                        config.get("dynamic_universe", False)
+                        or snapshot["symbol"] in config["allowed_symbols"]
+                    )
                 )
             )
         ),

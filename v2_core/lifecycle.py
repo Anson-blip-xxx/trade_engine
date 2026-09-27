@@ -160,6 +160,7 @@ class S3FrameProcessor:
         cooldown_ms=30000,
         absence_ms=300000,
         strength_delta=20,
+        state_partition=None,
     ):
         if publisher.source != "s3":
             raise ValueError("S3 publisher required")
@@ -173,6 +174,9 @@ class S3FrameProcessor:
         ):
             raise ValueError("positive bounded lifecycle policy required")
         self.publisher, self.evaluate = publisher, evaluate
+        self.state_partition = (
+            symbol(state_partition) if state_partition is not None else None
+        )
         self.config = {
             "detector_version": detector_version,
             "cooldown_ms": cooldown_ms,
@@ -186,8 +190,10 @@ class S3FrameProcessor:
             publisher.environment,
             "FUTURES",
             "s3-lifecycle",
-            "global",
+            self.state_partition or "global",
         )
+        if self.state_partition is not None:
+            self.config["state_partition"] = self.state_partition
 
     def process(
         self, *, frame_id, observed_at, contexts, raw_windows, removed_symbols=()
@@ -207,6 +213,10 @@ class S3FrameProcessor:
         ):
             raise ValueError("bounded explicit removals required")
         removed = sorted({symbol(item) for item in removed_symbols})
+        if self.state_partition is not None and not (set(contexts) | set(removed)) <= {
+            self.state_partition
+        }:
+            raise ValueError("S3_PARTITION_SCOPE_MISMATCH")
         for target in contexts:
             symbol(target)
         if set(removed) & contexts.keys():

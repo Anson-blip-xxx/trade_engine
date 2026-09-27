@@ -128,6 +128,7 @@ def create_guarded_runtime(
     risk_check,
     enabled=False,
     projectors=(),
+    risk_reference=None,
 ):
     """Scope-bound composition. Network/write clients and risk policy stay explicit.
 
@@ -138,13 +139,19 @@ def create_guarded_runtime(
         callable(port) for port in (submit, query, risk_check)
     ):
         raise ValueError("explicit ports and boolean write gate required")
-    provider = ArchivedRiskReference(
-        connect,
-        scope=scope,
-        archive=archive,
-        clock_ms=clock_ms,
-        max_age_ms=max_reference_age_ms,
+    provider = (
+        risk_reference
+        if risk_reference is not None
+        else ArchivedRiskReference(
+            connect,
+            scope=scope,
+            archive=archive,
+            clock_ms=clock_ms,
+            max_age_ms=max_reference_age_ms,
+        )
     )
+    if not callable(provider):
+        raise TypeError("explicit risk reference required")
 
     def risk(request):
         if not bound(request, scope):

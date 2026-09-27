@@ -98,16 +98,19 @@ class BinancePublicMarket:
         enabled=False,
         timeout=5,
         connection_factory=HTTPSConnection,
+        incremental=False,
     ):
         if (
             environment not in self.HOSTS
             or type(enabled) is not bool
             or type(timeout) is not int
             or not 1 <= timeout <= 10
+            or type(incremental) is not bool
         ):
             raise ValueError("explicit environment and bounded public timeout required")
         self.environment, self.budget, self.enabled = environment, budget, enabled
         self.timeout, self._connection = timeout, connection_factory
+        self.incremental = incremental
 
     def __call__(self, path, params):
         if not self.enabled:
@@ -116,6 +119,8 @@ class BinancePublicMarket:
             raise TypeError("normalized public parameters required")
         if path in {"/fapi/v1/time", "/fapi/v1/exchangeInfo"} and params == {}:
             weight = 1
+        elif self.incremental and path == "/fapi/v1/ticker/24hr" and params == {}:
+            weight = 40
         elif path == "/fapi/v1/ticker/bookTicker" and set(params) == {"symbol"}:
             symbol(params["symbol"])
             weight = 2
@@ -144,6 +149,23 @@ class BinancePublicMarket:
                 ("1h", 20): (3600000, 72000000, 1),
             }
             contract = contracts.get((params["interval"], params["limit"]))
+            limit = params["limit"]
+            if (
+                self.incremental
+                and params["interval"] == "1m"
+                and type(limit) is int
+                and 1 <= limit <= 1440
+            ):
+                weight = (
+                    1
+                    if limit < 100
+                    else 2
+                    if limit < 500
+                    else 5
+                    if limit <= 1000
+                    else 10
+                )
+                contract = (60000, limit * 60000, weight)
             if contract is None:
                 raise ValueError("bounded closed-minute request required")
             interval, duration, weight = contract
