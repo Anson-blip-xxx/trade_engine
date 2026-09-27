@@ -10,11 +10,11 @@ from test_v2_credential_console import case as console_case
 from test_v2_credential_console import database as database_fixture
 from test_v2_credential_console import setup as journal_setup
 
+from services.v2_systemd_master_keys import SystemdMasterKeys, secure_mount
 from services.v2_testnet_daemon_entry import daemon_credentials, process_credentials
 from v2_core.account_risk import AccountScope
 from v2_core.credential_vault import VaultError
 from v2_core.runtime_credentials import resolve_runtime_credentials
-from v2_core.systemd_master_keys import SystemdMasterKeys, secure_mount
 
 database = database_fixture
 setup = journal_setup
@@ -111,7 +111,7 @@ def credential_file(tmp_path, monkeypatch):
 
 def test_provider_reads_exact_material_only_on_secure_mount(tmp_path, monkeypatch):
     directory, key = credential_file(tmp_path, monkeypatch)
-    monkeypatch.setattr("v2_core.systemd_master_keys.secure_mount", lambda fd: True)
+    monkeypatch.setattr("services.v2_systemd_master_keys.secure_mount", lambda fd: True)
     provider = SystemdMasterKeys(directory)
     assert provider("v1") == key.read_bytes()
     for key_id in ("../v1", "", None):
@@ -125,7 +125,7 @@ def test_provider_reads_exact_material_only_on_secure_mount(tmp_path, monkeypatc
 def test_provider_rejects_unsafe_files(tmp_path, monkeypatch, defect):
     directory, key = credential_file(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        "v2_core.systemd_master_keys.secure_mount", lambda fd: defect != "disk"
+        "services.v2_systemd_master_keys.secure_mount", lambda fd: defect != "disk"
     )
     if defect == "mode":
         key.chmod(0o600)
@@ -186,7 +186,7 @@ def test_daemon_vault_mode_uses_notification_file_only(bound, tmp_path, monkeypa
         "CREDENTIALS_DIRECTORY": "/run/credentials/qa.service",
     }
     monkeypatch.setattr(
-        "v2_core.systemd_master_keys.SystemdMasterKeys", lambda _: console.key_provider
+        "services.v2_systemd_master_keys.SystemdMasterKeys", lambda _: console.key_provider
     )
     config = SimpleNamespace(daemon=SimpleNamespace(account_id="A"))
     result = process_credentials(

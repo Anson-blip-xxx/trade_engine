@@ -14,6 +14,7 @@ from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
+from services.v2_systemd_master_keys import SystemdMasterKeys
 from services.v2_testnet_daemon_entry import (
     PrivateRatePermit,
     TestnetProcessConfig,
@@ -26,7 +27,6 @@ from v2_core.execution_routes import ExecutionRoutes
 from v2_core.public_market import PublicRateBudget
 from v2_core.runtime_credentials import resolve_runtime_credentials
 from v2_core.runtime_policy import PolicyStore
-from v2_core.systemd_master_keys import SystemdMasterKeys
 from v2_core.telegram import TelegramOperationalSink
 from v2_core.transport import BinanceSignedTransport
 

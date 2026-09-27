@@ -172,9 +172,9 @@ def process_credentials(path, *, values, config, connect):
     if source != "vault":
         raise ValueError("INVALID_CREDENTIAL_SOURCE")
     # Lazy imports keep the old deployed runtime independent of optional crypto.
+    from services.v2_systemd_master_keys import SystemdMasterKeys
     from v2_core.account_risk import AccountScope
     from v2_core.runtime_credentials import resolve_runtime_credentials
-    from v2_core.systemd_master_keys import SystemdMasterKeys
 
     raw_version = values.get("V2_VAULT_BINDING_VERSION", "")
     if (

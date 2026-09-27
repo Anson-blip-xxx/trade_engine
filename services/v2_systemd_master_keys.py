@@ -1,4 +1,4 @@
-"""Read only systemd-delivered master material from a protected memory mount.
+"""Service adapter: read systemd master material from a protected memory mount.
 
 Provision LoadCredentialEncrypted outside this module. No plaintext-file/env
 fallback, generation, persistence, or subprocess carrying secret bytes exists here.

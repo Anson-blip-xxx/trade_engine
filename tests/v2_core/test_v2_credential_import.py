@@ -13,12 +13,12 @@ from test_v2_credential_console import database as database_fixture
 from test_v2_credential_console import setup as journal_setup
 from test_v2_intent_admission import intent
 
+from services.v2_systemd_master_keys import SystemdMasterKeys
 from v2_core.account_risk import AccountScope
 from v2_core.credential_import import import_existing_credentials
 from v2_core.credential_vault import VaultError
 from v2_core.intents import IntentStore
 from v2_core.runtime_credentials import resolve_runtime_credentials
-from v2_core.systemd_master_keys import SystemdMasterKeys
 
 database = database_fixture
 setup = journal_setup
