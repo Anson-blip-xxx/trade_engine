@@ -33,3 +33,13 @@ The service role gains only credential-check INSERT/SELECT, quota access and
 column-level registry UPDATE(version) required by PostgreSQL SHARE locks. It
 still cannot write orders or settlement records, manage systemd, or execute
 exchange writes through this endpoint.
+
+## Deployed acceptance — 2026-09-27
+
+66 isolated regression tests passed. On the deployed owner backend, both active
+Testnet bindings were checked: the earlier Web enrollment passed; the newly added
+enrollment returned HTTP 401 / exchange -2015. Both produced auditable receipts;
+repeat requests reused the cooldown result, and a mismatched Origin returned 403.
+No LIVE credential was resolved or sent. The legacy trading daemon/watchdog
+remained inactive with no worker PID. Consequently two-account execution-switch
+acceptance is still blocked; this milestone is not a completed account handover.

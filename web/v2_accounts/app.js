@@ -24,7 +24,7 @@ async function filterAccounts(selected) {
 function verificationText(result) {
   const status = {NOT_CHECKED:"尚未验证",SIGNED_READ_ACCEPTED:"签名只读验证通过",SIGNED_READ_FAILED:"签名只读验证失败"}[result.outcome] || "状态未知";
   const d=result.diagnostic || {};
-  return `${status}${result.checked_at ? " · "+result.checked_at : ""}${result.checked_at && !result.fresh ? " · 结果已过期，需重新验证" : ""}${d.http_status ? " · HTTP "+d.http_status : ""}${d.exchange_code ? " · 币安错误码 "+d.exchange_code : ""}${d.category ? " · "+d.category : ""}${result.cached ? " · 冷却期内复用最近结果" : ""} · 不授权交易`;
+  return `${status}${result.checked_at ? " · "+result.checked_at : ""}${result.checked_at && !result.fresh ? " · 结果已过期，需重新验证" : ""}${d.http_status ? " · HTTP "+d.http_status : ""}${d.exchange_code ? " · 币安错误码 "+d.exchange_code : ""}${d.exchange_code === -2015 ? "（请检查是否为期货 Testnet Key、Key/Secret 配对、IP 白名单和 API 权限；具体原因尚未确定）" : ""}${d.category ? " · "+d.category : ""}${result.cached ? " · 冷却期内复用最近结果" : ""} · 不授权交易`;
 }
 async function showVerification(id, version) {
   try {
