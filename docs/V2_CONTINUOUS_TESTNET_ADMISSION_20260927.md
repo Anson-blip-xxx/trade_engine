@@ -97,3 +97,66 @@ Deployment activation selects signal batch 100 and an 8,000 ms cooperative budge
 with TV-first and the explicit TV trend profile. Original signal TTL, decision
 lifetime and all capital/risk limits remain unchanged. Final deployed observations
 are recorded separately below. Mocked fills are not real exchange acceptance.
+
+### Initial online observation (through 22:32:29 UTC+8)
+
+Controller release `d5e5d04-continuous-admission` was activated through the owner
+API at route epoch 19. Account runtime policy advanced from version 1 to 2, with
+only the six documented TV/scheduler values changed. Entries, native protection
+and reduce-only exits were all enabled. Controller, market-hub and account-admin
+were active with zero automatic restarts. Main/LIVE were not changed.
+
+There were 21 entry-enabled CYCLE_COMPLETE cycles averaging 13,759 ms, compared
+with an earlier sample of roughly 18–29 seconds. One entry-enabled and one
+recovery-only cycle were blocked by a transient XPIN task UNAVAILABLE result.
+That task completed after three attempts with `strength_below_minimum`; no
+unfinished task errors remained. Its original diagnostic was not retained in
+the task's final mutable error field, so the underlying transient cause is not
+proven. This is not counted as a perfectly clean run.
+
+Among post-release applicable S3 receipts, 408 were evaluated/ignored and 16
+expired before scheduling; 55 were still pending at this snapshot. Thus expiry
+was 16/424 completed applicable receipts (~3.8%), compared with the earlier
+58.7% window. Different short market windows and pending arrivals mean this is
+an observation, not a controlled throughput benchmark or a zero-expiry claim.
+348 decisions used the market-only rejection path.
+
+The genuine 22:30 TV batch was received and consumed:
+
+- QNTUSDT: 13.81 seconds to applicable-consumer receipt; frozen profile
+  `tv-trend-v1`, original strength 29, minimum score 20; rejected at
+  `REWARD_RISK_TOO_LOW`, not the old source-strength gate.
+- ZESTUSDT: 3.80 seconds to `SYMBOL_NOT_TRADING`; no Testnet contract was invented.
+- Opposite-direction consumers ignored both normally.
+
+No new orders/fills occurred. Consequently venue entry, native-stop installation,
+closing, settlement and trading notifications were NOT newly qualified online.
+No claim about profitability follows from this release.
+
+### Cadence follow-up
+
+Remaining expiry revealed that each 13–15 second cycle still slept another ten
+seconds. The current Testnet controller now overrides `V2_INTERVAL_SECONDS=2` in
+its own protected environment file; the legacy daemon environment is untouched.
+The account ledger was verified clear before this restart, and the same-account
+formal resume reached epoch 20 ACTIVE. The existing global/market API budgets,
+8-second cooperative evaluation budget and all risk controls remain enforced.
+The 22:34 budget sample was 447 total / 172 market weight with no active backoff.
+
+At **22:40:27 UTC+8**, the post-cadence cohort had 18 completed entry-enabled
+cycles (average 13,460 ms) and one in-flight cycle; all completed cycles were
+CYCLE_COMPLETE. There were 228 applicable evaluated/ignored receipts, 32 pending,
+zero EXPIRED receipts and no unfinished task errors in that short window. Sampled
+minute weights stayed within the existing budget, with no active backoff. There
+were still no natural new orders. This is a short stability observation, not a
+claim that arbitrary future bursts cannot expire or that the strategy is profitable.
+The final route remains epoch 20 ACTIVE, with entries/protection/exits enabled;
+the controller is active with zero automatic restarts. It was NOT shut down at
+handoff. The acceptance record reached version 3 and retains both observations.
+
+The PostgreSQL acceptance record is `testnet-acceptance-v1` /
+`continuous-admission-20260927`, scoped to the resolved runtime account. It
+retains pre-change policy, QA results, observed outcomes and the explicit intent
+to leave Testnet entries enabled. After future process restarts, the controller
+still deliberately enters recovery; never bypass its same-account readiness
+checks by editing route rows or assuming process existence means entry authority.
