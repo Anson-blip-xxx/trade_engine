@@ -21,6 +21,20 @@ setup = journal_setup
 case = console_case
 
 
+def test_retired_account_hidden_and_cannot_resolve(bound):
+    console, _, args = bound
+    with console.connect() as c:
+        c.execute(
+            "INSERT INTO v2_account_retirements(tenant_id,registry_id,reason) VALUES (%s,%s,'USER_REMOVED_INVALID_CREDENTIAL')",
+            (console.tenant, args["registry_id"]),
+        )
+    assert args["registry_id"] not in {a["registry_id"] for a in console.accounts()}
+    with pytest.raises(VaultError, match="ACCOUNT_RETIRED"):
+        resolve_runtime_credentials(console.connect, **args)
+    # Historical statistics remain addressable; no financial history is deleted.
+    assert console.overview(args["registry_id"])["registry_id"] == args["registry_id"]
+
+
 @pytest.fixture
 def bound(case):
     console, vault, fixture, _ = case

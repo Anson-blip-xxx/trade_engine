@@ -28,6 +28,11 @@ def resolve_runtime_credentials(
             "SELECT exchange,account_id,environment,product,credential_ref::text,version FROM v2_tenant_accounts WHERE tenant_id=%s AND registry_id=%s FOR SHARE",
             (tenant, registry),
         ).fetchone()
+        if c.execute(
+            "SELECT 1 FROM v2_account_retirements WHERE tenant_id=%s AND registry_id=%s",
+            (tenant, registry),
+        ).fetchone():
+            raise VaultError("ACCOUNT_RETIRED")
         if (
             row is None
             or row[:4] != tuple(asdict(scope).values())

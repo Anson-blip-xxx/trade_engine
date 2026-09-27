@@ -55,7 +55,9 @@ class AccountConsole:
                 a.environment,a.status,COALESCE(n.version,0),a.version,
                 EXISTS(SELECT 1 FROM v2_credential_vault v WHERE v.tenant_id=a.tenant_id AND v.credential_ref=a.credential_ref AND v.environment=a.environment)
                 FROM v2_tenant_accounts a LEFT JOIN v2_account_aliases n USING(tenant_id,registry_id)
-                WHERE a.tenant_id=%s ORDER BY a.created_at,a.registry_id LIMIT 100""",
+                WHERE a.tenant_id=%s AND NOT EXISTS (
+                    SELECT 1 FROM v2_account_retirements r WHERE r.tenant_id=a.tenant_id AND r.registry_id=a.registry_id
+                ) ORDER BY a.created_at,a.registry_id LIMIT 100""",
                 (self.tenant,),
             ).fetchall()
         return [

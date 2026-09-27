@@ -30,6 +30,12 @@ def case(setup):
         c.execute(
             (
                 Path(__file__).resolve().parents[2]
+                / "db/migrations/20260927_account_retirements.sql"
+            ).read_text()
+        )
+        c.execute(
+            (
+                Path(__file__).resolve().parents[2]
                 / "db/migrations/20260926_credential_vault.sql"
             ).read_text()
         )
