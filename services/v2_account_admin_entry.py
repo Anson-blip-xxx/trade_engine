@@ -8,10 +8,9 @@ from services.v2_account_console import AccountConsole
 from services.v2_account_verification import AccountVerification
 from services.v2_dashboard import _Server
 from services.v2_systemd_master_keys import SystemdMasterKeys
-from services.v2_testnet_daemon_entry import PrivateRatePermit
 from v2_core.database import connection_factory
 from v2_core.execution_routes import ExecutionRoutes
-from v2_core.public_market import PublicRateBudget
+from v2_core.web_verification_quota import WebVerificationPermit
 
 
 def main():
@@ -39,14 +38,7 @@ def main():
         execution_routes=ExecutionRoutes(connect),
         verification=AccountVerification(
             console,
-            permit_factory=lambda account: PrivateRatePermit(
-                PublicRateBudget(
-                    connect, scope="v2-testnet-private:" + account, limit=2400
-                ),
-                entries=False,
-                protection=False,
-                exits=False,
-            ),
+            permit_factory=lambda _account: WebVerificationPermit(connect),
             clock_ms=lambda: time.time_ns() // 1000000,
             cooldown_seconds=int(os.environ.get("V2_VERIFY_COOLDOWN_SECONDS", "60")),
             freshness_seconds=int(os.environ.get("V2_VERIFY_FRESHNESS_SECONDS", "300")),
