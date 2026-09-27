@@ -41,6 +41,20 @@ Both directions passed. New entries stayed disabled throughout; no LIVE account
 was activated. This tests account switching/display consistency, not strategy
 profitability or the full signal-to-trade lifecycle.
 
+## Regression results
+
+The full isolated `tests/v2_core` run completed 1,733 tests: 1,732 passed and one
+failed the no-file-I/O core boundary because the systemd credential adapter was
+in `v2_core`. Moving that adapter to services fixed the violation without
+weakening the rule. The subsequent 79-test focused run passed, including core
+boundary, runtime credentials, credential import, dashboard account isolation,
+performance reports, account frontend, execution routes and controller tests.
+The entire 1,733-test suite was not rerun after that move; do not describe the
+original full run as all-green. Final deployed Web assets were separately
+retested in Chromium through both switching directions and failure clearing.
+External unauthenticated requests to home, accounts and their APIs return 401.
+The dashboard role cannot read vault data/worker tokens or update routes.
+
 ## Deployment
 
 Set `V2_DASHBOARD_TENANT` outside Git and apply
