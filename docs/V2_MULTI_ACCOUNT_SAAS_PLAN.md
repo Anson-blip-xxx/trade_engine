@@ -1,5 +1,13 @@
 # Multi-account capital and tenant isolation
 
+Current operator-migration update: registry/identity-capital foundation, vault and
+credential-check tables have been initialized; the original Testnet credentials
+were imported encrypted without rewriting history. Real signed-read acceptance
+is blocked by exchange rejection, with the same rejection on the deployed legacy
+reader. See `V2_CREDENTIAL_READ_ACCEPTANCE.md`. Trading processes are not switched;
+public account management and SaaS activation remain off. Milestone notes below
+describe their earlier delivery state and are not deployment attestations.
+
 Status: internal registry foundation implemented and QA-tested; not a deployed
 multi-tenant capability.
 Existing Testnet execution remains unchanged. This plan does not authorize a

@@ -46,10 +46,9 @@ history association, concurrent replay, failed readback rollback, foreign accoun
 rejection and strict ACL positive/negative cases. The real systemd delivery and
 encrypted-master roundtrip are additional host acceptance checks, not mocked tests.
 
-The production/Testnet trading service remains on its prior release and plaintext
-exchange credential source. No current API key has been imported or deleted, no
-SaaS migration applied to its database, and no exchange write performed by this
-stage. Next: provision restricted schema/roles and the original tenant/account
-binding, import without changing historical scope, validate Testnet signing,
-qualify all consumers and rollback, then cut over and remediate plaintext copies.
-The web console and execution-account switching remain unactivated.
+The initial primitive delivery did not import runtime API keys. The subsequent
+operator import now preserves the original scope with encrypted material and a
+restricted migration role; see `V2_CREDENTIAL_READ_ACCEPTANCE.md` for the current
+signed-read rejection and rollout status. Trading processes still use their prior
+release/plaintext source. Nothing was deleted or switched, and the web console
+and execution-account switching remain unactivated.
