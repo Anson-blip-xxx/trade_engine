@@ -94,3 +94,31 @@ and settlement. No replayed signals, synthetic candidates or LIVE credentials.
 - This short-time-stop acceptance proves execution/accounting, **not profitability**.
   It is not a TradingView-origin lifecycle sample. Monitor delivery/pin acceptance
   and restoration of temporary configuration are recorded separately below.
+
+## Additional acceptance and configuration restoration
+
+- A second natural QNTUSDT episode, `ae3f2261-bcfc-5194-8799-56ce001ffcfb`, also
+  completed opening, automatic close and SETTLED accounting. Net PnL was
+  -0.2130416 USDT, including 0.0230416 USDT fees.
+- All four confirmed OPEN/SETTLED TG projections have delivery receipts and
+  `telegram-pin-v1` status PINNED. Independent account-scoped health records refresh
+  after the systemd ACL fix; the opening-stalled incident clears on new acceptance.
+- Temporary time stops were restored to 120/480/240 minutes (S6A/S6B/S8), policy
+  version 4. The original no-fixed-count SANDBOX position configuration was restored
+  at risk-policy version 7, retaining the 70% capital-pool and other risk controls.
+  Restoration and both completed episodes are audited in
+  `sandbox-lifecycle-acceptance-v1 / execution-guard-20260928`.
+
+## Expired cross-consumer backlog found by the restored monitor
+
+The monitor exposed old S8 pending LONG signals whose S6 intents incorrectly
+prevented S8 expiry. Both `StrategyScheduler.expire_pending()` intent checks had
+matched only `signal_id`, not account/product/environment/producer. This was not
+evidence of missing S8 short trades. The scoped check preserves each consumer's
+own decisions, intents and active leases; other accounts/strategies no longer pin
+its expired input. It does not delete source signals or history, change TTL, replay
+entries, or suppress genuine lag alerts. A brief flat-account maintenance window
+is used for this final queue-correctness deployment.
+
+Final scoped-expiry/admission, health and actual worker-wiring regression:
+264 passed in 132.83 seconds using the standard isolated PostgreSQL/Redis harness.

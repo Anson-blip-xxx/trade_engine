@@ -1365,6 +1365,49 @@ def test_scheduler_expiry_preserves_active_lease_and_decision(database):
         ).fetchone() == (0,)
 
 
+@pytest.mark.parametrize(
+    "changes,expected_expired",
+    [
+        ({}, 0),
+        ({"producer": "s8"}, 1),
+        ({"account_id": "another-account"}, 1),
+        ({"exchange": "another-exchange"}, 1),
+        ({"product": "SPOT"}, 1),
+    ],
+)
+def test_scheduler_expiry_intent_protection_is_consumer_scoped(
+    database, changes, expected_expired
+):
+    from v2_core.scheduling import StrategyScheduler
+
+    service, request, proof, signal_id = signal_request(database)
+    request = replace(request, **changes)
+    # An admitted intent without a strategy decision/receipt still needs its
+    # own recovery path. Do not delete immutable facts to manufacture this case.
+    assert service.accept(request, proof).code is Code.ACCEPTED
+    worker, _ = strategy_worker(database, now=lambda: 100)
+    scheduler = StrategyScheduler(
+        worker, context_provider=lambda _: pytest.fail("expiry requires no market I/O")
+    )
+    assert scheduler.expire_pending() == expected_expired
+    assert scheduler.expire_pending() == 0
+    with database() as conn:
+        receipt = conn.execute(
+            "SELECT outcome,intent_id FROM v2_signal_receipts WHERE consumer=%s AND signal_id=%s",
+            (worker.scope.consumer, signal_id),
+        ).fetchone()
+        assert receipt == (("EXPIRED", None) if expected_expired else None)
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_decisions WHERE signal_id=%s",
+            (signal_id,),
+        ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT status FROM v2_trade_intents WHERE intent_id=%s",
+            (request.intent_id,),
+        ).fetchone() == ("RECEIVED",)
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+
+
 def test_strategy_scheduler_failed_signal_does_not_starve_later_signal(database):
     from v2_core.scheduling import StrategyScheduler
 

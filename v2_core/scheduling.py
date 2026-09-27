@@ -7,6 +7,7 @@ StrategyWorker's immutable decision and idempotent admission are the authority.
 import re
 import time
 from copy import deepcopy
+from dataclasses import asdict
 from uuid import uuid4
 
 EXPECTED_ADMISSION_WAITS = frozenset(
@@ -66,6 +67,10 @@ class StrategyScheduler:
             self.worker.scope.consumer,
             self.worker.runtime._now(),
         )
+        # An intent belongs to one account/strategy consumer. Another account
+        # or the opposite directional consumer must not pin this consumer's
+        # expired input forever merely because the shared signal_id matches.
+        intent_scope = tuple(asdict(worker.scope).values())
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT s.signal_id FROM v2_inbound_signals s
@@ -75,7 +80,9 @@ class StrategyScheduler:
                     WHERE r.consumer=%s AND r.signal_id=s.signal_id)
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
                     WHERE d.consumer=%s AND d.signal_id=s.signal_id)
-                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i WHERE i.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i
+                    WHERE i.signal_id=s.signal_id
+                    AND (i.exchange,i.account_id,i.environment,i.product,i.producer)=(%s,%s,%s,%s,%s))
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
                     WHERE t.consumer=%s AND t.signal_id=s.signal_id
                     AND t.lease_until>=clock_timestamp())
@@ -86,6 +93,7 @@ class StrategyScheduler:
                     now,
                     consumer,
                     consumer,
+                    *intent_scope,
                     consumer,
                     limit,
                 ),
@@ -98,12 +106,14 @@ class StrategyScheduler:
                 FROM v2_inbound_signals s WHERE s.signal_id=ANY(%s::uuid[])
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
                     WHERE d.consumer=%s AND d.signal_id=s.signal_id)
-                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i WHERE i.signal_id=s.signal_id)
+                AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i
+                    WHERE i.signal_id=s.signal_id
+                    AND (i.exchange,i.account_id,i.environment,i.product,i.producer)=(%s,%s,%s,%s,%s))
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
                     WHERE t.consumer=%s AND t.signal_id=s.signal_id
                     AND t.lease_until>=clock_timestamp())
                 ON CONFLICT DO NOTHING RETURNING signal_id""",
-                (consumer, [row[0] for row in rows], consumer, consumer),
+                (consumer, [row[0] for row in rows], consumer, *intent_scope, consumer),
             ).fetchall()
             if expired:
                 conn.execute(
