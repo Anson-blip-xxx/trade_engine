@@ -67,6 +67,9 @@ class IncrementalArchive:
         ).result_rows
         found = {}
         for opened, payload, fingerprint in rows:
+            # clickhouse-connect returns FixedString as bytes by default.
+            if isinstance(fingerprint, bytes):
+                fingerprint = fingerprint.decode("ascii")
             if digest(payload) != fingerprint or (
                 opened in found and found[opened] != payload
             ):

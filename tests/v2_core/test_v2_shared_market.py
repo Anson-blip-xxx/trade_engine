@@ -83,7 +83,7 @@ class CH:
         p = parameters
         return SimpleNamespace(
             result_rows=[
-                (t, payload, sha)
+                (t, payload, sha.encode("ascii") if isinstance(sha, str) else sha)
                 for env, s, t, payload, sha in self.rows
                 if env == p["environment"]
                 and s == p["symbol"]
