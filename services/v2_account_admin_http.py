@@ -15,10 +15,17 @@ from v2_core.account_switches import AccountSwitches
 from v2_core.credential_vault import VaultError
 
 _ASSETS = Path(__file__).resolve().parents[1] / "web/v2_accounts"
-_ACCOUNT = re.compile(r"^/api/accounts/([0-9a-f-]{36})/(overview|alias)$")
+_ACCOUNT = re.compile(r"^/api/accounts/([0-9a-f-]{36})/(overview|alias|verification)$")
 
 
-def handler_for(console, *, authenticated_user, origin, enable_switch_requests=False):
+def handler_for(
+    console,
+    *,
+    authenticated_user,
+    origin,
+    enable_switch_requests=False,
+    verification=None,
+):
     parsed = urlsplit(origin)
     if (
         not authenticated_user
@@ -74,6 +81,8 @@ def handler_for(console, *, authenticated_user, origin, enable_switch_requests=F
                 match = _ACCOUNT.fullmatch(path)
                 if match and match[2] == "overview":
                     return self._send(200, console.overview(match[1]))
+                if match and match[2] == "verification" and verification is not None:
+                    return self._send(200, verification.status(match[1]))
                 assets = {
                     "/accounts": ("index.html", "text/html; charset=utf-8"),
                     "/accounts/": ("index.html", "text/html; charset=utf-8"),
@@ -118,6 +127,13 @@ def handler_for(console, *, authenticated_user, origin, enable_switch_requests=F
                 }:
                     return self._send(201, console.add(**body))
                 match = _ACCOUNT.fullmatch(path)
+                if (
+                    match
+                    and match[2] == "verification"
+                    and verification is not None
+                    and set(body) == {"expected_version"}
+                ):
+                    return self._send(200, verification.verify(match[1], **body))
                 if (
                     match
                     and match[2] == "alias"

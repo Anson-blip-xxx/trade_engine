@@ -1,11 +1,15 @@
-"""Storage-only owner console. Never loads exchange clients or trading workers."""
+"""Owner console with Testnet signed GET verification. No trading workers."""
 
 import os
+import time
 
 from services.v2_account_admin_http import handler_for
 from services.v2_account_console import AccountConsole
+from services.v2_account_verification import AccountVerification
 from services.v2_dashboard import _Server
+from services.v2_testnet_daemon_entry import PrivateRatePermit
 from v2_core.database import connection_factory
+from v2_core.public_market import PublicRateBudget
 from v2_core.systemd_master_keys import SystemdMasterKeys
 
 
@@ -31,6 +35,20 @@ def main():
         console,
         authenticated_user=os.environ["V2_ADMIN_OWNER"],
         origin=os.environ["V2_ADMIN_ORIGIN"],
+        verification=AccountVerification(
+            console,
+            permit_factory=lambda account: PrivateRatePermit(
+                PublicRateBudget(
+                    connect, scope="v2-testnet-private:" + account, limit=2400
+                ),
+                entries=False,
+                protection=False,
+                exits=False,
+            ),
+            clock_ms=lambda: time.time_ns() // 1000000,
+            cooldown_seconds=int(os.environ.get("V2_VERIFY_COOLDOWN_SECONDS", "60")),
+            freshness_seconds=int(os.environ.get("V2_VERIFY_FRESHNESS_SECONDS", "300")),
+        ),
     )
 
     class Server(_Server):

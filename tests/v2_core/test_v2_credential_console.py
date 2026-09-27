@@ -255,12 +255,14 @@ def http(
     headers=None,
     peer="127.0.0.1",
     enable_switch_requests=False,
+    verification=None,
 ):
     cls = handler_for(
         console,
         authenticated_user="qa-owner",
         origin="https://console.invalid",
         enable_switch_requests=enable_switch_requests,
+        verification=verification,
     )
     h = cls.__new__(cls)
     h.path = path
