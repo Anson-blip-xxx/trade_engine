@@ -22,13 +22,13 @@ Legacy startup remains compatible; the old installed services are disabled and
 must not be mistaken for guarded workers.
 
 Rotation through the Web is rejected for ACTIVE or DRAINING accounts, preserving
-old-position management credentials. Trusted future activation must lock the
-registry row and recheck its binding, as the mutation guard already does.
+old-position management credentials. Trusted activation locks the registry row
+and rechecks its binding, as the mutation guard already does.
 
-This is code integration and isolated QA, **not real account-switch acceptance**.
-The trusted controller, independent process ownership/acknowledgement, source
-reconciliation and target risk/bootstrap are still required. No managed trading
-worker is started by this change; LIVE remains disabled.
+Deployment update: the independent controller now uses this guard in the real
+managed Testnet child. See `V2_TESTNET_EXECUTION_CONTROLLER.md` for actual process
+recovery and target-rejection acceptance. Successful two-account handover still
+requires funding the zero-balance Testnet target. LIVE remains disabled.
 
 QA: 92 transport, ownership, rotation, runtime credential and process composition
 regressions passed. A real temporary PostgreSQL lock-contention test confirms

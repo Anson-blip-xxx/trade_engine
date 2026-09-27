@@ -15,7 +15,10 @@ Redis/ClickHouse and composes the real trading pipeline before READY. Only then
 does the controller mark ACTIVE and release its start gate. In acceptance mode
 new entries are disabled explicitly; exits/protection remain separately gated.
 
-For A -> B, A becomes DRAINING without changing its binding/token. The transport
+For A -> B, the target is preflighted before touching a healthy ACTIVE source.
+A failed target request is recorded as REJECTED while A retains its exact worker
+and authority. After a successful preflight A becomes DRAINING without changing
+its binding/token. The transport
 blocks OPEN and settings, while the child disables admission on its next cycle
 and continues recovery, protection, exits and settlement. B cannot start until A
 has no positions/orders/unsettled local episodes and the old process is confirmed
@@ -31,3 +34,25 @@ retained for visibility but never consumed by this Testnet supervisor.
 Production execution is still not implemented by this deployment: its worker,
 separate database/cache and acceptance remain distinct requirements. Do not infer
 LIVE readiness from the presence of a LIVE selector or stored API credential.
+
+## Deployment acceptance — 2026-09-27 (UTC+8)
+
+The independent `trade-v2-execution-controller.service` and matching Web release
+are deployed. The legacy daemon/watchdog remain disabled. Entries are explicitly
+disabled by the root-owned controller configuration; ACTIVE is not evidence that
+strategy opening is enabled. API credentials remain in the encrypted vault.
+
+Real Testnet checks confirmed:
+
+- Account A reaches ACTIVE after child READY and composes the actual pipeline.
+- A request for account B is REJECTED with NO_AVAILABLE_BALANCE; A remains ACTIVE
+  at the same epoch. B's signed wallet, margin and available balances are zero.
+- Restarting the controller recovers A in DRAINING with RECOVERING_SOURCE.
+- An explicit subsequent request resumes A as ACTIVE, still with
+  ENTRY_DISABLED_ACCEPTANCE. Recovery never automatically enables entries.
+
+The isolated PostgreSQL regression run passed 88 tests covering controller,
+route locking/fencing, signed transport, credential console/acceptance, runtime
+credentials and process composition. This is not a successful A -> B -> A
+exchange handover: B requires simulated funds before that acceptance can finish.
+No LIVE credential was used and no production runtime was activated.

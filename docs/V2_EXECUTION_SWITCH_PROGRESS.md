@@ -1,32 +1,27 @@
-# Execution switching — not complete
+# Execution switching — current status
 
-Both Web Testnet bindings passed real signed-read validation on 2026-09-27.
-LIVE credentials were not used; legacy Testnet workers remain disabled.
+Updated 2026-09-27 (UTC+8). The independent Testnet controller and real guarded
+child pipeline are deployed; this is no longer a request-only Web implementation.
+See `V2_TESTNET_EXECUTION_CONTROLLER.md` for architecture and acceptance evidence.
 
-This milestone adds environment-separated, versioned desired-account requests
-and status rendering. Request replay is idempotent; concurrent stale requests,
-foreign/retired bindings and environment mismatch are rejected. Active workers
-cannot be replaced by this endpoint. Web only appends immutable requests with
-BLOCKED / execution_authorized=false, enforced by a database CHECK constraint.
-It has no write permission to the actual execution route or worker token.
+Web appends immutable, versioned desired-account requests. It cannot write the
+actual execution route or worker token. A separate least-privilege controller
+owns actual transitions, locks a tenant/environment lease and requires child
+READY before activation. Requests are idempotent and stale epochs are rejected.
 
-An initial proposal to grant Web writes on actual routing was rejected by the
-deployment permission review. The implemented alternative separates requested
-state from actual execution state and grants only request INSERT/SELECT plus
-non-secret actual-route read access. No activation privilege is granted.
+Every signed mutation in the managed child passes a transaction-held ownership
+guard. Draining allows management only. Target preflight rejection preserves a
+healthy source. Successful switching requires a clear exchange inventory and
+local ledger, confirmed old-child termination, and a fresh target preflight.
+Each account retains its own capital/risk baseline when revisited.
 
-The transaction-held submit guard checks tenant, environment, account, credential
-version, epoch, worker token and retirement. It is QA-tested infrastructure,
-**not wired into the old deployed trading daemon**. This milestone cannot claim
-actual stale-worker fencing or completed exchange-account handover.
+Actual acceptance confirmed account A activation, account B rejection without
+interrupting A, restart into DRAINING, and explicit resume of A. Entries remain
+disabled for acceptance. B has zero simulated wallet/margin/available balance;
+successful A -> B -> A remains blocked until B has Testnet funds. The disabled
+legacy daemon/watchdog were not restarted. An isolated regression run passed
+88 tests; this does not substitute for the blocked exchange handover test.
 
-Remaining required work: trusted controller and process acknowledgement; source
-drain/protection/exits/reconciliation; guard on every signed mutation boundary;
-new-account risk/capital bootstrap; isolated LIVE runtime/database/cache and
-notifications; real two-account Testnet handover including crash/rollback cases.
-All requests currently show EXECUTION_CONTROLLER_NOT_ATTACHED; LIVE also shows
-LIVE_DEPLOYMENT_NOT_APPROVED. Saving a request does not launch any trading worker.
-
-Follow-up: the candidate Testnet process composition and executable vault startup
-now wire the transaction-held mutation guard; see `V2_MANAGED_EXECUTION_FENCE.md`.
-This does not retrofit the disabled legacy deployment or activate a new worker.
+LIVE credential storage and view/request separation do not implement production
+execution. Isolated LIVE worker/database/cache deployment and its acceptance
+remain unfinished. The Testnet controller never consumes LIVE requests.
