@@ -1,6 +1,6 @@
 "use strict";
 const $ = id => document.getElementById(id);
-let accounts = [], generation = 0;
+let accounts = [], generation = 0, routeEpoch = null;
 const notice = text => { $("notice").textContent = text; };
 async function api(path, body) {
   const response = await fetch(path, {method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", headers: body ? {"Content-Type":"application/json", "X-V2-Action":"account-management"} : {}, ...(body ? {body:JSON.stringify(body)} : {})});
@@ -36,12 +36,13 @@ async function showAccount() {
   const version = ++generation, id = $("account").value;
   $("summary").replaceChildren(); $("trades").replaceChildren(); $("state").textContent = "";
   const account = accounts.find(a=>a.registry_id === id);
+  routeEpoch=null; $("route-request").disabled=true; $("route-state").textContent="正在读取执行状态…";
   $("rotate-submit").disabled = !account;
   $("rotation-target").textContent = account ? `修改目标：${account.alias} · ${account.environment} · 凭据版本 ${account.binding_version}` : "请先选择账户";
   if ($("rotate").elements) { $("rotate").elements.api_key.value=""; $("rotate").elements.api_secret.value=""; }
   $("verify").disabled = !account || account.environment !== "SANDBOX";
   $("verification").textContent = account?.environment === "LIVE" ? "生产账户仅加密保存，验证与交易均未启用。" : "正在读取验证记录…";
-  if (!account) { $("state").textContent = "尚无已登记账户"; $("verification").textContent="请选择账户"; return; }
+  if (!account) { $("state").textContent = "尚无已登记账户"; $("verification").textContent="请选择账户"; showRoute($("environment").value || "SANDBOX", version); return; }
   $("alias").value = account.alias;
   $("state").textContent = `${account.status} · ${account.encrypted_credential_present ? "凭据已加密保存" : "尚无加密凭据"} · 未授权交易`;
   try {
@@ -52,6 +53,7 @@ async function showAccount() {
     }
     for (const trade of result.trades) { const p=document.createElement("p"); p.textContent=`${trade.symbol} · ${trade.status} · ${trade.created_at} · 净收益 ${trade.net_pnl_usdt ?? "未结算"}`; $("trades").append(p); }
     if(account.environment === "SANDBOX") await showVerification(id, version);
+    if(version===generation) await showRoute(account.environment, version);
   } catch (e) { if(version === generation) notice(e.message); }
 }
 $("account").addEventListener("change", showAccount);
@@ -91,5 +93,29 @@ $("rotate").addEventListener("submit",async event=>{
     else { account.binding_version=result.binding_version; }
   }catch(e){if(version===generation)notice(e.message);}
   finally {body.api_key="";body.api_secret="";if(version===generation)button.disabled=false;}
+});
+function routeText(result) {
+  const phases={STOPPED:"无已确认执行者",BLOCKED:"申请被阻断，尚未切换",REQUESTED:"等待执行控制器处理",ACTIVE:"执行者已确认"};
+  const reasons={EXECUTION_CONTROLLER_NOT_ATTACHED:"执行控制器尚未接入",LIVE_DEPLOYMENT_NOT_APPROVED:"生产隔离部署与上线验收尚未完成",TARGET_CREDENTIAL_NOT_VERIFIED:"目标凭据尚未验证通过"};
+  const target=accounts.find(a=>a.registry_id===result.target_registry);
+  return `${phases[result.phase] || "未知状态"}${target ? " · 目标 "+target.alias : ""} · 版本 ${result.epoch}${result.blockers?.length ? " · "+result.blockers.map(x=>reasons[x]||x).join("；") : ""}`;
+}
+async function showRoute(environment, version) {
+  try {
+    const result=await api(`/api/accounts/execution/${environment}`);
+    if(version!==generation)return;
+    routeEpoch=result.epoch; $("route-state").textContent=routeText(result);
+    $("route-request").disabled=!accounts.some(a=>a.registry_id===$("account").value) || result.phase==="ACTIVE";
+  }catch(e){if(version===generation)$("route-state").textContent="执行状态不可用；禁止申请切换。";}
+}
+$("route-request").addEventListener("click",async()=>{
+  const account=accounts.find(a=>a.registry_id===$("account").value), version=generation;
+  if(!account || routeEpoch===null)return;
+  $("route-request").disabled=true;
+  try {
+    const result=await api(`/api/accounts/execution/${account.environment}`,{target_registry:account.registry_id,binding_version:account.binding_version,expected_epoch:routeEpoch,request_id:crypto.randomUUID()});
+    if(version===generation){routeEpoch=result.epoch;$("route-state").textContent=routeText(result);}
+  }catch(e){if(version===generation)$("route-state").textContent="申请未完成，请刷新核对状态；未授权自动切换。";}
+  finally {if(version===generation)$("route-request").disabled=false;}
 });
 loadAccounts().catch(e=>notice(e.message));

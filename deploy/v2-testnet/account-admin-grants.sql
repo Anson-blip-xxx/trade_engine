@@ -11,3 +11,6 @@ GRANT UPDATE(version) ON trade_v2.v2_tenant_accounts TO tradev2accounts;
 GRANT UPDATE(credential_ref) ON trade_v2.v2_tenant_accounts TO tradev2accounts;
 GRANT SELECT, INSERT ON trade_v2.v2_credential_checks TO tradev2accounts;
 GRANT SELECT, INSERT, UPDATE ON trade_v2.v2_public_market_budgets TO tradev2accounts;
+-- Desired requests only: never grant Web writes or token reads on actual routes.
+GRANT SELECT(tenant_id,environment,epoch,target_registry,binding_version,phase,blockers) ON trade_v2.v2_execution_routes TO tradev2accounts;
+GRANT SELECT, INSERT ON trade_v2.v2_execution_route_events TO tradev2accounts;

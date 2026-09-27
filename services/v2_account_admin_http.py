@@ -15,6 +15,7 @@ from v2_core.account_switches import AccountSwitches
 from v2_core.credential_vault import VaultError
 
 _ASSETS = Path(__file__).resolve().parents[1] / "web/v2_accounts"
+_EXECUTION = re.compile(r"^/api/accounts/execution/(SANDBOX|LIVE)$")
 _ACCOUNT = re.compile(
     r"^/api/accounts/([0-9a-f-]{36})/(overview|alias|verification|credentials)$"
 )
@@ -27,6 +28,7 @@ def handler_for(
     origin,
     enable_switch_requests=False,
     verification=None,
+    execution_routes=None,
 ):
     parsed = urlsplit(origin)
     if (
@@ -78,6 +80,11 @@ def handler_for(
                 return self._send(403, {"error": "FORBIDDEN"})
             path = urlsplit(self.path).path
             try:
+                route = _EXECUTION.fullmatch(path)
+                if route and execution_routes is not None:
+                    return self._send(
+                        200, execution_routes.inspect(console.tenant, route[1])
+                    )
                 if path == "/api/accounts":
                     return self._send(200, {"accounts": console.accounts()})
                 match = _ACCOUNT.fullmatch(path)
@@ -120,6 +127,21 @@ def handler_for(
                 if not isinstance(body, dict):
                     raise TypeError()
                 path = urlsplit(self.path).path
+                route = _EXECUTION.fullmatch(path)
+                if (
+                    route
+                    and execution_routes is not None
+                    and set(body)
+                    == {
+                        "target_registry",
+                        "binding_version",
+                        "expected_epoch",
+                        "request_id",
+                    }
+                ):
+                    return self._send(
+                        202, execution_routes.request(console.tenant, route[1], **body)
+                    )
                 if path == "/api/accounts" and set(body) == {
                     "request_id",
                     "alias",
