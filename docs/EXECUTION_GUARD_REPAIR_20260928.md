@@ -122,3 +122,31 @@ is used for this final queue-correctness deployment.
 
 Final scoped-expiry/admission, health and actual worker-wiring regression:
 264 passed in 132.83 seconds using the standard isolated PostgreSQL/Redis harness.
+
+## Final runtime handoff
+
+- Deployed code: `0c53220` (`/opt/trade-engine-v2/execution-controller` immutable
+  release link); same SANDBOX account, route epoch 23 ACTIVE, no route blockers,
+  entries enabled, controller and shared-market service both active, zero restarts.
+- Both S6 and S8 now have zero unreceipted S3 signals received before 07:18 UTC+8.
+  Source records and all prior failed-order evidence remain intact.
+- After restoration of normal policy, a third natural QNTUSDT OPEN filled
+  (`210119723`, episode `92d92214-ceaf-582d-b9f3-c594e9bd81e1`). An independent
+  Testnet GET confirmed quantity 0.2 and native close-position stop
+  `1000000221108251` NEW at 260.96. This is a normal ongoing position, not an
+  unfinished short-time-stop acceptance trade; its existing management continues.
+- Since initial deployment: three OPEN fills, two CLOSE fills, one cancelled OPEN,
+  no local REJECTED opening. The completed short-time-stop samples remain settled.
+- **Not an all-green claim:** the active monitor still reports short-term signal
+  lag and intermittent entry-cycle blocks. Recent S8 context attempts for
+  SPELLUSDT/VTHOUSDT include `UNAVAILABLE`/`ValueError`; their finer data-validation
+  cause has not been established in this repair. The latest protection, exit and
+  settlement stages are CLEAR, and the actual live Testnet position has its native
+  stop. These observations must not be hidden or described as completed QA.
+- No LIVE endpoint/account was used, no strategy entry threshold was weakened,
+  and no remote Git push or main-branch change was performed.
+
+Only disposable, stopped QA database copies were removed during this work. Logs
+were retained; the older stopped QA cluster `vjckty` was compressed into
+`/tmp/v2-data-qa.vjckty/pg-archived-20260928.tar.gz` before removing its duplicate
+directory. No trading database, Redis trading state or trade history was removed.
