@@ -1,0 +1,36 @@
+[Unit]
+Description=V2 encrypted owner account console (storage only)
+Requires=postgresql@16-tradev2.service
+After=postgresql@16-tradev2.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+User=tradev2accounts
+Group=tradev2accounts
+WorkingDirectory=/opt/trade-engine-v2/account-admin
+ExecStart=/opt/trade-engine-v2/venvs/account-admin-20260927/bin/python -m services.v2_account_admin_entry
+EnvironmentFile=/etc/trade-engine-v2/account-admin.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+LoadCredentialEncrypted=v2-master-v1:/etc/credstore.encrypted/trade-v2-master-v1.cred
+Restart=on-failure
+RestartSec=10
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

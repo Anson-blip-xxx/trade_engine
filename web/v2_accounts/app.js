@@ -9,7 +9,7 @@ async function api(path, body) {
 }
 async function loadAccounts(selected) {
   const result = await api("/api/accounts"); accounts = result.accounts;
-  for (const id of ["account","source","target"]) {
+  for (const id of ["account"]) {
     $(id).replaceChildren(...accounts.map(a => new Option(`${a.alias} · ${a.environment}`, a.registry_id)));
   }
   if (selected && accounts.some(a=>a.registry_id === selected)) $("account").value = selected;
@@ -43,9 +43,5 @@ $("add").addEventListener("submit", async event => {
 $("rename").addEventListener("submit", async event => {
   event.preventDefault(); const a=accounts.find(x=>x.registry_id === $("account").value); if(!a)return;
   try { await api(`/api/accounts/${a.registry_id}/alias`,{alias:$("alias").value,expected_version:a.alias_version,request_id:crypto.randomUUID()}); await loadAccounts(a.registry_id); notice("别名已更新，账户历史身份不变。"); } catch(e) {notice(e.message);}
-});
-$("switch").addEventListener("submit",async event=>{
-  event.preventDefault();
-  try { const result=await api("/api/account-switches",{source_registry:$("source").value,target_registry:$("target").value,request_id:crypto.randomUUID()}); $("switch-state").textContent=`${result.status} · 仅创建准备单，未切换执行账户`; }catch(e){notice(e.message);}
 });
 loadAccounts().catch(e=>notice(e.message));

@@ -18,7 +18,7 @@ _ASSETS = Path(__file__).resolve().parents[1] / "web/v2_accounts"
 _ACCOUNT = re.compile(r"^/api/accounts/([0-9a-f-]{36})/(overview|alias)$")
 
 
-def handler_for(console, *, authenticated_user, origin):
+def handler_for(console, *, authenticated_user, origin, enable_switch_requests=False):
     parsed = urlsplit(origin)
     if (
         not authenticated_user
@@ -32,6 +32,10 @@ def handler_for(console, *, authenticated_user, origin):
         raise ValueError("AUTHENTICATED_HTTPS_PROXY_REQUIRED")
 
     class AccountHandler(BaseHTTPRequestHandler):
+        def setup(self):
+            self.request.settimeout(10)
+            super().setup()
+
         def log_message(self, _format, *_args):
             pass  # Never log bodies, URLs, credentials or aliases.
 
@@ -72,6 +76,7 @@ def handler_for(console, *, authenticated_user, origin):
                     return self._send(200, console.overview(match[1]))
                 assets = {
                     "/accounts": ("index.html", "text/html; charset=utf-8"),
+                    "/accounts/": ("index.html", "text/html; charset=utf-8"),
                     "/accounts/app.js": ("app.js", "text/javascript; charset=utf-8"),
                     "/accounts/app.css": ("app.css", "text/css; charset=utf-8"),
                 }
@@ -119,11 +124,16 @@ def handler_for(console, *, authenticated_user, origin):
                     and set(body) == {"alias", "expected_version", "request_id"}
                 ):
                     return self._send(200, console.rename(match[1], **body))
-                if path == "/api/account-switches" and set(body) == {
-                    "source_registry",
-                    "target_registry",
-                    "request_id",
-                }:
+                if (
+                    enable_switch_requests
+                    and path == "/api/account-switches"
+                    and set(body)
+                    == {
+                        "source_registry",
+                        "target_registry",
+                        "request_id",
+                    }
+                ):
                     # Creates REQUESTED only. Never drains source or activates target.
                     result = AccountSwitches(console.connect).request(
                         console.tenant, **body

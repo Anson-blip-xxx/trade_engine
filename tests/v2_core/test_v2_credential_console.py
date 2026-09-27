@@ -242,9 +242,19 @@ def test_account_view_never_mixes_foreign_or_other_account(case):
         console.overview(foreign)
 
 
-def http(console, path, body=None, headers=None, peer="127.0.0.1"):
+def http(
+    console,
+    path,
+    body=None,
+    headers=None,
+    peer="127.0.0.1",
+    enable_switch_requests=False,
+):
     cls = handler_for(
-        console, authenticated_user="qa-owner", origin="https://console.invalid"
+        console,
+        authenticated_user="qa-owner",
+        origin="https://console.invalid",
+        enable_switch_requests=enable_switch_requests,
     )
     h = cls.__new__(cls)
     h.path = path
@@ -298,6 +308,19 @@ def test_http_add_list_alias_scope_and_no_secret_route(case):
     assert http(console, f"/api/accounts/{rid}/secret")[0] == 404
     assert http(console, "/api/accounts", {**body, "tenant_id": setup[3]})[0] == 400
     assert http(console, "/api/accounts", {**body, "environment": "LIVE"})[0] == 409
+    live_status, live = http(
+        console,
+        "/api/accounts",
+        {**body, "request_id": str(uuid4()), "environment": "LIVE"},
+    )
+    assert live_status == 201 and not live["execution_authorized"]
+    assert (
+        next(a for a in console.accounts() if a["registry_id"] == live["registry_id"])[
+            "environment"
+        ]
+        == "LIVE"
+    )
+    assert http(console, "/api/account-switches", {})[0] == 400
     assert http(console, "/api/accounts", {}, {"Content-Length": "9000"})[0] == 413
     assert (
         http(console, "/api/accounts", headers={"X-V2-Authenticated-User": ""})[0]
@@ -346,6 +369,7 @@ def test_switch_api_only_prepares_and_no_source_drain(case):
             "target_registry": setup[5],
             "request_id": str(uuid4()),
         },
+        enable_switch_requests=True,
     )
     assert status == 202 and result["status"] == "REQUESTED"
     assert not result["target_activation_authorized"]

@@ -19,8 +19,8 @@ class AccountConsole:
 
     def add(self, *, request_id, alias, environment, api_key, api_secret):
         request, alias = uid(request_id), label(alias)
-        if environment != "SANDBOX":
-            raise ValueError("SANDBOX_ENROLLMENT_ONLY")
+        if environment not in {"SANDBOX", "LIVE"}:
+            raise ValueError("EXPLICIT_ACCOUNT_ENVIRONMENT_REQUIRED")
         # Same request deterministically addresses the same encrypted credential.
         ref = str(uuid5(UUID(self.tenant), "credential:" + request))
         account = "registered-" + str(uuid5(UUID(self.tenant), "account:" + request))
