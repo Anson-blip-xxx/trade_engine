@@ -48,6 +48,52 @@ class AccountConsole:
             "execution_authorized": False,
         }
 
+    def rotate(self, registry_id, *, request_id, expected_version, api_key, api_secret):
+        registry, request = uid(registry_id), uid(request_id)
+        if type(expected_version) is not int or expected_version < 1:
+            raise ValueError("BINDING_VERSION_REQUIRED")
+        ref = str(uuid5(UUID(self.tenant), "rotation:" + registry + ":" + request))
+        with self.connect() as c:
+            c.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                ("tenant-registry:" + self.tenant,),
+            )
+            row = c.execute(
+                "SELECT environment FROM v2_tenant_accounts WHERE tenant_id=%s AND registry_id=%s FOR UPDATE",
+                (self.tenant, registry),
+            ).fetchone()
+            if (
+                row is None
+                or c.execute(
+                    "SELECT 1 FROM v2_account_retirements WHERE tenant_id=%s AND registry_id=%s",
+                    (self.tenant, registry),
+                ).fetchone()
+            ):
+                raise ValueError("ACCOUNT_NOT_FOUND")
+            nested = lambda: nullcontext(c)
+            CredentialVault(
+                nested, key_provider=self.key_provider, active_key_id=self.active_key_id
+            ).put(
+                self.tenant,
+                ref,
+                environment=row[0],
+                api_key=api_key,
+                api_secret=api_secret,
+            )
+            result = AccountRegistry(nested).rotate_credential(
+                self.tenant,
+                registry,
+                credential_ref=ref,
+                expected_version=expected_version,
+                request_id=request,
+            )
+        return {
+            "registry_id": registry,
+            "binding_version": result["version"],
+            "verification_required": True,
+            "execution_authorized": False,
+        }
+
     def accounts(self):
         with self.connect() as c:
             rows = c.execute(

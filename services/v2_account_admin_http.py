@@ -15,7 +15,9 @@ from v2_core.account_switches import AccountSwitches
 from v2_core.credential_vault import VaultError
 
 _ASSETS = Path(__file__).resolve().parents[1] / "web/v2_accounts"
-_ACCOUNT = re.compile(r"^/api/accounts/([0-9a-f-]{36})/(overview|alias|verification)$")
+_ACCOUNT = re.compile(
+    r"^/api/accounts/([0-9a-f-]{36})/(overview|alias|verification|credentials)$"
+)
 
 
 def handler_for(
@@ -127,6 +129,13 @@ def handler_for(
                 }:
                     return self._send(201, console.add(**body))
                 match = _ACCOUNT.fullmatch(path)
+                if (
+                    match
+                    and match[2] == "credentials"
+                    and set(body)
+                    == {"request_id", "expected_version", "api_key", "api_secret"}
+                ):
+                    return self._send(200, console.rotate(match[1], **body))
                 if (
                     match
                     and match[2] == "verification"

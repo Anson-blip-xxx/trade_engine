@@ -36,6 +36,9 @@ async function showAccount() {
   const version = ++generation, id = $("account").value;
   $("summary").replaceChildren(); $("trades").replaceChildren(); $("state").textContent = "";
   const account = accounts.find(a=>a.registry_id === id);
+  $("rotate-submit").disabled = !account;
+  $("rotation-target").textContent = account ? `修改目标：${account.alias} · ${account.environment} · 凭据版本 ${account.binding_version}` : "请先选择账户";
+  if ($("rotate").elements) { $("rotate").elements.api_key.value=""; $("rotate").elements.api_secret.value=""; }
   $("verify").disabled = !account || account.environment !== "SANDBOX";
   $("verification").textContent = account?.environment === "LIVE" ? "生产账户仅加密保存，验证与交易均未启用。" : "正在读取验证记录…";
   if (!account) { $("state").textContent = "尚无已登记账户"; $("verification").textContent="请选择账户"; return; }
@@ -74,5 +77,19 @@ $("add").addEventListener("submit", async event => {
 $("rename").addEventListener("submit", async event => {
   event.preventDefault(); const a=accounts.find(x=>x.registry_id === $("account").value); if(!a)return;
   try { await api(`/api/accounts/${a.registry_id}/alias`,{alias:$("alias").value,expected_version:a.alias_version,request_id:crypto.randomUUID()}); await loadAccounts(a.registry_id); notice("别名已更新，账户历史身份不变。"); } catch(e) {notice(e.message);}
+});
+$("rotate").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const account=accounts.find(a=>a.registry_id === $("account").value), version=generation;
+  if(!account)return;
+  const form=event.currentTarget, button=$("rotate-submit"), body=Object.fromEntries(new FormData(form));
+  body.request_id=crypto.randomUUID(); body.expected_version=account.binding_version;
+  form.elements.api_key.value=""; form.elements.api_secret.value=""; button.disabled=true;
+  try {
+    const result=await api(`/api/accounts/${account.registry_id}/credentials`,body);
+    if(version===generation) { notice("新凭据已加密保存，历史统计保留；请重新验证。交易未启动。"); await loadAccounts(account.registry_id); }
+    else { account.binding_version=result.binding_version; }
+  }catch(e){if(version===generation)notice(e.message);}
+  finally {body.api_key="";body.api_secret="";if(version===generation)button.disabled=false;}
 });
 loadAccounts().catch(e=>notice(e.message));

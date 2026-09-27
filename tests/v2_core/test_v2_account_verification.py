@@ -53,6 +53,20 @@ def test_verify_cache_and_no_activation(verifier):
     assert calls == [("GET", "/fapi/v1/positionSide/dual", {})]
 
 
+def test_rotation_invalidates_verification(verifier):
+    service, console, args, _ = verifier
+    service.verify(args["registry_id"], expected_version=1)
+    console.rotate(
+        args["registry_id"],
+        request_id=str(uuid4()),
+        expected_version=1,
+        api_key="qa-new-key-1234567890",
+        api_secret="qa-new-secret-1234567890",
+    )
+    assert service.status(args["registry_id"])["outcome"] == "NOT_CHECKED"
+    assert service.status(args["registry_id"])["binding_version"] == 2
+
+
 @pytest.mark.parametrize("bad_version", [0, 2, True, "1"])
 def test_binding_version_rejected(verifier, bad_version):
     service, _, args, calls = verifier

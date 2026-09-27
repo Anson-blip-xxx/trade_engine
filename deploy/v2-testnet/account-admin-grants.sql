@@ -8,5 +8,6 @@ GRANT SELECT, INSERT, UPDATE ON trade_v2.v2_account_aliases TO tradev2accounts;
 GRANT SELECT ON trade_v2.v2_account_retirements TO tradev2accounts;
 -- Signed GET verification only; no exchange write capability or order-table grants.
 GRANT UPDATE(version) ON trade_v2.v2_tenant_accounts TO tradev2accounts;
+GRANT UPDATE(credential_ref) ON trade_v2.v2_tenant_accounts TO tradev2accounts;
 GRANT SELECT, INSERT ON trade_v2.v2_credential_checks TO tradev2accounts;
 GRANT SELECT, INSERT, UPDATE ON trade_v2.v2_public_market_budgets TO tradev2accounts;
