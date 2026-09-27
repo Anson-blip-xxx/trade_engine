@@ -7,6 +7,7 @@ fallback, generation, persistence, or subprocess carrying secret bytes exists he
 import os
 import re
 import stat
+import struct
 from pathlib import Path
 
 from v2_core.credential_vault import VaultError
@@ -32,6 +33,45 @@ def secure_mount(fd):
 class SystemdMasterKeys:
     ROOT = Path("/run/credentials")
 
+    @staticmethod
+    def _protected(details, *, directory=False, acl=None):
+        mode = stat.S_IMODE(details.st_mode)
+        private_modes = {0o500, 0o700} if directory else {0o400}
+        if details.st_uid in {0, os.geteuid()} and mode in private_modes:
+            return True
+        # ACL mask appears as group mode bits, but must grant only the service UID.
+        if (
+            details.st_uid != 0
+            or mode != (0o550 if directory else 0o440)
+            or acl is None
+        ):
+            return False
+        permission = 5 if directory else 4
+        expected = {
+            (1, permission, 0xFFFFFFFF),
+            (2, permission, os.geteuid()),
+            (4, 0, 0xFFFFFFFF),
+            (16, permission, 0xFFFFFFFF),
+            (32, 0, 0xFFFFFFFF),
+        }
+        try:
+            return (
+                len(acl) == 44
+                and struct.unpack("<I", acl[:4])[0] == 2
+                and set(struct.iter_unpack("<HHI", acl[4:])) == expected
+            )
+        except (struct.error, TypeError):
+            return False
+
+    def _protected_fd(self, fd, *, directory=False):
+        details = os.fstat(fd)
+        acl = (
+            os.getxattr(fd, "system.posix_acl_access")
+            if stat.S_IMODE(details.st_mode) == (0o550 if directory else 0o440)
+            else None
+        )
+        return self._protected(details, directory=directory, acl=acl)
+
     def __init__(self, directory):
         self.directory = Path(directory)
         if self.directory.parent != self.ROOT or not re.fullmatch(
@@ -53,19 +93,14 @@ class SystemdMasterKeys:
                 self.directory.name, flags | os.O_DIRECTORY, dir_fd=root
             )
             descriptors.append(directory)
-            details = os.fstat(directory)
-            if (
-                details.st_uid not in {0, os.geteuid()}
-                or stat.S_IMODE(details.st_mode) & 0o077
-            ):
+            if not self._protected_fd(directory, directory=True):
                 raise ValueError()
             fd = os.open("v2-master-" + key_id, flags | os.O_NONBLOCK, dir_fd=directory)
             descriptors.append(fd)
             details = os.fstat(fd)
             if (
                 not stat.S_ISREG(details.st_mode)
-                or stat.S_IMODE(details.st_mode) != 0o400
-                or details.st_uid not in {0, os.geteuid()}
+                or not self._protected_fd(fd)
                 or details.st_size != 32
                 or not secure_mount(fd)
             ):
