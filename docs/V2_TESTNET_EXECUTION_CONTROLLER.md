@@ -56,3 +56,18 @@ route locking/fencing, signed transport, credential console/acceptance, runtime
 credentials and process composition. This is not a successful A -> B -> A
 exchange handover: B requires simulated funds before that acceptance can finish.
 No LIVE credential was used and no production runtime was activated.
+
+### Follow-up after Testnet funding
+
+After the owner funded both accounts, actual handover completed A -> B -> A:
+controller audit records show epoch 6 ACTIVE for B, then DRAINING/STOPPED,
+and epoch 7 STARTING/ACTIVE for the original A. Both activations retained
+ENTRY_DISABLED_ACCEPTANCE. This validates funded, flat-account process handover,
+not new-order execution or handover with live positions. The earlier zero-balance
+blocker is resolved. No production activation was performed.
+
+The Web now places the Testnet execution switch at the top of `/accounts`, with
+an explicit target, confirmation, manual refresh and automatic status refresh.
+Statistics selection is separate from execution switching. Controls no longer
+depend on overview loading; LIVE activation remains disabled in the UI.
+Fourteen focused frontend/controller/route tests passed for this update.

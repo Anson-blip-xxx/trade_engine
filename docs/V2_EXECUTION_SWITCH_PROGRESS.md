@@ -16,9 +16,10 @@ local ledger, confirmed old-child termination, and a fresh target preflight.
 Each account retains its own capital/risk baseline when revisited.
 
 Actual acceptance confirmed account A activation, account B rejection without
-interrupting A, restart into DRAINING, and explicit resume of A. Entries remain
-disabled for acceptance. B has zero simulated wallet/margin/available balance;
-successful A -> B -> A remains blocked until B has Testnet funds. The disabled
+interrupting A, restart into DRAINING, and explicit resume of A. Following owner
+funding, successful flat-account A -> B -> A handover was confirmed by controller
+audit (epochs 6 and 7 ACTIVE). Entries remain disabled for acceptance; this is
+not an order-execution or open-position handover test. The disabled
 legacy daemon/watchdog were not restarted. An isolated regression run passed
 88 tests; this does not substitute for the blocked exchange handover test.
 
