@@ -1,4 +1,4 @@
-const state = { data: null, filter: "all", search: "" };
+const state = { data: null, filter: "all", search: "", detailGeneration: 0 };
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "—").replace(/[&<>"']/g, (x) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
 const num = (value, digits=2) => value == null ? "—" : new Intl.NumberFormat("zh-CN", {maximumFractionDigits:digits}).format(Number(value));
@@ -8,6 +8,8 @@ const atMs = (value) => value ? at(Number(value)) : "—";
 const held = (trade) => Number(trade.open_qty) > Number(trade.close_qty);
 const status = (trade) => trade.settled_at ? "已结算" : held(trade) ? "持仓中" : trade.status === "CANCELLED" ? "已取消" : trade.status === "REJECTED" ? "已拒绝" : "处理中";
 function renderMetrics(data) {
+  const account=data.execution_account;
+  $("execution-account").textContent=account ? `当前执行账户：${account.alias} · Testnet · ${account.phase}${account.blockers?.includes('ENTRY_DISABLED_ACCEPTANCE') ? ' · 新开仓关闭' : ''}` : '执行账户未知';
   const s = data.summary;
   $("pnl").textContent = money(s.realized_pnl);
   $("pnl").className = "metric-main " + (Number(s.realized_pnl) >= 0 ? "positive" : "negative");
@@ -73,6 +75,7 @@ function renderHealth(data) {
 function detailItem(label,value) { return `<div class="detail-item"><label>${esc(label)}</label><span>${esc(value)}</span></div>`; }
 function detailSection(title,body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 async function openTrade(id) {
+  const generation=++state.detailGeneration;
   $("drawer-shade").hidden = false;
   $("drawer").classList.add("show");
   $("drawer").setAttribute("aria-hidden","false");
@@ -81,6 +84,7 @@ async function openTrade(id) {
     const response = await fetch("/api/trades/" + encodeURIComponent(id),{cache:"no-store"});
     if (!response.ok) throw new Error("detail unavailable");
     const t = await response.json(), d = t.decision || {}, p = d.market_plan || {}, z = d.sizing || {};
+    if(generation!==state.detailGeneration)return;
     $("drawer-title").textContent = (d.symbol || "交易") + " · " + t.producer.toUpperCase();
     let html = detailSection("01 / 决策与开仓",'<div class="detail-grid">' +
       detailItem("方向",d.side === "BUY" ? "LONG / 买入" : "SHORT / 卖出") +
@@ -97,21 +101,35 @@ async function openTrade(id) {
     html += detailSection("05 / 追溯",'<div class="detail-grid">' + detailItem("交易 ID",t.id) + detailItem("原始信号 ID",t.signal_event_id || "内部信号") + '</div>');
     $("drawer-body").innerHTML = html;
   } catch {
+    if(generation!==state.detailGeneration)return;
     $("drawer-body").innerHTML = '<div class="placeholder">交易详情暂不可用，请稍后重试。</div>';
   }
 }
-function closeTrade() { $("drawer").classList.remove("show"); $("drawer").setAttribute("aria-hidden","true"); $("drawer-shade").hidden=true; }
+function closeTrade() { ++state.detailGeneration; $("drawer-body").replaceChildren(); $("drawer").classList.remove("show"); $("drawer").setAttribute("aria-hidden","true"); $("drawer-shade").hidden=true; }
 async function refresh() {
+  if(state.refreshing)return;
+  state.refreshing=true;
   $("refresh").disabled=true;
   try {
     const response = await fetch("/api/overview",{cache:"no-store"});
     if (!response.ok) throw new Error("unavailable");
-    state.data = await response.json();
+    const next=await response.json();
+    if(state.data?.execution_account?.epoch!==next.execution_account?.epoch) closeTrade();
+    state.data = next;
     $("error").hidden=true;
     renderMetrics(state.data); renderAccounting(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data); renderHealth(state.data);
-  } catch { $("error").hidden=false; $("health-list").textContent="读取失败：交易链路健康状态未知，请勿依赖旧状态。"; }
-  finally { $("refresh").disabled=false; }
+  } catch {
+    state.data=null; closeTrade();
+    for(const id of ['pnl','open','intents','winrate','settled','asof','chart-value']) $(id).textContent='—';
+    for(const id of ['daily-report','signal-funnel','position-list','trade-rows','signal-list','health-list']) $(id).replaceChildren();
+    $("chart-line").setAttribute('d',''); $("chart-area").setAttribute('d','');
+    $("position-count").textContent='未知'; $("trade-count").textContent='未知';
+    $("execution-account").textContent='执行账户状态不可用，已隐藏旧统计';
+    $("error").hidden=false;
+  }
+  finally { state.refreshing=false; $("refresh").disabled=false; }
 }
+window.addEventListener('pageshow',refresh);
 $("trade-rows").addEventListener("click",(event) => { const row=event.target.closest("tr[data-id]"); if(row) openTrade(row.dataset.id); });
 document.querySelectorAll(".tabs button").forEach((button) => button.addEventListener("click",() => { state.filter=button.dataset.filter; document.querySelectorAll(".tabs button").forEach((x)=>x.classList.toggle("selected",x===button)); if(state.data) renderTrades(state.data); }));
 $("search").addEventListener("input",(event)=>{state.search=event.target.value.trim().toLowerCase(); if(state.data) renderTrades(state.data);});

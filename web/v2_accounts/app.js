@@ -9,6 +9,12 @@ async function api(path, body) {
 }
 async function loadAccounts(selected) {
   const result = await api("/api/accounts"); accounts = result.accounts;
+  if (!selected) {
+    try {
+      const route=await api('/api/accounts/execution/SANDBOX');
+      if(['ACTIVE','DRAINING'].includes(route.phase)) selected=route.target_registry;
+    } catch { notice('无法确认当前执行账户；下拉框仅代表统计视图，请刷新执行状态。'); }
+  }
   const selection = accounts.find(a=>a.registry_id === selected);
   if (selection) $("environment").value = selection.environment;
   await filterAccounts(selected);
@@ -129,6 +135,9 @@ $("route-request").addEventListener("click",async()=>{
   finally {routeBusy=false;await showRoute($("environment").value || "SANDBOX",generation);}
 });
 loadAccounts().catch(e=>notice(e.message));
+if(typeof window !== 'undefined') window.addEventListener('pageshow',event=>{
+  if(event.persisted) loadAccounts().catch(e=>notice(e.message));
+});
 if(typeof setInterval === "function") setInterval(()=>{
   if(typeof document.hidden === "boolean" && document.hidden)return;
   showRoute($("environment").value || "SANDBOX",generation);

@@ -33,6 +33,11 @@ def test_cash_and_trade_totals_match_but_use_event_not_settlement_date(
     assert report["daily"]["cash"][0]["day"] == "1970-01-01"
     assert report["daily"]["closed_trades"][0]["day"] == "1970-01-01"
     assert Decimal(report["daily"]["cash"][0]["net_pnl"]) == Decimal("-10.106")
+    with database() as conn:
+        other = performance(conn, "another-account")
+    assert other["summary"]["settled_trades"] == 0
+    assert other["summary"]["realized_pnl"] == "0"
+    assert other["daily"]["cash"] == other["daily"]["closed_trades"] == []
 
 
 def test_utc8_midnight_not_utc_midnight(database):

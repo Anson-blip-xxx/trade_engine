@@ -5,8 +5,13 @@ venue realized PnL or non-USDT fees make cash PnL unknown rather than zero.
 """
 
 
-def performance(conn):
+def performance(conn, account_id=None):
     scope = "i.exchange='BINANCE' AND i.environment='SANDBOX' AND i.product='FUTURES' AND i.producer IN ('s6','s8')"
+    if account_id is not None:
+        conn.execute(
+            "SELECT set_config('trade_v2.report_account',%s,true)", (account_id,)
+        )
+        scope += " AND i.account_id=current_setting('trade_v2.report_account')"
     latest = f"""SELECT s.*, i.account_id FROM v2_settlements s
         JOIN v2_trade_intents i ON i.intent_id=s.episode_id
         WHERE {scope} AND s.currency='USDT'
@@ -70,20 +75,36 @@ def performance(conn):
     }
 
 
-def signal_funnel(conn):
+def signal_funnel(conn, account_id=None):
     """Distinct signals at every stage, not S6/S8 receipt counts as signal counts."""
-    return conn.execute("""WITH received AS MATERIALIZED (
+    from v2_core.strategy import StrategyScope
+
+    consumers = (
+        [
+            StrategyScope("BINANCE", account_id, "SANDBOX", "FUTURES", p).consumer
+            for p in ("s6", "s8")
+        ]
+        if account_id is not None
+        else []
+    )
+    return conn.execute(
+        """WITH received AS MATERIALIZED (
         SELECT signal_id,source FROM v2_inbound_signals
         WHERE environment='SANDBOX' AND source IN ('tv_bridge','s3')
           AND received_at>=date_trunc('day',statement_timestamp() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'
         ), processed AS (
         SELECT DISTINCT r.signal_id FROM v2_signal_receipts r JOIN received s USING(signal_id)
+        WHERE (%s::text IS NULL OR r.consumer=ANY(%s))
         ), intents AS (
         SELECT DISTINCT i.signal_id FROM v2_trade_intents i JOIN received s USING(signal_id)
+        WHERE (%s::text IS NULL OR (i.account_id=%s AND i.exchange='BINANCE' AND i.environment='SANDBOX' AND i.product='FUTURES'))
         ), filled AS (
         SELECT DISTINCT i.signal_id FROM v2_trade_intents i JOIN received s USING(signal_id)
           JOIN v2_orders o ON o.episode_id=i.intent_id JOIN v2_fills f USING(order_id) WHERE o.leg='OPEN'
+          AND (%s::text IS NULL OR (i.account_id=%s AND i.exchange='BINANCE' AND i.environment='SANDBOX' AND i.product='FUTURES'))
         ) SELECT s.source,count(*),count(p.signal_id),count(i.signal_id),count(f.signal_id)
         FROM received s LEFT JOIN processed p USING(signal_id)
           LEFT JOIN intents i USING(signal_id) LEFT JOIN filled f USING(signal_id)
-        GROUP BY s.source ORDER BY s.source""").fetchall()
+        GROUP BY s.source ORDER BY s.source""",
+        (account_id, consumers, account_id, account_id, account_id, account_id),
+    ).fetchall()

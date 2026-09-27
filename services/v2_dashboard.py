@@ -1,6 +1,7 @@
 """Read-only operator dashboard for the isolated V2 Testnet PostgreSQL schema."""
 
 import json
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
@@ -32,12 +33,40 @@ def _rows(cursor):
 
 
 class DashboardData:
-    def __init__(self, connect):
+    def __init__(self, connect, tenant_id=None):
         self.connect = connect
+        self.tenant_id = tenant_id
+
+    def context(self, conn):
+        if self.tenant_id is None:
+            return (
+                None  # Legacy offline report callers; deployed server requires tenant.
+            )
+        rows = _rows(
+            conn.execute(
+                """
+            SELECT a.registry_id::text,a.account_id,COALESCE(n.alias,'未命名账户') AS alias,
+              r.epoch,r.phase,r.blockers
+            FROM v2_execution_routes r JOIN v2_tenant_accounts a
+              ON a.tenant_id=r.tenant_id AND a.registry_id=r.target_registry
+            LEFT JOIN v2_account_aliases n ON n.tenant_id=a.tenant_id AND n.registry_id=a.registry_id
+            WHERE r.tenant_id=%s AND r.environment='SANDBOX'
+              AND a.environment='SANDBOX' AND a.exchange='BINANCE' AND a.product='FUTURES'
+              AND r.phase IN ('ACTIVE','DRAINING')
+        """,
+                (self.tenant_id,),
+            )
+        )
+        if len(rows) != 1:
+            raise ValueError("NO_CONFIRMED_EXECUTION_ACCOUNT")
+        return rows[0]
 
     def overview(self):
         with self.connect() as conn:
-            reports = performance(conn)
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            context = self.context(conn)
+            account = context["account_id"] if context else None
+            reports = performance(conn, account)
             funnel = [
                 dict(
                     zip(
@@ -46,16 +75,21 @@ class DashboardData:
                         strict=True,
                     )
                 )
-                for row in signal_funnel(conn)
+                for row in signal_funnel(conn, account)
             ]
             health = _rows(
-                conn.execute("""
+                conn.execute(
+                    """
                 SELECT account_id,payload FROM v2_business_health_dashboard
+                WHERE (%s::text IS NULL OR account_id=%s)
                 ORDER BY account_id LIMIT 20
-            """)
+            """,
+                    (account, account),
+                )
             )
             trades = _rows(
-                conn.execute("""
+                conn.execute(
+                    """
                 SELECT i.intent_id::text AS id,i.created_at,i.producer,i.status,
                   i.payload->>'symbol' AS symbol,i.payload->>'side' AS side,
                   i.payload->>'quantity' AS planned_quantity,
@@ -89,38 +123,51 @@ class DashboardData:
                 ) st ON TRUE
                 LEFT JOIN v2_directional_outcomes o ON o.episode_id=i.intent_id
                 WHERE i.environment='SANDBOX' AND i.product='FUTURES'
+                  AND i.exchange='BINANCE' AND (%s::text IS NULL OR i.account_id=%s)
                   AND i.producer IN ('s6','s8')
                 ORDER BY i.created_at DESC LIMIT 100
-            """)
+            """,
+                    (account, account),
+                )
             )
             signals = _rows(
-                conn.execute("""
+                conn.execute(
+                    """
                 SELECT signal_id::text AS id,source,received_at,
                   (SELECT jsonb_agg(jsonb_build_object('consumer',r.consumer,'outcome',r.outcome,'reason',r.reason))
-                   FROM v2_signal_receipts r WHERE r.signal_id=v2_inbound_signals.signal_id) AS decisions,
+                   FROM v2_signal_receipts r WHERE r.signal_id=v2_inbound_signals.signal_id
+                   AND (%s::text IS NULL OR r.consumer=ANY(%s))) AS decisions,
                   snapshot->>'symbol' AS symbol,snapshot->>'signal' AS signal,
                   snapshot->>'observed_at' AS observed_at_ms,
                   snapshot->'features'->>'strength' AS strength
                 FROM v2_inbound_signals WHERE environment='SANDBOX'
                   AND source IN ('tv_bridge','s3')
                 ORDER BY received_at DESC LIMIT 24
-            """)
+            """,
+                    (account, self.consumers(account)),
+                )
             )
             settlements = _rows(
-                conn.execute("""
+                conn.execute(
+                    """
                 SELECT s.episode_id::text AS id,s.settled_at,
                   s.evidence->>'net_pnl' AS net_pnl,i.payload->>'symbol' AS symbol
                 FROM v2_settlements s JOIN v2_trade_intents i
                   ON i.intent_id=s.episode_id
                 WHERE i.environment='SANDBOX' AND i.producer IN ('s6','s8')
+                  AND i.exchange='BINANCE' AND i.product='FUTURES' AND (%s::text IS NULL OR i.account_id=%s)
                   AND s.revision=(SELECT max(x.revision) FROM v2_settlements x
                                   WHERE x.episode_id=s.episode_id)
                 ORDER BY s.settled_at ASC
-            """)
+            """,
+                    (account, account),
+                )
             )
         return {
             "as_of": datetime.now(_ZONE).isoformat(),
             "scope": "BINANCE · FUTURES · TESTNET",
+            "execution_account": context,
+            "signal_scope": "共享市场信号；消费结果、意图和成交仅统计当前执行账户",
             "summary": reports["summary"],
             "daily": reports["daily"],
             "signal_funnel": funnel,
@@ -130,8 +177,24 @@ class DashboardData:
             "health": health,
         }
 
+    @staticmethod
+    def consumers(account):
+        from v2_core.strategy import StrategyScope
+
+        return (
+            [
+                StrategyScope("BINANCE", account, "SANDBOX", "FUTURES", p).consumer
+                for p in ("s6", "s8")
+            ]
+            if account
+            else []
+        )
+
     def trade(self, trade_id):
         with self.connect() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            context = self.context(conn)
+            account = context["account_id"] if context else None
             cursor = conn.execute(
                 """
                 SELECT i.intent_id::text AS id,i.created_at,i.status,i.producer,
@@ -142,8 +205,9 @@ class DashboardData:
                 LEFT JOIN v2_inbound_signals s ON s.signal_id=i.signal_id
                 WHERE i.intent_id=%s::uuid AND i.environment='SANDBOX'
                   AND i.product='FUTURES' AND i.producer IN ('s6','s8')
+                  AND i.exchange='BINANCE' AND (%s::text IS NULL OR i.account_id=%s)
             """,
-                (trade_id,),
+                (trade_id, account, account),
             )
             records = _rows(cursor)
             if not records:
@@ -288,7 +352,7 @@ def main():
         schema="trade_v2",
         read_only=True,
     )
-    Handler.data = DashboardData(connect)
+    Handler.data = DashboardData(connect, os.environ["V2_DASHBOARD_TENANT"])
     with _Server(("127.0.0.1", 19527), Handler) as server:
         server.serve_forever(poll_interval=0.25)
 

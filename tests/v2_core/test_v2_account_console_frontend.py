@@ -25,22 +25,24 @@ const ctx={document:{getElementById:get,createElement:()=>new Element()},
   Option:function(text,value){this.textContent=text;this.value=value;},
   fetch:(path)=>new Promise(resolve=>requests.push({path,resolve})), console};
 vm.createContext(ctx);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
-const respond=(n,body)=>requests[n].resolve({ok:true,json:async()=>body});
+const respond=(n,body)=>requests[n===0 ? 0 : n+1].resolve({ok:true,json:async()=>body});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
-  respond(0,{accounts:[{registry_id:'A',alias:'Alpha',environment:'SANDBOX'},{registry_id:'B',alias:'Beta',environment:'SANDBOX'}]});
+  respond(0,{accounts:[{registry_id:'B',alias:'Beta',environment:'SANDBOX'},{registry_id:'A',alias:'Alpha',environment:'SANDBOX'}]});
   await tick();assert.equal(requests[1].path,'/api/accounts/execution/SANDBOX');
-  assert.equal(requests[2].path,'/api/accounts/A/overview');
+  requests[1].resolve({ok:true,json:async()=>({phase:'ACTIVE',target_registry:'A'})});
+  await tick();
+  assert.equal(requests[3].path,'/api/accounts/A/overview');
   respond(1,{phase:'ACTIVE',epoch:1,request_epoch:1,target_registry:'A',blockers:[]});
   await tick();assert.equal(get('route-request').disabled,false);
   assert(get('route-target').textContent.includes('Alpha'));
   get('account').value='B';get('account').listeners.change();await tick();
-  assert.equal(requests[4].path,'/api/accounts/B/overview');
+  assert.equal(requests[5].path,'/api/accounts/B/overview');
   respond(4,{registry_id:'B',summary:{trade_intents:22,settled_trades:2,settled_net_pnl_usdt:'8'},trades:[]});
   await tick();
   respond(2,{registry_id:'A',summary:{trade_intents:999,settled_trades:9,settled_net_pnl_usdt:'999'},trades:[]});
   await tick();assert.equal(get('summary').children[0].children[0].textContent,22);
-  assert.equal(requests[5].path,'/api/accounts/B/verification');
+  assert.equal(requests[6].path,'/api/accounts/B/verification');
   get('environment').value='LIVE';get('environment').listeners.change();await tick();
   // Browser clears a select's value when its options are removed.
   assert.equal(get('account').children.length,0);
