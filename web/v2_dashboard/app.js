@@ -9,6 +9,7 @@ const held = (trade) => Number(trade.open_qty) > Number(trade.close_qty);
 const status = (trade) => trade.settled_at ? "已结算" : held(trade) ? "持仓中" : trade.status === "CANCELLED" ? "已取消" : trade.status === "REJECTED" ? "已拒绝" : "处理中";
 function renderMetrics(data) {
   const account=data.execution_account;
+  $("account-alias").textContent=account?.alias || '未确认当前账户';
   $("execution-account").textContent=account ? `当前执行账户：${account.alias} · Testnet · ${account.phase}${account.blockers?.includes('ENTRY_DISABLED_ACCEPTANCE') ? ' · 新开仓关闭' : ''}` : '执行账户未知';
   const s = data.summary;
   $("pnl").textContent = money(s.realized_pnl);
@@ -125,6 +126,7 @@ async function refresh() {
     $("chart-line").setAttribute('d',''); $("chart-area").setAttribute('d','');
     $("position-count").textContent='未知'; $("trade-count").textContent='未知';
     $("execution-account").textContent='执行账户状态不可用，已隐藏旧统计';
+    $("account-alias").textContent='当前账户未知';
     $("error").hidden=false;
   }
   finally { state.refreshing=false; $("refresh").disabled=false; }

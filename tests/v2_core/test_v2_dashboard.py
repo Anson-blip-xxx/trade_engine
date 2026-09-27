@@ -33,6 +33,7 @@ def test_dashboard_serves_static_and_read_only_json():
     # The side rail is hidden on mobile; retain an entry in the top bar too.
     assert 'href="/accounts"' in html.split('<header class="topbar">')[1].split('</header>')[0]
     assert "账户管理" in html
+    assert 'id="account-alias"' in html and '当前账户别名' in html
     status, mime, body = request("/api/overview")
     assert status == 200 and mime == "application/json"
     assert json.loads(body)["summary"]["realized_pnl"] == "2.50"
