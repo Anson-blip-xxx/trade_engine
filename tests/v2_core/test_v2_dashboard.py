@@ -28,6 +28,11 @@ def test_dashboard_serves_static_and_read_only_json():
     status, mime, body = request("/")
     assert status == 200 and mime.startswith("text/html")
     assert b"TRADING OVERVIEW" in body
+    html = body.decode()
+    assert 'href="/accounts"' in html.split('<nav class="nav">')[1].split('</nav>')[0]
+    # The side rail is hidden on mobile; retain an entry in the top bar too.
+    assert 'href="/accounts"' in html.split('<header class="topbar">')[1].split('</header>')[0]
+    assert "账户管理" in html
     status, mime, body = request("/api/overview")
     assert status == 200 and mime == "application/json"
     assert json.loads(body)["summary"]["realized_pnl"] == "2.50"
