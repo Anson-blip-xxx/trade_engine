@@ -131,7 +131,7 @@ class TestnetProcessConfig:
         }
 
 
-def daemon_credentials(path):
+def daemon_credentials(path, *, notification_only=False):
     location = Path(path)
     if not location.is_absolute():
         raise ValueError("absolute credential path required")
@@ -143,15 +143,62 @@ def daemon_credentials(path):
         or not 1 <= details.st_size <= 65536
     ):
         raise ValueError("protected regular credential file required")
+    if notification_only and any(
+        line.split("=", 1)[0].strip().startswith("BINANCE_")
+        for line in location.read_text().splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    ):
+        raise ValueError("NOTIFICATION_FILE_CONTAINS_EXCHANGE_CREDENTIALS")
     return config_fields(
         location,
-        {
+        {"TG_NOTIFY_TOKEN", "TG_NOTIFY_CHAT_ID"}
+        if notification_only
+        else {
             "BINANCE_TESTNET_API_KEY",
             "BINANCE_TESTNET_API_SECRET",
             "TG_NOTIFY_TOKEN",
             "TG_NOTIFY_CHAT_ID",
         },
     )
+
+
+def process_credentials(path, *, values, config, connect):
+    """Opt-in encrypted startup path. Never fall back after selecting vault mode."""
+    source = values.get("V2_CREDENTIAL_SOURCE", "legacy")
+    if source == "legacy":
+        if any(key.startswith("V2_VAULT_") for key in values):
+            raise ValueError("EXPLICIT_VAULT_MODE_REQUIRED")
+        return daemon_credentials(path)
+    if source != "vault":
+        raise ValueError("INVALID_CREDENTIAL_SOURCE")
+    # Lazy imports keep the old deployed runtime independent of optional crypto.
+    from v2_core.account_risk import AccountScope
+    from v2_core.runtime_credentials import resolve_runtime_credentials
+    from v2_core.systemd_master_keys import SystemdMasterKeys
+
+    raw_version = values.get("V2_VAULT_BINDING_VERSION", "")
+    if (
+        not isinstance(raw_version, str)
+        or not raw_version.isascii()
+        or not raw_version.isdecimal()
+        or not 1 <= len(raw_version) <= 18
+    ):
+        raise ValueError("PINNED_BINDING_VERSION_REQUIRED")
+    provider = SystemdMasterKeys(values["CREDENTIALS_DIRECTORY"])
+    private = resolve_runtime_credentials(
+        connect,
+        scope=AccountScope("BINANCE", config.daemon.account_id, "SANDBOX", "FUTURES"),
+        tenant_id=values["V2_VAULT_TENANT_ID"],
+        registry_id=values["V2_VAULT_REGISTRY_ID"],
+        binding_version=int(raw_version),
+        key_provider=provider,
+    )
+    notifications = daemon_credentials(path, notification_only=True)
+    return {
+        **notifications,
+        "BINANCE_TESTNET_API_KEY": private["api_key"],
+        "BINANCE_TESTNET_API_SECRET": private["api_secret"],
+    }
 
 
 class PrivateRatePermit:
@@ -488,8 +535,13 @@ def main(environ=None):
     config = TestnetProcessConfig.from_mapping(
         os.environ if environ is None else environ
     )
-    secrets = daemon_credentials(args.credentials)
     connect = deployment_database()
+    secrets = process_credentials(
+        args.credentials,
+        values=os.environ if environ is None else environ,
+        config=config,
+        connect=connect,
+    )
     cache = redis.Redis(
         unix_socket_path="/var/lib/trade-engine-v2/redis.sock",
         socket_connect_timeout=3,

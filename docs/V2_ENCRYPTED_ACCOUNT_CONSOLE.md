@@ -69,6 +69,10 @@ fully reconciled. UI view selection never authorizes any trading transition.
 
 ## Rollout prerequisites (not yet done)
 
+An opt-in systemd memory credential reader and pinned daemon startup resolver are
+now implemented; see `V2_RUNTIME_VAULT_BINDING.md`. This is a tested code path, not
+host provisioning or a migration of the current plaintext credentials.
+
 1. Apply registry, alias/vault and switch migrations using restricted application
    roles. Provision an independent master-key provider, e.g. KMS or systemd encrypted
    credentials with host/TPM protection. Do not put master bytes in PostgreSQL,
