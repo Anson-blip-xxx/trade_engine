@@ -2,18 +2,25 @@
 
 ## Scope and release status
 
-V2 only. No main-branch edit, account switch, trading-policy change, exchange
-submission, position closure, source-signal replay, database repair or service
-restart was performed for this repair. Diagnostics read PostgreSQL, Redis and
-ClickHouse. Isolated QA uses separate disposable PostgreSQL/Redis instances.
+V2 only. No main-branch edit, account switch, trading-policy change, manual exchange
+submission/position closure, source-signal replay or database repair was performed.
+Diagnostics read PostgreSQL, Redis and ClickHouse. Isolated QA uses separate
+disposable PostgreSQL/Redis instances. Only the managed Testnet controller and
+shared-market hub were restarted for the coordinated deployment described below.
 
-**Implementation verified, not deployed.** The running execution controller is
-still `0c53220`; the market hub is still `8c3ffc8`. An ordinary QNTUSDT position
-remains managed with its native stop. Restarting this controller deliberately
-recovers into DRAINING; its current reactivation path requires a flat account and
-clear ledger. Do not force-close this position or bypass the execution fence just
-to deploy. This patch requires a coordinated, safe maintenance window. Local QA
-and historical replay are not acceptance of a newly deployed trading lifecycle.
+**Deployed code: `364bce9` for both controller and market hub.** The ordinary QNTUSDT
+position completed its normal exit and SETTLED accounting at 08:12:07 UTC+8, net
+4.60148167 USDT. A signed GET-only Testnet inventory then independently confirmed
+zero positions, ordinary orders and conditional orders; the scoped ledger was
+clear. This naturally occurring flat interval allowed deployment without closing
+anything manually. Both services point to the immutable release
+`/opt/trade-engine-v2/releases/364bce9-market-precision`.
+
+Controller recovery first entered DRAINING. The existing versioned control API
+requested the same account/binding; epoch 24 subsequently became ACTIVE, blockers
+empty, entries enabled. No SQL route edit or execution-fence bypass was used.
+Local QA and historical replay are not acceptance of a complete new-release
+trading lifecycle, and the preceding QNT outcome belongs to the previous release.
 
 ## Reproduced cause
 
@@ -25,7 +32,7 @@ ATR and raised a generic ValueError; the scheduler returned UNAVAILABLE, blockin
 that cycle. This was not a missing balance or an execution-permission problem.
 
 Reconstruction from the same verified ClickHouse candles with the new version
-produced ATR values `0.000000071428571429` and `0.000000214285714286` respectively.
+produced ATR values `0.000000214285714286` and `0.000000071428571429` respectively.
 The unchanged S8 entry threshold then rejected both signals normally as
 `strength_below_minimum`. This does **not** imply either sample should open a trade.
 Three SPELLUSDT samples at 07:38–07:40 reproduce the same rounding fault in both
@@ -69,6 +76,9 @@ Three SPELLUSDT samples at 07:38–07:40 reproduce the same rounding fault in bo
   TradingView thresholds and zero/maximum crowding bonus configurations. This
   overlaps the affected-path suite and is not an extra independent lifecycle.
 - Ruff and diff whitespace checks pass on all changed files.
+- Follow-up expiry-performance/lease-race, intent idempotency, pipeline, health
+  and admission-latency regression: **260 passed in 226.83 seconds** using a new
+  isolated PostgreSQL/Redis QA instance.
 - Read-only current-feed sample: 211 signals, 151 non-directional; 7 additionally
   rejected by the safe score upper bound, 6 retained as market candidates. This
   demonstrates avoidable account-query work, not measured live throughput or
@@ -76,7 +86,7 @@ Three SPELLUSDT samples at 07:38–07:40 reproduce the same rounding fault in bo
 - Historical Testnet candles reproduce the precision defect and its correction;
   no expired signal was injected into a formal consumer.
 
-## Deployment and remaining acceptance
+## Deployment checks and remaining acceptance
 
 1. Preserve the current worker's protection/exit management. Wait for ordinary
    flat-account/settled-ledger readiness, or implement and separately verify a
@@ -91,6 +101,39 @@ Three SPELLUSDT samples at 07:38–07:40 reproduce the same rounding fault in bo
    leverage/isolation, native protection, exit and settlement after deployment.
    Compare actionable lag and per-cycle latency, not just process liveness.
 
+Initial deployment checks: both systemd units active with zero abnormal restarts;
+route ACTIVE; shared market CURRENT and S0 PROJECTED. SPELLUSDT and VTHOUSDT
+already expose `s3-closed-1m-v2` envelopes with nonzero ATR. Symbol heads roll to
+the new version as their next normal collection runs; old frames remain readable.
+The first post-deployment health sample contained one actionable S6 lagging signal,
+with non-directional bookkeeping counts reported separately. This was not an
+all-clear claim; the persisted recovery confirmation timer still applies.
+
+Further live checks confirmed new-version BTCUSDT/ETHUSDT risk references against
+the actual PostgreSQL head and ClickHouse candles. Stale SPELL/VTHO references
+were correctly rejected instead of having their timestamps refreshed. New
+directional decisions include `score_unreachable`; initial post-deployment
+pending-task queries returned no error codes. No new-release opening was yet
+observed during these checks, so no new-release fill/lifecycle claim is made.
+
+One overdue AXLUSDT task was left with a five-minute lease during worker handoff.
+Its source deadline had already passed; expiry must wait for the lease and never
+chase that signal. Do not clear a lease by hand while an owner might still exist.
+The health recovery timer requires a sustained quiet interval after cleanup.
+
+A measured cycle spent approximately 7 seconds in historical signal-expiry
+maintenance, 4 seconds per directional scheduler and 1.6 seconds in protection.
+Read-only EXPLAIN ANALYZE isolated a volatile `clock_timestamp()` lease subquery:
+it ran approximately 237,000 correlated lookups, including already-receipted
+signals. The follow-up uses a stable statement-start boundary for discovery;
+leases expiring during the query are conservatively deferred. The locked final
+receipt insertion still rechecks current leases with `clock_timestamp()`, so
+concurrently acquired or renewed leases remain protected. Observed read-only
+discovery time fell from 4,925 ms to 1,041 ms; this comparison is not a claim about
+the full live cycle. No planner settings, queue TTL, lease duration, strategy
+threshold or protection check was weakened. A new interleaving test renews a
+lease between candidate selection and receipt insertion and verifies no expiry.
+
 Residual boundaries: genuine shared-market/dependency faults still block entries;
 the pipeline's conservative global failure policy has not been relaxed. The
 precision patch does not promise profitability, settle the ATR lookback-model
@@ -98,3 +141,10 @@ question, or prove TradingView-origin trading acceptance. The current restart /
 same-account resume limitation is not fixed by this patch and remains a separate
 operational risk. Disk reserve is monitored by the hub and must not be reduced to
 hide storage pressure.
+
+Two stopped QA database copies from this work were compressed and verified before
+their uncompressed directories were removed to preserve the market-hub disk
+reserve. Diagnostics remain in their original QA roots; recoverable backups are
+`/tmp/v2-data-qa.v7q3ir/pg-stopped-20260928.tar.gz` and
+`/tmp/v2-data-qa.dB5JIL/pg-stopped-20260928.tar.gz`. No trade database or archived
+market history was deleted.

@@ -85,7 +85,7 @@ class StrategyScheduler:
                     AND (i.exchange,i.account_id,i.environment,i.product,i.producer)=(%s,%s,%s,%s,%s))
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
                     WHERE t.consumer=%s AND t.signal_id=s.signal_id
-                    AND t.lease_until>=clock_timestamp())
+                    AND t.lease_until>=statement_timestamp())
                 ORDER BY s.received_at,s.signal_id LIMIT %s FOR UPDATE OF s SKIP LOCKED""",
                 (
                     worker.source,
@@ -100,6 +100,12 @@ class StrategyScheduler:
             ).fetchall()
             if not rows:
                 return 0
+            # The broad discovery query uses a stable statement-time boundary:
+            # clock_timestamp() is volatile and forces a correlated task lookup
+            # for every historical signal, even ones already receipted. A lease
+            # expiring during discovery is conservatively left for next time.
+            # Recheck live leases below after locking each candidate signal, so
+            # a lease renewed/acquired during discovery is never overwritten.
             expired = conn.execute(
                 """INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason)
                 SELECT %s,s.signal_id,'EXPIRED','signal expired before scheduling'

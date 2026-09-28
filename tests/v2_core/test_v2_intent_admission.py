@@ -1365,6 +1365,60 @@ def test_scheduler_expiry_preserves_active_lease_and_decision(database):
         ).fetchone() == (0,)
 
 
+def test_expiry_rechecks_lease_renewed_after_stable_time_discovery(database):
+    from v2_core.scheduling import StrategyScheduler
+
+    worker, _ = strategy_worker(database, now=lambda: 100)
+    scheduler = StrategyScheduler(worker, context_provider=lambda _: {})
+    identifier = scheduler_signal(database, "renewed-during-expiry", expires=2)
+    consumer = worker.scope.consumer
+    with database() as c:
+        c.execute(
+            "INSERT INTO v2_strategy_tasks(consumer,signal_id,lease_token,lease_until) "
+            "VALUES(%s,%s,%s,clock_timestamp()-interval '1 second')",
+            (consumer, identifier, str(uuid4())),
+        )
+
+    class Connection:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, query, args=None):
+            result = self.connection.execute(query, args)
+            if query.startswith("SELECT s.signal_id FROM v2_inbound_signals s"):
+                assert "statement_timestamp()" in query
+                assert "clock_timestamp()" not in query
+                # Another legitimate task owner renews after candidate row
+                # locking, but before expiry's final insert/recheck.
+                with database() as other:
+                    other.execute("SET LOCAL lock_timeout='1s'")
+                    other.execute(
+                        "UPDATE v2_strategy_tasks SET lease_until=clock_timestamp()+interval '60 seconds' "
+                        "WHERE consumer=%s AND signal_id=%s",
+                        (consumer, identifier),
+                    )
+            return result
+
+    @contextmanager
+    def interleaved():
+        with database() as connection:
+            yield Connection(connection)
+
+    scheduler._connect = interleaved
+    assert scheduler.expire_pending() == 0
+    with database() as c:
+        assert c.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (identifier,)
+        ).fetchone() == (0,)
+        c.execute(
+            "UPDATE v2_strategy_tasks SET lease_until=clock_timestamp()-interval '1 second' "
+            "WHERE consumer=%s AND signal_id=%s",
+            (consumer, identifier),
+        )
+    scheduler._connect = database
+    assert scheduler.expire_pending() == 1
+
+
 @pytest.mark.parametrize(
     "changes,expected_expired",
     [
