@@ -8,19 +8,26 @@ Diagnostics read PostgreSQL, Redis and ClickHouse. Isolated QA uses separate
 disposable PostgreSQL/Redis instances. Only the managed Testnet controller and
 shared-market hub were restarted for the coordinated deployment described below.
 
-**Deployed code: `364bce9` for both controller and market hub.** The ordinary QNTUSDT
+**Deployed code: controller `505172b`, market hub `364bce9`.** The precision repair
+was first released as `364bce9` to both components; the controller subsequently
+received the verified expiry-performance patch. The ordinary QNTUSDT
 position completed its normal exit and SETTLED accounting at 08:12:07 UTC+8, net
 4.60148167 USDT. A signed GET-only Testnet inventory then independently confirmed
 zero positions, ordinary orders and conditional orders; the scoped ledger was
 clear. This naturally occurring flat interval allowed deployment without closing
-anything manually. Both services point to the immutable release
-`/opt/trade-engine-v2/releases/364bce9-market-precision`.
+anything manually. The market hub uses the immutable release
+`/opt/trade-engine-v2/releases/364bce9-market-precision`; the controller now uses
+`/opt/trade-engine-v2/releases/505172b-queue-expiry`.
 
 Controller recovery first entered DRAINING. The existing versioned control API
 requested the same account/binding; epoch 24 subsequently became ACTIVE, blockers
 empty, entries enabled. No SQL route edit or execution-fence bypass was used.
 Local QA and historical replay are not acceptance of a complete new-release
 trading lifecycle, and the preceding QNT outcome belongs to the previous release.
+
+The subsequent controller-only optimization was also released while independent
+Testnet inventory and the ledger were clear. The same control API resumed epoch
+25 to ACTIVE with no blockers. Market collection was not restarted a second time.
 
 ## Reproduced cause
 
@@ -133,6 +140,15 @@ discovery time fell from 4,925 ms to 1,041 ms; this comparison is not a claim ab
 the full live cycle. No planner settings, queue TTL, lease duration, strategy
 threshold or protection check was weakened. A new interleaving test renews a
 lease between candidate selection and receipt insertion and verifies no expiry.
+
+After the optimization was deployed, three actual completed cycles measured
+expiry maintenance at 2.902, 2.993 and 3.271 seconds, versus the earlier roughly
+7-second sample. Full cycle times were 13.807–15.240 seconds. The account remained
+ACTIVE and all three cycles were CYCLE_COMPLETE, but health still observed a
+short-lived actionable S6 backlog (11 signals in the recorded sample). The lag
+alarm was not disabled or declared recovered. Remaining queue throughput / the
+30-second processing target needs further work; this release is not an all-green
+claim and no new-release exchange fill has been claimed without one occurring.
 
 Residual boundaries: genuine shared-market/dependency faults still block entries;
 the pipeline's conservative global failure policy has not been relaxed. The
