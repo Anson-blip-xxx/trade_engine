@@ -95,8 +95,10 @@ def evaluate_market(
             if field == "taker_buy_ratio" and value is None:
                 windows[window][field] = None
                 continue
-            if field.startswith("ema") or field == "atr":
+            if field.startswith("ema"):
                 parsed = amount(value, positive=True)
+            elif field == "atr":
+                parsed = number(value, minimum=0)
             else:
                 parsed = number(
                     value,
@@ -122,6 +124,11 @@ def evaluate_market(
 
     def reject(reason):
         return DirectionalPlan(reason, strategy, kind, side)
+
+    # Flat valid candles are not an infrastructure outage. They provide no
+    # usable volatility denominator and must never produce an opening plan.
+    if any(windows[w]["atr"] == 0 for w in ("15m", "1h")):
+        return reject("zero_volatility")
 
     if strategy == "S6" and not long_signal_allows_open(kind, {"regime": regime}):
         return reject("regime_conflict")

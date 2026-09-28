@@ -14,6 +14,7 @@ from v2_core.ingress import milliseconds, symbol
 
 WINDOWS = (("15m", 15), ("1h", 60), ("4h", 240), ("24h", 1440))
 VERSION = "s3-closed-1m-v1"
+PRICE_VERSION = "s3-closed-1m-v2"
 
 
 def amount(value, *, positive):
@@ -37,7 +38,9 @@ def amount(value, *, positive):
     return str(number), number
 
 
-def build_frame(batch, *, environment):
+def build_frame(batch, *, environment, feature_version=VERSION):
+    if feature_version not in {VERSION, PRICE_VERSION}:
+        raise ValueError("MARKET_FEATURE_VERSION_UNSUPPORTED")
     if environment not in ("SANDBOX", "LIVE"):
         raise ValueError("explicit environment required")
     if not isinstance(batch, dict) or set(batch) != {
@@ -111,12 +114,18 @@ def build_frame(batch, *, environment):
             computed[name] = feature_values(
                 build_window_features(ascending, ema(closes, 20), ema(closes, 60))
             )
+            if feature_version == PRICE_VERSION:
+                from services.v2_price_features import price_features
+
+                computed[name].update(
+                    price_features(list(reversed(normalized[:count])))
+                )
             if Decimal(computed[name]["close"]) <= 0:
                 raise ValueError("price below indicator output precision")
         computed["input_evidence"] = {
             "source": batch["source"],
             "environment": environment,
-            "window_version": VERSION,
+            "window_version": feature_version,
             "interval": "1m",
             "closed_at": observed,
             "bars_digest": digest(encoded),
@@ -127,7 +136,7 @@ def build_frame(batch, *, environment):
         # the existing detector's raw input convention without mislabelling it.
         raw[target] = {"15m": normalized[:15], "4h": normalized[:240]}
     return {
-        "frame_id": f"{VERSION}:{observed}",
+        "frame_id": f"{feature_version}:{observed}",
         "observed_at": observed,
         "windows": windows,
         "raw_windows": raw,

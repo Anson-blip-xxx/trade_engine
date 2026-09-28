@@ -10,8 +10,8 @@ from decimal import Decimal, InvalidOperation
 
 from s0.core import classify_regime
 from services.v2_market_publishers import S0Publisher
+from services.v2_s3_candles import PRICE_VERSION, build_frame
 from services.v2_s3_candles import VERSION as S3_VERSION
-from services.v2_s3_candles import build_frame
 from services.v2_s3_source import frame_digest
 from v2_core.evidence import digest
 from v2_core.ingress import symbol
@@ -47,7 +47,7 @@ def build_s0_state(windows, *, universe, s3_frame_id, s3_input_digest):
     if not isinstance(s3_frame_id, str) or not isinstance(s3_input_digest, str):
         raise TypeError("durable S3 evidence identity required")
 
-    closed_at = None
+    closed_at = feature_version = None
     for target in expected:
         context = windows[target]
         if not isinstance(context, dict) or not all(
@@ -59,7 +59,7 @@ def build_s0_state(windows, *, universe, s3_frame_id, s3_input_digest):
         if (
             not isinstance(evidence, dict)
             or evidence.get("source") != "BINANCE_FUTURES"
-            or evidence.get("window_version") != S3_VERSION
+            or evidence.get("window_version") not in {S3_VERSION, PRICE_VERSION}
             or evidence.get("interval") != "1m"
             or evidence.get("bar_count") != 1440
             or type(evidence.get("closed_at")) is not int
@@ -68,6 +68,9 @@ def build_s0_state(windows, *, universe, s3_frame_id, s3_input_digest):
         closed_at = evidence["closed_at"] if closed_at is None else closed_at
         if evidence["closed_at"] != closed_at:
             raise ValueError("mixed S3 observation times")
+        feature_version = feature_version or evidence["window_version"]
+        if evidence["window_version"] != feature_version:
+            raise ValueError("mixed S3 feature versions")
 
     btc = windows["BTCUSDT"]
     four_hour, fifteen, day = btc["4h"], btc["15m"], btc["24h"]

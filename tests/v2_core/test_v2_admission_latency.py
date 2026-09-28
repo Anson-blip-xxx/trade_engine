@@ -223,3 +223,59 @@ def test_market_screen_avoids_account_calls_only_for_structural_rejection():
     with pytest.raises(ValueError, match="market context"):
         provider(signal)
     assert calls == ["account"]
+
+
+@pytest.mark.parametrize("strength,account_required", [(10, False), (28, True)])
+def test_score_bound_filters_only_when_real_ratio_cannot_rescue(
+    strength, account_required
+):
+    facts = inputs("S6")
+    facts["market"]["15m"]["close"] = "100"
+    market = {
+        "environment": "SANDBOX",
+        "symbol": "BTCUSDT",
+        "assembled_at": 2,
+        "valid_until_ms": 9,
+        "sources": {
+            "s3": {"features": facts["market"]},
+            "s0": {"features": {"regime": "neutral"}},
+        },
+    }
+    signal = {
+        "symbol": "BTCUSDT",
+        "observed_at": 1,
+        "expires_at_ms": 10,
+        "signal": "TREND_UP",
+        "features": {"strength": strength},
+    }
+    calls = []
+    account = {
+        "account_scope": asdict(SCOPE),
+        "symbol": "BTCUSDT",
+        "evidence": {"QA": True},
+        "observed_at_ms": 2,
+        "valid_until_ms": 9,
+        "short_ratio": "1",
+        "history": {},
+        "sizing": {},
+        "expected_move_pct": "1",
+        "funding_rate": "0",
+    }
+    provider = DirectionalContext(
+        lambda _: market,
+        lambda _: calls.append("account") or account,
+        scope=SCOPE,
+        clock_ms=lambda: 3,
+        market_screen=lambda s, c: (
+            market_plan(s, c, {"strategy": "S6"})[0].reason in MARKET_ONLY_REJECTIONS
+        ),
+    )
+    result = provider(signal)
+    assert bool(calls) is account_required
+    assert bool(result.get("market_only")) is not account_required
+    if not account_required:
+        assert result["directional"]["short_ratio"] is None
+        assert (
+            market_plan(signal, result, {"strategy": "S6"})[0].reason
+            == "score_unreachable"
+        )

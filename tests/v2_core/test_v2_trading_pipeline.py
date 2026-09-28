@@ -227,6 +227,58 @@ def test_dynamic_nonmatching_events_do_not_block_valid_prepared_order(case, data
         )
 
 
+def test_flat_symbol_does_not_poison_other_symbols_in_the_same_cycle(case, database):
+    pipeline, _, _, _, now = case
+    identifier = pipeline.runtime.data.signals.admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key="zero-volatility",
+        snapshot={
+            "symbol": "ETHUSDT",
+            "signal": "TREND_UP",
+            "observed_at": now,
+            "expires_at_ms": now + 50000,
+            "features": {"strength": 70},
+        },
+    )
+    for scheduler in pipeline.schedulers:
+        original = scheduler.context_provider
+
+        def context(signal, provider=original):
+            if signal["symbol"] != "ETHUSDT":
+                return provider(signal)
+            market = inputs()["market"]
+            market["1h"]["atr"] = "0"
+            return {
+                "environment": "SANDBOX",
+                "symbol": "ETHUSDT",
+                "assembled_at": now,
+                "valid_until_ms": now + 50000,
+                "sources": {"s3": {"source": "QA"}},
+                "account_scope": asdict(SCOPE),
+                "market_only": True,
+                "directional": {
+                    "market": market,
+                    "price": "100",
+                    "regime": "neutral",
+                    "short_ratio": None,
+                },
+            }
+
+        scheduler.context_provider = context
+    result = pipeline.run_once()
+    assert result["status"] == "CYCLE_COMPLETE"
+    assert result["phases"]["s6"][identifier] == "IGNORED"
+    with database() as c:
+        assert c.execute(
+            "SELECT i.payload->>'symbol',o.status FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id"
+        ).fetchall() == [("BTCUSDT", "PREPARED")]
+        assert c.execute(
+            "SELECT reason FROM v2_signal_receipts WHERE signal_id=%s AND consumer=%s",
+            (identifier, pipeline.schedulers[0].worker.scope.consumer),
+        ).fetchone() == ("zero_volatility",)
+
+
 def test_real_s3_detection_through_context_strategy_and_pg_order(case, database):
     pipeline, calls, _, _, _ = case
     result = pipeline.run_once()

@@ -3,6 +3,7 @@ from copy import deepcopy
 import pytest
 
 from services.v2_s0_regime import VERSION, build_s0_state
+from services.v2_s3_candles import PRICE_VERSION
 from services.v2_s3_candles import VERSION as S3_VERSION
 
 
@@ -108,3 +109,28 @@ def test_computation_does_not_mutate_archived_s3_frame():
         s3_input_digest="digest",
     )
     assert windows == original
+
+
+@pytest.mark.parametrize(
+    "versions,allowed",
+    [
+        ((S3_VERSION, S3_VERSION), True),
+        ((PRICE_VERSION, PRICE_VERSION), True),
+        ((PRICE_VERSION, S3_VERSION), False),
+        (("s3-closed-1m-v99", "s3-closed-1m-v99"), False),
+    ],
+)
+def test_feature_versions_are_explicit_and_cannot_be_mixed(versions, allowed):
+    windows = {"BTCUSDT": context(), "ETHUSDT": context()}
+    for target, version in zip(windows, versions, strict=True):
+        windows[target]["input_evidence"]["window_version"] = version
+    kwargs = {
+        "universe": list(windows),
+        "s3_frame_id": "frame",
+        "s3_input_digest": "digest",
+    }
+    if allowed:
+        assert build_s0_state(windows, **kwargs)["regime"] == "bull_trend"
+    else:
+        with pytest.raises(ValueError):
+            build_s0_state(windows, **kwargs)

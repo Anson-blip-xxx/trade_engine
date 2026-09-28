@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from services.v2_market_publishers import S0Publisher
 from services.v2_s0_regime import build_s0_state
-from services.v2_s3_candles import build_frame
+from services.v2_s3_candles import PRICE_VERSION, build_frame
 from services.v2_s3_runtime import S3Runtime
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds, symbol
@@ -174,8 +174,10 @@ class IncrementalCandles:
             "closed_at": observed,
             "candles": {target: combined},
         }
-        frame = build_frame(batch, environment=self.environment)
-        frame["frame_id"] = f"s3-shared-v1:{target}:{observed}"
+        frame = build_frame(
+            batch, environment=self.environment, feature_version=PRICE_VERSION
+        )
+        frame["frame_id"] = f"s3-shared-v2:{target}:{observed}"
         # Normalize decimals exactly as build_frame does before durable hashing.
         from services.v2_s3_candles import amount
 

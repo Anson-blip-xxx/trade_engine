@@ -556,7 +556,7 @@ def test_shared_risk_reference_uses_verified_per_symbol_archive_not_legacy_head(
     request = {**asdict(SCOPE), "leg": "OPEN", "symbol": "ETHUSDT"}
     value = reference(request)
     assert value.symbol == "ETHUSDT" and value.price == "101"
-    assert value.provenance.frame_id.startswith("s3-shared-v1:ETHUSDT:")
+    assert value.provenance.frame_id.startswith("s3-shared-v2:ETHUSDT:")
     with shared() as c:
         assert c.execute("SELECT count(*) FROM v2_candle_deliveries").fetchone()[0] == 0
     public.now += 90000

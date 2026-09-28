@@ -20,6 +20,74 @@ database = database_fixture
 closed = closed_fixture
 
 
+@pytest.mark.parametrize("source", ["s3", "tv_bridge"])
+@pytest.mark.parametrize("kind", ["HIGH_VOL", "LOW_VOL", "EVENT_END"])
+def test_non_directional_backlog_is_visible_but_not_a_lost_opening_alert(
+    database, source, kind
+):
+    from v2_core.signals import Signals
+
+    identifier = Signals(database).admit(
+        source=source,
+        environment="SANDBOX",
+        request_key="non-directional",
+        snapshot={
+            "symbol": "BTCUSDT",
+            "signal": kind,
+            "observed_at": 1,
+            "expires_at_ms": 2,
+            "features": {},
+        },
+    )
+    health = TradingHealth(
+        database,
+        account_id="test-account",
+        tv_enabled=True,
+        clock_ms=lambda: time.time_ns() // 1000000 + 31000,
+    )
+    assert health() == frozenset()
+    state = json.loads(health.store.read(health.key).payload_json)
+    for producer in ("s6", "s8"):
+        assert state["expected_waits"][producer + ":" + source + ":non_actionable"] == {
+            "count": 1,
+            "reason": "NON_DIRECTIONAL_BOOKKEEPING",
+        }
+    # Classification must neither consume nor erase original signals.
+    with database() as c:
+        assert c.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (identifier,)
+        ).fetchone() == (0,)
+
+
+def test_actionable_expired_input_and_nonmatching_processing_error_still_alert(
+    database,
+):
+    from v2_core.strategy import StrategyScope
+
+    identifier = scheduler_signal(database, "directional-lag")
+    health = TradingHealth(
+        database,
+        account_id="test-account",
+        tv_enabled=True,
+        clock_ms=lambda: time.time_ns() // 1000000 + 31000,
+    )
+    assert "SIGNAL_CONSUMPTION_LAG" in health()
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert set(state["findings"]["SIGNAL_CONSUMPTION_LAG"]) == {"s6:tv_bridge"}
+    consumer = StrategyScope(**asdict(health.scope), producer="s8").consumer
+    with database() as c:
+        c.execute(
+            "INSERT INTO v2_strategy_tasks(consumer,signal_id,error_code) VALUES(%s,%s,'ValueError')",
+            (consumer, identifier),
+        )
+    assert "SIGNAL_CONSUMPTION_LAG" in health()
+    state = json.loads(health.store.read(health.key).payload_json)
+    assert set(state["findings"]["SIGNAL_CONSUMPTION_LAG"]) == {
+        "s6:tv_bridge",
+        "s8:tv_bridge",
+    }
+
+
 @pytest.mark.parametrize(
     "code", ["ACCOUNT_RISK_CAPACITY_UNAVAILABLE", "EXISTING_SYMBOL_POSITION"]
 )

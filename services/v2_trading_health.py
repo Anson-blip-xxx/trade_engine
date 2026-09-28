@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from services.v2_trading_pipeline import failed
 from v2_core.account_risk import AccountScope
+from v2_core.directional import directional_events
 from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import EXPECTED_ADMISSION_WAITS
 from v2_core.state import BusinessState, StateKey
@@ -288,25 +289,35 @@ class TradingHealth:
                 for producer in ("s6", "s8"):
                     consumer = StrategyScope(*scope, producer).consumer
                     row = conn.execute(
-                        """SELECT count(*) FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
-                        min(floor(extract(epoch FROM s.received_at)*1000)::bigint)
-                            FILTER(WHERE COALESCE(t.error_code,'')<>ALL(%s)),
-                        count(*) FILTER(WHERE t.error_code=ANY(%s))
+                        """WITH pending AS (
+                        SELECT s.*,t.error_code,
+                            (s.snapshot->>'signal'=ANY(%s::text[])
+                             OR t.error_code IS NOT NULL
+                             OR EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                                 WHERE d.consumer=%s AND d.signal_id=s.signal_id)) AS actionable
                         FROM v2_inbound_signals s
                         LEFT JOIN v2_strategy_tasks t ON t.signal_id=s.signal_id AND t.consumer=%s
                         WHERE s.environment=%s AND s.source=%s
                         AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
                             WHERE r.consumer=%s AND r.signal_id=s.signal_id)
-                        AND s.received_at<=to_timestamp(%s/1000.0)""",
+                        AND s.received_at<=to_timestamp(%s/1000.0))
+                        SELECT count(*) FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)),
+                        min(floor(extract(epoch FROM s.received_at)*1000)::bigint)
+                            FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)),
+                        count(*) FILTER(WHERE error_code=ANY(%s)),
+                        count(*) FILTER(WHERE NOT actionable)
+                        FROM pending s""",
                         (
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            sorted(EXPECTED_ADMISSION_WAITS),
+                            list(directional_events(producer.upper())),
+                            consumer,
                             consumer,
                             self.scope.environment,
                             source,
                             consumer,
                             now - settings["health.queue_seconds"] * 1000,
+                            sorted(EXPECTED_ADMISSION_WAITS),
+                            sorted(EXPECTED_ADMISSION_WAITS),
+                            sorted(EXPECTED_ADMISSION_WAITS),
                         ),
                     ).fetchone()
                     if row[0]:
@@ -317,6 +328,11 @@ class TradingHealth:
                         expected_waits[producer + ":" + source] = {
                             "count": row[2],
                             "reason": "ACCOUNT_CAPACITY_OR_EXISTING_POSITION",
+                        }
+                    if row[3]:
+                        expected_waits[producer + ":" + source + ":non_actionable"] = {
+                            "count": row[3],
+                            "reason": "NON_DIRECTIONAL_BOOKKEEPING",
                         }
             latest = conn.execute(
                 """SELECT payload FROM v2_business_state

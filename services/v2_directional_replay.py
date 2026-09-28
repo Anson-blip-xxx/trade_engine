@@ -28,6 +28,8 @@ MARKET_ONLY_REJECTIONS = frozenset(
         "takeover_not_ready",
         "overextended",
         "atr_exceeded",
+        "zero_volatility",
+        "score_unreachable",
     }
 )
 
@@ -63,21 +65,40 @@ def source_policy(signal, config):
 def market_plan(signal, context, config):
     event, snapshot = signal["features"], context["directional"]
     policy, proof = source_policy(signal, config)
-    plan = evaluate_market(
-        config["strategy"],
-        {
+    inputs = {
+        "strategy": config["strategy"],
+        "event": {
             "type": signal["signal"],
             "strength": decimal_features(event["strength"]),
             "breakout_confirmed": event.get("breakout_confirmed", False),
             "taker_buy_ratio": decimal_features(event.get("taker_buy_ratio")),
         },
-        decimal_features(snapshot["market"]),
-        price=snapshot["price"],
-        regime=snapshot["regime"],
-        short_ratio=snapshot["short_ratio"],
-        age_ms=context["assembled_at"] - signal["observed_at"],
-        policy=policy,
-    )
+        "market": decimal_features(snapshot["market"]),
+        "price": snapshot["price"],
+        "regime": snapshot["regime"],
+        "short_ratio": snapshot["short_ratio"],
+        "age_ms": context["assembled_at"] - signal["observed_at"],
+        "policy": policy,
+    }
+    plan = evaluate_market(**inputs)
+    if (
+        context.get("market_only") is True
+        and snapshot["short_ratio"] is None
+        and plan.reason == "score_below_minimum"
+    ):
+        # This is an upper-bound test, NOT an observed sentiment value. Even
+        # the largest possible crowding bonus cannot qualify this candidate.
+        # A potentially qualifying score must still collect the real account
+        # context, ratio, funding and history before it can be admitted.
+        best = evaluate_market(
+            **{
+                **inputs,
+                "short_ratio": "1" if config["strategy"] == "S6" else "0",
+            }
+        )
+        if best.reason == "score_below_minimum":
+            plan = replace(plan, reason="score_unreachable")
+            proof["score_bound"] = "MAXIMUM_CROWDING_BONUS_BELOW_THRESHOLD"
     return plan, proof
 
 

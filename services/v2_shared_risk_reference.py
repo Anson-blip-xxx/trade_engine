@@ -1,7 +1,7 @@
 """Fresh per-symbol risk prices verified against PG and incremental CH history."""
 
 from services.v2_risk_reference import SOURCE, ReferenceUnavailable, bound
-from services.v2_s3_candles import build_frame
+from services.v2_s3_candles import PRICE_VERSION, VERSION, build_frame
 from services.v2_s3_source import frame_digest
 from v2_core.account_risk import RiskProvenance, RiskReference
 from v2_core.evidence import canonical, digest
@@ -53,7 +53,18 @@ class SharedRiskReference:
             "closed_at": observed,
             "candles": {target: bars},
         }
-        frame = build_frame(batch, environment=self.scope.environment)
+        # A rolling deployment may read either version. Reconstruct the exact
+        # version attested by PG; never accept an unverified alternate digest.
+        versions = {"s3-shared-v1": VERSION, "s3-shared-v2": PRICE_VERSION}
+        version = versions.get(frame_id.split(":", 1)[0])
+        if (
+            version is None
+            or frame_id != f"{frame_id.split(':', 1)[0]}:{target}:{observed}"
+        ):
+            raise ReferenceUnavailable("REFERENCE_FEATURE_VERSION_UNSUPPORTED")
+        frame = build_frame(
+            batch, environment=self.scope.environment, feature_version=version
+        )
         if frame_digest(frame) != fingerprint:
             raise ReferenceUnavailable("REFERENCE_INPUT_MISMATCH")
         if self._head(target) != head:
