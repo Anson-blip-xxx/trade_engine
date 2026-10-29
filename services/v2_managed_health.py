@@ -209,6 +209,7 @@ def build_managed_health(tenant, values, stop):
             connect,
             account_id=scope.account_id,
             tv_enabled=configuration.get("V2_ENABLE_TV_SIGNALS") == "true",
+            quant_enabled=configuration.get("V2_ENABLE_QUANT_SIGNALS") == "true",
         )
 
         def postgres():
@@ -237,6 +238,7 @@ def build_managed_health(tenant, values, stop):
                 sink,
                 account_id=scope.account_id,
                 clock_ms=lambda: time.time_ns() // 1000000,
+                details_for=business.notification_details,
             ),
             stop=stop,
             interval_seconds=10,

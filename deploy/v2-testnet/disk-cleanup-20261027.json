@@ -1,0 +1,83 @@
+{
+  "task": "reclaim-unused-project-data",
+  "completed_at_local": "2026-10-27T09:05:13.578232+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "COMPLETED_ARCHIVE_BACKUP_RETAINED",
+  "removed": {
+    "type": "PostgreSQL cold database copy, not current trading database",
+    "database": "trade_v2_archive_20261021_1227",
+    "oid": 16385,
+    "database_size_before_bytes": 92875783191,
+    "allocated_directory_bytes_before": 92877520896,
+    "method": "DROP DATABASE with exact identifier; no FORCE, backend termination or raw filesystem deletion",
+    "preconditions": [
+      "Exact archived database identity matched the 2026-10-21 reset acceptance record.",
+      "Database disallowed connections and defaulted to read-only.",
+      "No active connections, prepared transactions or logical replication slots for the archive.",
+      "No runtime application configuration or code reference; archive references were acceptance/manifest documentation.",
+      "Current trading database separately identified as trade_v2_testnet, OID 5509539, allowing connections.",
+      "Retained backup size and freshly computed full-file SHA-256 matched the original archive record.",
+      "Backup device, inode, size, nanosecond modification time and regular-file identity rechecked immediately before DROP."
+    ],
+    "postconditions": [
+      "Archived database name and OID absent from pg_database.",
+      "Former database directory base/16385 absent after PostgreSQL cleanup.",
+      "Current trading database OID and connection setting unchanged; a subsequent read-only connection succeeded."
+    ]
+  },
+  "retained_recovery_material": {
+    "directory": "/var/backups/trade-engine-v2/20261021-sandbox-reset",
+    "backup": "/var/backups/trade-engine-v2/20261021-sandbox-reset/before.dump",
+    "bytes": 25147336418,
+    "sha256": "5461d6e7f66abc34b6e15492ea5fd7a4af115467f8af01fa4e9aa34e085a365f",
+    "checksum_recomputed_this_task": true,
+    "format": "PostgreSQL 16 custom gzip archive, 490 TOC entries",
+    "also_retained": ["schema.dump", "research-seed.dump", "globals-no-passwords.sql"],
+    "original_archive_record": "deploy/v2-testnet/simple-entry-acceptance-20261021.json",
+    "original_stream_validation": "Original acceptance records successful pg_restore --file=/dev/null; current full-file checksum is unchanged.",
+    "full_restore_drill_performed_this_task": false,
+    "recovery_note": "Historical data can be restored from the retained dump into an isolated database. Never resume the pre-reset ledger against the reset exchange account without reconciliation.",
+    "redundancy_note": "The duplicate online archive is removed. The retained backup remains on this same host/disk; it is not an off-host disaster-recovery copy."
+  },
+  "filesystem": {
+    "initial_observation": {"size_gib_rounded": 296, "used_gib_rounded": 219, "available_gib_rounded": 65, "df_use_percent": 78},
+    "immediately_before_drop_available_bytes": 70637764608,
+    "immediately_after_drop_available_bytes": 163464810496,
+    "final_observation": {"size_gib_rounded": 296, "used_gib_rounded": 131, "available_gib_rounded": 153, "df_use_percent": 47},
+    "accounting_note": "Other services continue writing; whole-host before/after usage is not an exact measure of this cleanup alone. The removed database occupied approximately 86.5 GiB."
+  },
+  "preserved": [
+    "Current trading database, ledger, positions, decisions and encrypted account data (approximately 14 GiB).",
+    "Current V2 ClickHouse market history (approximately 2.6 GiB).",
+    "All release source trees, active virtualenvs, rollback baselines and uncommitted workspace changes.",
+    "QA acceptance logs (135 directories, approximately 4.2 MiB); disposable QA databases already absent.",
+    "Approximately 33 GiB of temporary paths belonging to other projects; outside this cleanup scope.",
+    "Old ClickHouse diagnostic parts and shared host journals; no manual database-part deletion or global log vacuum."
+  ],
+  "runtime_verification": {
+    "service_restarts_performed": false,
+    "credentials_or_runtime_controls_modified": false,
+    "orders_or_positions_modified": false,
+    "current_trading_tables_modified_by_this_task": false,
+    "services_active_running_before_and_after_with_same_pid": {
+      "trade-v2-execution-controller.service": 923638,
+      "trade-v2-market-hub.service": 912360,
+      "trade-v2-dashboard.service": 3264125,
+      "trade-v2-account-admin.service": 911666,
+      "trade-v2-tradingview-ingress.service": 3264126,
+      "trade-v2-cache.service": 1151,
+      "trade-v2-clickhouse.service": 1152,
+      "postgresql@16-tradev2.service": 1409,
+      "nginx.service": 1227
+    },
+    "all_listed_service_restart_counters": 0,
+    "verification_boundary": "Process continuity and current PostgreSQL connectivity verified; no test orders or new end-to-end trading acceptance performed."
+  },
+  "existing_periodic_cleanup": {
+    "qa_gc": "Enabled and running successfully; 135 QA directories have no retained database. Diagnostics remain within 30-day retention.",
+    "diagnostic_retention": "Enabled and running successfully hourly; 30-day diagnostic and 7-day expired-demand policy retained; current eligible batches empty.",
+    "legacy_log_gc": "Enabled and running successfully daily; dry-run found no additional expired files under its protected namespace.",
+    "policy_changed": false,
+    "archive_note": "Frozen database archives are not ordinary temporary QA databases and were intentionally excluded from automatic GC. This was a separately verified one-time removal of a backed-up duplicate."
+  }
+}

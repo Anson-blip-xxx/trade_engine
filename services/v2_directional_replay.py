@@ -30,6 +30,7 @@ MARKET_ONLY_REJECTIONS = frozenset(
         "atr_exceeded",
         "zero_volatility",
         "score_unreachable",
+        "TV_DIRECTION_CONFLICT",
     }
 )
 
@@ -63,6 +64,12 @@ def source_policy(signal, config):
 
 
 def market_plan(signal, context, config):
+    if config.get("source") == "quant":
+        from services.v2_quant_admission import quant_market_plan
+
+        return quant_market_plan(signal, context, config)
+    if signal["signal"].startswith("QUANT_"):
+        raise ValueError("QUANT_SOURCE_REQUIRED")
     event, snapshot = signal["features"], context["directional"]
     policy, proof = source_policy(signal, config)
     inputs = {
@@ -80,7 +87,21 @@ def market_plan(signal, context, config):
         "age_ms": context["assembled_at"] - signal["observed_at"],
         "policy": policy,
     }
-    plan = evaluate_market(**inputs)
+    from v2_core.signal_fusion import validate_fusion
+
+    fusion = validate_fusion(
+        signal,
+        source=config.get("source", "s3"),
+        proof=context.get("signal_fusion"),
+        now_ms=context["assembled_at"],
+    )
+    baseline = evaluate_market(**inputs)
+    bonus = fusion["score_bonus"] if fusion else 0
+    plan = evaluate_market(**inputs, score_bonus=bonus) if bonus else baseline
+    if fusion and fusion["veto"] and plan.reason in {
+        "CANDIDATE", "score_below_minimum"
+    }:
+        plan = replace(plan, reason="TV_DIRECTION_CONFLICT")
     if (
         context.get("market_only") is True
         and snapshot["short_ratio"] is None
@@ -93,12 +114,20 @@ def market_plan(signal, context, config):
         best = evaluate_market(
             **{
                 **inputs,
+                "score_bonus": bonus,
                 "short_ratio": "1" if config["strategy"] == "S6" else "0",
             }
         )
         if best.reason == "score_below_minimum":
             plan = replace(plan, reason="score_unreachable")
             proof["score_bound"] = "MAXIMUM_CROWDING_BONUS_BELOW_THRESHOLD"
+    if fusion:
+        proof["signal_fusion"] = {
+            **fusion,
+            "baseline_plan": asdict(baseline),
+            "fused_plan": asdict(plan),
+            "allocation_score": baseline.score,
+        }
     return plan, proof
 
 
@@ -142,12 +171,38 @@ def replay_decision(signal, context, config):
         "source_scoring": scoring,
         "execution_authorized": False,
     }
+    fusion = scoring.pop("signal_fusion", None)
+    if fusion:
+        features["signal_fusion"] = fusion
 
     def result(reason):
         return StrategyDecision("IGNORED", reason, features_json=canonical(features))
 
     if plan.reason != "CANDIDATE":
         return result(plan.reason)
+    controls = None
+    if "entry_controls" in context:
+        from v2_core.entry_controls import from_snapshot
+
+        controls = from_snapshot(context["entry_controls"], config["account_scope"])
+        features["entry_controls"] = context["entry_controls"]
+        if controls.values["reentry.mode"] != "OFF":
+            from v2_core.entry_opportunities import validate
+
+            proof = context.get("entry_structure")
+            rejection = validate(
+                proof,
+                scope=config["account_scope"],
+                target=signal["symbol"],
+                side={"LONG": "BUY", "SHORT": "SELL"}[plan.side],
+                observed=signal["observed_at"],
+                now=now,
+                expected_control_digest=controls.digest,
+                expected_controls=controls.snapshot(),
+            )
+            features["entry_structure"] = proof
+            if rejection:
+                return result(rejection)
     # Sizing validates the candidate against the same source-specific minimum.
     # All other risk/capital settings remain identical to the frozen policy.
     settings, _ = source_policy(signal, config)
@@ -167,8 +222,12 @@ def replay_decision(signal, context, config):
             )
         )
         selected, proof = choose(
-            plan,
-            snapshot,
+            replace(plan, score=fusion["allocation_score"])
+            if fusion and fusion["allocation_score"] is not None
+            else plan,
+            {**snapshot, "quant_atr_pct": scoring["atr_pct"]}
+            if config.get("source") == "quant"
+            else snapshot,
             source=config.get("source"),
             age_ms=now - signal["observed_at"],
             settings=settings,
@@ -185,16 +244,40 @@ def replay_decision(signal, context, config):
     features["analysis"] = asdict(adjustment)
     if adjustment.factor == "0":
         return result(adjustment.reason)
+    analysis_factor = adjustment.factor
+    if controls and controls.values["history.mode"] != "OFF":
+        from decimal import Decimal
+
+        from services.v2_layered_history import validate
+
+        proof = context.get("layered_history")
+        factor = validate(
+            proof,
+            {**signal, "source": config.get("source", "s3")},
+            context,
+            plan,
+            controls,
+        )
+        features["layered_history"] = proof
+        analysis_factor = str(min(Decimal(analysis_factor), Decimal(factor)))
     # No alternative price/ATR/history factor can be smuggled through sizing.
+    explanation = {}
     sized = size_candidate(
         plan,
         **snapshot["sizing"],
         price=snapshot["price"],
-        atr_pct=decimal_features(snapshot["market"]["1h"]["atr_pct"]),
-        analysis_factor=adjustment.factor,
+        atr_pct=scoring["atr_pct"]
+        if config.get("source") == "quant"
+        else decimal_features(snapshot["market"]["1h"]["atr_pct"]),
+        analysis_factor=analysis_factor,
         policy=settings,
+        explanation=explanation,
+        allocation_score=fusion["allocation_score"] if fusion else None,
     )
     features["sizing"] = asdict(sized)
+    features["sizing_explanation"] = explanation
+    if explanation.get("version") == "remaining-risk-sizing-v1":
+        features["sizing_budget"] = explanation
     if sized.reason != "SIZED":
         return result(sized.reason)
     gate = execution_market_gate(
@@ -206,6 +289,39 @@ def replay_decision(signal, context, config):
         policy=settings,
     )
     features["execution_market_gate"] = gate
+    if gate == "MARKET_GATES_PASSED" and "liquidity_controls" in context:
+        from v2_core.liquidity import evaluate_execution_quote, evaluate_liquidity
+        from v2_core.liquidity_controls import from_snapshot
+
+        liquidity_controls = from_snapshot(
+            context["liquidity_controls"], config["account_scope"]
+        )
+        liquidity_now = context.get("liquidity_as_of_ms", now)
+        if type(liquidity_now) is not int or not now <= liquidity_now < min(
+            context["valid_until_ms"], signal["expires_at_ms"]
+        ):
+            raise ValueError("LIQUIDITY_AS_OF_INVALID")
+        liquidity = evaluate_liquidity(
+            evidence=context.get("liquidity_evidence"),
+            controls=liquidity_controls.values,
+            symbol=signal["symbol"],
+            side="BUY" if plan.side == "LONG" else "SELL",
+            quantity=str(sized.quantity),
+            reference_price=str(snapshot["price"]),
+            now_ms=liquidity_now,
+        )
+        features["liquidity_gate"] = liquidity
+        if liquidity["blocked"]:
+            return result(liquidity["reason"])
+        execution_quote = evaluate_execution_quote(
+            evidence=snapshot.get("leverage_venue"),
+            controls=liquidity_controls.values,
+            symbol=signal["symbol"],
+            now_ms=liquidity_now,
+        )
+        features["liquidity_execution_quote"] = execution_quote
+        if execution_quote["blocked"]:
+            return result(execution_quote["reason"])
     return result("DIRECTIONAL_REPLAY_ONLY" if gate == "MARKET_GATES_PASSED" else gate)
 
 

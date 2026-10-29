@@ -4,6 +4,7 @@ REST observations are not atomic; this is not a multi-position margin engine.
 Reference and intended leverage/margin terms are explicit trusted dependencies.
 """
 
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal, localcontext
@@ -12,6 +13,7 @@ from uuid import UUID, uuid4
 from v2_core.account_inventory import AccountInventory
 from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import amount, lock_order_episode
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 
@@ -182,16 +184,19 @@ class GuardedOpeningSubmit:
         enabled=False,
         configure=None,
         reduce_only_enabled=False,
+        validate_reference=None,
     ):
         if (
             type(enabled) is not bool
             or type(reduce_only_enabled) is not bool
             or not all(callable(p) for p in (reference, plan, submit))
             or (configure is not None and not callable(configure))
+            or (validate_reference is not None and not callable(validate_reference))
         ):
             raise ValueError("explicit guarded submit ports required")
         self.connect, self.readiness = connect, readiness
         self.configure = configure
+        self.validate_reference = validate_reference
         (
             self.reference,
             self.plan,
@@ -218,14 +223,18 @@ class GuardedOpeningSubmit:
             raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
         if order["leg"] != "OPEN" or order.get("reduce_only") is not False:
             raise SubmissionNotSent("VENUE_READINESS_BLOCKED")
-        with self.connect() as guard:
+        with ExitStack() as locks:
             try:
-                if not guard.execute(
-                    "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                    ("testnet-protocol-account:" + scope.key,),
-                ).fetchone()[0]:
+                # Acquiring ownership is pre-submit work. A connection/lock
+                # failure here proves no order was sent; release after submit
+                # remains outside this conversion and must stay ambiguous.
+                acquired = locks.enter_context(
+                    session_advisory_lock(
+                        self.connect, "testnet-protocol-account:" + scope.key
+                    )
+                )
+                if not acquired:
                     raise ValueError("account busy")
-                guard.commit()
                 terms = self.plan(deepcopy(order))
                 settings = (
                     None
@@ -237,18 +246,26 @@ class GuardedOpeningSubmit:
                     or settings.get("status") != "VERIFIED"
                 ):
                     raise ValueError("venue symbol settings unverified")
+                reference = self.reference(order["symbol"])
+                strategy_reference = (
+                    None
+                    if self.validate_reference is None
+                    else self.validate_reference(deepcopy(order), deepcopy(reference))
+                )
                 proof = self.readiness.inspect(
                     symbol=order["symbol"],
                     quantity=order["quantity"],
                     leverage=terms["leverage"],
                     margin_type=terms["margin_type"],
-                    reference=self.reference(order["symbol"]),
+                    reference=reference,
                     **(
                         {"order_id": order["order_id"]}
                         if getattr(self.readiness, "portfolio", None)
                         else {}
                     ),
                 )
+                if strategy_reference is not None:
+                    proof["strategy_reference"] = strategy_reference
                 if settings is not None:
                     proof["symbol_settings"] = settings
                 key = StateKey(
@@ -277,6 +294,35 @@ class GuardedOpeningSubmit:
                     proof["deadline_ms"] = min(proof["deadline_ms"], row[10])
                     if proof["finished_at_ms"] >= row[10]:
                         proof["blockers"].append("ENTRY_DECISION_EXPIRED")
+                        proof["status"] = "BLOCKED"
+                    from v2_core.entry_controls import validate_submission
+
+                    try:
+                        structure_deadline = validate_submission(
+                            conn,
+                            scope,
+                            order["order_id"],
+                            now_ms=proof["finished_at_ms"],
+                        )
+                        if structure_deadline is not None:
+                            proof["deadline_ms"] = min(
+                                proof["deadline_ms"], structure_deadline
+                            )
+                        from v2_core.liquidity_submission import (
+                            validate_opening_liquidity,
+                        )
+
+                        liquidity_deadline = validate_opening_liquidity(
+                            conn, scope, order, now_ms=proof["finished_at_ms"]
+                        )
+                        if liquidity_deadline is not None:
+                            proof["deadline_ms"] = min(
+                                proof["deadline_ms"], liquidity_deadline
+                            )
+                    except ValueError as exc:
+                        from v2_core.scheduling import diagnostic_code
+
+                        proof["blockers"].append(diagnostic_code(exc))
                         proof["status"] = "BLOCKED"
                     exposure = conn.execute(
                         """SELECT i.intent_id FROM v2_trade_intents i JOIN v2_orders o ON i.intent_id=o.episode_id

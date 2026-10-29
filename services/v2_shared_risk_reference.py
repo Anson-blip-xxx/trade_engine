@@ -1,7 +1,13 @@
 """Fresh per-symbol risk prices verified against PG and incremental CH history."""
 
 from services.v2_risk_reference import SOURCE, ReferenceUnavailable, bound
-from services.v2_s3_candles import PRICE_VERSION, VERSION, build_frame
+from services.v2_s3_candles import (
+    BREAKOUT_VERSION,
+    PRICE_VERSION,
+    ROLLING_VERSION,
+    VERSION,
+    build_frame,
+)
 from services.v2_s3_source import frame_digest
 from v2_core.account_risk import RiskProvenance, RiskReference
 from v2_core.evidence import canonical, digest
@@ -55,7 +61,12 @@ class SharedRiskReference:
         }
         # A rolling deployment may read either version. Reconstruct the exact
         # version attested by PG; never accept an unverified alternate digest.
-        versions = {"s3-shared-v1": VERSION, "s3-shared-v2": PRICE_VERSION}
+        versions = {
+            "s3-shared-v1": VERSION,
+            "s3-shared-v2": PRICE_VERSION,
+            "s3-shared-v3": ROLLING_VERSION,
+            "s3-shared-v4": BREAKOUT_VERSION,
+        }
         version = versions.get(frame_id.split(":", 1)[0])
         if (
             version is None

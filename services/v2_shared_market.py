@@ -10,7 +10,12 @@ from decimal import Decimal
 
 from services.v2_market_publishers import S0Publisher
 from services.v2_s0_regime import build_s0_state
-from services.v2_s3_candles import PRICE_VERSION, build_frame
+from services.v2_s3_candles import (
+    BREAKOUT_VERSION,
+    PRICE_VERSION,
+    ROLLING_VERSION,
+    build_frame,
+)
 from services.v2_s3_runtime import S3Runtime
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds, symbol
@@ -120,9 +125,12 @@ class IncrementalArchive:
 
 
 class IncrementalCandles:
-    def __init__(self, transport, cache, archive):
+    def __init__(self, transport, cache, archive, *, feature_version=PRICE_VERSION):
+        if feature_version not in (PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION):
+            raise ValueError("MARKET_FEATURE_VERSION_UNSUPPORTED")
         self.transport, self.cache, self.archive = transport, cache, archive
         self.environment = transport.environment
+        self.feature_version = feature_version
 
     def frame(self, target, observed):
         prepared = self.prepare(target, observed)
@@ -175,9 +183,14 @@ class IncrementalCandles:
             "candles": {target: combined},
         }
         frame = build_frame(
-            batch, environment=self.environment, feature_version=PRICE_VERSION
+            batch, environment=self.environment, feature_version=self.feature_version
         )
-        frame["frame_id"] = f"s3-shared-v2:{target}:{observed}"
+        version = {
+            PRICE_VERSION: "v2",
+            ROLLING_VERSION: "v3",
+            BREAKOUT_VERSION: "v4",
+        }[self.feature_version]
+        frame["frame_id"] = f"s3-shared-{version}:{target}:{observed}"
         # Normalize decimals exactly as build_frame does before durable hashing.
         from services.v2_s3_candles import amount
 
@@ -272,7 +285,18 @@ def rank_movers(rows, universe, previous, policy):
 
 
 class SharedMarketHub:
-    def __init__(self, connect, *, transport, cache, archive, clock_ms, monotonic_ms):
+    def __init__(
+        self,
+        connect,
+        *,
+        transport,
+        cache,
+        archive,
+        clock_ms,
+        monotonic_ms,
+        quant_research=None,
+        feature_version=PRICE_VERSION,
+    ):
         self.connect, self.transport, self.cache, self.clock, self.monotonic = (
             connect,
             transport,
@@ -281,8 +305,11 @@ class SharedMarketHub:
             monotonic_ms,
         )
         self.environment = transport.environment
+        self.quant_research = quant_research
         self.catalog = Catalog(connect, self.environment, clock_ms)
-        self.candles = IncrementalCandles(transport, cache, archive)
+        self.candles = IncrementalCandles(
+            transport, cache, archive, feature_version=feature_version
+        )
         self.context = RedisMarketContext(cache, environment=self.environment)
         self.publisher = ProducerPublisher(
             connect,
@@ -367,6 +394,15 @@ class SharedMarketHub:
 
     def run_once(self):
         policy = MarketPolicy.read(self.connect, self.environment)
+        quant_policy = None
+        quant_policy_error = None
+        if self.quant_research is not None:
+            from services.v2_quant_research import QuantPolicy
+
+            try:
+                quant_policy = QuantPolicy.read(self.connect, self.environment)
+            except Exception as exc:  # noqa: BLE001 - stop research, not legacy market/protection data
+                quant_policy_error = diagnostic_code(exc)
         started = self.monotonic()
         now = self.clock()
         if now - self.catalog_at >= policy.catalog_seconds * 1000:
@@ -416,6 +452,7 @@ class SharedMarketHub:
                 self._head(target, 0, "RETRY", reason)
                 results.append({"symbol": target, "status": "RETRY", "reason": reason})
         self.candles.archive.put_many({p["target"]: p["new"] for p in prepared})
+        quant_spent = 0
         for item in prepared:
             target = item["target"]
             try:
@@ -430,7 +467,23 @@ class SharedMarketHub:
                     raise ValueError("MARKET_PROJECTION_UNCONFIRMED")
                 self._head(target, observed, "CURRENT", "OK", frame["frame_id"])
                 heads[target] = {"observed": observed, "attempted": self.clock()}
-                results.append({"symbol": target, "status": "CURRENT"})
+                measured = {"symbol": target, "status": "CURRENT"}
+                if quant_policy is not None and quant_policy.mode != "OFF":
+                    quant_started = self.monotonic()
+                    if quant_spent >= quant_policy.cycle_budget_ms:
+                        measured["quant"] = {"status": "BUDGET_EXHAUSTED"}
+                    else:
+                        try:
+                            measured["quant"] = self.quant_research.observe(
+                                target, item["combined"], observed, policy=quant_policy
+                            )
+                        except Exception as exc:  # noqa: BLE001 - a research fault cannot disable position management
+                            measured["quant"] = {
+                                "status": "RETRY",
+                                "reason": diagnostic_code(exc),
+                            }
+                    quant_spent += max(0, self.monotonic() - quant_started)
+                results.append(measured)
             except Exception as exc:  # noqa: BLE001 - safe diagnostic code only
                 reason = diagnostic_code(exc)
                 self._head(target, 0, "RETRY", reason)
@@ -456,6 +509,21 @@ class SharedMarketHub:
             "pending": len(universe) - fresh,
             "elapsed_ms": self.monotonic() - started,
             "results": results,
+            "quant": {
+                "mode": "INVALID"
+                if quant_policy_error
+                else quant_policy.mode
+                if quant_policy
+                else "OFF",
+                **({"policy_error": quant_policy_error} if quant_policy_error else {}),
+                "elapsed_ms": quant_spent,
+                "failures": int(quant_policy_error is not None)
+                + sum(r.get("quant", {}).get("status") == "RETRY" for r in results),
+                "budget_skips": sum(
+                    r.get("quant", {}).get("status") == "BUDGET_EXHAUSTED"
+                    for r in results
+                ),
+            },
             "policy": policy.values(),
         }
         with self.connect() as c:

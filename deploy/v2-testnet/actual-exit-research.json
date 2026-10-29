@@ -1,0 +1,24 @@
+{
+  "study_id": "actual-exit-20261010-v1",
+  "version": "actual-filled-exit-shadow-v1",
+  "start_ms": 1791595800000,
+  "historical_hours": 24,
+  "discovery_hours": 72,
+  "batch": 3,
+  "wait_hours": 24,
+  "retention_days": 90,
+  "policy": {
+    "initial_equity": "1000", "risk_fraction": "0.005", "pool_fraction": "0.70",
+    "max_margin_fraction": "0.05", "leverage": 2, "fee_rate": "0.0005",
+    "slippage_fraction": "0.0005", "quantity_step": "0.001", "price_tick": "0.00000001",
+    "minimum_quantity": "0.001", "maximum_quantity": "1000000000",
+    "minimum_notional": "5", "maximum_notional": "1000000000",
+    "max_hold_bars": 24, "max_chase_atr": "1"
+  },
+  "exit_policy": {
+    "volume_bars": 20, "min_relative_volume": "1.5", "min_rejection_wick": "0.45",
+    "max_directional_close": "0.45", "min_profit_r": "0.5", "tight_atr": "1",
+    "partial_fraction": "0.5"
+  },
+  "execution_authorized": false
+}

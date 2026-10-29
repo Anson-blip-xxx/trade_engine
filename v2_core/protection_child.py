@@ -5,6 +5,7 @@ query-only state and fill application commit atomically; no externally visible
 PREPARED child can be picked up by an execution worker and submitted again.
 """
 
+import time
 from contextlib import nullcontext
 from dataclasses import asdict, replace
 from uuid import UUID
@@ -16,11 +17,17 @@ from v2_core.orders import Orders
 from v2_core.protection import TestnetProtection
 from v2_core.runner import ExecutionRunner
 from v2_core.state import BusinessState, StateKey
+from v2_core.transport import ExchangeTransportError
 
 
 class ProtectionChildReconciler:
-    def __init__(self, connect, request, *, scope):
+    def __init__(self, connect, request, *, scope, clock_ms=None):
+        if clock_ms is not None and not callable(clock_ms):
+            raise TypeError("callable diagnostic clock required")
         self.connect, self.scope = connect, scope
+        self.clock_ms = (
+            clock_ms if clock_ms is not None else lambda: time.time_ns() // 1_000_000
+        )
         self.protection = TestnetProtection(
             BusinessState(connect), request, scope=scope
         )
@@ -34,6 +41,43 @@ class ProtectionChildReconciler:
         self.venue = BinanceFutures(
             read, account_id=scope.account_id, environment=scope.environment
         )
+
+    def _pending(self, status, parent, *, child=None):
+        """Stable, allowlisted diagnostics; never authority to infer a fill.
+
+        A changing exact age would defeat the supervisor's result/alert dedup.
+        These coarse display bands are not trading or retry thresholds. The
+        venue parent update time is not necessarily the start of child waiting.
+        """
+        now, updated = self.clock_ms(), parent.get("updateTime")
+        valid_time = type(now) is int and type(updated) is int and 0 < updated <= now
+        band = "UNKNOWN"
+        if valid_time:
+            age = now - updated
+            band = (
+                "LT_5_MINUTES"
+                if age < 300000
+                else "LT_1_HOUR"
+                if age < 3600000
+                else "LT_1_DAY"
+                if age < 86400000
+                else "GE_1_DAY"
+            )
+        return {
+            "status": status,
+            "parent_status": parent["algoStatus"]
+            if isinstance(parent.get("algoStatus"), str)
+            and parent["algoStatus"] in {"TRIGGERING", "TRIGGERED", "FINISHED"}
+            else "UNKNOWN",
+            "parent_update_at_ms": updated if valid_time else None,
+            "parent_update_age_band": band,
+            "age_basis": "VENUE_PARENT_UPDATE_NOT_WAIT_START",
+            "child_order_id": child,
+            "reason": "CHILD_ID_NOT_RETURNED"
+            if status == "WAITING_CHILD_ID"
+            else "CHILD_ORDER_NOT_VISIBLE",
+            "execution_authorized": False,
+        }
 
     def reconcile(self, spec):
         episode = str(UUID(spec.episode))
@@ -56,7 +100,7 @@ class ProtectionChildReconciler:
         parent = payload["observation"]
         child = parent.get("actualOrderId")
         if child in (None, "", 0, "0"):
-            return {"status": "WAITING_CHILD_ID"}
+            return self._pending("WAITING_CHILD_ID", parent)
         if type(child) is int:
             child = identifier(child)
         if (
@@ -67,11 +111,22 @@ class ProtectionChildReconciler:
             or str(int(child)) != child
         ):
             raise ValueError("INVALID_CHILD_ID")
-        raw = self.request(
-            "GET", "/fapi/v1/order", {"symbol": spec.symbol, "orderId": int(child)}
-        )
-        if raw.get("code") == -2013:
-            return {"status": "WAITING_CHILD_VISIBILITY"}
+        try:
+            raw = self.request(
+                "GET", "/fapi/v1/order", {"symbol": spec.symbol, "orderId": int(child)}
+            )
+        except ExchangeTransportError as exc:
+            if (
+                str(exc) != "EXCHANGE_RESPONSE_ERROR"
+                or type(exc.status) is not int
+                or exc.status != 400
+                or type(exc.code) is not int
+                or exc.code != -2013
+            ):
+                raise
+            return self._pending("WAITING_CHILD_VISIBILITY", parent, child=child)
+        if type(raw.get("code")) is int and raw["code"] == -2013:
+            return self._pending("WAITING_CHILD_VISIBILITY", parent, child=child)
         if (
             raw.get("type") != "MARKET"
             or raw.get("reduceOnly") is not True
@@ -99,8 +154,15 @@ class ProtectionChildReconciler:
         self.venue._scope(candidate)
         self.venue._order(candidate, raw)
         observation = self.venue.query(candidate)
-        if observation is None:
-            return {"status": "WAITING_CHILD_VISIBILITY"}
+        if observation is None or (
+            observation.status == "UNKNOWN"
+            and (observation.evidence or {}).get("reason")
+            == "BOUND_ORDER_LOOKUPS_ABSENT"
+        ):
+            # A once-visible child that disappeared on both identity lookups
+            # must not acquire a local owner or CLOSE reservation. Its original
+            # parent remains registered and can be queried again without POST.
+            return self._pending("WAITING_CHILD_VISIBILITY", parent, child=child)
         binding = {
             "origin": "BINANCE_ALGO_CHILD",
             "parent_algo_id": parent["algoId"],

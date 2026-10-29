@@ -1,0 +1,206 @@
+{
+  "release": "signal-evidence-repair-20261018-v1",
+  "base_release": "position-safety-recovery-20261018-v1",
+  "environment": "SANDBOX",
+  "timezone": "Asia/Shanghai",
+  "deployment": {
+    "status": "DEPLOYED_SANDBOX_ACTIVE_WITH_TRANSIENT_READ_WARNINGS",
+    "service": "trade-v2-execution-controller.service",
+    "activated": true,
+    "database_migration": false,
+    "risk_policy_relaxed": false,
+    "account_changed": false,
+    "live_enabled": false,
+    "required_gate": "Verified candidate hashes; same-account recovery and normal resume coverage checks; no forced close",
+    "reason": "User authorized direct publication. The prior position had already closed naturally before the controlled restart. Existing same-binding resume path completed after bounded retries.",
+    "user_authorization": "Explicit request: directly publish the verified candidate",
+    "started_at": "2026-10-18T17:12:16+08:00",
+    "active_at": "2026-10-18T17:14:59.594062+08:00",
+    "route_epoch": 46
+  },
+  "changes": [
+    "Bound capped advisory demand queries and back off after failures/overruns",
+    "Allocate half equal-share plus half demand-weighted processing time to prevent low-volume source starvation",
+    "Delegate expiry/reconciliation to existing background maintenance; retain order-authority safety gates",
+    "Record persistent maintenance errors as a distinct health finding",
+    "Reject zero expected-move evidence rather than bypassing reward/risk checks"
+  ],
+  "qa": {
+    "workspace_targeted": {
+      "passed": 280,
+      "seconds": 84.52,
+      "diagnostics": "/tmp/v2-data-qa.RKfCsp"
+    },
+    "candidate_first_run": {
+      "passed": 640,
+      "failed": 2,
+      "seconds": 295.63,
+      "diagnostics": "/tmp/v2-data-qa.xqlfwr",
+      "failure_cause": "Missing migration test asset and stale packaged systemd template; both corrected to match existing deployed configuration, without changing running unit or database"
+    },
+    "candidate_final_run": {
+      "status": "PASSED",
+      "passed": 642,
+      "failed": 0,
+      "duration_seconds": 299.23,
+      "diagnostics": "/tmp/v2-data-qa.Qjodkv",
+      "isolated_database_retained": false,
+      "internet_socket_audit_fence": true
+    },
+    "offline_comparison_tests": {
+      "passed": 26,
+      "seconds": 0.4
+    },
+    "ruff": "PASS",
+    "entire_repository_test_claim": false,
+    "isolated_database": true
+  },
+  "baseline": {
+    "observed_at": "2026-10-18T16:58:58.397556+08:00",
+    "window_minutes": 10,
+    "s3_receipts": {
+      "received": 771,
+      "completed": 758,
+      "p50_seconds": 7.739,
+      "p95_seconds": 23.972
+    },
+    "tv_receipts": {
+      "received": 0
+    },
+    "cycles": {
+      "count": 48,
+      "completed": 44,
+      "entry_blocked": 4,
+      "p50_seconds": 9.514,
+      "p95_seconds": 17.786
+    },
+    "blocker": "4 transient INCOMPLETE_ACCOUNT_READ cycles; safety was not bypassed"
+  },
+  "historical_tv_correction": {
+    "as_of_ms": 1792311900000,
+    "window_days": 14,
+    "total_signals": 2113,
+    "applicable_direction_expired": 842,
+    "evaluated_rejected": 1271,
+    "original_all_consumer_counts_include_opposite_direction": true,
+    "immutable_receipts_changed": false
+  },
+  "limitations": [
+    "SQL statement timeout is not a hard wall-clock bound on connection/setup; one overrun can consume a cycle, then advisory probes back off.",
+    "No new alpha model, calibrated target forecast or adaptive exit rule is deployed in this repair.",
+    "No claim of improved realized returns or live TV latency without post-release natural samples.",
+    "Known open position must not be forcibly closed to accelerate deployment."
+  ],
+  "runtime_sha256": {
+    "services/v2_trading_pipeline.py": "740f7b7b7eb72c717dda85d9d6ae5fced25391241c702a3f2ba5e7bef898bc2d",
+    "services/v2_trading_health.py": "c0eebc2d4674806376d301e542ab0412a2fad8378bf1f6dc5002651f3d3e7249",
+    "v2_core/scheduling.py": "b6fecca7c6c0b39cb0c61545e2f86afd59ce0c784dba69f0466305841ae53ae1",
+    "v2_core/directional.py": "3fdfde805b445c6642beb06972fd739a3fab7d2d924fa1da7eba939d273d29ee",
+    "v2_core/telegram.py": "8a7b5d31be60e9092b5576c334e24f7473e08fea0835b7d3700497e2bd1a7245"
+  },
+  "release_gate_observation": {
+    "observed_at": "2026-10-18T17:08:35+08:00",
+    "active_positions": 1,
+    "symbol": "APRUSDT",
+    "side": "SHORT",
+    "remaining_quantity": "4501",
+    "unresolved_ordinary_orders": 0,
+    "flat_unsettled_episodes": 0,
+    "protection_stop": "NEW",
+    "coverage": "CLEAR",
+    "exit": "WAIT/NO_EXIT_CONDITION",
+    "settlement": "CLEAR",
+    "health_active": [],
+    "controller_phase": "ACTIVE",
+    "flat_release_gate_passed": false
+  },
+  "acceptance": {
+    "independent_runtime_diff_review": "PASS: only five intended runtime source changes; safety-critical unrelated modules unchanged",
+    "post_release_natural_signal_verification": "S3 TREND_DOWN -> S8 intent -> FILLED opening -> confirmed native STOP NEW",
+    "realized_profit_improvement": "NOT_ESTABLISHED",
+    "trading_database_changed": true,
+    "service_restart_performed": true,
+    "production_position_closed_by_repair": false,
+    "rollback_base": "/opt/trade-engine-v2/releases/position-safety-recovery-20261018-v1",
+    "trading_database_change_scope": "Normal audited same-account execution-route request and controller/runtime operational records only; no historical trade edits, migrations or policy changes",
+    "account_binding_unchanged": true,
+    "runtime_policy_version": 6,
+    "runtime_policy_digest": "46533699a0c6d44467997adafdeccd53600e411296f8cad402435dc2f92927a7",
+    "runtime_policy_unchanged": true,
+    "natural_entry": {
+      "symbol": "APRUSDT",
+      "source": "s3",
+      "producer": "s8",
+      "signal": "TREND_DOWN",
+      "received_at": "2026-10-18T17:15:07.124+08:00",
+      "intent_at": "2026-10-18T17:15:14.113+08:00",
+      "filled_at": "2026-10-18T17:15:16.373+08:00",
+      "quantity": "7198",
+      "stop_status": "NEW",
+      "stop_trigger_price": "0.02586"
+    },
+    "consecutive_clear_cycles": [
+      "2026-10-18T17:16:16.247+08:00",
+      "2026-10-18T17:16:27.990+08:00",
+      "2026-10-18T17:16:38.451+08:00",
+      "2026-10-18T17:16:49.531+08:00"
+    ],
+    "tv_post_release_natural_samples": 0,
+    "other_services_restarted": false,
+    "main_pid": 62756,
+    "automatic_restarts": 0,
+    "process_stop": {
+      "worker_forced": false,
+      "worker_stopped": true,
+      "systemd_remaining_process_cleanup": "Systemd logged SIGKILL of one remaining python process after cooperative worker stop; subsequent coverage and unresolved-order checks passed."
+    },
+    "latest_independent_check": {
+      "observed_at": "2026-10-18T17:17:24+08:00",
+      "latest_clear_cycle_at": "2026-10-18T17:17:12+08:00",
+      "actual_route_epoch": 46,
+      "actual_phase": "ACTIVE",
+      "route_blockers": [],
+      "unresolved_ordinary_orders": 0,
+      "stop_status": "NEW",
+      "over_threshold_signal_backlog_all_four_consumers": 0
+    },
+    "process_supervision": {
+      "enabled_at_boot": true,
+      "restart": "on-failure",
+      "restart_seconds": 10
+    }
+  },
+  "pre_deployment_position_observation": {
+    "observed_at": "2026-10-18T17:11:27+08:00",
+    "symbol": "APRUSDT",
+    "prior_episode_status": "SETTLED",
+    "remaining_quantity": "0",
+    "final_exit_at": "2026-10-18T17:09:12.731+08:00",
+    "exit_reason": "PEAK_DRAWDOWN",
+    "unresolved_ordinary_orders": 0,
+    "coverage": "ACCOUNT_COVERAGE_CLEAR"
+  },
+  "resume_observations": [
+    "Initial recovery attempt encountered coverage BUSY and stayed manage-only.",
+    "After stopping the management worker, the second coverage read at 17:13:59 lacked ordinary_orders and conditional_orders; controller safely resumed management only.",
+    "A subsequent normal retry completed both coverage checks and activated epoch 46."
+  ],
+  "post_release_warnings": [
+    "Intermittent ExchangeTransportError / QUOTA_DENIED / INCOMPLETE_ACCOUNT_READ caused temporary ENTRY_BLOCKED cycles around 17:15:44, 17:15:53 and 17:16:59; intervening four consecutive cycles were CLEAR. Do not equate ACTIVE or a successful order with uninterrupted execution health.",
+    "No fresh TradingView natural sample observed during this acceptance window.",
+    "The 642-test evidence applies to the immutable candidate, not the full dirty workspace."
+  ],
+  "quota_followup": {
+    "observed_at": "2026-10-18T17:17:59+08:00",
+    "host": "demo-fapi.binance.com",
+    "minute_used_weight": 1800,
+    "minute_market_weight": 308,
+    "shared_default_limit": 1800,
+    "market_default_limit": 900,
+    "blocked_until": "-infinity",
+    "finding": "Local shared minute budget exhausted, not an exchange HTTP 429 penalty at this observation.",
+    "budget_implementation_changed_by_release": false,
+    "limit_changed": false,
+    "causal_effect_of_new_scheduling_on_request_rate": "NOT_ESTABLISHED"
+  }
+}

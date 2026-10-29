@@ -35,6 +35,7 @@ class FailingSubmit:
         -1117,
         -1121,
         -1130,
+        -4131,
     ],
 )
 def test_synchronous_validation_rejection_is_not_an_unknown_order(code):
@@ -52,6 +53,7 @@ def test_synchronous_validation_rejection_is_not_an_unknown_order(code):
     "status,code",
     [
         (503, -1111),
+        (503, -4131),
         (400, -1007),
         (400, -1006),
         (400, -2010),
@@ -117,3 +119,51 @@ def test_confirmed_rejection_releases_reservation(database):
     assert risk.usage(SCOPE)["positions"] == 0
     assert runner(database, submit=venue.submit).dispatch(oid) == "REJECTED"
     assert transport.writes == 1
+
+
+def test_legacy_market_reject_recovers_from_durable_evidence_without_resubmit(database):
+    from test_v2_account_risk import SCOPE
+
+    from v2_core.binance import BinanceFutures
+
+    configured(database)
+    _, _, oid, _ = prepare(database)
+
+    def old_submit(_):
+        raise ExchangeTransportError("EXCHANGE_RESPONSE_ERROR", status=400, code=-4131)
+
+    execution = runner(database, submit=old_submit)
+    assert execution.dispatch(oid) == "UNKNOWN"
+    calls = []
+
+    def query(method, path, params):
+        calls.append((method, path))
+        assert method == "GET"
+        return {"code": -2013}
+
+    venue = BinanceFutures(
+        query, account_id=SCOPE.account_id, environment=SCOPE.environment
+    )
+    execution.query = venue.query
+    assert execution.recover(oid) == "REJECTED"
+    assert execution.recover(oid) == "REJECTED"
+    assert calls == [("GET", "/fapi/v1/order")]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {},
+        {
+            "reason": "submission response unavailable",
+            "transport": {
+                "category": "EXCHANGE_RESPONSE_ERROR",
+                "http_status": 503,
+                "exchange_code": -4131,
+            },
+        },
+    ],
+)
+def test_missing_order_without_exact_submit_rejection_stays_unknown(failure):
+    current = {**order(), "status": "UNKNOWN", "submission_failure": failure}
+    assert adapter(lambda *_: {"code": -2013}).query(current) is None

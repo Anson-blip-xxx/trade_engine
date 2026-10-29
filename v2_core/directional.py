@@ -23,15 +23,19 @@ _SHORT = frozenset(
 def directional_events(strategy):
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")
-    return tuple(sorted(_LONG if strategy == "S6" else _SHORT))
+    from v2_core.quant_registry import PLUGINS
+
+    quant = {
+        "QUANT_" + name.upper() + ("_UP" if strategy == "S6" else "_DOWN")
+        for name in PLUGINS
+    }
+    return tuple(sorted((_LONG if strategy == "S6" else _SHORT) | quant))
 
 
 def supports_event(strategy, event_type):
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")
-    return isinstance(event_type, str) and event_type in (
-        _LONG if strategy == "S6" else _SHORT
-    )
+    return isinstance(event_type, str) and event_type in directional_events(strategy)
 
 
 def number(value, *, minimum=None, maximum=None):
@@ -41,6 +45,16 @@ def number(value, *, minimum=None, maximum=None):
     ):
         raise ValueError("strategy number outside domain")
     return result
+
+
+def below_minimum_strength(strategy, kind, strength, *, policy=None):
+    """The existing signal-only gate, shared by prefilter and full evaluator."""
+    return (
+        strategy == "S8"
+        and kind in {"TREND_DOWN", "VIOLENT_BEARISH", "PULSE_DOWN"}
+        and float(number(strength, minimum=0, maximum=100))
+        < DirectionalRules(policy).f("entry.short_min_strength")
+    )
 
 
 @dataclass(frozen=True)
@@ -60,7 +74,8 @@ class DirectionalPlan:
 
 
 def evaluate_market(
-    strategy, event, market, *, price, regime, short_ratio, age_ms, policy=None
+    strategy, event, market, *, price, regime, short_ratio, age_ms, policy=None,
+    score_bonus=0,
 ):
     """Evaluate validated decimal-string inputs using frozen legacy pure rules.
 
@@ -69,6 +84,8 @@ def evaluate_market(
     wall time; freshness must be enforced against the original source deadline.
     """
     rules = DirectionalRules(policy)
+    if type(score_bonus) is not int or not 0 <= score_bonus <= 5:
+        raise ValueError("invalid bounded confirmation bonus")
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")
     if not isinstance(regime, str) or not regime or regime != regime.strip():
@@ -132,11 +149,7 @@ def evaluate_market(
 
     if strategy == "S6" and not long_signal_allows_open(kind, {"regime": regime}):
         return reject("regime_conflict")
-    if (
-        strategy == "S8"
-        and kind in {"TREND_DOWN", "VIOLENT_BEARISH", "PULSE_DOWN"}
-        and strength < rules.f("entry.short_min_strength")
-    ):
+    if below_minimum_strength(strategy, kind, event["strength"], policy=policy):
         return reject("strength_below_minimum")
     if (
         kind == "PUMP_DOWN"
@@ -176,9 +189,14 @@ def evaluate_market(
     if atr_pct > rules.f("entry.max_takeover_atr" if takeover else "entry.max_atr"):
         return reject("atr_exceeded")
     extension = (px - ema if strategy == "S6" else ema - px) / atr
-    score = rules.score(strength, atr_pct, extension, flow, age_ms / 1000, side, ratio)
+    baseline_score = rules.score(
+        strength, atr_pct, extension, flow, age_ms / 1000, side, ratio
+    )
+    score = min(100, baseline_score + score_bonus)
     if score < rules.values["entry.min_score"]:
-        return reject("score_below_minimum")
+        return DirectionalPlan(
+            "score_below_minimum", strategy, kind, side, score=score
+        )
     base_stop = rules.f(
         "stop.takeover"
         if takeover
@@ -207,7 +225,7 @@ def evaluate_market(
             else rules.values["leverage.takeover"],
         )
         if takeover
-        else rules.leverage(kind, score, atr_pct),
+        else rules.leverage(kind, baseline_score, atr_pct),
         "ISOLATED"
         if rules.values["entry.force_isolated"]
         or kind.startswith(("PULSE_", "PUMP_"))
@@ -243,6 +261,11 @@ def size_candidate(
     drawdown_factor,
     analysis_factor,
     policy=None,
+    explanation=None,
+    allocation_score=None,
+    remaining_portfolio_risk=None,
+    sizing_mark_price=None,
+    price_drift_fraction=None,
 ):
     """Decimal sizing: never increase size to satisfy venue minimums.
 
@@ -251,6 +274,18 @@ def size_candidate(
     loss excludes fees/slippage/gaps and is NOT a guaranteed maximum loss.
     """
     settings = resolve(policy)
+    if explanation is not None:
+        if not isinstance(explanation, dict) or explanation:
+            raise ValueError("empty sizing explanation required")
+        explanation.update(version="directional-sizing-v1", execution_authorized=False)
+    # Existing workspace callers may supply a residual without a mark. Keep
+    # that portfolio-only path; the new envelope requires all three facts.
+    budget_enabled = sizing_mark_price is not None or price_drift_fraction is not None
+    if budget_enabled and any(
+        value is None
+        for value in (sizing_mark_price, price_drift_fraction, remaining_portfolio_risk)
+    ):
+        raise ValueError("SIZING_BUDGET_EVIDENCE_INCOMPLETE")
     if not isinstance(plan, DirectionalPlan) or plan.reason != "CANDIDATE":
         raise ValueError("market candidate required")
     if (
@@ -258,6 +293,10 @@ def size_candidate(
         or not settings["entry.min_score"] <= plan.score <= 100
     ):
         raise ValueError("invalid candidate score")
+    if allocation_score is None:
+        allocation_score = plan.score
+    if type(allocation_score) is not int or not 0 <= allocation_score <= plan.score:
+        raise ValueError("invalid baseline allocation score")
     if type(plan.leverage) is not int or plan.leverage not in {1, 2, 3, 4, 5, 8}:
         raise ValueError("invalid candidate leverage")
     if plan.side not in {"LONG", "SHORT"}:
@@ -297,13 +336,44 @@ def size_candidate(
             rounding=ROUND_CEILING if plan.side == "LONG" else ROUND_FLOOR
         ) * tick
         if stop_px <= 0 or (stop_px >= px if plan.side == "LONG" else stop_px <= px):
+            if explanation is not None:
+                explanation["reason"] = "INVALID_STOP_TICK"
             return SizeResult("INVALID_STOP_TICK")
+        budget_px, budget_low = px, px
+        risk_unit = px * (stop + Decimal(settings["sizing.cost_buffer_fraction"]))
+        if budget_enabled:
+            from v2_core.sizing_budget import price_envelope
+
+            envelope = price_envelope(
+                price=price,
+                mark_price=sizing_mark_price,
+                drift_fraction=price_drift_fraction,
+                side=plan.side,
+                stop_price=format(stop_px, "f"),
+                stop_fraction=plan.stop_fraction,
+                cost_fraction=settings["sizing.cost_buffer_fraction"],
+            )
+            if explanation is not None:
+                explanation.update(
+                    version="remaining-risk-sizing-v1",
+                    **envelope,
+                    remaining_portfolio_risk=str(
+                        number(remaining_portfolio_risk, minimum=0)
+                    ),
+                )
+            if not envelope["stop_valid_through_envelope"]:
+                if explanation is not None:
+                    explanation["reason"] = "PRICE_ENVELOPE_CROSSES_STOP"
+                return SizeResult("PRICE_ENVELOPE_CROSSES_STOP")
+            budget_px = Decimal(envelope["price_high"])
+            budget_low = Decimal(envelope["price_low"])
+            risk_unit = Decimal(envelope["unit_stop_risk"])
         remaining = max(
             Decimal(0), bal * Decimal(settings["sizing.pool_fraction"]) - used
         )
         fraction = max(
             Decimal(settings["sizing.min_allocation"]),
-            Decimal(plan.score) / 100 * Decimal(settings["sizing.max_allocation"]),
+            Decimal(allocation_score) / 100 * Decimal(settings["sizing.max_allocation"]),
         )
         # Keep division rational until venue-step flooring, including repeating
         # decimal boundaries such as margin / 3 followed by leverage * 3.
@@ -313,26 +383,90 @@ def size_candidate(
                 Fraction(settings["sizing.volatility_floor"]),
                 Fraction(settings["sizing.atr_threshold"]) / Fraction(atr),
             )
-        margin = min(
-            margin,
-            Fraction(available),
-            Fraction(bal) * Fraction(settings["sizing.max_margin_fraction"]),
-            Fraction(bal)
+        limits = {
+            "SCORE_ALLOCATION_AFTER_VOLATILITY": margin,
+            "AVAILABLE_MARGIN": Fraction(available),
+            "SINGLE_MARGIN_CAP": Fraction(bal)
+            * Fraction(settings["sizing.max_margin_fraction"]),
+            "STOP_RISK_CAP": Fraction(bal)
             * Fraction(settings["sizing.risk_fraction"])
             / (
                 plan.leverage
                 * (Fraction(stop) + Fraction(settings["sizing.cost_buffer_fraction"]))
             ),
-        )
+        }
+        margin = min(limits.values())
+        if explanation is not None:
+            # Rational strings are exact; presentation may round, execution never does.
+            explanation.update(
+                capital_base=str(bal),
+                pool_limit=str(bal * Decimal(settings["sizing.pool_fraction"])),
+                pool_remaining=str(remaining),
+                used_pool_margin=str(used),
+                margin_limits={k: str(v) for k, v in limits.items()},
+                binding_margin_limits=[k for k, v in limits.items() if v == margin],
+                drawdown_factor=str(dd),
+                analysis_factor=str(analysis),
+                stop_fraction=str(stop),
+                leverage=plan.leverage,
+                cost_buffer_fraction=settings["sizing.cost_buffer_fraction"],
+            )
         margin *= Fraction(dd) * Fraction(analysis)
-        raw = min(
-            margin * plan.leverage / Fraction(px),
-            Fraction(qmax),
-            Fraction(nmax) / Fraction(px),
-        )
+        quantity_limits = {
+            "RISK_SIZED_QUANTITY": margin * plan.leverage / Fraction(budget_px),
+            "VENUE_MAX_QUANTITY": Fraction(qmax),
+            "VENUE_MAX_NOTIONAL": Fraction(nmax) / Fraction(budget_px),
+        }
+        if remaining_portfolio_risk is not None:
+            # The portfolio limit already includes capital drawdown. Applying
+            # it after the per-trade factors avoids reducing it a second time.
+            portfolio_remaining = number(remaining_portfolio_risk, minimum=0)
+            quantity_limits["REMAINING_PORTFOLIO_STOP_RISK"] = Fraction(
+                portfolio_remaining
+            ) / Fraction(risk_unit)
+        if budget_enabled:
+            quantity_limits["SINGLE_STOP_RISK"] = (
+                Fraction(bal)
+                * Fraction(settings["sizing.risk_fraction"])
+                * Fraction(dd)
+                * Fraction(analysis)
+                / Fraction(risk_unit)
+            )
+            buffer = (
+                Fraction(settings["capital.margin_buffer"])
+                if settings["capital.enabled"]
+                else Fraction(1)
+            )
+            quantity_limits["BUFFERED_POOL_MARGIN"] = (
+                Fraction(remaining) * plan.leverage / (Fraction(budget_px) * buffer)
+            )
+            quantity_limits["BUFFERED_AVAILABLE_MARGIN"] = (
+                Fraction(available) * plan.leverage / (Fraction(budget_px) * buffer)
+            )
+        raw = min(quantity_limits.values())
         qty = (raw // Fraction(step)) * step
         notional = qty * px
-        if qty <= 0 or qty < qmin or notional < nmin:
+        if explanation is not None:
+            explanation.update(
+                binding_quantity_limits=[
+                    k for k, v in quantity_limits.items() if v == raw
+                ],
+                quantity_limits={k: str(v) for k, v in quantity_limits.items()},
+                rounded_quantity=str(qty),
+                quantity_step=str(step),
+                planned_margin=str(Fraction(notional) / plan.leverage),
+                reason="INSUFFICIENT_BUDGET"
+                if qty <= 0 or qty < qmin or qty * budget_low < nmin
+                else "SIZED",
+                scope="PRE_ADMISSION_ONLY; aggregate reservations and venue checks still required",
+            )
+            if budget_enabled:
+                explanation.update(
+                    stop_price=str(stop_px),
+                    budgeted_stop_risk=str(qty * risk_unit),
+                    budgeted_notional=str(qty * budget_px),
+                )
+        if qty <= 0 or qty < qmin or qty * budget_low < nmin:
             return SizeResult("INSUFFICIENT_BUDGET")
         loss = qty * abs(px - stop_px)
 
@@ -392,8 +526,10 @@ def execution_market_gate(
 ):
     """Remaining pure executor market gates; not account/protection approval.
 
-    Zero expected move retains the legacy 'no estimate' behavior; missing or
-    malformed data cannot silently turn into zero. Funding is signed fraction.
+    A zero estimate is unavailable evidence, never permission to skip R:R.
+    Missing/malformed inputs remain errors. Positive inputs retain the existing
+    comparison; accepting this gate does not validate their forecasting model.
+    Funding is a signed fraction.
     """
     settings = resolve(policy)
     if not isinstance(plan, DirectionalPlan) or plan.reason != "CANDIDATE":
@@ -403,14 +539,18 @@ def execution_market_gate(
     if plan.side not in {"LONG", "SHORT"}:
         raise ValueError("invalid direction")
     px, stop = amount(price, positive=True), amount(sized.stop_price, positive=True)
+    if expected_move_pct is None:
+        raise ValueError("EXPECTED_MOVE_EVIDENCE_UNAVAILABLE")
     move = number(expected_move_pct, minimum=0)
     funding = number(funding_rate, minimum=-1, maximum=1)
     if stop >= px if plan.side == "LONG" else stop <= px:
         raise ValueError("stop is not on loss side")
+    if move == 0:
+        return "EXPECTED_MOVE_EVIDENCE_UNAVAILABLE"
     with localcontext() as ctx:
         ctx.prec = 100
         # Cross multiplication avoids division/rounding at the R:R=1 boundary.
-        if move > 0 and move * px < abs(px - stop) * 100 * Decimal(
+        if move * px < abs(px - stop) * 100 * Decimal(
             settings["entry.min_reward_risk"]
         ):
             return "REWARD_RISK_TOO_LOW"

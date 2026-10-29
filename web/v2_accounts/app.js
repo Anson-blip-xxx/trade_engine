@@ -1,28 +1,37 @@
 "use strict";
 const $ = id => document.getElementById(id);
+const workspace = typeof window !== "undefined" ? window.Atlas : null;
 let accounts = [], generation = 0, routeEpoch = null, routeRead = 0, routeBusy = false;
+let listRead = 0, viewing = {environment: "SANDBOX", account: ""};
+const showTab = workspace?.tabs(["overview", "execution", "credentials"], "overview") || (() => {});
 const notice = text => { $("notice").textContent = text; };
+const amount = value => value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : Number(value).toLocaleString("zh-CN", {maximumFractionDigits:2});
 async function api(path, body) {
   const response = await fetch(path, {method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", headers: body ? {"Content-Type":"application/json", "X-V2-Action":"account-management"} : {}, ...(body ? {body:JSON.stringify(body)} : {})});
   if (!response.ok) throw new Error("操作未完成，请刷新核对状态；请勿在反馈中附带密钥。");
   return response.json();
 }
 async function loadAccounts(selected) {
-  const result = await api("/api/accounts"); accounts = result.accounts;
-  if (!selected) {
+  const serial = ++listRead;
+  const result = await api("/api/accounts");
+  if(serial !== listRead) return;
+  accounts = result.accounts;
+  if (!selected && ($("environment").value || "SANDBOX") === "SANDBOX") {
     try {
       const route=await api('/api/accounts/execution/SANDBOX');
       if(['ACTIVE','DRAINING'].includes(route.phase)) selected=route.target_registry;
     } catch { notice('无法确认当前执行账户；下拉框仅代表统计视图，请刷新执行状态。'); }
   }
+  if(serial !== listRead) return;
   const selection = accounts.find(a=>a.registry_id === selected);
   if (selection) $("environment").value = selection.environment;
   await filterAccounts(selected);
+  if(selected && !selection) notice("链接中的账户不可用，已显示当前可查看账户；请核对顶部选择。");
 }
 async function filterAccounts(selected) {
   const environment = $("environment").value || "SANDBOX";
   for (const id of ["account"]) {
-    $(id).replaceChildren(...accounts.filter(a=>a.environment === environment).map(a => new Option(`${a.alias} · ${a.environment}`, a.registry_id)));
+    $(id).replaceChildren(...accounts.filter(a=>a.environment === environment).map(a => new Option(a.alias, a.registry_id)));
   }
   if (selected && accounts.some(a=>a.registry_id === selected && a.environment === environment)) $("account").value = selected;
   await showAccount();
@@ -42,6 +51,11 @@ async function showAccount() {
   const version = ++generation, id = $("account").value;
   $("summary").replaceChildren(); $("trades").replaceChildren(); $("state").textContent = "";
   const account = accounts.find(a=>a.registry_id === id);
+  if(typeof CustomEvent === "function") window.dispatchEvent(new CustomEvent("atlas-account-view", {detail:{id,alias:account?.alias || "",environment:account?.environment || ""}}));
+  viewing = {account: id, environment: $("environment").value || "SANDBOX"};
+  workspace?.setContext(viewing); workspace?.describe(account?.alias, viewing.environment);
+  $("account-context").textContent = account ? `${account.alias} · 当前查看账户` : "该环境暂无已登记账户";
+  $("alias").value = account?.alias || "";
   routeEpoch=null; $("route-request").disabled=true; $("route-state").textContent="正在读取执行状态…";
   $("route-target").textContent=account ? `目标账户：${account.alias} · ${account.environment}` : "请先选择目标账户";
   $("route-request").textContent=account?.environment === "LIVE" ? "生产执行暂未开放" : "切换执行账户";
@@ -52,21 +66,39 @@ async function showAccount() {
   $("verification").textContent = account?.environment === "LIVE" ? "生产账户仅加密保存，验证与交易均未启用。" : "正在读取验证记录…";
   if (!account) { $("state").textContent = "尚无已登记账户"; $("verification").textContent="请选择账户"; showRoute($("environment").value || "SANDBOX", version); return; }
   $("alias").value = account.alias;
-  $("state").textContent = `${account.status} · ${account.encrypted_credential_present ? "凭据已加密保存" : "尚无加密凭据"} · 当前为统计视图，实际执行状态见上方`;
+  $("state").textContent = `${({ACTIVE:"已登记",ENROLLED_UNVERIFIED:"已登记，验证结果另行检查",DISABLED:"已停用",RETIRED:"已归档"})[account.status] || account.status} · ${account.encrypted_credential_present ? "凭据已加密保存" : "尚无加密凭据"} · 实际执行状态见“验证与切换”`;
   // Execution controls must not depend on statistics or verification availability.
   void showRoute(account.environment, version);
   try {
     const result = await api(`/api/accounts/${id}/overview`);
     if (version !== generation || $("account").value !== result.registry_id) return;
     for (const [key, label] of [["trade_intents","交易意图"],["settled_trades","已结算交易"],["settled_net_pnl_usdt","已结算净收益 USDT"]]) {
-      const p = document.createElement("p"), strong = document.createElement("strong"); p.textContent = label; strong.textContent = result.summary[key]; p.append(strong); $("summary").append(p);
+      const p = document.createElement("p"), strong = document.createElement("strong"); p.className="metric"; p.textContent = label; strong.textContent = amount(result.summary[key]); if(key === "settled_net_pnl_usdt") { if(!Number(result.summary.settled_trades)) strong.textContent="—"; else strong.className=Number(result.summary[key])<0?"negative":Number(result.summary[key])>0?"positive":""; } p.append(strong); $("summary").append(p);
     }
-    for (const trade of result.trades) { const p=document.createElement("p"); p.textContent=`${trade.symbol} · ${trade.status} · ${trade.created_at} · 净收益 ${trade.net_pnl_usdt ?? "未结算"}`; $("trades").append(p); }
+    for (const trade of result.trades) { const p=document.createElement("p"); p.textContent=`${trade.symbol} · ${trade.status} · ${trade.created_at} · 净收益 ${trade.net_pnl_usdt === null ? "未结算" : amount(trade.net_pnl_usdt)} USDT`; $("trades").append(p); }
     if(account.environment === "SANDBOX") await showVerification(id, version);
   } catch (e) { if(version === generation) notice(e.message); }
 }
-$("account").addEventListener("change", showAccount);
-$("environment").addEventListener("change", ()=>filterAccounts());
+function hasDraft() {
+  const current=accounts.find(a=>a.registry_id===viewing.account);
+  return (current && $("alias").value!==current.alias) || ["add","rotate"].some(id => {
+    const form=$(id).elements;
+    return form && (form.api_key?.value || form.api_secret?.value || (id==="add" && form.alias?.value));
+  });
+}
+function discardAllowed() { return !hasDraft() || window.confirm("有尚未保存的账户资料或凭据。丢弃后继续？密钥不会在页面间保存。"); }
+function clearSecrets() { for(const id of ["add","rotate"]) { const form=$(id).elements; if(form) { form.api_key.value=""; form.api_secret.value=""; } } }
+function changeView(kind) {
+  if(!discardAllowed()) { $("environment").value=viewing.environment; $("account").value=viewing.account; return; }
+  ++listRead; clearSecrets(); $("add").reset?.(); notice("");
+  if(kind==="environment") filterAccounts(); else showAccount();
+}
+$("account").addEventListener("change", ()=>changeView("account"));
+$("environment").addEventListener("change", ()=>changeView("environment"));
+$("refresh").addEventListener("click", async()=>{ if(!discardAllowed())return; clearSecrets(); $("add").reset?.(); $("refresh").disabled=true; try{await loadAccounts($("account").value);notice("");}catch(e){notice(e.message);}finally{$("refresh").disabled=false;} });
+$("add-account").addEventListener("click",()=>{showTab("credentials",true);$("add-panel").open=true;$("rotate-panel").open=false;$("add").elements.alias.focus();});
+$("edit-credentials").addEventListener("click",()=>{showTab("credentials",true);$("rotate-panel").open=true;$("add-panel").open=false;});
+$("open-execution").addEventListener("click",()=>showTab("execution",true));
 $("verify").addEventListener("click", async ()=>{
   const account=accounts.find(a=>a.registry_id === $("account").value), version=generation;
   if(!account || account.environment!=="SANDBOX") return;
@@ -78,16 +110,17 @@ $("verify").addEventListener("click", async ()=>{
   finally { if(version===generation) $("verify").disabled=false; }
 });
 $("add").addEventListener("submit", async event => {
-  event.preventDefault(); const form=event.currentTarget, button=form.querySelector("button"); button.disabled=true;
+  event.preventDefault(); const form=event.currentTarget, button=form.querySelector("button"), version=generation; button.disabled=true;
   const body=Object.fromEntries(new FormData(form)); body.request_id=crypto.randomUUID();
   form.elements.api_key.value=""; form.elements.api_secret.value="";
-  try { const result=await api("/api/accounts",body); notice("加密登记成功；尚未激活交易。"); await loadAccounts(result.registry_id); }
+  try { const result=await api("/api/accounts",body); notice("加密登记成功；尚未激活交易。"); if(version===generation){form.reset();await loadAccounts(result.registry_id);showTab("execution");} }
   catch(e) { notice(e.message); }
   finally { body.api_key=""; body.api_secret=""; button.disabled=false; }
 });
 $("rename").addEventListener("submit", async event => {
-  event.preventDefault(); const a=accounts.find(x=>x.registry_id === $("account").value); if(!a)return;
-  try { await api(`/api/accounts/${a.registry_id}/alias`,{alias:$("alias").value,expected_version:a.alias_version,request_id:crypto.randomUUID()}); await loadAccounts(a.registry_id); notice("别名已更新，账户历史身份不变。"); } catch(e) {notice(e.message);}
+  event.preventDefault(); const a=accounts.find(x=>x.registry_id === $("account").value), version=generation; if(!a)return;
+  const button=event.currentTarget.querySelector("button");button.disabled=true;
+  try { await api(`/api/accounts/${a.registry_id}/alias`,{alias:$("alias").value,expected_version:a.alias_version,request_id:crypto.randomUUID()}); if(version===generation){await loadAccounts(a.registry_id);notice("别名已更新，账户历史身份不变。");} } catch(e) {notice(e.message);} finally {button.disabled=false;}
 });
 $("rotate").addEventListener("submit",async event=>{
   event.preventDefault();
@@ -134,10 +167,12 @@ $("route-request").addEventListener("click",async()=>{
   }catch(e){if(version===generation)$("route-state").textContent="申请未完成，请刷新核对状态；未授权自动切换。";}
   finally {routeBusy=false;await showRoute($("environment").value || "SANDBOX",generation);}
 });
-loadAccounts().catch(e=>notice(e.message));
+if(workspace) $("environment").value=workspace.requested.environment;
+loadAccounts(workspace?.requested.account).then(()=>{if(workspace?.requested.invalid)notice("账户链接格式无效，请在顶部重新选择。");}).catch(e=>notice(e.message));
 if(typeof window !== 'undefined') window.addEventListener('pageshow',event=>{
-  if(event.persisted) loadAccounts().catch(e=>notice(e.message));
+  if(event.persisted) {clearSecrets();loadAccounts($("account").value).catch(e=>notice(e.message));}
 });
+if(typeof window !== 'undefined') window.addEventListener('beforeunload',event=>{if(hasDraft()){event.preventDefault();event.returnValue="";}});
 if(typeof setInterval === "function") setInterval(()=>{
   if(typeof document.hidden === "boolean" && document.hidden)return;
   showRoute($("environment").value || "SANDBOX",generation);

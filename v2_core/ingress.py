@@ -38,7 +38,7 @@ class SignalIngress:
     def __init__(
         self, signals, *, source, environment, clock_ms, max_age_ms, max_lifetime_ms
     ):
-        if source not in {"s2", "s3", "tv_bridge"} or environment not in {
+        if source not in {"s2", "s3", "tv_bridge", "quant"} or environment not in {
             "LIVE",
             "SANDBOX",
         }:

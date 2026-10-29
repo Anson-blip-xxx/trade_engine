@@ -49,8 +49,16 @@ class PartialOpenProtection:
         outcome = self.cancel.cancel_once(order_id)
         if outcome not in FINAL:
             return {"status": "OPENING_NOT_FINAL", "opening_status": outcome}
-        facts = self.stop.audit.facts()
-        owner = next(e for e in facts["episodes"] if e["episode"] == spec.episode)
-        if amount(owner["remaining"]) == 0:
+        # Only this episode's residual is needed here. The installer retains
+        # its full before/after coverage audit before any new protection write.
+        # Re-reading all historical orders/protections once per open position
+        # made routine protection supervision grow with account lifetime.
+        with self.cancel.connect() as conn:
+            remaining = conn.execute(
+                "SELECT COALESCE(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)::text "
+                "FROM v2_orders o JOIN v2_fills f USING(order_id) WHERE o.episode_id=%s",
+                (spec.episode,),
+            ).fetchone()[0]
+        if amount(remaining) == 0:
             return {"status": "NO_LEDGER_EXPOSURE"}
         return self.stop.ensure(spec)

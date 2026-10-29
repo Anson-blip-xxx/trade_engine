@@ -1,0 +1,251 @@
+{
+  "change_set": "order-recovery-evidence-20261021",
+  "timezone": "Asia/Shanghai",
+  "status": "SCOPED_WORKSPACE_QA_PASSED_RUNTIME_RECOVERY_UNRESOLVED_NOT_DEPLOYED",
+  "active_release_observed": "signal-evidence-repair-20261018-v1",
+  "runtime_changes": [
+    "One read-only orderId fallback after explicit client-order lookup absence, using only the persisted exchange identity",
+    "Complete identity, fill quantity and commission validation remains mandatory; missing orders never authorize resubmission",
+    "Whitelisted submission receipts retain executed quantity and available venue price/time without asserting settlement",
+    "Scoped deduplicated recovery diagnostics preserve original order state, and cannot prevent verified fills from committing",
+    "Successful ordinary queries supersede previous errors without creating routine success records; diagnostic versions cannot borrow concurrent or ABA order updates",
+    "Bounded fail-soft health diagnostic reads with account/version fencing and no raw error export",
+    "Protection child waiting includes stable parent-age bands; an invisible child is not adopted",
+    "External flat reconciliation explicitly reports skipped nonzero positions without claiming account-wide safety",
+    "Dedicated short-lived account and stage session locks explicitly await PostgreSQL unlock confirmation; failed confirmation closes the connection and never claims a clean handoff",
+    "Lock ownership and existing BUSY, preflight, reduce-only, unknown-order, cash, settlement and quarantine gates are unchanged"
+  ],
+  "safety": {
+    "database_schema_changed": false,
+    "risk_gates_relaxed": false,
+    "new_trading_api_calls": false,
+    "production_business_state_written": false,
+    "services_restarted": false,
+    "live_enabled": false,
+    "signed_diagnostic_get_count": 4,
+    "diagnostic_budget_writes_only": true,
+    "credentials_printed_or_saved": false
+  },
+  "qa": {
+    "first_diagnostic_iteration": {
+      "passed": 232,
+      "failed": 2,
+      "cause": "Two cancellation fixtures omitted mandatory fills_complete evidence; fixtures corrected without relaxing the state machine",
+      "diagnostics": "/tmp/v2-data-qa.ffihQE"
+    },
+    "intermediate_recovery_regression": {
+      "passed": 509,
+      "failed": 0,
+      "seconds": 246.63,
+      "diagnostics": "/tmp/v2-data-qa.3LmwqJ"
+    },
+    "expanded_regression_before_lock_repair": {
+      "passed": 635,
+      "failed": 1,
+      "seconds": 317.9,
+      "diagnostics": "/tmp/v2-data-qa.vCescM",
+      "failure": "External-close recovery stage remained BLOCKED in one integrated run; original assertion omitted component detail, so exact historical substage cause is unproven"
+    },
+    "focused_identity_repetitions_before_lock_repair": {
+      "passed": 12,
+      "failed": 0,
+      "seconds": 15.81,
+      "diagnostics": "/tmp/v2-data-qa.0xx4G8",
+      "note": "Includes eight independently generated identity repetitions of the previously failing scenario; does not establish the cause of the earlier intermittent failure"
+    },
+    "deterministic_lock_repair_regression": {
+      "passed": 32,
+      "failed": 0,
+      "seconds": 32.83,
+      "diagnostics": "/tmp/v2-data-qa.O7NKAJ",
+      "control": "With backend socket termination deliberately delayed, legacy close-only handoff produces BLOCKED/BUSY; explicit unlock converges to CLEAR/RECONCILED without duplicate fills or relaxed coverage",
+      "limit": "This proves a structural race, not the exact cause of the earlier single intermittent failure whose component detail was not captured"
+    },
+    "extended_lock_iteration": {
+      "passed": 105,
+      "failed": 1,
+      "seconds": 147.23,
+      "diagnostics": "/tmp/v2-data-qa.nqB8nJ",
+      "failure": "Second settlement attempt remained BLOCKED after an injected transaction failure; rollback protection passed, original assertion omitted component detail",
+      "note": "Run started before the cash-stage lock migration completed; this alone does not prove why the historical attempt was blocked"
+    },
+    "diagnostic_and_account_handoff_regression": {
+      "passed": 48,
+      "failed": 0,
+      "seconds": 27.10,
+      "diagnostics": "/tmp/v2-data-qa.uAPagI",
+      "covers": "Version and ABA fencing, error supersession, partial fills, fail-soft diagnostics, opening/cash/disposition lock handoff and post-submit unlock failure remaining UNKNOWN"
+    },
+    "settlement_retry_after_cash_lock_migration": {
+      "passed": 1,
+      "failed": 0,
+      "seconds": 1.91,
+      "diagnostics": "/tmp/v2-data-qa.tS6CC7",
+      "note": "Focused retry with component-rich assertion; a passing repeat alone does not establish the earlier failure cause"
+    },
+    "extended_handoff_and_deterministic_rollback_retry": {
+      "passed": 9,
+      "failed": 0,
+      "seconds": 11.40,
+      "diagnostics": "/tmp/v2-data-qa.Mkx3Pu",
+      "covers": "Stop install/cancel, normal and emergency reduce-only exits, settlement, and cash-plus-settlement rollback/retry while every guard backend remains physically connected"
+    },
+    "superseded_combined_run": {
+      "passed_before_interruption": 398,
+      "completed": false,
+      "seconds": 152.95,
+      "diagnostics": "/tmp/v2-data-qa.m57uhg",
+      "reason": "Intentionally interrupted after independent review found pre-submit lock acquisition errors had moved outside the definitely-not-sent boundary; corrected with ExitStack and dedicated failure-injection cases before restarting full selected regression"
+    },
+    "submission_boundary_handoff_regression": {
+      "passed": 11,
+      "failed": 0,
+      "seconds": 9.64,
+      "diagnostics": "/tmp/v2-data-qa.k2dNl4",
+      "covers": "CONNECT, SET LOCAL, advisory acquire and lock commit errors before submission produce no venue calls and REJECTED; unlock error after submission remains UNKNOWN with exactly one submission"
+    },
+    "final_regression": {
+      "passed": 869,
+      "failed": 0,
+      "selected_files": 28,
+      "seconds": 580.10,
+      "diagnostics": "/tmp/v2-data-qa.KhLt0W",
+      "database_retained": false,
+      "code_frozen_before_run": true,
+      "command_prefix": "nice -n 10 bash scripts/qa_v2_data_core.sh --confcutdir=tests/v2_core -q -x",
+      "scope": "Final combined regression over selected_test_files; no exchange-network access or live end-to-end claim"
+    },
+    "selected_test_files": [
+      "tests/v2_core/test_v2_recovery_diagnostics.py",
+      "tests/v2_core/test_v2_bound_order_recovery.py",
+      "tests/v2_core/test_v2_binance.py",
+      "tests/v2_core/test_v2_submission_diagnostics.py",
+      "tests/v2_core/test_v2_recovery_observability.py",
+      "tests/v2_core/test_v2_protection_child.py",
+      "tests/v2_core/test_v2_protection_supervisor.py",
+      "tests/v2_core/test_v2_external_close_recovery.py",
+      "tests/v2_core/test_v2_directional_lifecycle.py",
+      "tests/v2_core/test_v2_position_safety_recovery_flow.py",
+      "tests/v2_core/test_v2_intent_admission.py",
+      "tests/v2_core/test_v2_account_risk.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_trading_health.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_managed_guard_wiring.py",
+      "tests/v2_core/test_v2_session_lock_release.py",
+      "tests/v2_core/test_v2_account_coverage.py",
+      "tests/v2_core/test_v2_execution_lock_handoff.py",
+      "tests/v2_core/test_v2_account_lock_handoff.py",
+      "tests/v2_core/test_v2_protection_install.py",
+      "tests/v2_core/test_v2_opening_cancel.py",
+      "tests/v2_core/test_v2_unprotected_emergency.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_directional_cash.py",
+      "tests/v2_core/test_v2_venue_readiness.py",
+      "tests/v2_core/test_v2_maintenance_resolution.py",
+      "tests/v2_core/test_v2_coverage_storage.py"
+    ],
+    "isolated_pg_redis": true,
+    "external_network_forbidden_during_tests": true,
+    "whole_repository_test_claim": false,
+    "exchange_end_to_end_recovery_claim": false
+  },
+  "runtime_observations": {
+    "observed_date": "2026-10-21",
+    "environment": "SANDBOX",
+    "services": "Execution controller, market hub and dashboard active; trading cycles continue",
+    "inventory_at": "2026-10-21T09:19:26.360+08:00",
+    "positions": [
+      {"symbol": "BRUSDT", "signed_quantity": "-256"},
+      {"symbol": "NILUSDT", "signed_quantity": "972"}
+    ],
+    "ledger_matches_inventory": true,
+    "br_close": {
+      "local_status": "ACKNOWLEDGED",
+      "submit_venue_status": "FILLED",
+      "local_fills": 0,
+      "query_by_exchange_order_id_code": -2013,
+      "bound_user_trades_returned": 0,
+      "client_lookup": "No order identity fields returned; exact code not captured by the initial diagnostic script"
+    },
+    "br_protection": {
+      "parent_status": "TRIGGERING",
+      "child_order_id_returned": false,
+      "venue_parent_updated_at": "2026-10-19T22:29:22.104+08:00",
+      "confirmed_stop_missing": true
+    },
+    "br_catalog": "Fresh SANDBOX catalog reports TRADING; quantity 256 satisfies current MARKET_LOT_SIZE; market heads current",
+    "nil_protection": "NEW native stop present",
+    "latest_cycle_finished_at": "2026-10-21T09:19:29.424+08:00",
+    "latest_cycle_status": "ENTRY_BLOCKED / CLOSE_RECOVERY_PENDING / UNKNOWN",
+    "service_started_at": {
+      "execution_controller": "2026-10-18T17:12:16+08:00",
+      "market_hub": "2026-10-15T09:01:33+08:00",
+      "dashboard": "2026-10-15T09:01:21+08:00"
+    },
+    "not_established": [
+      "Cause of the discrepancy between submission receipt, subsequent order/trade queries and remaining venue position",
+      "Exchange-internal matching failure or testnet reset",
+      "Successful close, complete settlement, or safe permission to resend the ambiguous close"
+    ]
+  },
+  "release_constraints": [
+    "Do not deploy the whole dirty worktree: trading health, directional exit and venue readiness contain pre-existing unpublished research or liquidity integration",
+    "Do not force-close, mark unknown orders final, or bypass coverage solely to achieve a release gate",
+    "A controller restart enters recovering management mode; active process state does not establish resumed entries",
+    "Query fallback improves robustness but cannot resolve the current case because exchange-order-ID lookup is also absent",
+    "No candidate release directory or active symlink was changed"
+  ],
+  "compatibility_checks": {
+    "mode": "READ_ONLY_NO_BUSINESS_WRITES",
+    "business_connection": "Fresh psycopg direct Unix socket connection, autocommit false, backend PID unchanged across commit; no transaction pool",
+    "session_lock_functions": "Actual business role and controller operator role have required PostgreSQL EXECUTE privileges",
+    "diagnostic_storage": "Actual business role already has scoped state/history table permissions; no RLS or namespace whitelist; no grants changed",
+    "timeouts": "USERSET local lock and statement timeouts applied and restored within READ ONLY transactions",
+    "not_proven": "New code has not executed within the running service; compatibility is not live recovery acceptance"
+  },
+  "session_lock_scope": {
+    "migrated_sites": 16,
+    "covers": [
+      "Account coverage, protection supervision and external-close reconciliation",
+      "Protection lifecycle orchestration and flat-only cleanup",
+      "Native stop installation and partial opening cancellation",
+      "Directional exits, emergency reduce-only exit and stage orchestration",
+      "Cash audit, account settlement and their stage orchestration",
+      "Guarded opening readiness and audited unknown-order disposition"
+    ],
+    "unchanged": [
+      "Existing pipeline ownership already explicitly unlocks",
+      "Process-lifetime controller, market and observer singletons",
+      "Standalone maintenance and acceptance command ownership"
+    ],
+    "write_boundary": "Unlock failure after submission remains ambiguous; it is not treated as definitely not sent and cannot authorize resubmission"
+  },
+  "remaining_work": [
+    "Resolve the conflicting BR venue evidence or obtain an explicitly audited exceptional-position disposition; no synthetic fills",
+    "Implement and independently validate symbol-scoped reduce-only authorization so an ambiguous symbol cannot suppress justified exits on an independently safe symbol",
+    "Keep all account-wide entry barriers until coverage is genuinely clear",
+    "Determine retention for the new auxiliary diagnostic namespace before sustained rollout; identical states are deduplicated but alternating failures create history",
+    "Previous liquidity and research modules remain workspace-only and are not part of this recovery deployment"
+  ],
+  "official_api_reference": "https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade#query-order",
+  "workspace_runtime_sha256": {
+    "v2_core/binance.py": "3bc20162163390e1c957715c6999fe1dc6959748c2def69ea68e97e7fd2b9ab5",
+    "v2_core/runner.py": "e6089dbd858ef68d5fa8a16a9cceec1906f1ed6f30da409903ad03817a0a6ba5",
+    "v2_core/recovery_diagnostics.py": "2ecf33cc8691e30693b7a43cbc9b21c60efd12430edd51ecb8e3b3b9ee4bd42a",
+    "v2_core/protection_child.py": "60dbf3eb9c40d404519ea8f9168f230491d55561cc0e5a865f3731892e4eb7b8",
+    "v2_core/external_close_recovery.py": "c53546497933da99cd5b48c559c922fc429c48d6c18dcc0d1d69491f097e05f6",
+    "v2_core/session_lock.py": "44da501d86cbf45cd0f8fe1acbc52ca115874ade19e29a89105955d566d9f705",
+    "v2_core/account_coverage.py": "d3b0f2cd6569a0cca8f0aee96bc897b8a2b8b76a9e65fc595e441f2953989180",
+    "v2_core/protection_supervisor.py": "99dd176fcd5f1d9373f45781f8bde70be65903eda2f10e987c6d38d9d785f368",
+    "v2_core/protection_install.py": "600df5e2d54f99d68cecfc730de300228c690f23b561f6219b02b8ea22385125",
+    "v2_core/opening_cancel.py": "bcb897eb9e7b8e08cda809cc9915f4cea7581b130018cc2f3461255ad3ce871e",
+    "v2_core/venue_readiness.py": "e5bccad954239886528d5a7bce9dbe0de3d57c0f90430a574ccc1e254cce2648",
+    "v2_core/maintenance_resolution.py": "648e76f7c660e0d35209824acc443d2d595add727e198633582aa123d28b209a",
+    "services/v2_directional_lifecycle.py": "57d5a8a13d88a6c2d7e7dcfb3035384a81417d471b9675a2cdf16426eef403f4",
+    "services/v2_directional_cash.py": "0005239333bae7e700a51f586f8226ee0e9cceee09cd90b526e693a79a501471",
+    "services/v2_directional_exit.py": "57a5d3363f89272ae4843de229ddbc1a15bc18d2a0409191dbf17dcfaa370611",
+    "services/v2_directional_settlement.py": "0460a87b9bd7d3c3076c183c48e9170bf08347c18c22fc23bd3915c68c5600ff",
+    "services/v2_trading_health.py": "6710a3e6fd1d7bd9aa12138d14d93a9d97895a3a151ddc795cdced1c3e072a99"
+  }
+}

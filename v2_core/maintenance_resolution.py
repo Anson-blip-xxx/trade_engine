@@ -15,6 +15,7 @@ from v2_core.binance import identifier
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
 from v2_core.orders import Orders
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 
@@ -117,13 +118,11 @@ class MaintenanceResolution:
 
     def resolve(self, case_id):
         case = str(UUID(str(case_id)))
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 raise ValueError("ACCOUNT_BUSY")
-            guard.commit()
             if not self.runner_stopped():
                 raise ValueError("TRADING_RUNNER_NOT_STOPPED")
             with self.connect() as conn:

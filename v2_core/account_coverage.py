@@ -8,15 +8,17 @@ import json
 from contextlib import nullcontext
 from dataclasses import asdict
 from decimal import Decimal, localcontext
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from psycopg.types.json import Jsonb
 
 from v2_core.account_inventory import AccountInventory
+from v2_core.coverage_evidence import pack_coverage
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import symbol
 from v2_core.ledger import amount
 from v2_core.protection import ProtectionSpec
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 
@@ -27,6 +29,37 @@ def _excluded_positions(values):
     if len(set(normalized)) != len(normalized):
         raise ValueError("unique external position exclusions required")
     return normalized
+
+
+def _complete_inventory(observation):
+    """Verify real source responses; derived modes are not extra REST reads."""
+    raw, digests = observation["responses"], observation["response_digests"]
+    common = {
+        "positions_before",
+        "positions_after",
+        "account",
+        "ordinary_orders",
+        "conditional_orders",
+    }
+    combined = "account_config" in raw
+    expected = common | ({"account_config"} if combined else {"mode", "margin_mode"})
+    if set(raw) != expected or digests != {
+        key: digest(canonical({"response": value})) for key, value in raw.items()
+    }:
+        return False
+    if not combined:
+        return (
+            raw["mode"].get("dualSidePosition") is False
+            and raw["margin_mode"].get("multiAssetsMargin") is False
+        )
+    from v2_core.account_inventory import account_config_derivations
+
+    return (
+        raw["account_config"].get("dualSidePosition") is False
+        and raw["account_config"].get("multiAssetsMargin") is False
+        and observation.get("derived_responses")
+        == account_config_derivations(raw["account_config"])
+    )
 
 
 def coverage_from_facts(scope, facts, inventory, *, excluded_position_symbols=()):
@@ -183,6 +216,34 @@ class AccountCoverageAudit:
             scope=scope,
             clock_ms=clock_ms,
             excluded_position_symbols=self.excluded_position_symbols,
+            read_workers=self._read_workers,
+            combined_account_config=self._combined_account_config,
+        )
+
+    def _combined_account_config(self):
+        selected = BusinessState(self.connect).read(
+            StateKey(
+                **asdict(self.scope),
+                namespace="account-inventory-policy-v1",
+                key="current",
+            )
+        )
+        if selected is None:
+            return False
+        payload = json.loads(selected.payload_json)
+        if (
+            selected.deleted
+            or set(payload) != {"combined_account_config"}
+            or type(payload["combined_account_config"]) is not bool
+        ):
+            raise ValueError("INVALID_ACCOUNT_INVENTORY_POLICY")
+        return payload["combined_account_config"]
+
+    def _read_workers(self):
+        from v2_core.runtime_policy import PolicyStore
+
+        return (
+            PolicyStore(self.connect, self.scope).read().values["context.read_workers"]
         )
 
     def facts(self, *, connection=None):
@@ -260,14 +321,85 @@ class AccountCoverageAudit:
             ],
         }
 
+    def reuse_after_protection(self, proof):
+        """Reuse only this cycle's persisted diagnostic, never a POST permit.
+
+        No latest-row lookup, timestamp refresh or cache. A miss takes the
+        caller's original full audit path; actual reductions still collect
+        their own fresh inventory under the original execution guards.
+        """
+        try:
+            if not isinstance(proof, dict):
+                return None
+            identity = str(UUID(proof["observation_id"]))
+            key = StateKey(
+                **asdict(self.scope),
+                namespace="account-coverage-evidence-v1",
+                key=identity,
+            )
+            with session_advisory_lock(
+                self.connect, "testnet-protocol-account:" + self.scope.key
+            ) as acquired:
+                if not acquired:
+                    return None
+                with self.connect() as conn:
+                    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                    saved = BusinessState(lambda: nullcontext(conn)).read(key)
+                    if saved is None or saved.deleted or saved.version != 1:
+                        return None
+                    source = conn.execute(
+                        "SELECT reason FROM v2_state_history WHERE state_id=%s AND version=1",
+                        (key.identity,),
+                    ).fetchone()
+                    if source != ("ACCOUNT_COVERAGE_AUDIT",):
+                        return None
+                    payload = json.loads(saved.payload_json)
+                    observation, result = payload["inventory"], payload["result"]
+                    exclusions = list(self.excluded_position_symbols)
+                    if (
+                        proof != {**result, "observation_id": identity}
+                        or result["status"] != "ACCOUNT_COVERAGE_CLEAR"
+                        or result["blockers"] != []
+                        or result["execution_authorized"] is not False
+                        or result["excluded_position_symbols"] != exclusions
+                        or observation["observation_id"] != identity
+                        or observation["account_scope"] != asdict(self.scope)
+                        or observation["excluded_position_symbols"] != exclusions
+                        or observation["execution_authorized"] is not False
+                        or observation["failures"]
+                        or not _complete_inventory(observation)
+                        or payload["before"] != payload["after"]
+                        or coverage_from_facts(
+                            self.scope,
+                            payload["after"],
+                            observation,
+                            excluded_position_symbols=self.excluded_position_symbols,
+                        )
+                        or self.facts(connection=conn) != payload["after"]
+                    ):
+                        return None
+                    started, finished = (
+                        observation["started_at_ms"],
+                        observation["finished_at_ms"],
+                    )
+                    now = self.inventory.clock_ms()
+                    if (
+                        any(
+                            type(value) is not int for value in (started, finished, now)
+                        )
+                        or not 0 <= started <= finished <= now <= started + 5000
+                    ):
+                        return None
+                    return {**result, "observation_id": identity}
+        except Exception:  # noqa: BLE001 - a diagnostic reuse miss must re-audit
+            return None
+
     def run_once(self):
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BUSY", "execution_authorized": False}
-            guard.commit()
             before = self.facts()
             observation = self.inventory.collect(str(uuid4()))
             after = self.facts()
@@ -305,12 +437,16 @@ class AccountCoverageAudit:
                     evidence_key,
                     expected_version=0,
                     request_key=identity,
-                    payload={
-                        "inventory": observation,
-                        "before": before,
-                        "after": after,
-                        "result": result,
-                    },
+                    payload=pack_coverage(
+                        conn,
+                        self.scope,
+                        {
+                            "inventory": observation,
+                            "before": before,
+                            "after": after,
+                            "result": result,
+                        },
+                    ),
                     reason="ACCOUNT_COVERAGE_AUDIT",
                 )
                 version = previous.version if previous else 0

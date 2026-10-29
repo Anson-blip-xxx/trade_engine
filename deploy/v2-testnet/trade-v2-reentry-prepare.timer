@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare structural checkpoints outside the trading loop
+
+[Timer]
+OnBootSec=45
+OnUnitInactiveSec=30
+AccuracySec=5
+Unit=trade-v2-reentry-prepare.service
+
+[Install]
+WantedBy=timers.target

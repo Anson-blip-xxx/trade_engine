@@ -348,6 +348,10 @@ def test_http_add_list_alias_scope_and_no_secret_route(case):
     )
     assert http(console, "/accounts")[0] == 200
     assert http(console, "/accounts/app.js")[0] == 200
+    for asset in ("/accounts/workspace.js", "/accounts/workspace.css"):
+        assert http(console, asset)[0] == 200
+        assert http(console, asset, headers={"X-V2-Authenticated-User": ""})[0] == 403
+    assert http(console, "/accounts/../workspace.js")[0] == 404
 
 
 def test_http_response_disables_storage_and_embedding(case):

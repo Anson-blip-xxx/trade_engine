@@ -10,7 +10,12 @@ from decimal import Decimal, InvalidOperation
 
 from s0.core import classify_regime
 from services.v2_market_publishers import S0Publisher
-from services.v2_s3_candles import PRICE_VERSION, build_frame
+from services.v2_s3_candles import (
+    BREAKOUT_VERSION,
+    PRICE_VERSION,
+    ROLLING_VERSION,
+    build_frame,
+)
 from services.v2_s3_candles import VERSION as S3_VERSION
 from services.v2_s3_source import frame_digest
 from v2_core.evidence import digest
@@ -59,7 +64,8 @@ def build_s0_state(windows, *, universe, s3_frame_id, s3_input_digest):
         if (
             not isinstance(evidence, dict)
             or evidence.get("source") != "BINANCE_FUTURES"
-            or evidence.get("window_version") not in {S3_VERSION, PRICE_VERSION}
+            or evidence.get("window_version")
+            not in {S3_VERSION, PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION}
             or evidence.get("interval") != "1m"
             or evidence.get("bar_count") != 1440
             or type(evidence.get("closed_at")) is not int
@@ -189,6 +195,16 @@ class ArchivedS0Stage:
         frame_id, observed, archive_hash, input_hash, status, published, ack = head
         if status != "ACKNOWLEDGED" or published != input_hash or not ack:
             raise ValueError("S0_SOURCE_NOT_CONFIRMED")
+        feature_version = (
+            frame_id.split(":", 1)[0] if isinstance(frame_id, str) else None
+        )
+        if feature_version not in {
+            S3_VERSION,
+            PRICE_VERSION,
+            ROLLING_VERSION,
+            BREAKOUT_VERSION,
+        }:
+            raise ValueError("S0_FEATURE_VERSION_UNSUPPORTED")
         encoded = self.archive.get(archive_hash)
         if (
             not isinstance(encoded, str)
@@ -198,7 +214,11 @@ class ArchivedS0Stage:
             raise ValueError("S0_ARCHIVE_UNAVAILABLE")
         try:
             batch = json.loads(encoded)
-            frame = build_frame(batch, environment=self.environment)
+            frame = build_frame(
+                batch,
+                environment=self.environment,
+                feature_version=feature_version,
+            )
         except (ValueError, TypeError, KeyError, RecursionError):
             raise ValueError("S0_ARCHIVE_INPUT_MISMATCH") from None
         if (

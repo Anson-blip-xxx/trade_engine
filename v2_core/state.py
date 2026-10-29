@@ -11,6 +11,11 @@ from uuid import UUID, uuid4, uuid5
 from v2_core.evidence import canonical
 
 _NAMESPACE = UUID("6271d707-8bca-41a6-82cd-f48fa7efc4b6")
+_HISTORY_ONLY_NAMESPACE = "account-coverage-evidence-v1"
+
+
+def history_reference(state_id, version):
+    return {"_v2_state_history_ref": str(UUID(state_id)), "version": version}
 
 
 def normalized(value):
@@ -68,6 +73,32 @@ class BusinessState:
                 "SELECT version,payload,deleted,scope FROM v2_business_state WHERE state_id=%s",
                 (key.identity,),
             ).fetchone()
+            if row is not None and "_v2_state_history_ref" in row[1]:
+                if (
+                    key.namespace != _HISTORY_ONLY_NAMESPACE
+                    or row[0] != 1
+                    or row[2]
+                    or row[1] != history_reference(key.identity, row[0])
+                    or row[3] != asdict(key)
+                ):
+                    raise ValueError("invalid state history reference")
+                original = conn.execute(
+                    "SELECT payload,deleted FROM v2_state_history WHERE state_id=%s AND version=%s",
+                    (key.identity, row[0]),
+                ).fetchone()
+                if (
+                    original is None
+                    or original[1]
+                    or "_v2_state_history_ref" in original[0]
+                ):
+                    raise ValueError("missing state history evidence")
+                row = (row[0], original[0], row[2], row[3])
+            if row is not None and "_v2_coverage_facts" in row[1]:
+                if key.namespace != _HISTORY_ONLY_NAMESPACE or row[3] != asdict(key):
+                    raise ValueError("invalid coverage storage scope")
+                from v2_core.coverage_evidence import unpack_coverage
+
+                row = (row[0], unpack_coverage(conn, key, row[1]), row[2], row[3])
         if row is None:
             return None
         if row[3] != asdict(key):
@@ -122,9 +153,18 @@ class BusinessState:
             if current[0] != expected_version:
                 return StateWrite("STALE", current[0])
             version = current[0] + 1
+            # Immutable coverage evidence already has a durable history row.
+            # Keep identity/version and FK, without a second full TOAST copy.
+            current_payload = (
+                canonical(history_reference(key.identity, version))
+                if key.namespace == _HISTORY_ONLY_NAMESPACE
+                and version == 1
+                and not deleted
+                else encoded
+            )
             conn.execute(
                 "UPDATE v2_business_state SET version=%s,payload=%s::jsonb,deleted=%s WHERE state_id=%s",
-                (version, encoded, deleted, key.identity),
+                (version, current_payload, deleted, key.identity),
             )
             conn.execute(
                 """INSERT INTO v2_state_history(event_id,state_id,request_key,

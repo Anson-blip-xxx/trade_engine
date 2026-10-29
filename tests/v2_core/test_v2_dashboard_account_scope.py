@@ -34,6 +34,7 @@ def test_dashboard_follows_actual_not_requested_account_and_scopes_details(route
     first = data.overview()
     assert first["execution_account"]["registry_id"] == a
     assert first["execution_account"]["alias"] == "Initial Alpha"
+    assert data.funnel()["execution_account"]["registry_id"] == a
     console.rename(
         a, alias="Renamed Alpha", expected_version=0, request_id=str(uuid4())
     )
@@ -45,6 +46,33 @@ def test_dashboard_follows_actual_not_requested_account_and_scopes_details(route
     assert first["summary"]["trade_intents"] == 1
     assert len(first["trades"]) == 1
     assert data.trade(trade.intent_id) is not None
+    # A stopped/blocked worker must not make its account's read-only evidence
+    # disappear, nor grant new execution authority or reveal another account.
+    for phase in ("BLOCKED", "STOPPED"):
+        with console.connect() as c:
+            c.execute(
+                "UPDATE v2_execution_routes SET phase=%s,worker_token=NULL,"
+                "blockers='[\"WORKER_START_FAILED\"]'::jsonb WHERE tenant_id=%s",
+                (phase, console.tenant),
+            )
+        degraded = data.overview(include_funnel=False)
+        assert degraded["execution_account"]["registry_id"] == a
+        assert degraded["execution_account"]["phase"] == phase
+        assert degraded["execution_account"]["blockers"] == ["WORKER_START_FAILED"]
+        assert degraded["summary"]["trade_intents"] == 1
+        assert data.trade(trade.intent_id) is not None
+        assert data.funnel()["execution_account"]["phase"] == phase
+        with console.connect() as c:
+            assert c.execute(
+                "SELECT phase,worker_token FROM v2_execution_routes WHERE tenant_id=%s",
+                (console.tenant,),
+            ).fetchone() == (phase, None)
+    with console.connect() as c:
+        c.execute(
+            "UPDATE v2_execution_routes SET phase='ACTIVE',worker_token=%s,"
+            "blockers='[]'::jsonb WHERE tenant_id=%s",
+            (str(uuid4()), console.tenant),
+        )
     store.request(
         console.tenant,
         "SANDBOX",
@@ -61,6 +89,7 @@ def test_dashboard_follows_actual_not_requested_account_and_scopes_details(route
         )
     second = data.overview()
     assert second["execution_account"]["registry_id"] == b
+    assert data.funnel()["execution_account"]["registry_id"] == b
     assert second["execution_account"]["alias"] == "Initial Beta"
     assert second["summary"]["trade_intents"] == 0
     assert second["summary"]["realized_pnl"] == "0"

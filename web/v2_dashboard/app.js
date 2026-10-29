@@ -1,16 +1,23 @@
-const state = { data: null, filter: "all", search: "", detailGeneration: 0 };
+const state = { data: null, filter: "all", search: "", detailGeneration: 0, page: 1 };
 const $ = (id) => document.getElementById(id);
+const workspace = window.Atlas;
+const showTab = workspace?.tabs(["overview", "trades", "signals", "health"], "overview") || (() => {});
 const esc = (value) => String(value ?? "—").replace(/[&<>"']/g, (x) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
 const num = (value, digits=2) => value == null ? "—" : new Intl.NumberFormat("zh-CN", {maximumFractionDigits:digits}).format(Number(value));
 const money = (value) => value == null ? "—" : `${Number(value) >= 0 ? "+" : ""}${num(value,2)}`;
 const at = (value) => value ? new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value)) : "—";
 const atMs = (value) => value ? at(Number(value)) : "—";
 const held = (trade) => Number(trade.open_qty) > Number(trade.close_qty);
+const sourceName = (source) => ({tv_bridge:"TradingView",s3:"S3",quant:"QUANT · 量化候选"}[source] || source || "未知来源");
 const status = (trade) => trade.settled_at ? "已结算" : held(trade) ? "持仓中" : trade.status === "CANCELLED" ? "已取消" : trade.status === "REJECTED" ? "已拒绝" : "处理中";
 function renderMetrics(data) {
   const account=data.execution_account;
   $("account-alias").textContent=account?.alias || '未确认当前账户';
-  $("execution-account").textContent=account ? `当前执行账户：${account.alias} · Testnet · ${account.phase}${account.blockers?.includes('ENTRY_DISABLED_ACCEPTANCE') ? ' · 新开仓关闭' : ''}` : '执行账户未知';
+  workspace?.describe(account?.alias, "SANDBOX", "执行");
+  if(workspace && !workspace.requested.account && workspace.requested.environment === "SANDBOX") workspace.setContext({account:account?.registry_id || "",environment:"SANDBOX"});
+  $("view-context-note").hidden = !workspace || (!workspace.requested.account && workspace.requested.environment === "SANDBOX") || (workspace.requested.account === account?.registry_id && workspace.requested.environment === "SANDBOX");
+  const phaseLabel = {ACTIVE:'执行已确认',DRAINING:'正在退出旧仓位',BLOCKED:'执行阻塞，未确认交易运行',STARTING:'正在启动，尚未就绪',STOPPED:'执行已停止'};
+  $("execution-account").textContent=account ? `当前路由账户：${account.alias} · Testnet · ${phaseLabel[account.phase] || '执行状态未知'}${account.blockers?.length ? ' · 阻塞/限制：' + account.blockers.join('、') : ''}` : '执行账户未知';
   const s = data.summary;
   $("pnl").textContent = money(s.realized_pnl);
   $("pnl").className = "metric-main " + (Number(s.realized_pnl) >= 0 ? "positive" : "negative");
@@ -40,7 +47,34 @@ function renderAccounting(data) {
     (daily.cash || []).slice(0,14).map(row => `<div class="detail-row"><strong>${esc(row.day)} · ${esc(row.account_id)}</strong><br>当日实际收支：${money(row.net_pnl)} USDT${row.unvalued_events ? " · 存在未计价事件，数值未知" : ""}</div>`).join("") +
     (daily.closed_trades || []).slice(0,14).map(row => `<div class="detail-row">${esc(row.day)} 完整交易业绩：${money(row.net_pnl)} USDT · ${num(row.trades,0)} 笔</div>`).join("") +
     '<div class="detail-row">每日净值口径：历史快照不足时不推算，不用收支代替浮盈亏。</div>';
-  $("signal-funnel").innerHTML = (data.signal_funnel || []).map(row => `<div class="detail-row"><strong>${esc(row.source === "tv_bridge" ? "TradingView" : row.source)}</strong><br>收到 ${num(row.received,0)} → 已处理 ${num(row.processed,0)} → 形成意图 ${num(row.intents,0)} → 开仓成交 ${num(row.filled,0)}</div>`).join("") || '<div class="placeholder">今日尚未收到信号</div>';
+  renderFunnel(data);
+}
+function renderFunnel(data) {
+  const status = data.signal_funnel_status;
+  $("signal-funnel").innerHTML = status === "DEFERRED" ? '<div class="placeholder">信号统计独立加载中…</div>' : status === "TIMEOUT" || status === "UNAVAILABLE" ? '<div class="placeholder">信号统计暂不可用，等待下次刷新；不影响已展示的交易与持仓数据。</div>' : (data.signal_funnel || []).map(row => `<div class="detail-row"><strong>${esc(sourceName(row.source))}</strong><br>收到 ${num(row.received,0)} → 已处理 ${num(row.processed,0)} → 形成意图 ${num(row.intents,0)} → 开仓成交 ${num(row.filled,0)}</div>`).join("") || '<div class="placeholder">今日尚未收到信号</div>';
+}
+async function refreshFunnel(snapshot) {
+  state.funnelController?.abort();
+  const controller = new AbortController();
+  state.funnelController = controller;
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const response = await fetch('/api/signal-funnel', {cache:'no-store', signal:controller.signal});
+    if (!response.ok) throw new Error('funnel unavailable');
+    const result = await response.json();
+    if (state.data !== snapshot) return;
+    const expected = snapshot.execution_account, actual = result.execution_account;
+    if (!expected || !actual || expected.registry_id !== actual.registry_id || expected.epoch !== actual.epoch) {
+      renderFunnel({signal_funnel_status:'UNAVAILABLE'});
+      return;
+    }
+    renderFunnel(result);
+  } catch {
+    if (state.data === snapshot) renderFunnel({signal_funnel_status:'UNAVAILABLE'});
+  } finally {
+    clearTimeout(timeout);
+    if (state.funnelController === controller) state.funnelController = null;
+  }
 }
 function renderPositions(data) {
   const open = data.trades.filter(held);
@@ -52,16 +86,22 @@ function renderTrades(data) {
   if (state.filter === "open") rows = rows.filter(held);
   if (state.filter === "settled") rows = rows.filter((x) => x.settled_at);
   if (state.search) rows = rows.filter((x) => (x.symbol || "").toLowerCase().includes(state.search));
-  $("trade-count").textContent = rows.length + " 笔";
-  $("trade-rows").innerHTML = rows.length ? rows.map((t) => {
+  const pages=Math.max(1,Math.ceil(rows.length/20));state.page=Math.min(pages,Math.max(1,state.page));
+  $("trade-count").textContent = `${rows.length} 笔匹配 · 第 ${state.page} / ${pages} 页`;
+  $("trade-prev").disabled=state.page<=1;$("trade-next").disabled=state.page>=pages;
+  $("trade-rows").innerHTML = rows.length ? rows.slice((state.page-1)*20,state.page*20).map((t) => {
     const label = status(t), pnl = t.settled_net_pnl;
-    return `<tr data-id="${esc(t.id)}"><td class="symbol-cell"><strong>${esc(t.symbol)}</strong><small>${esc(t.producer?.toUpperCase())} · ${esc(t.event_type || t.signal_source || "方向策略")}</small></td><td><span class="side ${t.side === "BUY" ? "long":"short"}">${t.side === "BUY" ? "LONG":"SHORT"}</span></td><td><span class="badge ${t.settled_at ? "done":held(t) ? "wait":""}">${label}</span></td><td>${num(t.entry_price,8)}</td><td>${num(t.open_qty,8)}</td><td class="${Number(pnl) >= 0 ? "positive":"negative"}">${pnl == null ? "—" : money(pnl)}</td><td>${at(t.created_at)}</td><td class="arrow">↗</td></tr>`;
+    return `<tr data-id="${esc(t.id)}"><td class="symbol-cell"><strong>${esc(t.symbol)}</strong><small>${esc(t.producer?.toUpperCase())} · ${esc(t.event_type || t.signal_source || "方向策略")}</small></td><td><span class="side ${t.side === "BUY" ? "long":"short"}">${t.side === "BUY" ? "做多":"做空"}</span></td><td><span class="badge ${t.settled_at ? "done":held(t) ? "wait":""}">${label}</span></td><td>${num(t.entry_price,8)}</td><td>${num(t.open_qty,8)}</td><td class="${Number(pnl) >= 0 ? "positive":"negative"}">${pnl == null ? "—" : money(pnl)}</td><td>${at(t.created_at)}</td><td><button class="text-button" aria-label="查看 ${esc(t.symbol)} 交易详情">详情 →</button></td></tr>`;
   }).join("") : '<tr><td colspan="8" class="empty-cell">没有符合条件的交易</td></tr>';
 }
 function renderSignals(data) {
-  $("signal-list").innerHTML = data.signals.length ? data.signals.map((s) => `<div class="signal"><div class="signal-top"><strong>${esc(s.symbol)}</strong><span class="signal-source">${s.source === "tv_bridge" ? "TRADINGVIEW":"S3"}</span></div><div class="signal-event">${esc(s.signal)}</div><div class="signal-time">触发 ${atMs(s.observed_at_ms)} · 收到 ${at(s.received_at)}${s.strength ? " · 强度 "+esc(s.strength):""}</div><div class="signal-time">${(s.decisions || []).map(d=>esc(d.outcome)+" · "+esc(d.reason)).join("<br>") || "等待处理"}</div></div>`).join("") : '<div class="placeholder">暂无近期信号</div>';
+  $("signal-list").innerHTML = data.signals.length ? data.signals.map((s) => `<div class="signal"><div class="signal-top"><strong>${esc(s.symbol)}</strong><span class="signal-source">${esc(sourceName(s.source))}</span></div><div class="signal-event">${esc(s.signal)}</div><div class="signal-time">触发 ${atMs(s.observed_at_ms)} · 收到 ${at(s.received_at)}${s.strength ? " · 强度 "+esc(s.strength):""}</div><div class="signal-time">${(s.decisions || []).map(d=>esc(d.outcome)+" · "+esc(d.reason)).join("<br>") || "等待处理"}</div></div>`).join("") : '<div class="placeholder">暂无近期信号</div>';
 }
 function renderHealth(data) {
+  const health=data.health || [], stale=health.some(x=>!Number.isFinite(x.payload?.observed_at_ms) || Date.now()-x.payload.observed_at_ms>60000 || x.payload.observed_at_ms>Date.now()+5000);
+  const affected=health.some(x=>(x.payload?.active || []).length || Object.keys(x.payload?.findings || {}).length);
+  $("health-status").textContent=!health.length || stale ? "链路检查未知 / 数据过期" : affected ? "链路检查有待处理事项" : "本次链路检查未发现超时异常";
+  $("health-status").className=!health.length || stale || affected ? "negative" : "";
   const labels = {ORDER_PROGRESS_STALLED:"订单推进超时",SETTLEMENT_OVERDUE:"平仓后结算超时",SIGNAL_CONSUMPTION_LAG:"信号消费延迟",PIPELINE_ENTRY_BLOCKED:"开仓链路持续阻塞",POSITION_SAFETY_BLOCKED:"保护 / 退出环节阻塞",CAPITAL_DRAWDOWN_HALT:"累计风控硬停，禁止自动解锁"};
   $("health-list").innerHTML = (data.health || []).length ? data.health.map(({account_id,payload:h}) => {
     const stale = !Number.isFinite(h.observed_at_ms) || Date.now()-h.observed_at_ms > 60000 || h.observed_at_ms > Date.now()+5000;
@@ -77,8 +117,7 @@ function detailItem(label,value) { return `<div class="detail-item"><label>${esc
 function detailSection(title,body) { return `<section class="detail-section"><h3>${esc(title)}</h3>${body}</section>`; }
 async function openTrade(id) {
   const generation=++state.detailGeneration;
-  $("drawer-shade").hidden = false;
-  $("drawer").classList.add("show");
+  if(!$("drawer").open) $("drawer").showModal();
   $("drawer").setAttribute("aria-hidden","false");
   $("drawer-body").innerHTML = '<div class="placeholder">读取决策与成交证据...</div>';
   try {
@@ -106,20 +145,24 @@ async function openTrade(id) {
     $("drawer-body").innerHTML = '<div class="placeholder">交易详情暂不可用，请稍后重试。</div>';
   }
 }
-function closeTrade() { ++state.detailGeneration; $("drawer-body").replaceChildren(); $("drawer").classList.remove("show"); $("drawer").setAttribute("aria-hidden","true"); $("drawer-shade").hidden=true; }
+function closeTrade() { ++state.detailGeneration; $("drawer-body").replaceChildren(); if($("drawer").open) $("drawer").close(); $("drawer").setAttribute("aria-hidden","true"); $("drawer-shade").hidden=true; }
 async function refresh() {
   if(state.refreshing)return;
   state.refreshing=true;
   $("refresh").disabled=true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
   try {
-    const response = await fetch("/api/overview",{cache:"no-store"});
+    const response = await fetch("/api/overview",{cache:"no-store",signal:controller.signal});
     if (!response.ok) throw new Error("unavailable");
     const next=await response.json();
     if(state.data?.execution_account?.epoch!==next.execution_account?.epoch) closeTrade();
     state.data = next;
     $("error").hidden=true;
     renderMetrics(state.data); renderAccounting(state.data); renderChart(state.data); renderPositions(state.data); renderTrades(state.data); renderSignals(state.data); renderHealth(state.data);
+    void refreshFunnel(next);
   } catch {
+    state.funnelController?.abort();
     state.data=null; closeTrade();
     for(const id of ['pnl','open','intents','winrate','settled','asof','chart-value']) $(id).textContent='—';
     for(const id of ['daily-report','signal-funnel','position-list','trade-rows','signal-list','health-list']) $(id).replaceChildren();
@@ -127,14 +170,19 @@ async function refresh() {
     $("position-count").textContent='未知'; $("trade-count").textContent='未知';
     $("execution-account").textContent='执行账户状态不可用，已隐藏旧统计';
     $("account-alias").textContent='当前账户未知';
+    $("health-status").textContent='链路检查未知'; workspace?.describe(null,"SANDBOX","执行状态未知");
+    $("trade-prev").disabled=true;$("trade-next").disabled=true;
     $("error").hidden=false;
   }
-  finally { state.refreshing=false; $("refresh").disabled=false; }
+  finally { clearTimeout(timeout); state.refreshing=false; $("refresh").disabled=false; }
 }
 window.addEventListener('pageshow',refresh);
 $("trade-rows").addEventListener("click",(event) => { const row=event.target.closest("tr[data-id]"); if(row) openTrade(row.dataset.id); });
-document.querySelectorAll(".tabs button").forEach((button) => button.addEventListener("click",() => { state.filter=button.dataset.filter; document.querySelectorAll(".tabs button").forEach((x)=>x.classList.toggle("selected",x===button)); if(state.data) renderTrades(state.data); }));
-$("search").addEventListener("input",(event)=>{state.search=event.target.value.trim().toLowerCase(); if(state.data) renderTrades(state.data);});
+document.querySelectorAll(".filter-tabs button").forEach((button) => button.addEventListener("click",() => { state.filter=button.dataset.filter;state.page=1; document.querySelectorAll(".filter-tabs button").forEach((x)=>x.classList.toggle("selected",x===button)); if(state.data) renderTrades(state.data); }));
+$("search").addEventListener("input",(event)=>{state.page=1;state.search=event.target.value.trim().toLowerCase(); if(state.data) renderTrades(state.data);});
+$("trade-prev").addEventListener("click",()=>{state.page--;if(state.data)renderTrades(state.data);});$("trade-next").addEventListener("click",()=>{state.page++;if(state.data)renderTrades(state.data);});
+$("health-shortcut").addEventListener("click",()=>showTab("health",true));
+$("drawer").addEventListener("cancel",closeTrade);
 $("drawer-close").addEventListener("click",closeTrade); $("drawer-shade").addEventListener("click",closeTrade);
 document.addEventListener("keydown",(event)=>{if(event.key==="Escape") closeTrade();});
 $("refresh").addEventListener("click",refresh); $("retry").addEventListener("click",refresh);

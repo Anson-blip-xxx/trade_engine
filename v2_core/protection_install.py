@@ -14,6 +14,7 @@ from v2_core.account_coverage import AccountCoverageAudit, coverage_from_facts
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
 from v2_core.protection import TestnetProtection
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState
 
 
@@ -61,13 +62,11 @@ class GuardedStopInstaller:
             return self.protection.submit_once(spec)
         if not self.allow_create:
             return {"status": "CREATION_DISABLED"}
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BUSY"}
-            guard.commit()
             # Another installer could have completed while we acquired the lock.
             existing, _ = self.protection.read(spec)
             if existing is not None:

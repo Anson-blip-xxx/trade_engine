@@ -131,6 +131,65 @@ class IncomeJournal:
             for r in rows
         ]
 
+    def assign_insurance_clear(
+        self, income_id, episode_id, *, expected_revision, evidence, connection
+    ):
+        """Apply a verified forced-close fee inside the final settlement tx.
+
+        Existing funding allocation rows intentionally remain funding-only. The
+        CORRECTION's account-global source identity prevents duplicate ownership;
+        its immutable evidence links the original income and forced order.
+        """
+        from v2_core.income_ownership import income_owner
+        from v2_core.liquidation_cash import insurance_clear_candidate
+        from v2_core.service import TradingData
+
+        income_id, episode_id = str(UUID(income_id)), str(UUID(episode_id))
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("explicit accounting revision required")
+        if not isinstance(evidence, dict) or evidence.get("fills_complete") is not True:
+            raise ValueError("complete reconciliation evidence required")
+        normalized(evidence.get("source"))
+        conn = connection
+        scope = conn.execute(
+            """SELECT exchange,account_id,environment,product,payload->>'symbol'
+            FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE""", (episode_id,)
+        ).fetchone()
+        stored = conn.execute(
+            """SELECT exchange,account_id,environment,product,income_id::text,
+            income_type,source_id,symbol,amount::text,currency,occurred_at_ms,evidence
+            FROM v2_exchange_income WHERE income_id=%s FOR UPDATE""", (income_id,)
+        ).fetchone()
+        if scope is None or stored is None or scope != (*stored[:4], stored[7]):
+            raise ValueError("income must match episode account and symbol")
+        row = dict(zip(
+            ("income_id", "income_type", "source_id", "symbol", "amount",
+             "currency", "occurred_at_ms", "evidence"), stored[4:], strict=True
+        ))
+        if row["income_type"] != "INSURANCE_CLEAR":
+            raise ValueError("verified insurance clear required")
+        if income_owner(conn, IncomeScope(*scope[:4]), row) != episode_id:
+            raise ValueError("insurance clear owner mismatch")
+        trace = TradingData(lambda: nullcontext(conn)).trace(episode_id, connection=conn)
+        candidate = insurance_clear_candidate(trace, row)
+        revision = conn.execute(
+            "SELECT accounting_revision FROM v2_episodes WHERE episode_id=%s FOR UPDATE",
+            (episode_id,),
+        ).fetchone()
+        if revision != (expected_revision,):
+            raise ValueError("stale accounting revision")
+        return Ledger(lambda: nullcontext(conn)).adjustment(
+            episode_id=episode_id,
+            source_id="insurance-clear:" + income_id,
+            amount_text=row["amount"], currency=row["currency"], kind="CORRECTION",
+            occurred_at_ms=row["occurred_at_ms"],
+            evidence={
+                "source": "verified-liquidation-insurance-clear-v1",
+                "income_id": income_id, "income_type": "INSURANCE_CLEAR",
+                "candidate": candidate, "settlement_proof": evidence,
+            },
+        )
+
     def assign_funding(
         self,
         income_id,

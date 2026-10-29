@@ -1,0 +1,189 @@
+{
+  "stage": "P1_OFFLINE_SHADOW_ACCEPTED_NOT_TRADING_ENABLED",
+  "release": "/opt/trade-engine-v2/research/range-volume-20261008-v2",
+  "qa": {
+    "passed": 108,
+    "diagnostics": "/tmp/v2-data-qa.ig4B6Q",
+    "full_repository_suite": false,
+    "fixture_correction": "Existing quant ATR integration mock no longer gives opening and closing fills the same millisecond; production precision guard unchanged"
+  },
+  "runtime": {
+    "job": "trade-v2-range-volume-smoke-v2-20261008",
+    "exit_code": 0,
+    "wall_seconds": 152.117,
+    "cpu_seconds": 75.966,
+    "memory_peak_mib": 31.8,
+    "cpu_quota": "50%",
+    "memory_limit_mib": 256,
+    "live_services_restarted": false,
+    "live_strategy_changed": false,
+    "automatic_timer_installed": false
+  },
+  "experiment": {
+    "archive_environment": "SANDBOX",
+    "minutes": 2880,
+    "timeframe_minutes": 5,
+    "entry_family": "donchian",
+    "same_input_four_variants": true,
+    "split_percent": 70,
+    "initial_equity_per_independent_symbol": "1000",
+    "funding": "NOT_SUPPLIED",
+    "fees_slippage": "SIMULATION_ASSUMPTIONS",
+    "not_actual_account_pnl": true
+  },
+  "results": [
+    {
+      "symbol": "BTCUSDT",
+      "study_id": "a4ce37b11edd435e30ed023754f14442ac0ecd25e4e47795e4649ba0b940b768",
+      "state_id": "9ef18721-3549-56c2-a714-4a51ac4e8d1f",
+      "holdout_starts_at_utc8": "2026-10-08T03:05:00+08:00",
+      "holdout": {
+        "baseline": {
+          "net_pnl": "-1.628149374485085",
+          "closed_trades": 8,
+          "allowed_candidates": 13,
+          "missed_baseline_profitable_trades": 0
+        },
+        "combined": {
+          "net_pnl": "-1.065217794369085",
+          "closed_trades": 6,
+          "allowed_candidates": 9,
+          "missed_baseline_profitable_trades": 0
+        },
+        "range": {
+          "net_pnl": "-1.065217794369085",
+          "closed_trades": 6,
+          "allowed_candidates": 9,
+          "missed_baseline_profitable_trades": 0
+        },
+        "volume": {
+          "net_pnl": "-1.628149374485085",
+          "closed_trades": 8,
+          "allowed_candidates": 13,
+          "missed_baseline_profitable_trades": 0
+        }
+      },
+      "double_cost_holdout": {
+        "baseline": {
+          "net_pnl": "-1.01449362185078",
+          "closed_trades": 2
+        },
+        "combined": {
+          "net_pnl": "-0.56963432425156",
+          "closed_trades": 1
+        },
+        "range": {
+          "net_pnl": "-0.56963432425156",
+          "closed_trades": 1
+        },
+        "volume": {
+          "net_pnl": "-1.01449362185078",
+          "closed_trades": 2
+        }
+      }
+    },
+    {
+      "symbol": "ETHUSDT",
+      "study_id": "b642dbea7721c33c27dd44aa8b3a859f73e9eabeaf1dcadff4902512a482932c",
+      "state_id": "5de03d30-8184-5f30-bf18-db6c670f0a25",
+      "holdout_starts_at_utc8": "2026-10-08T03:05:00+08:00",
+      "holdout": {
+        "baseline": {
+          "net_pnl": "-2.040014672308535",
+          "closed_trades": 7,
+          "allowed_candidates": 8,
+          "missed_baseline_profitable_trades": 0
+        },
+        "combined": {
+          "net_pnl": "-0.74263659403177",
+          "closed_trades": 2,
+          "allowed_candidates": 3,
+          "missed_baseline_profitable_trades": 1
+        },
+        "range": {
+          "net_pnl": "-0.76395752767604",
+          "closed_trades": 4,
+          "allowed_candidates": 5,
+          "missed_baseline_profitable_trades": 0
+        },
+        "volume": {
+          "net_pnl": "-2.018693738664265",
+          "closed_trades": 5,
+          "allowed_candidates": 6,
+          "missed_baseline_profitable_trades": 1
+        }
+      },
+      "double_cost_holdout": {
+        "baseline": {
+          "net_pnl": "-2.23087829523491",
+          "closed_trades": 4
+        },
+        "combined": {
+          "net_pnl": "-0.74167846808211",
+          "closed_trades": 1
+        },
+        "range": {
+          "net_pnl": "-1.47805236863441",
+          "closed_trades": 3
+        },
+        "volume": {
+          "net_pnl": "-1.49450439468261",
+          "closed_trades": 2
+        }
+      }
+    },
+    {
+      "symbol": "SOLUSDT",
+      "study_id": "a61a7c86a736c9371584cf501368efb0748ae2aae9f062ed626bdaaacf823a27",
+      "state_id": "286c192f-a7ce-576f-bdcc-fad61a90b5a4",
+      "holdout_starts_at_utc8": "2026-10-08T03:05:00+08:00",
+      "holdout": {
+        "baseline": {
+          "net_pnl": "-1.291151792773055",
+          "closed_trades": 5,
+          "allowed_candidates": 6,
+          "missed_baseline_profitable_trades": 0
+        },
+        "combined": {
+          "net_pnl": "-1.291151792773055",
+          "closed_trades": 5,
+          "allowed_candidates": 6,
+          "missed_baseline_profitable_trades": 0
+        },
+        "range": {
+          "net_pnl": "-1.291151792773055",
+          "closed_trades": 5,
+          "allowed_candidates": 6,
+          "missed_baseline_profitable_trades": 0
+        },
+        "volume": {
+          "net_pnl": "-1.291151792773055",
+          "closed_trades": 5,
+          "allowed_candidates": 6,
+          "missed_baseline_profitable_trades": 0
+        }
+      },
+      "double_cost_holdout": {
+        "baseline": {
+          "net_pnl": "-2.1373079423822",
+          "closed_trades": 5
+        },
+        "combined": {
+          "net_pnl": "-2.1373079423822",
+          "closed_trades": 5
+        },
+        "range": {
+          "net_pnl": "-2.1373079423822",
+          "closed_trades": 5
+        },
+        "volume": {
+          "net_pnl": "-2.1373079423822",
+          "closed_trades": 5
+        }
+      }
+    }
+  ],
+  "conclusion": "No profitable edge established. Combined filter reduced loss on BTC and ETH in this short sample, unchanged SOL, and excluded one profitable ETH baseline trade. Keep research-only; do not auto-select parameters from this holdout.",
+  "cost_stress_caveat": "Doubled costs also change sizing and minimum-quantity eligibility. Fewer fills can reduce total loss and must not be misread as robustness.",
+  "server_persistence_replay": "All three reports replayed at version 1 with exactly one history row each"
+}

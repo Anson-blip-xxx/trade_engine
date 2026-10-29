@@ -16,6 +16,22 @@ from v2_core.state import StateKey, normalized
 from v2_core.transport import ExchangeTransportError
 
 
+def protection_error_evidence(exc):
+    """Keep actionable, bounded transport facts without persisting messages."""
+    result = {"class": type(exc).__name__}
+    if isinstance(exc, ExchangeTransportError):
+        # Use the transport implementation rather than an arbitrary exception's
+        # method/attributes: response text, request URLs and credentials are not
+        # diagnostic evidence that is safe to persist or send to an operator.
+        safe = ExchangeTransportError.diagnostic_evidence(exc)
+        result.update(
+            category=safe["category"],
+            code=safe.get("exchange_code"),
+            http_status=safe.get("http_status"),
+        )
+    return result
+
+
 @dataclass(frozen=True)
 class ProtectionSpec:
     episode: str
@@ -99,8 +115,11 @@ class TestnetProtection:
     def submit_once(self, spec):
         snapshot, payload = self.read(spec)
         if snapshot is not None:
-            if payload["status"] == "REJECTED":
-                return {"status": "REJECTED", "error": payload["submission_error"]}
+            if payload["status"] in {"REJECTED", "NOT_SENT"}:
+                return {
+                    "status": payload["status"],
+                    "error": payload.get("submission_error", {}),
+                }
             return self.query(spec)
         # Commit before network. Crashes at any later instruction recover by
         # the original clientAlgoId; not-found never authorizes a second POST.
@@ -113,12 +132,16 @@ class TestnetProtection:
         except Exception as exc:  # noqa: BLE001 - ambiguous writes are never retried
             payload.update(
                 status="UNKNOWN",
-                submission_error={
-                    "class": type(exc).__name__,
-                    "code": getattr(exc, "code", None),
-                    "http_status": getattr(exc, "status", None),
-                },
+                submission_error=protection_error_evidence(exc),
             )
+            # These two gates fail before constructing/sending an HTTP request.
+            # Distinguish them from an ambiguous network outcome. This is NOT
+            # permission to retry a POST: the guarded lifecycle can instead
+            # reduce the unprotected exposure, preserving the original identity.
+            if isinstance(exc, ExchangeTransportError) and payload[
+                "submission_error"
+            ].get("category") in {"QUOTA_DENIED", "ENDPOINT_OR_WRITE_DISABLED"}:
+                payload["status"] = "NOT_SENT"
             # Explicit parameter rejection only. Do not treat a timeout,
             # duplicate ID, unknown error or not-found query as non-execution.
             if (
@@ -131,15 +154,32 @@ class TestnetProtection:
             payload.update(status="ACK_RECEIVED", submission=raw)
         if not self.save(spec, snapshot, payload):
             return {"status": "CONCURRENT_CHANGE"}
-        if payload["status"] == "REJECTED":
-            return {"status": "REJECTED", "error": payload["submission_error"]}
+        if payload["status"] in {"REJECTED", "NOT_SENT"}:
+            return {
+                "status": payload["status"],
+                "error": payload.get("submission_error", {}),
+            }
         return self.query(spec)
 
     def query(self, spec):
         snapshot, payload = self.read(spec)
         if snapshot is None:
             raise ValueError("unregistered protection")
-        for attempt in range(5):
+        if payload["status"] == "EXTERNAL_FLAT_RECONCILED":
+            # This is a local reconciliation marker, not a venue order status.
+            # The supervisor validates its independent evidence and ledger; no
+            # caller may interpret it as a venue CANCELED/EXPIRED confirmation.
+            return {"status": "EXTERNAL_FLAT_RECONCILED"}
+        if payload["status"] in {"REJECTED", "NOT_SENT"}:
+            return {
+                "status": payload["status"],
+                "error": payload.get("submission_error", {}),
+            }
+        # Visibility retries are useful immediately after an ACK, not for a
+        # permanently absent UNKNOWN parent scanned every trading cycle. An
+        # absent UNKNOWN order remains ambiguous and never authorizes a POST.
+        attempts = 5 if payload["status"] == "ACK_RECEIVED" else 1
+        for attempt in range(attempts):
             try:
                 raw = self.request(
                     "GET",
@@ -148,7 +188,7 @@ class TestnetProtection:
                 )
                 break
             except ExchangeTransportError as exc:
-                if exc.code != -2013 or attempt == 4:
+                if exc.code != -2013 or attempt == attempts - 1:
                     raise
                 time.sleep(0.25)  # newly ACKed algos may not be query-visible yet
         expected = self.params(spec)
@@ -194,7 +234,7 @@ class TestnetProtection:
             "client_algo_id": raw["clientAlgoId"],
         }
 
-    def cancel_flat_once(self, spec):
+    def cancel_flat_once(self, spec, *, symbol_only=False):
         """Flat-account test cleanup only; not safe replacement of a live stop."""
         result = self.query(spec)
         if result["status"] != "NEW":
@@ -203,6 +243,17 @@ class TestnetProtection:
         if payload.get("cancel_started"):
             return {**result, "status": "CANCEL_PENDING_QUERY_ONLY"}
         rows = self.request("GET", "/fapi/v3/positionRisk", {})
+        if type(symbol_only) is not bool:
+            raise ValueError("explicit cleanup scope required")
+        if symbol_only:
+            if not isinstance(rows, list) or any(
+                not isinstance(p, dict)
+                or not isinstance(p.get("symbol"), str)
+                or p.get("positionSide") != "BOTH"
+                for p in rows
+            ):
+                raise ValueError("invalid symbol cleanup inventory")
+            rows = [p for p in rows if p["symbol"] == spec.symbol]
         if not isinstance(rows, list) or any(
             amount(p["positionAmt"]) != 0 for p in rows
         ):

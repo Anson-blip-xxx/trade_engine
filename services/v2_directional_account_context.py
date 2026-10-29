@@ -5,8 +5,12 @@ returned; it never submits, cancels, protects or closes an exchange order.
 """
 
 import json
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import asdict
-from decimal import Decimal
+from functools import partial
+from threading import Lock
 from uuid import uuid4
 
 from v2_core.account_risk import AccountPolicy, AccountScope
@@ -18,8 +22,97 @@ from v2_core.ledger import amount
 from v2_core.state import BusinessState, StateKey
 
 
+def _short_ratio(response, target, *, now, max_age_ms):
+    """Validate exchange event time, never the time of a fetch/cache hit."""
+    if (
+        not isinstance(response, list)
+        or not 1 <= len(response) <= 3
+        or not isinstance(response[-1], dict)
+    ):
+        raise ValueError("SHORT_RATIO_MISSING")
+    row = response[-1]
+    if row.get("symbol") != target:
+        raise ValueError("SHORT_RATIO_SCOPE")
+    value = format(number(row["shortAccount"], minimum=0, maximum=1).normalize(), "f")
+    if type(row.get("timestamp")) is not int:
+        raise ValueError("SHORT_RATIO_TIMESTAMP")
+    observed = milliseconds(row["timestamp"])
+    if not 0 <= now - observed <= max_age_ms:
+        raise ValueError("SHORT_RATIO_STALE")
+    return value, observed
+
+
+class _PublicSentimentCache:
+    """Small in-memory optimization for one fixed public endpoint only.
+
+    Source timestamps and environments are retained. Unknown, invalid and stale
+    responses are never cached. No account/private data enters this cache. The
+    striped locks bound memory and coalesce concurrent same-symbol reads without
+    serializing all symbols. Restart loses only a performance optimization.
+    """
+
+    def __init__(self, public, clock_ms, *, ttl_ms=30000, max_entries=256):
+        if (
+            type(ttl_ms) is not int
+            or not 0 <= ttl_ms <= 60000
+            or type(max_entries) is not int
+            or not 1 <= max_entries <= 1024
+        ):
+            raise ValueError("SENTIMENT_CACHE_BOUNDS")
+        self.public, self.clock = public, clock_ms
+        self.ttl_ms, self.max_entries = ttl_ms, max_entries
+        self._entries = OrderedDict()
+        self._lock = Lock()
+        self._stripes = tuple(Lock() for _ in range(32))
+
+    def read(self, target, *, max_age_ms):
+        target = symbol(target)
+        key = (self.public.environment, target, "1h", 3)
+        with self._stripes[hash(key) % len(self._stripes)]:
+            now = milliseconds(self.clock())
+            with self._lock:
+                cached = self._entries.pop(key, None)
+                if cached is not None:
+                    received, response = cached
+                    if 0 <= now - received < self.ttl_ms:
+                        try:
+                            _short_ratio(
+                                response, target, now=now, max_age_ms=max_age_ms
+                            )
+                        except (ValueError, TypeError, KeyError):
+                            pass  # Fetch again; an old cache is never a fallback.
+                        else:
+                            self._entries[key] = cached
+                            return deepcopy(response)
+            response = self.public(
+                "/futures/data/globalLongShortAccountRatio",
+                {"symbol": target, "period": "1h", "limit": 3},
+            )
+            received = milliseconds(self.clock())
+            _short_ratio(response, target, now=received, max_age_ms=max_age_ms)
+            # API limit=3 and a bounded encoded size prevent oversized public
+            # responses from creating an unbounded memory cache.
+            if self.ttl_ms and len(canonical({"response": response})) <= 16384:
+                with self._lock:
+                    self._entries[key] = (received, deepcopy(response))
+                    while len(self._entries) > self.max_entries:
+                        self._entries.popitem(last=False)
+            return response
+
+
 def expected_move(signal):
     kind, features = signal["signal"], signal["features"]
+    if kind.startswith("QUANT_"):
+        from v2_core.directional import supports_event
+
+        if (
+            not (supports_event("S6", kind) or supports_event("S8", kind))
+            or features.get("expected_move_model") != "ATR_TARGET_NOT_FORECAST"
+        ):
+            raise ValueError("QUANT_TARGET_MODEL_REQUIRED")
+        return format(
+            amount(features["quant_target_move_pct"], positive=True).normalize(), "f"
+        )
     field = (
         "chg_15m"
         if kind in {"PULSE_UP", "PULSE_DOWN", "PUMP_UP", "PUMP_DOWN", "PANIC_SELL"}
@@ -172,6 +265,9 @@ class BinanceDirectionalAccountContext:
         max_age_ms=15000,
         sentiment_max_age_ms=7200000,
         history_max_age_ms=120000,
+        sentiment_cache_ttl_ms=30000,
+        sentiment_cache_max_entries=256,
+        reserve_context=None,
     ):
         sentiment_market = (
             public_market if sentiment_market is None else sentiment_market
@@ -198,6 +294,7 @@ class BinanceDirectionalAccountContext:
             or not 3600000 <= sentiment_max_age_ms <= 7200000
             or type(history_max_age_ms) is not int
             or not 1000 <= history_max_age_ms <= 600000
+            or (reserve_context is not None and not callable(reserve_context))
         ):
             raise ValueError("explicit scoped account context dependencies required")
         self.connect, self.request, self.public, self.sentiment, self.history = (
@@ -217,6 +314,13 @@ class BinanceDirectionalAccountContext:
             sentiment_max_age_ms,
             history_max_age_ms,
         )
+        self.reserve_context = reserve_context
+        self._sentiment_cache = _PublicSentimentCache(
+            sentiment_market,
+            clock_ms,
+            ttl_ms=sentiment_cache_ttl_ms,
+            max_entries=sentiment_cache_max_entries,
+        )
 
     def __call__(self, signal):
         target = symbol(signal["symbol"])
@@ -224,36 +328,120 @@ class BinanceDirectionalAccountContext:
         from v2_core.runtime_policy import PolicyStore
 
         profile = PolicyStore(self.connect, self.scope).read()
+        from v2_core.entry_controls import read as read_entry_controls
+
+        entry_controls = read_entry_controls(self.connect, self.scope)
+        budget_enabled = entry_controls.values["sizing.remaining_budget_enabled"]
+        if budget_enabled and (
+            not target.endswith("USDT")
+            or not all(
+                profile.values[key]
+                for key in (
+                    "capital.enabled",
+                    "capital.model_enabled",
+                    "portfolio_risk.enabled",
+                )
+            )
+        ):
+            raise ValueError("SIZING_BUDGET_REQUIRES_USDT_CAPITAL_GUARDS")
         leverage_venue = None
+        # Fail fast on an already full PG risk budget. The final budget read
+        # below and atomic submission reservation remain authoritative.
+        _risk_budget(self.connect, self.scope, target)
+        # A stale/invalid public ratio must not consume 7-9 account/public GETs.
+        # Validate before any signed request; recheck the original event time at
+        # the end of collection and bind it into the returned evidence deadline.
+        if self._sentiment_cache.public is not self.sentiment:
+            # A replaced public adapter must not reuse another source's cache.
+            self._sentiment_cache = _PublicSentimentCache(
+                self.sentiment,
+                self.clock,
+                ttl_ms=self._sentiment_cache.ttl_ms,
+                max_entries=self._sentiment_cache.max_entries,
+            )
+        ratio = self._sentiment_cache.read(target, max_age_ms=self.sentiment_max_age)
+        preflight_finished = milliseconds(self.clock())
+        _short_ratio(
+            ratio, target, now=preflight_finished, max_age_ms=self.sentiment_max_age
+        )
+        if not started <= preflight_finished <= started + self.max_age:
+            raise ValueError("ACCOUNT_CONTEXT_DEADLINE")
+        request, public = self.request, self.public
+        if self.reserve_context is not None:
+            # Reserve the complete read set once. Explicit per-invocation
+            # bindings are safe across workers; never mutate shared transports.
+            ticket = self.reserve_context(
+                account_id=self.scope.account_id,
+                symbol=target,
+                adaptive=profile.values["leverage.adaptive_enabled"],
+                deadline_ms=started + self.max_age,
+            )
+            if ticket is None:
+                raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
+            request = partial(request, admission_ticket=ticket)
+            public = partial(
+                public, admission_ticket=ticket, account_id=self.scope.account_id
+            )
+        before = request("GET", "/fapi/v3/positionRisk", {})
+        _target_position(before, target)  # Already-held symbols need no further I/O.
+        # Independent GETs only. Never cache balances or parallelise admission /
+        # order writes. All reads finish before the second position observation;
+        # the original evidence interval, quotas and final risk gate still apply.
+        reads = (
+            (request, ("GET", "/fapi/v3/account", {})),
+            (request, ("GET", "/fapi/v1/accountConfig", {})),
+            (request, ("GET", "/fapi/v1/symbolConfig", {"symbol": target})),
+            (public, ("/fapi/v1/exchangeInfo", {})),
+            (public, ("/fapi/v1/premiumIndex", {"symbol": target})),
+        )
+        if profile.values["leverage.adaptive_enabled"]:
+            reads += (
+                (request, ("GET", "/fapi/v1/leverageBracket", {"symbol": target})),
+                (public, ("/fapi/v1/ticker/bookTicker", {"symbol": target})),
+            )
+        with ThreadPoolExecutor(
+            max_workers=profile.values["context.read_workers"]
+        ) as pool:
+            futures = [pool.submit(port, *args) for port, args in reads]
+            values, failures = [], []
+            for future in futures:
+                try:
+                    values.append(future.result())
+                except Exception as exc:  # noqa: BLE001 - inspect every completed read
+                    values.append(None)
+                    failures.append(exc)
+            if failures:
+                # A real 429/DB/network failure must not be hidden by another
+                # worker observing the penalty/deadline and denying its ticket.
+                primary = next(
+                    (
+                        exc
+                        for exc in failures
+                        if not (
+                            type(exc) is ValueError
+                            and exc.args == ("ADMISSION_BUDGET_UNAVAILABLE",)
+                        )
+                    ),
+                    failures[0],
+                )
+                raise primary
+        account, account_config, config, exchange, premium = values[:5]
         if profile.values["leverage.adaptive_enabled"]:
             from v2_core.adaptive_leverage import venue_facts
 
-            brackets = self.request(
-                "GET", "/fapi/v1/leverageBracket", {"symbol": target}
-            )
-            book = self.public("/fapi/v1/ticker/bookTicker", {"symbol": target})
             leverage_venue = venue_facts(
-                brackets,
-                book,
+                values[5],
+                values[6],
                 target,
                 started=started,
                 finished=self.clock(),
                 max_age_ms=self.max_age,
             )
-        # Fail fast on an already full PG risk budget. The final budget read
-        # below and atomic submission reservation remain authoritative.
-        _risk_budget(self.connect, self.scope, target)
-        before = self.request("GET", "/fapi/v3/positionRisk", {})
-        account = self.request("GET", "/fapi/v3/account", {})
-        account_config = self.request("GET", "/fapi/v1/accountConfig", {})
-        config = self.request("GET", "/fapi/v1/symbolConfig", {"symbol": target})
-        exchange = self.public("/fapi/v1/exchangeInfo", {})
-        ratio = self.sentiment(
-            "/futures/data/globalLongShortAccountRatio",
-            {"symbol": target, "period": "1h", "limit": 3},
-        )
-        premium = self.public("/fapi/v1/premiumIndex", {"symbol": target})
-        after = self.request("GET", "/fapi/v3/positionRisk", {})
+            leverage_venue.update(
+                environment=self.scope.environment,
+                source_host="demo-fapi.binance.com",
+            )
+        after = request("GET", "/fapi/v3/positionRisk", {})
         # History is part of the same evidence collection interval. Capturing
         # ``finished`` before this PG read made a real advancing clock see the
         # freshly observed history as coming from the future.
@@ -278,10 +466,10 @@ class BinanceDirectionalAccountContext:
         ):
             raise ValueError("ACCOUNT_MODE_UNVERIFIED")
         balance = format(
-            amount(account["totalWalletBalance"], positive=True).normalize(), "f"
+            number(account["totalWalletBalance"], minimum=0).normalize(), "f"
         )
         available = format(
-            amount(account["availableBalance"], positive=True).normalize(), "f"
+            number(account["availableBalance"], minimum=0).normalize(), "f"
         )
         used = amount(account["totalInitialMargin"]) + amount(
             account["totalOpenOrderInitialMargin"]
@@ -290,6 +478,16 @@ class BinanceDirectionalAccountContext:
 
         profile = PolicyStore(self.connect, self.scope).read()
         capital_health = None
+        stop_budget = None
+        if budget_enabled and not all(
+            profile.values[key]
+            for key in (
+                "capital.enabled",
+                "capital.model_enabled",
+                "portfolio_risk.enabled",
+            )
+        ):
+            raise ValueError("SIZING_BUDGET_REQUIRES_USDT_CAPITAL_GUARDS")
         if profile.values["capital.enabled"]:
             from v2_core.capital_model import current_health
 
@@ -298,6 +496,19 @@ class BinanceDirectionalAccountContext:
                 self.connect, self.scope, account, profile.values
             )
             balance = capital_health["base"]
+            if profile.values["portfolio_risk.enabled"]:
+                from v2_core.capital_model import portfolio_budget
+
+                with self.connect() as conn:
+                    stop_budget = portfolio_budget(
+                        conn,
+                        self.scope,
+                        settings=profile.values,
+                        capital=capital_health,
+                    )
+        finished = milliseconds(self.clock())
+        if not started <= finished <= started + self.max_age:
+            raise ValueError("ACCOUNT_CONTEXT_DEADLINE")
         if used < 0:
             raise ValueError("INVALID_USED_MARGIN")
         rules = _rules(exchange, config, target)
@@ -309,18 +520,9 @@ class BinanceDirectionalAccountContext:
                 ).normalize(),
                 "f",
             )
-        if not isinstance(ratio, list) or not ratio or not isinstance(ratio[-1], dict):
-            raise ValueError("SHORT_RATIO_MISSING")
-        if ratio[-1].get("symbol") != target:
-            raise ValueError("SHORT_RATIO_SCOPE")
-        short_ratio = format(
-            number(ratio[-1]["shortAccount"], minimum=0, maximum=1).normalize(), "f"
+        short_ratio, ratio_at = _short_ratio(
+            ratio, target, now=finished, max_age_ms=self.sentiment_max_age
         )
-        if type(ratio[-1].get("timestamp")) is not int:
-            raise ValueError("SHORT_RATIO_TIMESTAMP")
-        ratio_at = milliseconds(ratio[-1]["timestamp"])
-        if not 0 <= finished - ratio_at <= self.sentiment_max_age:
-            raise ValueError("SHORT_RATIO_STALE")
         if not isinstance(premium, dict) or premium.get("symbol") != target:
             raise ValueError("FUNDING_RATE_MISSING")
         funding = format(
@@ -331,6 +533,19 @@ class BinanceDirectionalAccountContext:
         funding_at = milliseconds(premium["time"])
         if not 0 <= finished - funding_at <= self.max_age:
             raise ValueError("FUNDING_RATE_STALE")
+        sizing_budget = {}
+        if budget_enabled:
+            if premium.get("markPrice") is None:
+                raise ValueError("SIZING_MARK_PRICE_MISSING")
+            sizing_budget = {
+                "remaining_portfolio_risk": stop_budget["remaining_stop_risk"],
+                "sizing_mark_price": format(
+                    amount(premium["markPrice"], positive=True), "f"
+                ),
+                "price_drift_fraction": entry_controls.values[
+                    "sizing.price_drift_fraction"
+                ],
+            }
         if (
             not isinstance(history, dict)
             or set(history) != {"stats", "evidence", "observed_at_ms", "valid_until_ms"}
@@ -365,12 +580,25 @@ class BinanceDirectionalAccountContext:
             "used_pool_margin": format(used.normalize(), "f"),
             "rules": rules,
             "account_risk_budget": risk_budget,
+            "portfolio_stop_budget": stop_budget,
+            **(
+                {
+                    "entry_controls": entry_controls.snapshot(),
+                    "sizing_budget_inputs": sizing_budget,
+                }
+                if budget_enabled
+                else {}
+            ),
             "short_ratio": short_ratio,
             "funding_rate": funding,
             "leverage_venue": leverage_venue,
             "market_sources": {
                 "contract_environment": self.public.environment,
                 "sentiment_environment": self.sentiment.environment,
+            },
+            "market_observed_at_ms": {
+                "long_short_ratio": ratio_at,
+                "premium_index": funding_at,
             },
             "response_digests": {
                 name: digest(canonical({"response": value}))
@@ -413,6 +641,8 @@ class BinanceDirectionalAccountContext:
         drawdown = json.loads(snapshot.payload_json)
         deadline = min(
             started + self.max_age + 1,
+            ratio_at + self.sentiment_max_age + 1,
+            funding_at + self.max_age + 1,
             history["valid_until_ms"],
             history["observed_at_ms"] + self.history_max_age + 1,
             drawdown["observation"]["observed_at_ms"]
@@ -432,6 +662,8 @@ class BinanceDirectionalAccountContext:
                 deadline=deadline,
                 observation_id=identity,
             )
+        from v2_core.drawdown_observation import sizing_factor
+
         return {
             "account_scope": asdict(self.scope),
             "symbol": target,
@@ -444,7 +676,17 @@ class BinanceDirectionalAccountContext:
                 "drawdown_version": snapshot.version,
                 "history": history["evidence"],
                 "account_risk_budget": risk_budget,
+                "portfolio_stop_budget": stop_budget,
+                **(
+                    {
+                        "entry_controls": entry_controls.snapshot(),
+                        "sizing_mark_observed_at_ms": funding_at,
+                    }
+                    if budget_enabled
+                    else {}
+                ),
                 "sentiment_environment": self.sentiment.environment,
+                "sentiment_observed_at_ms": ratio_at,
             },
             "short_ratio": short_ratio,
             "history": history["stats"],
@@ -453,12 +695,22 @@ class BinanceDirectionalAccountContext:
                 "available_margin": available,
                 "used_pool_margin": format(used.normalize(), "f"),
                 **rules,
+                **(
+                    {"remaining_portfolio_risk": stop_budget["remaining_stop_risk"]}
+                    if stop_budget
+                    else {}
+                ),
+                **sizing_budget,
                 "drawdown_factor": str(
-                    min(
-                        Decimal(drawdown["state"]["factor"]),
-                        Decimal(capital_health["factor"])
-                        if capital_health
-                        else Decimal(1),
+                    sizing_factor(
+                        drawdown["state"]["factor"],
+                        capital_health,
+                        {
+                            "capital.drawdown_guard_enabled": (
+                                capital_health or {}
+                            ).get("drawdown_guard_enabled", True)
+                        },
+                        self.scope.environment,
                     )
                 ),
             },

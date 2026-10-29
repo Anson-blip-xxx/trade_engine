@@ -1,0 +1,485 @@
+{
+  "change_set": "simple-entry-20261021-v4",
+  "status": "DEPLOYED_SANDBOX_ENTRY_PROTECTION_VERIFIED",
+  "timezone": "Asia/Shanghai",
+  "execution_base": "/opt/trade-engine-v2/releases/jev-advisory-20261021-v1",
+  "parent_manifest": "JEV_REFERENCE_PARENT_MANIFEST.json",
+  "flow": [
+    "fresh signal",
+    "existing deterministic admission and hard risk",
+    "bounded JEV review",
+    "existing guarded order submission",
+    "independent protection and exit",
+    "settlement and review"
+  ],
+  "runtime_changes": {
+    "v2_core/strategy.py": "8c8a95f4db99b600b729d58bd8e280b458f0f086f76642f21a210579c3577107",
+    "v2_core/jev_entry_gate.py": "22221784149152d78a55060512862f07ac5d1ba47527a3ea709d0f501ea5e202",
+    "services/v2_jev_entry_context.py": "0c93f8fbd342f75d7086db1eecb169d6b25c645bc546db6030842a8c23d501e6",
+    "services/v2_opening_quarantine.py": "a2a04ad6b32263e0dd184419cf29dc552d6daa2d9d24e945b61c89b7ab8dcf5f",
+    "services/v2_directional_admission.py": "82128ec14753e9fd2ef325453b931e92c7414f564843daaa116e68fe7c175417",
+    "services/v2_managed_testnet.py": "1781ff823d9760da01a8bc6a0baeaaba0a5f95b9db961dae0d8f1c3818a701f0",
+    "services/v2_testnet_daemon_entry.py": "a5311b2df2b71de1e4a9fb79587b821140e25a3d6388d1d650aa6594874df5c1",
+    "v2_core/shared_market.py": "560ef3fd0c168ea86e06dacf8eb0a43f0474d2f896afa2caa31dab69bae0720b",
+    "v2_core/scheduling.py": "02f3197d6ab8e7f7e5f18e3597ac457363b32989056705fbf8e3e6a1fd73bdf1",
+    "v2_core/account_inventory.py": "9de905fef44d351d96402c972a61ed8c2cf6a63330b918185816036394bd0234",
+    "v2_core/account_coverage.py": "d11ced7103526301a881d3c2adc8485fb776fbe9bb5c793a3147a96c2a44db10",
+    "v2_core/symbol_reduction.py": "594cd59c9767e4b50458122a9de615e431e0d63d50b83a1ad68ef087d4e2ca29",
+    "services/v2_directional_exit.py": "14f704b2a8cdb3f618dfff482cd6baf9afe4a76d6a128bf4ffade129598c73ec",
+    "services/v2_trading_pipeline.py": "c0e465cd93876ddde3607d49b57fa3ae58b4a76506e900dead3c124da3adef12",
+    "db/migrations/20261021_fresh_capital_baseline.sql": "4b7dc5fc4a1bf05ead9a2c3258f3945a76a5ee1b53452edb5bc9aa00cedb841b"
+  },
+  "qa": {
+    "tests": [
+      "tests/v2_core/test_v2_jev_advisory.py",
+      "tests/v2_core/test_v2_jev_coordinator.py",
+      "tests/v2_core/test_v2_jev_reference.py",
+      "tests/v2_core/test_v2_jev_evidence.py",
+      "tests/v2_core/test_v2_jev_entry_gate.py",
+      "tests/v2_core/test_v2_jev_entry_context.py",
+      "tests/v2_core/test_v2_jev_strategy_filter.py",
+      "tests/v2_core/test_v2_opening_quarantine.py",
+      "tests/v2_core/test_v2_jev_fullflow.py",
+      "tests/v2_core/test_v2_directional_admission.py",
+      "tests/v2_core/test_v2_testnet_daemon_entry.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_recovery_read_budget.py",
+      "tests/v2_core/test_v2_cooperative_drain.py",
+      "tests/v2_core/test_v2_symbol_exit_isolation.py",
+      "tests/v2_core/test_v2_symbol_reduction.py",
+      "tests/v2_core/test_v2_fresh_capital_baseline.py",
+      "tests/v2_core/test_v2_managed_resume.py",
+      "tests/v2_core/test_v2_managed_guard_wiring.py",
+      "tests/v2_core/test_v2_admission_budget.py",
+      "tests/v2_core/test_v2_shared_market.py",
+      "tests/v2_core/test_v2_directional_account_context.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_admission_transport_failures.py",
+      "tests/v2_core/test_v2_combined_inventory.py",
+      "tests/v2_core/test_v2_combined_reduction.py",
+      "tests/v2_core/test_v2_same_cycle_coverage.py",
+      "tests/v2_core/test_v2_account_coverage.py",
+      "tests/v2_core/test_v2_account_inventory.py",
+      "tests/v2_core/test_v2_parallel_inventory.py",
+      "tests/v2_core/test_v2_directional_lifecycle.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_protection_install.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_jev_same_cycle.py",
+      "tests/v2_core/test_v2_signal_context_isolation.py"
+    ],
+    "isolated_pg_and_redis": true,
+    "external_exchange_and_model_fakes": true,
+    "actual_new_roundtrip_verified": false,
+    "whole_repository_pass_claim": false,
+    "earlier_combined_825": {
+      "passed": 825,
+      "failed": 0,
+      "diagnostics": "/tmp/v2-data-qa.1AjArz"
+    },
+    "final_attempt_before_test_fixture_fix": {
+      "passed": 1074,
+      "failed": 2,
+      "seconds": 264.58,
+      "diagnostics": "/tmp/v2-data-qa.72jmS6",
+      "reason": "New test unpacked mixed fake HTTP call-log formats incorrectly; no runtime logic changed for this correction."
+    },
+    "corrected_combined_reduction": {
+      "passed": 9,
+      "failed": 0,
+      "diagnostics": "/tmp/v2-data-qa.VjMRSm"
+    },
+    "v2_final_combined": {
+      "passed": 1076,
+      "failed": 0,
+      "seconds": 267.88,
+      "diagnostics": "/tmp/v2-data-qa.gzwxYd",
+      "exit_code": 0
+    },
+    "followup_focused_first_attempt": {
+      "passed": 31,
+      "failed": 1,
+      "seconds": 13.23,
+      "diagnostics": "/tmp/v2-data-qa.xWK6bz",
+      "failure": "New test queried a non-existent symbol column instead of payload->>'symbol'; test SQL corrected only."
+    },
+    "v3_final_combined": {
+      "passed": 1108,
+      "failed": 0,
+      "seconds": 283.15,
+      "diagnostics": "/tmp/v2-data-qa.IyU04y",
+      "exit_code": 0
+    },
+    "v4_targeted_tests": [
+      "tests/v2_core/test_v2_admission_capacity_profile.py",
+      "tests/v2_core/test_v2_shared_market.py",
+      "tests/v2_core/test_v2_admission_budget.py",
+      "tests/v2_core/test_v2_admission_transport_failures.py",
+      "tests/v2_core/test_v2_jev_entry_context.py",
+      "tests/v2_core/test_v2_jev_same_cycle.py",
+      "tests/v2_core/test_v2_jev_fullflow.py",
+      "tests/v2_core/test_v2_jev_strategy_filter.py",
+      "tests/v2_core/test_v2_signal_context_isolation.py"
+    ],
+    "v4_targeted_first_attempt": {
+      "passed": 166,
+      "failed": 5,
+      "seconds": 46.27,
+      "diagnostics": "/tmp/v2-data-qa.63vJyf",
+      "reason": "New capacity test fetched PostgreSQL -infinity as Python datetime; test-only query now casts blocked_until to text without changing assertions."
+    },
+    "v4_targeted_final": {
+      "passed": 171,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 46.24,
+      "exit_code": 0,
+      "diagnostics": "/tmp/v2-data-qa.jGqUn7",
+      "log_sha256": "9ff73aeac083f8a3a0f6266dcec0f8f967a4821af5e4e1964a5ad7447c2c4f10"
+    },
+    "final_combined": {
+      "passed": 1118,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 299.46,
+      "exit_code": 0,
+      "diagnostics": "/tmp/v2-data-qa.d4Eq7I",
+      "log_sha256": "e07be1d41b549d8991c80498907dbc1c0219466c8d888282522a456341bf0503",
+      "tests": [
+        "tests/v2_core/test_v2_jev_advisory.py",
+        "tests/v2_core/test_v2_jev_coordinator.py",
+        "tests/v2_core/test_v2_jev_reference.py",
+        "tests/v2_core/test_v2_jev_evidence.py",
+        "tests/v2_core/test_v2_jev_entry_gate.py",
+        "tests/v2_core/test_v2_jev_entry_context.py",
+        "tests/v2_core/test_v2_jev_strategy_filter.py",
+        "tests/v2_core/test_v2_opening_quarantine.py",
+        "tests/v2_core/test_v2_jev_fullflow.py",
+        "tests/v2_core/test_v2_directional_admission.py",
+        "tests/v2_core/test_v2_testnet_daemon_entry.py",
+        "tests/v2_core/test_v2_trading_pipeline.py",
+        "tests/v2_core/test_v2_recovery_read_budget.py",
+        "tests/v2_core/test_v2_cooperative_drain.py",
+        "tests/v2_core/test_v2_symbol_exit_isolation.py",
+        "tests/v2_core/test_v2_symbol_reduction.py",
+        "tests/v2_core/test_v2_fresh_capital_baseline.py",
+        "tests/v2_core/test_v2_managed_resume.py",
+        "tests/v2_core/test_v2_managed_guard_wiring.py",
+        "tests/v2_core/test_v2_admission_budget.py",
+        "tests/v2_core/test_v2_shared_market.py",
+        "tests/v2_core/test_v2_directional_account_context.py",
+        "tests/v2_core/test_v2_scheduler_fairness.py",
+        "tests/v2_core/test_v2_admission_transport_failures.py",
+        "tests/v2_core/test_v2_combined_inventory.py",
+        "tests/v2_core/test_v2_combined_reduction.py",
+        "tests/v2_core/test_v2_same_cycle_coverage.py",
+        "tests/v2_core/test_v2_account_coverage.py",
+        "tests/v2_core/test_v2_account_inventory.py",
+        "tests/v2_core/test_v2_parallel_inventory.py",
+        "tests/v2_core/test_v2_directional_lifecycle.py",
+        "tests/v2_core/test_v2_directional_exit_stage.py",
+        "tests/v2_core/test_v2_protection_install.py",
+        "tests/v2_core/test_v2_directional_settlement.py",
+        "tests/v2_core/test_v2_jev_same_cycle.py",
+        "tests/v2_core/test_v2_signal_context_isolation.py",
+        "tests/v2_core/test_v2_admission_capacity_profile.py"
+      ],
+      "test_file_count": 37,
+      "ephemeral_database_cleaned": true,
+      "scope": "selected entry/risk/execution/protection/settlement regressions; not entire repository"
+    },
+    "actual_new_entry_and_native_stop_verified": true
+  },
+  "semantics": {
+    "default_gate_enabled": false,
+    "planned_actual_sandbox_gate_enabled": true,
+    "model_can_override_risk": false,
+    "model_can_resize_order": false,
+    "deadline_ms": 30000,
+    "stale_approval_dispatch_denied": true,
+    "model_failure_skips_only_current_signal": true,
+    "exit_depends_on_model": false,
+    "authority_storage": "PostgreSQL",
+    "keys_in_repo": false,
+    "daemon_interval_seconds": 15,
+    "model_review_deadline_ms": 30000,
+    "shared_host_total_weight_limit": 2000,
+    "noncritical_weight_limit": 550,
+    "management_reserved_weight": 1450,
+    "combined_account_config": true,
+    "same_cycle_diagnostic_max_age_from_start_ms": 5000,
+    "dispatch_and_stop_install_always_fresh": true,
+    "unlimited_management_burst_guarantee": false,
+    "same_lease_jev_continuation": {
+      "max_rechecks": 1,
+      "poll_ceiling_ms": 2000,
+      "bounded_by_model_policy": true,
+      "bounded_by_scheduler_and_lease": true,
+      "new_account_context": true,
+      "risk_rerun": true,
+      "no_deadline_extension": true,
+      "no_management_quota_fallback": true,
+      "absolute_wall_clock_guarantee": false
+    },
+    "stale_context_isolation": {
+      "stage": "CONTEXT",
+      "exception": "ValueError",
+      "codes": [
+        "STALE_CONTEXT",
+        "SIGNAL_EXPIRED_DURING_CONTEXT"
+      ],
+      "result": "DEFERRED",
+      "all_other_errors_unchanged": true
+    },
+    "public_snapshot_expiry_skip": "JEV_MARKET_SNAPSHOT_EXPIRED"
+  },
+  "archive": {
+    "path": "/var/backups/trade-engine-v2/20261021-sandbox-reset/before.dump",
+    "bytes": 25147336418,
+    "sha256": "5461d6e7f66abc34b6e15492ea5fd7a4af115467f8af01fa4e9aa34e085a365f",
+    "full_stream_validation": "PASSED: pg_restore --file=/dev/null; not a full database restore",
+    "source_deleted": false,
+    "full_stream_validation_unit": "trade-v2-pre-reset-verify-20261021.service",
+    "full_stream_validation_exit_code": 0,
+    "cold_source_database": "trade_v2_archive_20261021_1227",
+    "cold_source_oid": 16385,
+    "cold_source_allow_connections": false,
+    "cold_source_default_read_only": true,
+    "final_source_lsn": "A4/9A3CF218"
+  },
+  "not_included": [
+    "unpublished quant/HMM/liquidity/reentry changes",
+    "LIVE activation",
+    "claim of profitable model",
+    "claim of actual full round trip from isolated tests"
+  ],
+  "rollback": "After any new venue order, preserve new ledger and reconcile first; never resume old archived order state against the reset venue.",
+  "release": "/opt/trade-engine-v2/releases/simple-entry-20261021-v4",
+  "database": {
+    "name": "trade_v2_testnet",
+    "oid": 5509539,
+    "configured_capital": "1000",
+    "pool_fraction": "0.70",
+    "venue_wallet_after_user_reset": "5000",
+    "capital_baseline_initialized_at_ms": 1792557232416,
+    "encrypted_vault_unchanged": true,
+    "live_credentials_and_metadata_preserved": true,
+    "old_orders_not_replayed": true
+  },
+  "compatibility": {
+    "new_inventory_policy_is_separate_namespace": true,
+    "general_runtime_policy_unchanged_from_v1": true,
+    "actual_account_admin_reader_validated": true,
+    "dashboard_overview_http_200": true
+  },
+  "runtime_validation": {
+    "service": "trade-v2-execution-controller.service",
+    "status": "OBSERVATION_PASSED_ENTRY_PROTECTION_ONLY",
+    "release_started_at": "2026-10-21T13:49:19+08:00",
+    "actual_route_epoch": 5,
+    "actual_route_phase": "ACTIVE",
+    "blockers": [],
+    "actual_new_roundtrip_verified": false,
+    "real_entry": {
+      "symbol": "IOSTUSDT",
+      "source": "natural signal through existing scheduler",
+      "manual_acceptance_order": false,
+      "jev_filter": "JEV_SECOND_FILTER_PASSED",
+      "exchange_fill_verified": true,
+      "fill_count": 1,
+      "filled_quantity": "220008",
+      "native_stop": {
+        "status": "NEW",
+        "type": "STOP_MARKET",
+        "close_position": true,
+        "working_type": "MARK_PRICE",
+        "submission_and_get_observation_verified": true
+      },
+      "prior_prepared_order_cancelled_without_exchange_id_or_fill": true,
+      "signal_received_at": "2026-10-21T13:49:15+08:00",
+      "signal_observed_at": "2026-10-21T13:49:00+08:00",
+      "signal_expires_at": "2026-10-21T13:50:30+08:00",
+      "intent_at": "2026-10-21T13:49:38+08:00",
+      "fill_at": "2026-10-21T13:49:41+08:00",
+      "cohort": "pre-deployment candidate still valid; no timestamp refresh"
+    },
+    "real_exit_verified": false,
+    "real_settlement_verified": false,
+    "real_review_after_exit_verified": false,
+    "real_position_coverage_reuse_verified": true,
+    "coverage_reuse_observed_at": [
+      "2026-10-21T13:50:19+08:00",
+      "2026-10-21T13:50:46+08:00"
+    ],
+    "limitations": [
+      "No real exit/settlement/outcome for new position yet",
+      "No newly arrived TradingView signal during initial v4 observation",
+      "No guarantee of all bursts fitting finite quotas or model profitability",
+      "Exact JEV_MARKET_SNAPSHOT_EXPIRED branch covered in isolated QA, not naturally triggered during this v4 window",
+      "Legacy dashboard expected-wait category remains generic; per-task admission and existing-position reason codes remain distinct"
+    ],
+    "observation_finished_at": "2026-10-21T13:53:37+08:00",
+    "completed_cycles": 11,
+    "handover_only_entry_blocked_cycles": 1,
+    "in_progress_cycles_at_cutoff": 1,
+    "complete_minute_cycles": {
+      "13:50": 3,
+      "13:51": 3,
+      "13:52": 3
+    },
+    "coverage_clear": 16,
+    "position_coverage_reuse_count": 10,
+    "management_quota_failures": 0,
+    "exchange_429": 0,
+    "auth_failures": 0,
+    "admission_budget_deferrals": 0,
+    "service_restarts": 0,
+    "overview_http_status": 200,
+    "overview_elapsed_ms": 74,
+    "new_model_requests": 1,
+    "entry_bindings": 3,
+    "same_cycle_wait_ms": 666,
+    "fresh_risk_rechecked": true,
+    "new_signal_cohort": {
+      "s6_context_candidates": 197,
+      "s6_attempted": 180,
+      "s6_ignored": 179,
+      "s6_expired_after_existing_position_deferrals": 1,
+      "s6_still_valid_unattempted": 17,
+      "oldest_valid_unattempted_age_seconds": 21.9,
+      "s6_terminal_delay_p50_seconds": 14.788,
+      "s6_terminal_delay_p95_seconds": 22.105,
+      "terminal_delay_not_first_attempt_latency": true,
+      "s8_context_candidates": 3,
+      "s8_context_completed": 3,
+      "s8_strength_prefilter_separate": 62,
+      "expired_without_first_attempt": 0
+    },
+    "budget_point_samples_not_peaks": [
+      [
+        "13:49:42",
+        1323,
+        415
+      ],
+      [
+        "13:50:46",
+        495,
+        271
+      ],
+      [
+        "13:51:55",
+        731,
+        395
+      ],
+      [
+        "13:52:51",
+        536,
+        312
+      ],
+      [
+        "13:53:37",
+        499,
+        275
+      ]
+    ]
+  },
+  "prior_v2_runtime_acceptance": {
+    "service": "trade-v2-execution-controller.service",
+    "status": "STOPPED_FOR_FOLLOWUP_FIX",
+    "actual_route_epoch": 3,
+    "actual_route_phase": "DRAINING",
+    "new_order_count": 0,
+    "actual_entry_gate_jev_bindings": 4,
+    "actual_new_roundtrip_verified": false,
+    "release_started_at": "2026-10-21T13:12:08+08:00",
+    "blockers": [],
+    "entry_bindings_scope": "since v2 deployment; earlier v1 probes excluded",
+    "observation_finished_at": "2026-10-21T13:17:42+08:00",
+    "observed_route_phase": "ACTIVE",
+    "coverage_clear_count": 18,
+    "inventory_http_count": 6,
+    "inventory_weight": 100,
+    "management_quota_failures": 0,
+    "exchange_429": 0,
+    "inventory_ms": {
+      "p50": 342,
+      "p95": 414
+    },
+    "cycle_ms": {
+      "p50": 7490,
+      "p95": 12700
+    },
+    "cycle_start_interval_ms": {
+      "p50": 22560
+    },
+    "actual_new_model_requests": 3,
+    "findings": [
+      "Three TV STALE_CONTEXT candidate failures escalated into whole-cycle SAFETY_BLOCKED.",
+      "Two timely READY JEV results expired before fresh risk re-evaluation.",
+      "Admission-local quota retries can expire; actionable new candidates were not permanently denied first evaluation."
+    ],
+    "no_position_reuse_observed": true,
+    "api_overview": {
+      "status": 200,
+      "elapsed_ms": 55
+    },
+    "budget_samples": [
+      {
+        "time": "13:12:40",
+        "total": 760,
+        "noncritical": 350
+      },
+      {
+        "time": "13:13:31",
+        "total": 450,
+        "noncritical": 350
+      },
+      {
+        "time": "13:14:25",
+        "total": 450,
+        "noncritical": 350
+      },
+      {
+        "time": "13:17:12",
+        "total": 433,
+        "noncritical": 333
+      }
+    ]
+  },
+  "venue_limit_observation": {
+    "at": "2026-10-21T13:42:21+08:00",
+    "host": "demo-fapi.binance.com",
+    "request_weight_per_minute": 6000,
+    "orders_per_minute": 1200,
+    "orders_per_10_seconds": 300,
+    "charged_before_get": true,
+    "external_same_nat_traffic_not_excluded": true
+  },
+  "prior_v3_runtime_acceptance": {
+    "started_at": "2026-10-21T13:29:35+08:00",
+    "ended_at": "2026-10-21T13:36:01+08:00",
+    "complete_cycles": 20,
+    "blocked_cycles": 0,
+    "coverage_clear": 22,
+    "management_quota_failures": 0,
+    "exchange_429": 0,
+    "new_orders": 0,
+    "actual_veto_verified": true,
+    "actual_pass_roundtrip_verified": false,
+    "same_cycle_wait_ms": 714,
+    "same_cycle_fresh_risk_rechecked": true,
+    "veto_reason": "JEV_CHASE_RISK_HIGH",
+    "candidate_budget_deferrals": 63,
+    "actionable_candidate_expiries": 1,
+    "pending_valid_actionable": 0,
+    "api_overview_status": 200,
+    "api_overview_ms": 56
+  },
+  "deployment": {
+    "policy_version": 2,
+    "policy_counter_reset": false,
+    "route_request_reused_after_correcting_symlink_permissions": true,
+    "brief_v3_start_before_actual_v4": true,
+    "new_ledger_preserved": true
+  }
+}

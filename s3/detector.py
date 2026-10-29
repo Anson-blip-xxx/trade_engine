@@ -9,7 +9,7 @@ feature windows → 候选事件（level dict，与 legacy 输出逐字同构）
 - 比较算符（>= <= > <）
 - strength 公式（floor/min/max/int()/abs）
 - 超买/超卖 guard（4h EMA20 ± 3×ATR%）与 strong_breakout（close_pos 语义，
-  S3-3：真实 producer 不写 → 恒 False）
+  S3-3：legacy producer 不写 → 恒 False；显式 v4 producer 产出真实窗口位置）
 - VIOLENT 方向 = 类型后缀；FAILED_BREAKOUT 携带 direction 字段
 
 状态/时间依赖：FAILED_BREAKOUT 不在本模块实现（经 breakout_runner 注入
@@ -79,7 +79,18 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
 
     def _strong_breakout(side: str) -> bool:
         """Distinguish a supported breakout from a thin late spike."""
-        close_pos = float(w15m.get('close_pos', 50) or 50)
+        evidence = windows.get('input_evidence')
+        if isinstance(evidence, dict) and evidence.get('window_version') == 's3-closed-1m-v4':
+            # V4 emits a real 0..100 observation: zero is a close at the low,
+            # not a missing value. Preserve all legacy replay paths below.
+            value = w15m.get('close_pos')
+            if value is None or isinstance(value, bool):
+                raise ValueError('S3_CLOSE_POSITION_REQUIRED')
+            close_pos = float(value)
+            if not 0 <= close_pos <= 100:
+                raise ValueError('S3_CLOSE_POSITION_RANGE')
+        else:
+            close_pos = float(w15m.get('close_pos', 50) or 50)
         flow = w15m.get('taker_buy_ratio')
         flow_ok = flow is None or (float(flow) >= 0.55 if side == 'LONG' else float(flow) <= 0.45)
         volume_ok = float(w15m.get('vol_ratio', 0) or 0) >= 1.5

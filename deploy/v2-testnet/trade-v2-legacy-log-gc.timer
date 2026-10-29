@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily expired rotated ClickHouse log cleanup
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 03:40:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+Unit=trade-v2-legacy-log-gc.service
+
+[Install]
+WantedBy=timers.target

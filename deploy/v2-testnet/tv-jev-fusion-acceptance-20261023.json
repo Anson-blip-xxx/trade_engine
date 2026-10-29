@@ -1,0 +1,296 @@
+{
+  "change_set": "tv-jev-fusion-20261023-v1",
+  "status": "DEPLOYED_SANDBOX_CANARY_HEALTHY",
+  "timezone": "Asia/Shanghai",
+  "execution_base": "/opt/trade-engine-v2/releases/simple-entry-20261021-v4",
+  "environment": "SANDBOX",
+  "live_changed": false,
+  "ledger_reset": false,
+  "account_switch": false,
+  "artificial_trade": false,
+  "flow": [
+    "fresh internal or TradingView signal",
+    "versioned cross-source fusion before market screen",
+    "original deterministic risk and sizing",
+    "bounded JEV opinion or explicit availability fallback",
+    "unchanged guarded submit and protection",
+    "actual settlement and separate effectiveness research"
+  ],
+  "policies": {
+    "signal_fusion": {
+      "enabled": true,
+      "confirmation_bonus": 5,
+      "conflict_veto": true,
+      "window_ms": 60000
+    },
+    "jev_entry_gate": {
+      "enabled": true,
+      "unavailable_action": "BASELINE",
+      "unavailable_wait_ms": 1500,
+      "thresholds_unchanged": true
+    },
+    "settlement_entry": {
+      "enabled": true,
+      "only": "PROVEN_CLOSED_TERMINAL_HELD_RISK_WITHIN_60_SECOND_INCOME_LAG"
+    }
+  },
+  "baseline_research": {
+    "start": "2026-10-21T13:49:19+08:00",
+    "as_of": "2026-10-23T07:42:36+08:00",
+    "read_only": true,
+    "immutable_decisions": 759,
+    "jev": {
+      "pass": 88,
+      "veto": 301,
+      "skip_or_unavailable": 155,
+      "unreviewed": 215
+    },
+    "actual_filled": 71,
+    "actual_settled": 71,
+    "actual_net_usdt": "-23.05513875",
+    "tv": {
+      "environment_deliveries": 217,
+      "decision_rows": 216,
+      "actual_filled": 0
+    },
+    "hypothetical": {
+      "semantics": "MARKOUT_NOT_STRATEGY_PNL",
+      "entry": "NEXT_COMPLETE_MINUTE_OPEN",
+      "fee_bps_per_side": "5",
+      "slippage_bps_per_side": "2",
+      "pass_veto_candidates": 389,
+      "full_15m": 389,
+      "full_60m": 389,
+      "full_240m": 387,
+      "censored_240m": 2,
+      "missing_bars": 0,
+      "truncated": false,
+      "matching": [
+        "direction",
+        "regime",
+        "source",
+        "TV usage",
+        "configuration",
+        "strategy version",
+        "UTC+8 date"
+      ],
+      "pass_minus_veto_mean_bps": {
+        "15m": {
+          "pairs": 70,
+          "value": "-0.10470471"
+        },
+        "60m": {
+          "pairs": 70,
+          "value": "-142.15462302"
+        },
+        "240m": {
+          "pairs": 69,
+          "value": "+124.48456782"
+        }
+      },
+      "profitability_or_causal_uplift_proven": false
+    }
+  },
+  "qa": {
+    "whole_repository_pass_claim": false,
+    "isolated_pg_and_redis": true,
+    "venue_and_model_fakes": true,
+    "tests": [
+      "tests/v2_core/test_v2_jev_advisory.py",
+      "tests/v2_core/test_v2_jev_coordinator.py",
+      "tests/v2_core/test_v2_jev_reference.py",
+      "tests/v2_core/test_v2_jev_evidence.py",
+      "tests/v2_core/test_v2_jev_entry_gate.py",
+      "tests/v2_core/test_v2_jev_entry_context.py",
+      "tests/v2_core/test_v2_jev_strategy_filter.py",
+      "tests/v2_core/test_v2_opening_quarantine.py",
+      "tests/v2_core/test_v2_jev_fullflow.py",
+      "tests/v2_core/test_v2_directional_admission.py",
+      "tests/v2_core/test_v2_testnet_daemon_entry.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_recovery_read_budget.py",
+      "tests/v2_core/test_v2_cooperative_drain.py",
+      "tests/v2_core/test_v2_symbol_exit_isolation.py",
+      "tests/v2_core/test_v2_symbol_reduction.py",
+      "tests/v2_core/test_v2_fresh_capital_baseline.py",
+      "tests/v2_core/test_v2_managed_resume.py",
+      "tests/v2_core/test_v2_managed_guard_wiring.py",
+      "tests/v2_core/test_v2_admission_budget.py",
+      "tests/v2_core/test_v2_shared_market.py",
+      "tests/v2_core/test_v2_directional_account_context.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_admission_transport_failures.py",
+      "tests/v2_core/test_v2_combined_inventory.py",
+      "tests/v2_core/test_v2_combined_reduction.py",
+      "tests/v2_core/test_v2_same_cycle_coverage.py",
+      "tests/v2_core/test_v2_account_coverage.py",
+      "tests/v2_core/test_v2_account_inventory.py",
+      "tests/v2_core/test_v2_parallel_inventory.py",
+      "tests/v2_core/test_v2_directional_lifecycle.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_protection_install.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_jev_same_cycle.py",
+      "tests/v2_core/test_v2_signal_context_isolation.py",
+      "tests/v2_core/test_v2_admission_capacity_profile.py",
+      "tests/v2_core/test_v2_signal_fusion.py",
+      "tests/v2_core/test_v2_fusion_worker_contract.py",
+      "tests/v2_core/test_v2_dynamic_fusion_context.py",
+      "tests/v2_core/test_v2_settlement_entry.py",
+      "tests/v2_core/test_v2_settlement_pipeline_clearance.py",
+      "tests/v2_core/test_v2_jev_baseline_fallback.py",
+      "tests/v2_core/test_v2_jev_public_context_v2.py",
+      "tests/v2_core/test_v2_integration_effectiveness.py",
+      "tests/v2_core/test_v2_directional.py",
+      "tests/v2_core/test_v2_directional_replay.py",
+      "tests/v2_core/test_v2_admission_latency.py",
+      "tests/v2_core/test_v2_jev_inflight.py"
+    ],
+    "preliminary": {
+      "worker_and_gate": {
+        "passed": 139,
+        "log": "/tmp/v2-data-qa.mqNp3T/pytest.log"
+      },
+      "settlement": {
+        "passed": 31,
+        "log": "/tmp/v2-data-qa.NkQ75I/pytest.log"
+      },
+      "dynamic_context": {
+        "passed": 2,
+        "log": "/tmp/v2-data-qa.EugBF2/pytest.log"
+      }
+    },
+    "pre_final_combined": {
+      "passed": 1499,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 406.9,
+      "log": "/tmp/v2-data-qa.RnP3ET/pytest.log",
+      "note": "Before final inflight-vs-unclaimed queue guard and lint corrections; final rerun required."
+    },
+    "runtime_imports": "17 modules imported with actual controller virtualenv, socket connections denied",
+    "actual_database_role_read_access": "14 required tables read checked as actual ubuntu role; no new grants or schema changes",
+    "final_guard_targeted": {
+      "passed": 97,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 18.7,
+      "log": "/tmp/v2-data-qa.jvhArl/pytest.log"
+    },
+    "full_with_inflight": {
+      "passed": 1502,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 383.71,
+      "log": "/tmp/v2-data-qa.gqiVge/pytest.log",
+      "sha256": "63abd6aef4a74f1d48c4c26a07bca9d948ac7c8cee52edc4b483938953f5b2c3",
+      "note": "All selected lifecycle and fusion tests. Final typed local-configuration fallback is additionally covered by the concluding JEV/worker/pipeline suite."
+    },
+    "final_affected_suite": {
+      "passed": 624,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 73.15,
+      "log": "/tmp/v2-data-qa.hd6zN2/pytest.log",
+      "tests": [
+        "tests/v2_core/test_v2_jev_advisory.py",
+        "tests/v2_core/test_v2_jev_coordinator.py",
+        "tests/v2_core/test_v2_jev_reference.py",
+        "tests/v2_core/test_v2_jev_evidence.py",
+        "tests/v2_core/test_v2_jev_entry_gate.py",
+        "tests/v2_core/test_v2_jev_entry_context.py",
+        "tests/v2_core/test_v2_jev_strategy_filter.py",
+        "tests/v2_core/test_v2_jev_fullflow.py",
+        "tests/v2_core/test_v2_trading_pipeline.py",
+        "tests/v2_core/test_v2_jev_same_cycle.py",
+        "tests/v2_core/test_v2_fusion_worker_contract.py",
+        "tests/v2_core/test_v2_jev_baseline_fallback.py",
+        "tests/v2_core/test_v2_jev_public_context_v2.py",
+        "tests/v2_core/test_v2_jev_inflight.py",
+        "tests/v2_core/test_v2_jev_configuration_fallback.py"
+      ],
+      "sha256": "79ec6baf01fbceb1c766ce22ca76b0b7d230d4d4eceec9d235392ba2e6c1ddb3",
+      "includes_local_configuration_fallback": true
+    },
+    "final_imports": {
+      "modules": 8,
+      "venv": "/opt/trade-engine-v2/venvs/managed-controller-20260927",
+      "network_forbidden": true
+    }
+  },
+  "deployment": {
+    "service_started_at": "2026-10-23T08:29:08+08:00",
+    "same_binding_active_at": "2026-10-23T08:29:45.029696+08:00",
+    "last_checked_at": "2026-10-23T08:32:54+08:00",
+    "previous_epoch": 5,
+    "current_epoch": 6,
+    "route": "ACTIVE",
+    "direct_route_active_write": false,
+    "forced_worker_kill": false,
+    "policy_versions": {
+      "jev-entry-gate-policy-v1": 2,
+      "signal-fusion-policy-v1": 1,
+      "settlement-entry-policy-v1": 1
+    },
+    "policy_update_transaction": "ATOMIC",
+    "same_account": true,
+    "other_services_not_restarted": true,
+    "ledger_preserved": true,
+    "no_nonterminal_order_or_unsettled_episode_at_stop": true,
+    "pipeline": "CYCLE_COMPLETE",
+    "entry_dispatch_enabled": true,
+    "protection_writes_enabled": true,
+    "reduce_only_exits_enabled": true,
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "health_findings": {},
+    "controller_restarts": 0,
+    "overview_http": 200,
+    "natural_integration": {
+      "absence_path_decisions_since_active": 62,
+      "absence_path_all": "IGNORED_BY_EXISTING_ADMISSION_OR_GATE",
+      "no_absence_wait": true,
+      "actual_model_requests": 1,
+      "prompt": "market-hypotheses-v2",
+      "model_status": "ADVISORY_READY",
+      "model_reason": "MODEL_OBSERVED",
+      "symbol": "SIRENUSDT",
+      "provider_latency_ms": 713,
+      "measured_funding_and_spread_in_request": true,
+      "private_account_data_sent": false,
+      "candidate_result": "JEV_REVIEW_DEADLINE_EXPIRED",
+      "handover_expiry": {
+        "review_started_at": "2026-10-23T08:29:17.974+08:00",
+        "review_deadline_at": "2026-10-23T08:29:47.974+08:00",
+        "route_active_at": "2026-10-23T08:29:45.029696+08:00",
+        "candidate_finalized_at": "2026-10-23T08:29:48.183935+08:00",
+        "late_signal_not_replayed": true
+      },
+      "new_tv_after_release_observed": false,
+      "real_tv_confirmation_or_conflict_exercised": false,
+      "unavailability_branches": "ISOLATED_FAULT_INJECTION_ONLY",
+      "income_lag_clearance": "ISOLATED_PG_VERIFIED_NO_POST_RELEASE_CLOSE_YET",
+      "new_open_fills": 0,
+      "new_roundtrip_verified": false
+    }
+  },
+  "rollback": "Restore compatible versioned JEV policy, disable new fusion/settlement-entry switches, normal controller drain, atomically restore parent release, then explicit same-binding fenced resume. Never restore old ledger or clear API counters.",
+  "runtime_changes": {
+    "v2_core/directional.py": "1228b9c726daca82da7cb8786c39f99611f4bfad2b0a93d328c9b7f898ab9a29",
+    "v2_core/signal_fusion.py": "ee09315331013a31ea27ef85212f4a312efe23c29d039ae4adb33d57e0a79fe8",
+    "v2_core/strategy.py": "fd2e881f6a0a73bd6a6952c0070b614f340708d1914a80068e5eb99e0f1e1fe5",
+    "v2_core/jev_entry_gate.py": "b658ef0e928deb1219041fd297160fd0fffff59087ffb2f727b8ac58d891b50a",
+    "v2_core/jev_advisory.py": "632e219db5461633947e740ca9f674eb76c2d1eca66b84022676e1fb721a2ff8",
+    "services/v2_directional_context.py": "43a95e8f507e834d31bb17fd13208f462bc0c3935b412a25aadc9e2f3ea32611",
+    "services/v2_directional_replay.py": "c72a668e2d43e9da45d34ac7dcd0c8a49e5dea7ddcdbd0ebf2ba09bc40878793",
+    "services/v2_directional_settlement.py": "1f7568a098bc4648c5f4d5f412b54ff1d1aa8cc339f78839575607c8cb4bcd69",
+    "services/v2_shared_market_context.py": "2ef7d5bb8d705ac6cf14a165b5b181b8f724856d500dd0c566e5cf0b78bd525b",
+    "services/v2_signal_fusion_policy.py": "2effb0b9d5fb661f9599259055f9ce60e4ca3393144ad42b693e713722c5d5cf",
+    "services/v2_trading_pipeline.py": "1aae1a01b1e73a874e2d7e862cb05c14a5ef58cc5bb95c486dd4eb7f195f9c2a",
+    "services/v2_jev_entry_context.py": "d0061dc2c44d48942bfe83860d5b03ff5d161faac21da86358b7faf058b9aec0",
+    "services/v2_jev_reference.py": "29089f5a4f970856360163ea9fc3ae6b7006c8dbd87ee6ae81efe3748c2cdfc3",
+    "services/v2_jev_coordinator.py": "4958d2a1b400efcb8b08a11102e72d6e7ff728f0f0dbfedaae887543a59bfc82",
+    "services/v2_settlement_entry.py": "b2afba7a30bb3d30f9544ae776ce603a1fab4e6ede635d402889aacca4ea5464",
+    "services/v2_integration_effectiveness.py": "3c1db07ab23c27c4bf2eaca89af7e679f47a4b44d00d5f85ef02580fd5de28f3",
+    "scripts/v2_integration_effectiveness.py": "128ef36284beebf86bf9884bc2950cf130b55ed78c3a166b17f2ea5669968f13"
+  }
+}

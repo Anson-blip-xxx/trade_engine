@@ -58,8 +58,10 @@ def observation(now, **changes):
     }
 
 
-def setup_exit(database, *, strategy="S6", allow_writes=False, now=600003, **observed):
-    runtime, result = opening(database, strategy)
+def setup_exit(
+    database, *, strategy="S6", allow_writes=False, now=600003, fills=None, **observed
+):
+    runtime, result = opening(database, strategy, fills=fills)
     venue = ExitVenue()
     venue.rows["/fapi/v3/positionRisk"] = [
         {
@@ -129,9 +131,14 @@ def test_action_is_durable_but_never_posts_when_writes_disabled(database):
         ).fetchone() == (0,)
 
 
-def test_partial_exit_dispatch_and_restart_recovery_never_duplicate_post(database):
+@pytest.mark.parametrize(
+    "fills", [None, [("0.333", "100.123456789012345678"), ("0.917", "100")]]
+)
+def test_partial_exit_dispatch_and_restart_recovery_never_duplicate_post(
+    database, fills
+):
     runtime, result, venue, service = setup_exit(
-        database, allow_writes=True, mark_price="105"
+        database, allow_writes=True, mark_price="105.1", fills=fills
     )
     first = service.run_once()
     episode = result["intent_id"]
@@ -162,6 +169,17 @@ def test_partial_exit_dispatch_and_restart_recovery_never_duplicate_post(databas
         }
     ]
     venue.rows["/fapi/v3/positionRisk"][0]["positionAmt"] = "0.625"
+    # Rebuild the service as a process restart would, keeping only PG evidence.
+    service = DirectionalExitStage(
+        database,
+        venue,
+        runtime=runtime,
+        scope=SCOPE,
+        observe=lambda _: observation(600005, mark_price="105.1"),
+        clock_ms=lambda: 600005,
+        reference=lambda _: {},
+        allow_writes=True,
+    )
     second = service.run_once()
     assert second["status"] == "CLEAR"
     assert second["exits"][episode]["status"] == "WAIT"
@@ -201,6 +219,7 @@ def test_full_exit_uses_entire_remaining_quantity_and_inverse_side(
         strategy=strategy,
         allow_writes=True,
         now=now,
+        fills=[("0.333", "100.123456789012345678"), ("0.917", "100")],
         **observed,
     )
     answer = service.run_once()["exits"][result["intent_id"]]

@@ -90,7 +90,7 @@ def signal_funnel(conn, account_id=None):
     return conn.execute(
         """WITH received AS MATERIALIZED (
         SELECT signal_id,source FROM v2_inbound_signals
-        WHERE environment='SANDBOX' AND source IN ('tv_bridge','s3')
+        WHERE environment='SANDBOX' AND source IN ('tv_bridge','s3','quant')
           AND received_at>=date_trunc('day',statement_timestamp() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'
         ), processed AS (
         SELECT DISTINCT r.signal_id FROM v2_signal_receipts r JOIN received s USING(signal_id)

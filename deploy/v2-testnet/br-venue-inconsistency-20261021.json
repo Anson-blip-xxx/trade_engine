@@ -1,0 +1,203 @@
+{
+  "change_set": "br-venue-inconsistency-20261021",
+  "status": "READ_ONLY_EVIDENCE_CONFLICT_UNRESOLVED",
+  "timezone": "Asia/Shanghai",
+  "report_clock_at": "2026-10-21T10:43:00+08:00",
+  "collection_date": "2026-10-21",
+  "request_time_precision": "Per-request wall-clock timestamps were not retained. Do not interpret report_clock_at as an exact API observation timestamp.",
+  "active_release_observed": "symbol-exit-isolation-20261021-v1",
+  "scope": {
+    "environment": "SANDBOX",
+    "product": "USD_M_FUTURES",
+    "symbol": "BRUSDT",
+    "route_phase_observed": "DRAINING",
+    "account_identifiers_omitted": true,
+    "bound_order_identifiers_omitted": true
+  },
+  "safety": {
+    "diagnostic_signed_get_count": 14,
+    "diagnostic_all_orders_get_count": 2,
+    "diagnostic_venue_writes": 0,
+    "business_ledger_writes": 0,
+    "service_restarts": 0,
+    "quota_accounting_writes_only": true,
+    "original_host_budget_used": true,
+    "verified_systemd_credential_factory_used": true,
+    "diagnostic_process_only_all_orders_allowlist_extension": true,
+    "deployed_allowlist_modified": false,
+    "raw_responses_or_exception_messages_saved": false,
+    "credentials_or_account_ids_saved": false,
+    "orders_reclassified_or_resubmitted": false,
+    "independent_qa_run": false
+  },
+  "local_ledger_observations": {
+    "episode_status": "ACTIVE",
+    "entry_side": "SELL",
+    "remaining_quantity": "256",
+    "opening": {
+      "status": "FILLED",
+      "quantity": "256",
+      "bound_exchange_order_id_present": true,
+      "fill_count": 2,
+      "fills_occurred_at": "2026-10-19T21:56:22.819+08:00",
+      "fills": [
+        {"side": "SELL", "quantity": "20", "price": "0.4943600", "commission": "0.00494360", "commission_asset": "USDT"},
+        {"side": "SELL", "quantity": "236", "price": "0.4940000", "commission": "0.05829200", "commission_asset": "USDT"}
+      ]
+    },
+    "earlier_close_attempts": {
+      "count": 7,
+      "terminal_status": "REJECTED",
+      "http_status": 400,
+      "exchange_code": -4131,
+      "bound_exchange_order_id_present": false,
+      "fill_count": 0,
+      "interval_rounded_to_seconds": ["2026-10-19T22:12:46+08:00", "2026-10-19T22:14:35+08:00"]
+    },
+    "unresolved_close": {
+      "strategy_reason": "EARLY_LOSS_MOMENTUM_WEAK",
+      "status": "ACKNOWLEDGED",
+      "version": 3,
+      "quantity": "256",
+      "prepared_at": "2026-10-19T22:15:07.424496+08:00",
+      "submitting_at": "2026-10-19T22:15:07.444224+08:00",
+      "acknowledged_at": "2026-10-19T22:15:07.609664+08:00",
+      "bound_exchange_order_id_present": true,
+      "client_order_id_present": true,
+      "native_child_origin": false,
+      "original_ack_source": "binance-submit",
+      "original_ack_venue_status": "FILLED",
+      "full_submission_receipt_saved": false,
+      "fill_count": 0,
+      "sampled_order_age_hours_rounded": "36.400",
+      "latest_local_query_failure_seen": "QUOTA_DENIED",
+      "historical_limit": "The old receipt retained source and venue status, not the newer whitelisted quantity, price and time evidence. New receipt capture cannot reconstruct that historical response."
+    },
+    "protection": {
+      "local_status": "TRIGGERING",
+      "order_type": "STOP_MARKET",
+      "side": "BUY",
+      "position_side": "BOTH",
+      "trigger_price": "0.5335",
+      "close_position": true,
+      "reduce_only": true,
+      "created_at": "2026-10-19T21:56:25.593+08:00",
+      "triggered_and_last_updated_at": "2026-10-19T22:29:22.104+08:00",
+      "actual_child_order_id_present": false
+    }
+  },
+  "controlled_api_observations": [
+    {
+      "sequence": 1, "method": "GET", "path": "/fapi/v1/order", "selector": "BRUSDT + persisted close client order ID",
+      "result": "No order identity fields returned", "exchange_code": null,
+      "limit": "Initial summary did not retain the response code; do not claim explicit -2013 for this request."
+    },
+    {
+      "sequence": 2, "method": "GET", "path": "/fapi/v1/order", "selector": "BRUSDT + persisted close exchange order ID",
+      "result": "No order identity fields returned", "exchange_code": null,
+      "limit": "Initial summary did not retain the response code. Sequence 10 separately captured -2013."
+    },
+    {
+      "sequence": 3, "method": "GET", "path": "/fapi/v1/userTrades", "selector": "BRUSDT + persisted close exchange order ID", "limit": 1000,
+      "returned_rows": 0
+    },
+    {
+      "sequence": 4, "method": "GET", "path": "/fapi/v1/userTrades", "selector": "BRUSDT; close creation minus 60 seconds through creation plus 60 minutes", "limit": 1000,
+      "returned_rows": 0
+    },
+    {
+      "sequence": 5, "method": "GET", "path": "/fapi/v1/algoOrder", "selector": "Persisted protection exchange algo ID",
+      "identity_matches": true, "status": "TRIGGERING", "actual_child_order_id_present": false,
+      "side": "BUY", "position_side": "BOTH", "order_type": "STOP_MARKET", "quantity": "0", "actual_price": "0.0000000",
+      "venue_updated_at": "2026-10-19T22:29:22.104+08:00"
+    },
+    {
+      "sequence": 6, "method": "GET", "path": "/fapi/v1/algoOrder", "selector": "Persisted protection client algo ID",
+      "identity_matches": true, "status": "TRIGGERING", "actual_child_order_id_present": false,
+      "venue_updated_at": "2026-10-19T22:29:22.104+08:00"
+    },
+    {
+      "sequence": 7, "method": "GET", "path": "/fapi/v3/positionRisk", "selector": "BRUSDT",
+      "returned_rows": 1, "position_side": "BOTH", "signed_quantity": "-256", "entry_price": "0.49402812500000004"
+    },
+    {"sequence": 8, "method": "GET", "path": "/fapi/v1/openOrders", "selector": "BRUSDT", "returned_rows": 0},
+    {"sequence": 9, "method": "GET", "path": "/fapi/v1/openAlgoOrders", "selector": "BRUSDT", "returned_rows": 0},
+    {
+      "sequence": 10, "method": "GET", "path": "/fapi/v1/order", "selector": "BRUSDT + persisted close exchange order ID",
+      "exchange_code": -2013, "order_identity_fields_present": false,
+      "limit": "A negative lookup does not prove cancellation, rejection, fill completion or a flat position."
+    },
+    {
+      "sequence": 11, "method": "GET", "path": "/fapi/v1/order", "selector": "BRUSDT + persisted opening exchange order ID",
+      "exchange_and_client_identity_match": true, "status": "FILLED", "side": "SELL", "position_side": "BOTH", "order_type": "MARKET", "reduce_only": false,
+      "original_quantity": "256", "executed_quantity": "256", "average_price": "0.4940281", "venue_updated_at": "2026-10-19T21:56:22.819+08:00"
+    },
+    {
+      "sequence": 12, "method": "GET", "path": "/fapi/v1/userTrades", "selector": "BRUSDT + persisted opening exchange order ID",
+      "returned_rows": 2, "total_quantity": "256", "matches_local_opening_fills_and_commissions": true
+    },
+    {
+      "sequence": 13, "method": "GET", "path": "/fapi/v1/allOrders", "selector": "BRUSDT; opening creation minus 60 seconds through close creation plus 60 minutes", "limit": 1000, "host_budget_weight": 5,
+      "returned_rows": 1, "full_page": false, "opening_order_matched": true, "close_order_matched": false,
+      "only_returned_order": {"leg": "OPEN", "status": "FILLED", "executed_quantity": "256"}
+    },
+    {
+      "sequence": 14, "method": "GET", "path": "/fapi/v1/allOrders", "selector": "BRUSDT + bound close order ID + the same narrow time window", "limit": 1000, "host_budget_weight": 5,
+      "http_status": 400, "exchange_code": -1106, "usable_absence_evidence": false,
+      "limit_note": "Venue rejected this parameter combination. No absence inference; no retry beyond the authorized two allOrders requests."
+    }
+  ],
+  "assessment": {
+    "established": [
+      "The same scoped credential, host and USD-M endpoint retrieved the original opening order and both matching fills.",
+      "The unresolved close has a persisted exchange identity and a historical submit receipt reporting FILLED, but no recoverable order or fill evidence in the successful bounded reads.",
+      "The venue still reports a BRUSDT short residual of 256; an empty open-order list is not evidence that this position is flat.",
+      "Both protection lookup methods return TRIGGERING without an actual child order identity; no child fill or completed stop can be inferred.",
+      "Local quota denial is a separate observed operational issue; these successful direct reads still did not resolve the venue evidence conflict."
+    ],
+    "inferences": [
+      "The positive opening control weighs against a wrong account, host, product or endpoint explanation for the absent close.",
+      "The sampled close age of approximately 36.4 hours does not meet the documented 3-day empty canceled/expired or 90-day general order cleanup thresholds.",
+      "The evidence is consistent with a demo-venue receipt/query/trade/position inconsistency, but does not identify the exchange-internal cause."
+    ],
+    "not_established": [
+      "An exchange matching-engine defect, data reset, asynchronous persistence defect or any other specific internal cause.",
+      "The complete content of the historical submission response beyond its retained fields.",
+      "Successful BR close, final native-stop disposition, flat position, complete realized P&L or permission to resend an ambiguous order.",
+      "That support can provide missing demo order details; the official demo FAQ expressly limits this capability."
+    ]
+  },
+  "minimum_external_evidence_for_resolution": [
+    "An authoritative same-account/product/symbol close record tied to both persisted identities, including final status, original/executed quantity and venue timestamps. If filled, complete trade identities, quantities, prices and commissions are required.",
+    "An authoritative final protection status and, if triggered, its actual child identity plus independently reconciled child order/trades. Absence alone is not cancellation.",
+    "Fresh complete position and outstanding-order observations, and complete attributable income/cash evidence over the settlement window before any final settlement claim.",
+    "If the venue cannot supply such evidence, keep the historical incident unresolved and retain the account/symbol admission block. Any migration/reset or new residual reduction requires a separately authorized, evidence-preserving workflow, not fabricated terminal statuses or P&L."
+  ],
+  "disposition": {
+    "new_residual_reduction_bypass_implemented": false,
+    "original_close_or_protection_state_changed": false,
+    "flat_or_settled_claim": false,
+    "support_contacted": false,
+    "safe_next_step": "Preserve unresolved identities and evidence; improve bounded polling and diagnostics without weakening order, position or settlement checks."
+  },
+  "official_sources": [
+    {
+      "title": "Binance USD-M Futures REST Trade: Query Order, Query Algo Order, All Orders, Account Trade List",
+      "url": "https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade",
+      "checked_on": "2026-10-21",
+      "relevant_rules": "Order cleanup: unfilled canceled/expired orders after three days, or orders older than ninety days. userTrades supports symbol plus order ID, time windows up to seven days, and three months of history. allOrders has request weight five."
+    },
+    {
+      "title": "Binance USD-M Futures General Info",
+      "url": "https://developers.binance.me/en/docs/products/derivatives-trading-usds-futures/general-info",
+      "checked_on": "2026-10-21",
+      "relevant_rules": "The documented demo REST host is demo-fapi.binance.com; the diagnostic used that configured host."
+    },
+    {
+      "title": "How to Use Binance Demo Trading",
+      "url": "https://www.binance.com/en-KZ/support/faq/detail/9be58f73e5e14338809e3b705b9687dd",
+      "checked_on": "2026-10-21",
+      "relevant_rules": "Demo order execution and pricing can differ from live. Customer support cannot access or verify demo trade order details."
+    }
+  ]
+}

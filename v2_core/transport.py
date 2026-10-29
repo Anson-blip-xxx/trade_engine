@@ -8,6 +8,8 @@ from http.client import HTTPSConnection
 from typing import ClassVar
 from urllib.parse import urlencode
 
+from v2_core.reduction_fence import revalidate_reduction_write
+
 
 class ExchangeTransportError(RuntimeError):
     """Safe diagnostic only: never contains response text, URL or credentials."""
@@ -118,7 +120,19 @@ class BinanceSignedTransport:
         self._protection = enable_testnet_protection
         self._settings = enable_testnet_settings
 
-    def __call__(self, method, path, params):
+    def _signed_payload(self, params):
+        now = self._clock()
+        if type(now) is not int or now < 0:
+            raise ValueError("millisecond clock required")
+        payload = urlencode({**params, "timestamp": now, "recvWindow": 5000})
+        signature = hmac.new(
+            self._secret.encode(), payload.encode(), hashlib.sha256
+        ).hexdigest()
+        return payload + "&signature=" + signature
+
+    def __call__(self, method, path, params, *, admission_ticket=None):
+        if admission_ticket is not None and method != "GET":
+            raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
         if (
             method == "GET"
             and path in self._READS
@@ -209,21 +223,60 @@ class BinanceSignedTransport:
             for k, v in params.items()
         ):
             raise ValueError("normalized scalar request parameters required")
-        now = self._clock()
-        if type(now) is not int or now < 0:
-            raise ValueError("millisecond clock required")
-        if self._permit(method, path) is not True:
+        if admission_ticket is not None:
+            # Caller mutation during DNS/TLS must not change the authorized GET.
+            params = dict(params)
+        if admission_ticket is None and self._permit(method, path) is not True:
             raise ExchangeTransportError("QUOTA_DENIED")
-        payload = urlencode({**params, "timestamp": now, "recvWindow": 5000})
-        signature = hmac.new(
-            self._secret.encode(), payload.encode(), hashlib.sha256
-        ).hexdigest()
-        signed = payload + "&signature=" + signature
+        # This guard is deliberately before the ambiguous network region and
+        # after potentially blocking quota/route checks. GETs are unaffected.
+        revalidate_reduction_write(
+            self.account_id, self.environment, method, path, params
+        )
+        signed = self._signed_payload(params) if admission_ticket is None else None
+        # Check endpoint scope before even opening a connection. A prior-minute
+        # reservation cannot fund this GET; it is checked again after DNS/TLS.
+        if admission_ticket is not None:
+            consume = getattr(self._permit, "consume_context", None)
+            if (
+                not callable(consume)
+                or consume(
+                    admission_ticket,
+                    account_id=self.account_id,
+                    environment=self.environment,
+                    method=method,
+                    path=path,
+                    params=params,
+                )
+                is not True
+            ):
+                raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
         conn = None
+        checking_ticket = False
         try:
             conn = self._connection(
                 self._HOSTS[self.environment], timeout=self._timeout
             )
+            if admission_ticket is not None:
+                # HTTPSConnection is lazy: DNS/TLS may cross a minute before
+                # request(). Connect first, then revalidate without recharging.
+                conn.connect()
+                checking_ticket = True
+                # Signing before a slow handshake could use up recvWindow even
+                # when the original context deadline remains valid.
+                signed = self._signed_payload(params)
+                revalidate = getattr(self._permit, "revalidate_context", None)
+                if (
+                    not callable(revalidate)
+                    or revalidate(
+                        admission_ticket,
+                        account_id=self.account_id,
+                        environment=self.environment,
+                    )
+                    is not True
+                ):
+                    raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
+                checking_ticket = False
             headers = {
                 "X-MBX-APIKEY": self._key,
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -288,7 +341,11 @@ class BinanceSignedTransport:
             return data
         except ExchangeTransportError:
             raise
-        except Exception:  # noqa: BLE001 - remove possible request/credential-bearing transport detail
+        except Exception:  # preserve local validation; redact network detail
+            if checking_ticket:
+                # No HTTP was sent. Preserve local quota and DB failures so
+                # they are not misclassified as ambiguous venue outcomes.
+                raise
             raise ExchangeTransportError("NETWORK_OUTCOME_UNKNOWN") from None
         finally:
             if conn is not None:

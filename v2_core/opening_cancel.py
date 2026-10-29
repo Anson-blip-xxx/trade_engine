@@ -11,6 +11,7 @@ from uuid import UUID
 from v2_core.binance import BinanceFutures
 from v2_core.ledger import lock_order_episode
 from v2_core.runner import ExecutionRunner
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 FINAL = frozenset({"FILLED", "CANCELLED", "REJECTED", "RECONCILED"})
@@ -64,13 +65,11 @@ class TestnetOpeningCancel:
 
     def cancel_once(self, order_id):
         self.snapshot(order_id)  # Reject foreign accounts before any venue I/O.
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return "BUSY"
-            guard.commit()
             order = self.snapshot(order_id)
             if order["status"] in FINAL:
                 return order["status"]

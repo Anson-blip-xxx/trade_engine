@@ -7,8 +7,9 @@ opening reverse exposure.  Writes are disabled unless explicitly enabled.
 """
 
 import json
-from dataclasses import asdict
-from decimal import ROUND_FLOOR, Decimal, localcontext
+from copy import deepcopy
+from dataclasses import asdict, replace
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
 from uuid import UUID, uuid4
 
 from services.v2_directional_protection import DirectionalStopRecovery
@@ -18,11 +19,26 @@ from v2_core.directional_exit import ExitFacts, evaluate_directional_exit
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
 from v2_core.opening_halt import halt_opening
+from v2_core.precision import derived_amount, money_context
 from v2_core.protection import TestnetProtection
 from v2_core.service import TradingData
-from v2_core.state import BusinessState, StateKey
+from v2_core.session_lock import session_advisory_lock
+from v2_core.state import BusinessState, StateKey, StateSnapshot
+from v2_core.symbol_reduction import symbol_reduction_proof
 
 _TERMINAL = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
+_ISOLATABLE_COVERAGE = {"LOCAL_ORDERS_NOT_FINAL", "MISSING_CONFIRMED_STOP"}
+
+
+def _ledger_digest(trace):
+    return digest(
+        canonical(
+            {
+                key: trace[key]
+                for key in ("intent_id", "data_revision", "orders", "fills", "request")
+            }
+        )
+    )
 
 
 class DirectionalExitStage:
@@ -39,6 +55,7 @@ class DirectionalExitStage:
         allow_writes=False,
         excluded_position_symbols=(),
         limit=10,
+        quant_market=None,
     ):
         if (
             runtime.scope != scope
@@ -64,7 +81,11 @@ class DirectionalExitStage:
             limit,
         )
         self.data = TradingData(connect)
+        self.quant_market = quant_market
         self.store = BusinessState(connect)
+        self.cursor = StateKey(
+            **asdict(scope), namespace="directional-exit-scan-v1", key="cursor"
+        )
         self.audit = AccountCoverageAudit(
             connect,
             request,
@@ -87,6 +108,23 @@ class DirectionalExitStage:
         return StateKey(
             **asdict(self.scope), namespace="directional-exit-v1", key=episode
         )
+
+    def _read_scan_cursor(self):
+        # This diagnostic namespace has no generic state-history/coverage
+        # indirections. Read its raw payload so a malformed reserved key cannot
+        # invoke BusinessState's business-evidence decoders and block all exits.
+        # Account/namespace identity and database availability are not repairable
+        # paging content: failures here still propagate without any venue action.
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT version,payload,deleted,scope FROM v2_business_state WHERE state_id=%s",
+                (self.cursor.identity,),
+            ).fetchone()
+        if row is None:
+            return None
+        if row[3] != asdict(self.cursor):
+            raise ValueError("EXIT_SCAN_CURSOR_IDENTITY_CONFLICT")
+        return StateSnapshot(row[0], json.dumps(row[1], separators=(",", ":")), row[2])
 
     def _save(self, episode, payload, request_key):
         key = self._key(episode)
@@ -134,8 +172,7 @@ class DirectionalExitStage:
             Decimal(0),
             None,
         )
-        with localcontext() as ctx:
-            ctx.prec = 100
+        with money_context():
             for fill in trace["fills"]:
                 order = orders[fill["order_id"]]
                 qty, price = (
@@ -160,6 +197,12 @@ class DirectionalExitStage:
                 raise ValueError("ACTIVE_LEDGER_EXPOSURE_REQUIRED")
             entry = value / opened
             planned = amount(sizing["planned_loss"], positive=True) * remaining / opened
+            # Division can repeat even though every original fill is exact.
+            # Normalize only derived decision inputs, never fills or quantity.
+            # Round remaining risk upward so a positive dust exposure cannot
+            # lose its risk denominator or understate the allocated risk.
+            entry = derived_amount(entry, rounding=ROUND_HALF_EVEN, positive=True)
+            planned = derived_amount(planned, rounding=ROUND_CEILING, positive=True)
         pending = [
             row
             for row in trace["orders"]
@@ -167,7 +210,10 @@ class DirectionalExitStage:
         ]
         partial_done = any(
             row["leg"] == "CLOSE"
-            and row["request_key"] == "exit:partial-take-profit"
+            and (
+                row["request_key"] == "exit:partial-take-profit"
+                or row["request_key"].startswith("exit:partial-take-profit:retry:")
+            )
             and quantities.get(row["order_id"], Decimal(0)) > 0
             for row in trace["orders"]
         )
@@ -236,6 +282,17 @@ class DirectionalExitStage:
                 "parent_status": protection["status"],
             }
         observation, now = self._observation(trace["request"]["symbol"])
+        if any(
+            row["leg"] == "CLOSE"
+            and row["status"] in {"REJECTED", "CANCELLED"}
+            and row["request_evidence"].get("observed_at_ms", 0)
+            >= observation["observed_at_ms"]
+            for row in trace["orders"]
+        ):
+            return {
+                "status": "BLOCKED",
+                "reason": "REJECTED_EXIT_AWAITING_FRESH_OBSERVATION",
+            }
         saved = self.store.read(self._key(episode))
         prior = json.loads(saved.payload_json) if saved else {}
         facts = ExitFacts(
@@ -259,6 +316,38 @@ class DirectionalExitStage:
 
         policy = PolicyStore(self.connect, self.scope).read()
         decision = evaluate_directional_exit(facts, policy=policy.values)
+        quant = prior.get("quant_exit")
+        quant_failure = None
+        if (
+            trace["decision"].get("source") == "quant"
+            and policy.values["quant.trailing_exit_enabled"]
+        ):
+            try:
+                if self.quant_market is None:
+                    raise ValueError("QUANT_EXIT_PORT_REQUIRED")
+                quant = self.quant_market(
+                    entry_proof=trace["decision"]["features"]["context"]["quant"],
+                    symbol=trace["request"]["symbol"],
+                    side=trace["request"]["side"],
+                    opened_at_ms=first,
+                    entry_price=str(entry),
+                    hard_stop=sizing["stop_price"],
+                    mark_price=observation["mark_price"],
+                    previous=quant,
+                    now=now,
+                )
+                if quant["status"] == "CLOSE" and decision.action in {
+                    "WAIT",
+                    "PARTIAL",
+                }:
+                    decision = replace(
+                        decision,
+                        action="CLOSE",
+                        reason="QUANT_ATR_TRAIL",
+                        quantity_fraction="1",
+                    )
+            except Exception as exc:  # noqa: BLE001 - keep emergency/native exits alive
+                quant_failure = type(exc).__name__
         quantity_step = trace["decision"]["features"]["context"]["directional"][
             "sizing"
         ]["quantity_step"]
@@ -266,12 +355,24 @@ class DirectionalExitStage:
         encoded_facts = asdict(facts)
         encoded_facts["momentum_closes_15m"] = list(facts.momentum_closes_15m)
         encoded_facts["peak_return_pct"] = decision.peak_return_pct
+        from v2_core.strategy_observations import observe_excursions
+
+        excursions_error = None
+        try:
+            excursions = observe_excursions(
+                prior.get("excursions"), now_ms=now, return_pct=decision.return_pct
+            )
+        except (ValueError, KeyError, TypeError, ArithmeticError):
+            # Analytics cannot delay an emergency close or native protection.
+            excursions = prior.get("excursions")
+            excursions_error = "SAMPLED_EXCURSIONS_UNAVAILABLE"
         payload = {
             "episode": episode,
             "account_scope": asdict(self.scope),
             "strategy_version": "directional-admission-v2-1",
             "entry_decision_digest": digest(canonical(trace["decision"])),
             "opening_order_id": opening["order_id"],
+            "target_ledger_digest": _ledger_digest(trace),
             "facts": encoded_facts,
             "observation": observation,
             "decision": decision.evidence(),
@@ -281,6 +382,10 @@ class DirectionalExitStage:
             "peak_return_pct": decision.peak_return_pct,
             "partial_done": partial_done,
             "execution_authorized": False,
+            "quant_exit": quant,
+            "quant_exit_error": quant_failure,
+            "excursions": excursions,
+            "excursions_error": excursions_error,
         }
         identity = digest(
             canonical(
@@ -288,11 +393,19 @@ class DirectionalExitStage:
                     "observation": observation,
                     "decision": decision.evidence(),
                     "policy_digest": policy.digest,
+                    "quant_exit": quant,
+                    "quant_exit_error": quant_failure,
                 }
             )
         )
         key, state = self._save(episode, payload, "observe:" + identity)
         if decision.action in {"WAIT", "WAIT_NATIVE_STOP"}:
+            if quant_failure:
+                return {
+                    "status": "BLOCKED",
+                    "reason": "QUANT_EXIT_DATA_UNAVAILABLE",
+                    "state_id": key.identity,
+                }
             return {
                 "status": decision.action,
                 "reason": decision.reason,
@@ -328,17 +441,48 @@ class DirectionalExitStage:
         spec,
         quantity_step,
     ):
-        with self.connect() as account:
-            if not account.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BLOCKED", "reason": "ACCOUNT_BUSY"}
-            account.commit()
+            from v2_core.runtime_policy import PolicyStore
+
+            policy = PolicyStore(self.connect, self.scope).read()
+            if (policy.version, policy.digest) != (
+                payload["policy_version"],
+                payload["policy_digest"],
+            ):
+                return {"status": "BLOCKED", "reason": "EXIT_POLICY_CHANGED"}
+            isolated = policy.values["exit.symbol_isolation_enabled"]
+            max_age = policy.values["exit.preflight_max_age_ms"]
+            trace, *_, pending = self._trace(episode)
+            if pending or _ledger_digest(trace) != payload["target_ledger_digest"]:
+                return {"status": "BLOCKED", "reason": "EXIT_LEDGER_CHANGED"}
             before = self.audit.facts()
             inventory = self.audit.inventory.collect(str(uuid4()))
             after = self.audit.facts()
-            blockers = coverage_from_facts(self.scope, after, inventory)
+            blockers = coverage_from_facts(
+                self.scope,
+                after,
+                inventory,
+                excluded_position_symbols=self.audit.excluded_position_symbols,
+            )
+            reduction = None
+            if isolated:
+                reduction = symbol_reduction_proof(
+                    self.scope,
+                    after,
+                    inventory,
+                    episode=episode,
+                    symbol=trace["request"]["symbol"],
+                    side=trace["request"]["side"],
+                    remaining=str(remaining),
+                    now_ms=self.clock(),
+                    max_age_ms=max_age,
+                    excluded_position_symbols=self.audit.excluded_position_symbols,
+                )
+                blockers = reduction["blockers"]
             if before != after:
                 blockers = sorted(set(blockers) | {"LOCAL_FACTS_CHANGED_DURING_EXIT"})
             if blockers or self.protection.query(spec)["status"] != "NEW":
@@ -347,10 +491,16 @@ class DirectionalExitStage:
                     "reason": "EXIT_PREFLIGHT_CHANGED",
                     "blockers": blockers,
                 }
+            if (
+                not self._fresh_exit(observation, inventory, max_age)
+                or self.audit.facts() != after
+                or _ledger_digest(self._trace(episode)[0])
+                != payload["target_ledger_digest"]
+            ):
+                return {"status": "BLOCKED", "reason": "EXIT_PREFLIGHT_CHANGED"}
             persist_inventory(self.connect, scope=self.scope, observation=inventory)
             step = amount(quantity_step, positive=True)
-            with localcontext() as ctx:
-                ctx.prec = 100
+            with money_context():
                 quantity = remaining
                 if decision.action == "PARTIAL":
                     quantity = (
@@ -372,6 +522,7 @@ class DirectionalExitStage:
                 "exit_state_id": key.identity,
                 "exit_state_version": version,
                 "execution_authorized": True,
+                "symbol_reduction": reduction,
             }
             key, state = self._save(
                 episode, proof, "preflight:" + inventory["observation_id"]
@@ -382,6 +533,35 @@ class DirectionalExitStage:
                 if decision.action == "PARTIAL"
                 else "exit:full:" + decision.reason.lower().replace("_", "-")
             )
+            # Retry only terminal rejects/cancels, with a fresh market decision
+            # and inventory. Never change the identity of an ambiguous request.
+            previous = [
+                row
+                for row in self.data.trace(episode)["orders"]
+                if row["leg"] == "CLOSE"
+                and (
+                    row["request_key"] == request_key
+                    or row["request_key"].startswith(request_key + ":retry:")
+                )
+            ]
+            if previous:
+                if any(
+                    row["status"] not in {"REJECTED", "CANCELLED"} for row in previous
+                ):
+                    return {
+                        "status": "BLOCKED",
+                        "reason": "EXIT_IDENTITY_REQUIRES_RECOVERY",
+                    }
+                if observation["observed_at_ms"] <= max(
+                    row["request_evidence"].get("observed_at_ms", 0) for row in previous
+                ):
+                    return {
+                        "status": "BLOCKED",
+                        "reason": "REJECTED_EXIT_AWAITING_FRESH_OBSERVATION",
+                    }
+                request_key += ":retry:" + str(len(previous))
+            if not self._fresh_exit(observation, inventory, max_age):
+                return {"status": "BLOCKED", "reason": "EXIT_PREFLIGHT_EXPIRED"}
             order_id, client_id = self.data.orders.prepare(
                 episode,
                 leg="CLOSE",
@@ -389,13 +569,33 @@ class DirectionalExitStage:
                 request_key=request_key,
                 evidence={
                     "source": "directional-exit-v1",
+                    "observed_at_ms": observation["observed_at_ms"],
                     "reason": decision.reason,
                     "state_id": key.identity,
                     "state_version": state.version,
                     "preflight_inventory": inventory["observation_id"],
+                    "symbol_reduction": reduction,
                 },
             )
-            outcome = self.runtime.execution.dispatch(order_id)
+            outcome = self.runtime.execution.dispatch(
+                order_id,
+                **(
+                    {
+                        "reduce_only_check": lambda order: self._revalidate_reduction(
+                            order,
+                            episode=episode,
+                            spec=spec,
+                            facts=after,
+                            inventory=inventory,
+                            observation=observation,
+                            policy=policy,
+                            quantity=quantity,
+                        )
+                    }
+                    if isolated
+                    else {}
+                ),
+            )
             return {
                 "status": "DISPATCHED"
                 if outcome not in {"DENIED", "REJECTED", "CANCELLED"}
@@ -406,16 +606,108 @@ class DirectionalExitStage:
                 "quantity": str(quantity),
                 "outcome": outcome,
                 "state_id": key.identity,
+                "symbol_reduction": reduction,
             }
 
+    def _fresh_exit(self, observation, inventory, max_age):
+        now = self.clock()
+        return type(now) is int and all(
+            type(value) is int and 0 <= now - value < max_age
+            for value in (
+                observation["observed_at_ms"],
+                inventory["started_at_ms"],
+                inventory["finished_at_ms"],
+            )
+        )
+
+    def _revalidate_reduction(
+        self, order, *, episode, spec, facts, inventory, observation, policy, quantity
+    ):
+        """Last pre-submit check; original account/token guard still owns POST.
+
+        Only our two expected journal events may differ from the locked
+        preflight: ORDER_PREPARED and its durable SUBMITTING transition. A fill,
+        competing order, protection change or unrelated account mutation fails
+        closed before the adapter receives permission to submit.
+        """
+        from v2_core.runtime_policy import PolicyStore
+
+        with self.connect() as conn:
+            owner = conn.execute(
+                "SELECT episode_id::text FROM v2_orders WHERE order_id=%s",
+                (order["order_id"],),
+            ).fetchone()
+        current = self.runtime.execution.snapshot(order["order_id"])
+        if (
+            owner != (episode,)
+            or current["symbol"] != spec.symbol
+            or current["side"] != spec.side
+            or current["status"] != "SUBMITTING"
+            or current["version"] != 2
+            or current["leg"] != "CLOSE"
+            or current["reduce_only"] is not True
+            or amount(current["quantity"], positive=True) != quantity
+            or current["exchange_order_id"] is not None
+            or self.protection.query(spec)["status"] != "NEW"
+        ):
+            return False
+        actual = self.audit.facts()
+        registered = [o for o in actual["orders"] if o["order_id"] == order["order_id"]]
+        if len(registered) != 1 or registered[0]["has_fills"]:
+            return False
+        normalized = deepcopy(actual)
+        normalized["orders"] = [
+            o for o in normalized["orders"] if o["order_id"] != order["order_id"]
+        ]
+        matching = [e for e in normalized["episodes"] if e["episode"] == episode]
+        if len(matching) != 1 or type(matching[0]["revision"]) is not int:
+            return False
+        matching[0]["revision"] -= 2
+        if normalized != facts:
+            return False
+        selected = PolicyStore(self.connect, self.scope).read()
+        return (
+            (selected.version, selected.digest) == (policy.version, policy.digest)
+            and selected.values["exit.symbol_isolation_enabled"]
+            and self._fresh_exit(
+                observation, inventory, selected.values["exit.preflight_max_age_ms"]
+            )
+        )
+
     def run_once(self):
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("directional-exit-stage:" + self.scope.key,),
-            ).fetchone()[0]:
+        return self._run_once()
+
+    def run_after_protection(self, coverage):
+        """Accept only the pipeline's immediately preceding diagnostic proof."""
+        return self._run_once(protection_coverage=coverage)
+
+    def _run_once(self, *, protection_coverage=None):
+        with session_advisory_lock(
+            self.connect, "directional-exit-stage:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BLOCKED", "reason": "BUSY"}
-            guard.commit()
+            cursor = self._read_scan_cursor()
+            after = ""
+            invalid_cursor = False
+            if cursor is not None and not cursor.deleted:
+                try:
+                    payload = json.loads(cursor.payload_json)
+                    if (
+                        not isinstance(payload, dict)
+                        or set(payload) != {"after"}
+                        or not isinstance(payload["after"], str)
+                        or str(UUID(payload["after"])) != payload["after"]
+                    ):
+                        invalid_cursor = True
+                    else:
+                        after = payload["after"]
+                except (ValueError, TypeError):
+                    invalid_cursor = True
+                # A paging cursor is not exposure or execution authority.
+                # Malformed cursor content restarts the bounded scan, retaining
+                # all real account/target checks; PG read failures above still
+                # propagate. Replace only after a successfully attempted slice.
             with self.connect() as conn:
                 rows = conn.execute(
                     """SELECT i.intent_id::text FROM v2_trade_intents i
@@ -426,49 +718,161 @@ class DirectionalExitStage:
                     AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
                     AND e.status='ACTIVE' GROUP BY i.intent_id
                     HAVING COALESCE(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)>0
-                    ORDER BY i.intent_id LIMIT %s""",
-                    (*asdict(self.scope).values(), self.limit + 1),
+                    ORDER BY (i.intent_id::text<=%s),i.intent_id LIMIT %s""",
+                    (*asdict(self.scope).values(), after, self.limit + 1),
                 ).fetchall()
-            if len(rows) > self.limit:
-                return {"status": "BLOCKED", "reason": "EXIT_SCAN_CAPACITY_EXCEEDED"}
+            incomplete = len(rows) > self.limit
+            scan = {
+                "limit": self.limit,
+                "selected": min(len(rows), self.limit),
+                "active_count_lower_bound": len(rows),
+                "remaining_count_lower_bound": max(0, len(rows) - self.limit),
+                "count_is_lower_bound": incomplete,
+                "complete": not incomplete,
+                "cursor_advanced": False,
+                "cursor_invalid": invalid_cursor,
+                "cursor_rebuilt": False,
+            }
+            rows = rows[: self.limit]
             if not rows:
-                return {"status": "CLEAR", "exits": {}, "execution_authorized": False}
+                return {
+                    "status": "CLEAR",
+                    "exits": {},
+                    "scan": scan,
+                    "execution_authorized": False,
+                }
+
+            def finish_scan(result):
+                # Checkpoint only after every selected episode received its
+                # recovery/evaluation attempt. A crash before this CAS replays
+                # the same bounded slice using the original order identities;
+                # it never skips an unattempted exit or grants an order permit.
+                # Lexical wrap remains valid if the previous cursor episode
+                # has since settled or disappeared from this active inventory.
+                if after != rows[-1][0] or invalid_cursor:
+                    version = cursor.version if cursor else 0
+                    saved = self.store.change(
+                        self.cursor,
+                        expected_version=version,
+                        request_key=f"scan:{version + 1}",
+                        payload={"after": rows[-1][0]},
+                        reason="DIRECTIONAL_EXIT_SCAN",
+                    )
+                    if saved.code != "APPLIED":
+                        raise ValueError("EXIT_SCAN_CURSOR_CONFLICT")
+                    scan["cursor_advanced"] = True
+                    scan["cursor_rebuilt"] = invalid_cursor
+                if incomplete:
+                    result["status"] = "BLOCKED"
+                    result.setdefault("reason", "EXIT_SCAN_INCOMPLETE")
+                return {**result, "scan": scan}
+
+            from v2_core.runtime_policy import PolicyStore
+
+            isolated = (
+                PolicyStore(self.connect, self.scope)
+                .read()
+                .values["exit.symbol_isolation_enabled"]
+            )
             # Coverage intentionally rejects nonterminal local orders. Recover
             # already-registered close identities first; this path is GET-only
             # and can never authorize a replacement POST.
-            recovering = {}
+            recovering, held = {}, {}
             for (episode,) in rows:
                 try:
                     *_, pending = self._trace(episode)
+                    outcomes = {}
                     for order in pending:
-                        recovering[order["order_id"]] = self.runtime.execution.recover(
-                            order["order_id"]
-                        )
+                        outcome = self.runtime.execution.recover(order["order_id"])
+                        recovering[order["order_id"]] = outcome
+                        outcomes[order["order_id"]] = outcome
+                    if any(outcome not in _TERMINAL for outcome in outcomes.values()):
+                        held[episode] = {
+                            "status": "RECOVERING_CLOSE",
+                            "orders": outcomes,
+                        }
                 except Exception as exc:  # noqa: BLE001 - poison episode blocks admission
                     recovering[episode] = {
                         "status": "BLOCKED",
                         "error_code": type(exc).__name__,
                     }
-            if any(
-                value not in _TERMINAL
-                for value in recovering.values()
-                if isinstance(value, str)
-            ) or any(isinstance(value, dict) for value in recovering.values()):
-                return {
-                    "status": "BLOCKED",
-                    "reason": "CLOSE_RECOVERY_PENDING",
-                    "recovery": recovering,
-                    "execution_authorized": False,
-                }
-            coverage = self.audit.run_once()
+                    held[episode] = recovering[episode]
+            recovery_pending = bool(held)
+            if recovery_pending and (not isolated or len(held) == len(rows)):
+                return finish_scan(
+                    {
+                        "status": "BLOCKED",
+                        "reason": "CLOSE_RECOVERY_PENDING",
+                        "recovery": recovering,
+                        **(
+                            {
+                                "exits": held,
+                                "symbol_isolation_enabled": True,
+                                "coverage_skipped": "NO_INDEPENDENT_EXIT_CANDIDATE",
+                            }
+                            if isolated
+                            else {}
+                        ),
+                        "execution_authorized": False,
+                    }
+                )
+            # A recovery attempt (including poison/terminal recovery) can
+            # mutate the ledger. Never reuse its pre-recovery diagnostic.
+            coverage = (
+                self.audit.reuse_after_protection(protection_coverage)
+                if not recovering and protection_coverage is not None
+                else None
+            )
+            coverage_reused = coverage is not None
+            if coverage is None:
+                coverage = self.audit.run_once()
+            emergency = {}
             if coverage.get("status") != "ACCOUNT_COVERAGE_CLEAR":
-                return {
-                    "status": "BLOCKED",
-                    "coverage": coverage,
-                    "execution_authorized": False,
-                }
-            results = {}
+                # A missing stop must prevent new exposure, not prevent a
+                # verified reduce-only escape. Every other coverage defect
+                # still fails closed; each reduction rechecks fresh inventory.
+                if not recovery_pending and set(coverage.get("blockers", [])) == {
+                    "MISSING_CONFIRMED_STOP"
+                }:
+                    for (episode,) in rows:
+                        try:
+                            emergency[episode] = self._unprotected_exit(episode)
+                        except Exception as exc:  # noqa: BLE001 - no secret-bearing exception text
+                            emergency[episode] = {
+                                "status": "BLOCKED",
+                                "error_code": type(exc).__name__,
+                            }
+                if not (
+                    isolated
+                    and coverage.get("status") == "ACCOUNT_COVERAGE_BLOCKED"
+                    and set(coverage.get("blockers", []))
+                    and set(coverage["blockers"]) <= _ISOLATABLE_COVERAGE
+                ):
+                    return finish_scan(
+                        {
+                            "status": "BLOCKED",
+                            "coverage": coverage,
+                            "emergency_exits": emergency,
+                            "recovery": recovering,
+                            "exits": held,
+                            **(
+                                {"reason": "CLOSE_RECOVERY_PENDING"}
+                                if recovery_pending
+                                else {}
+                            ),
+                            "execution_authorized": False,
+                        }
+                    )
+                # This only permits independent evaluation, not an order. The
+                # account remains BLOCKED. Each actual POST needs a fresh,
+                # symbol-specific proof under the original account lock.
+                for episode, result in emergency.items():
+                    if result.get("status") != "PROTECTION_PRESENT":
+                        held[episode] = result
+            results = dict(held)
             for (episode,) in rows:
+                if episode in held:
+                    continue
                 try:
                     results[episode] = self.evaluate(episode)
                 except Exception as exc:  # noqa: BLE001 - isolate and sanitize one episode
@@ -476,13 +880,155 @@ class DirectionalExitStage:
                         "status": "BLOCKED",
                         "error_code": type(exc).__name__,
                     }
-            blocked = any(
-                result.get("status") not in {"WAIT", "WAIT_NATIVE_STOP"}
-                for result in results.values()
+            blocked = (
+                recovery_pending
+                or coverage.get("status") != "ACCOUNT_COVERAGE_CLEAR"
+                or any(
+                    result.get("status") not in {"WAIT", "WAIT_NATIVE_STOP"}
+                    for result in results.values()
+                )
             )
+            return finish_scan(
+                {
+                    "status": "BLOCKED" if blocked else "CLEAR",
+                    "exits": results,
+                    "coverage": coverage,
+                    "recovery": recovering,
+                    "emergency_exits": emergency,
+                    "coverage_reused": coverage_reused,
+                    **(
+                        {"reason": "CLOSE_RECOVERY_PENDING"} if recovery_pending else {}
+                    ),
+                    "symbol_isolation_enabled": isolated,
+                    "execution_authorized": False,
+                }
+            )
+
+    def _unprotected_exit(self, episode):
+        """Close only a proven-owned naked residual; no strategy data required.
+
+        An UNKNOWN stop is never resubmitted. Native stops that may exist are
+        left untouched. The account lock, exact ledger/venue comparison and
+        reduceOnly wire flag prevent new/reverse exposure. An ambiguous close
+        keeps its original identity and is recovered by the normal runner.
+        """
+        from v2_core.runtime_policy import PolicyStore
+
+        policy = PolicyStore(self.connect, self.scope).read()
+        if (
+            not self.allow_writes
+            or not policy.values["protection.emergency_exit_enabled"]
+        ):
+            return {"status": "ACTION_DISABLED", "reason": "UNCONFIRMED_PROTECTION"}
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
+                return {"status": "BLOCKED", "reason": "ACCOUNT_BUSY"}
+            trace, opening, _, _, _, remaining, _, first, _, pending = self._trace(
+                episode
+            )
+            if pending:
+                return {"status": "BLOCKED", "reason": "CLOSE_RECOVERY_PENDING"}
+            now = self.clock()
+            if not 0 <= now - first:
+                raise ValueError("INVALID_EXPOSURE_TIME")
+            if now - first < policy.values["protection.unconfirmed_grace_ms"]:
+                return {"status": "BLOCKED", "reason": "PROTECTION_CONFIRMATION_GRACE"}
+            before = self.audit.facts()
+            inventory = self.audit.inventory.collect(str(uuid4()))
+            after = self.audit.facts()
+            blockers = coverage_from_facts(
+                self.scope,
+                after,
+                inventory,
+                excluded_position_symbols=self.audit.excluded_position_symbols,
+            )
+            if before != after or set(blockers) != {"MISSING_CONFIRMED_STOP"}:
+                return {
+                    "status": "BLOCKED",
+                    "reason": "EMERGENCY_PREFLIGHT_CHANGED",
+                    "blockers": blockers,
+                }
+            symbol = trace["request"]["symbol"]
+            # Do not close another episode that is properly protected merely
+            # because the account has a different unprotected symbol.
+            if any(
+                r.get("symbol") == symbol and r.get("orderType") == "STOP_MARKET"
+                for r in inventory["responses"]["conditional_orders"]
+            ):
+                return {"status": "PROTECTION_PRESENT"}
+            owners = [
+                e
+                for e in after["episodes"]
+                if e["symbol"] == symbol and amount(e["remaining"]) != 0
+            ]
+            if (
+                len(owners) != 1
+                or owners[0]["episode"] != episode
+                or amount(owners[0]["remaining"]) != remaining
+            ):
+                raise ValueError("EMERGENCY_EXCLUSIVE_OWNERSHIP_REQUIRED")
+            finish = inventory["finished_at_ms"]
+            checked = self.clock()
+            if type(finish) is not int or not 0 <= checked - finish < 10000:
+                raise ValueError("STALE_EMERGENCY_INVENTORY")
+            step = amount(
+                trace["decision"]["features"]["context"]["directional"]["sizing"][
+                    "quantity_step"
+                ],
+                positive=True,
+            )
+            with money_context():
+                if remaining <= 0 or remaining % step:
+                    raise ValueError("INVALID_EMERGENCY_QUANTITY")
+            previous = [
+                o
+                for o in trace["orders"]
+                if o["leg"] == "CLOSE"
+                and o["request_key"].startswith("exit:unprotected-emergency")
+            ]
+            if any(o["status"] not in {"REJECTED", "CANCELLED"} for o in previous):
+                return {
+                    "status": "BLOCKED",
+                    "reason": "EMERGENCY_IDENTITY_REQUIRES_RECOVERY",
+                }
+            if previous and finish <= max(
+                o["request_evidence"].get("observed_at_ms", 0) for o in previous
+            ):
+                return {
+                    "status": "BLOCKED",
+                    "reason": "REJECTED_EXIT_AWAITING_FRESH_OBSERVATION",
+                }
+            persist_inventory(self.connect, scope=self.scope, observation=inventory)
+            halt_opening(self.connect, episode, scope=self.scope)
+            request_key = "exit:unprotected-emergency" + (
+                ":retry:" + str(len(previous)) if previous else ""
+            )
+            oid, cid = self.data.orders.prepare(
+                episode,
+                leg="CLOSE",
+                quantity=str(remaining),
+                request_key=request_key,
+                evidence={
+                    "source": "unprotected-emergency-v1",
+                    "reason": "UNCONFIRMED_PROTECTION",
+                    "observed_at_ms": finish,
+                    "opening_order_id": opening["order_id"],
+                    "preflight_inventory": inventory["observation_id"],
+                    "preflight_digest": digest(canonical(inventory)),
+                    "policy_version": policy.version,
+                    "policy_digest": policy.digest,
+                },
+            )
+            outcome = self.runtime.execution.dispatch(oid)
             return {
-                "status": "BLOCKED" if blocked else "CLEAR",
-                "exits": results,
-                "coverage": coverage,
-                "execution_authorized": False,
+                "status": "DISPATCHED"
+                if outcome not in {"DENIED", "REJECTED", "CANCELLED"}
+                else "BLOCKED",
+                "reason": "UNCONFIRMED_PROTECTION",
+                "order_id": oid,
+                "client_order_id": cid,
+                "quantity": str(remaining),
+                "outcome": outcome,
             }

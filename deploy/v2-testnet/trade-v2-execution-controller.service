@@ -19,8 +19,10 @@ LoadCredentialEncrypted=v2-master-v1:/etc/credstore.encrypted/trade-v2-master-v1
 LoadCredentialEncrypted=v2-notifications:/etc/credstore.encrypted/trade-v2-notifications.cred
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=45
-KillMode=control-group
+# SIGTERM goes to the supervisor; it drains the child via its shared event.
+# SIGKILL still covers the whole cgroup after bounded graceful/forced shutdown.
+TimeoutStopSec=90
+KillMode=mixed
 UMask=0077
 LimitCORE=0
 NoNewPrivileges=yes

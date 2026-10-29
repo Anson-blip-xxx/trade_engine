@@ -1,0 +1,1514 @@
+{
+  "archive_calls": 42,
+  "as_of_ms": 1793007626038,
+  "automatic_parameter_updates": false,
+  "cases": [
+    {
+      "closed_ms": 1793007056915,
+      "entry_mode": "RIGHT_MOMENTUM",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1793006520000,
+        "input_digest": "213856b0befd75218082ff39b324eda84f76672c345e7c451f9dfde157ac6026",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000158428571428571",
+              "atr_pct": "0.842974201492877666",
+              "ema20": "0.018794",
+              "ema60": "0.018794"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000158428571428571",
+              "atr_pct": "0.842974201492877666",
+              "ema20": "0.018794",
+              "ema60": "0.018794"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000258285714285714",
+              "atr_pct": "1.374298788367108044",
+              "ema20": "0.018799368412638562",
+              "ema60": "0.019648566666666667"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000158428571428571",
+              "atr_pct": "0.842974201492877666",
+              "ema20": "0.018799368412638562",
+              "ema60": "0.019648566666666667"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000028857142857143",
+              "atr_pct": "0.153544444275528664",
+              "ema20": "0.018799585961649046",
+              "ema60": "0.019679610276053727"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000158428571428571",
+              "atr_pct": "0.842974201492877666",
+              "ema20": "0.018799585961649046",
+              "ema60": "0.019679610276053727"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000135928571428571",
+              "atr_pct": "0.723255142218641208",
+              "ema20": "0.01879958596166111",
+              "ema60": "0.019679796369458475"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000158428571428571",
+              "atr_pct": "0.842974201492877666",
+              "ema20": "0.01879958596166111",
+              "ema60": "0.019679796369458475"
+            }
+          }
+        }
+      },
+      "opened_ms": 1793006542874,
+      "post_flat": {
+        "adverse_excursion_pct": null,
+        "anchor_delay_ms": null,
+        "anchor_ms": null,
+        "basis": null,
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "favorable_excursion_pct": null,
+        "flat_ms": 1793007056915,
+        "market_return_not_trade_pnl": true,
+        "observed_end_ms": null,
+        "requested_horizon_minutes": 60,
+        "return_pct": null,
+        "status": "HORIZON_NOT_YET_OBSERVABLE"
+      },
+      "side": "SELL",
+      "symbol": "HUMAUSDT",
+      "trend": {
+        "reason": "PROFIT_AUDIT_NOT_HELD_AT_HOUR_BOUNDARY",
+        "status": "UNAVAILABLE"
+      }
+    },
+    {
+      "closed_ms": 1793006380092,
+      "entry_mode": "RIGHT_MOMENTUM",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1793006040000,
+        "input_digest": "3a054f79380f989c5f0322069ea0293a88a085b390603e729b6cb4e4b9ecf286",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000033285714285714",
+              "atr_pct": "1.399147300786645049",
+              "ema20": "0.002379",
+              "ema60": "0.002379"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000033285714285714",
+              "atr_pct": "1.399147300786645049",
+              "ema20": "0.002379",
+              "ema60": "0.002379"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.0000265",
+              "atr_pct": "1.113913408995376208",
+              "ema20": "0.002340970572757304",
+              "ema60": "0.002211616666666667"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000033285714285714",
+              "atr_pct": "1.399147300786645049",
+              "ema20": "0.002340970572757304",
+              "ema60": "0.002211616666666667"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000003642857142857",
+              "atr_pct": "0.153125562961628535",
+              "ema20": "0.002341071532455145",
+              "ema60": "0.00222058557945453"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000033285714285714",
+              "atr_pct": "1.399147300786645049",
+              "ema20": "0.002341071532455145",
+              "ema60": "0.00222058557945453"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000005",
+              "atr_pct": "0.210172341319882303",
+              "ema20": "0.002341071532455435",
+              "ema60": "0.002220570173476408"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000033285714285714",
+              "atr_pct": "1.399147300786645049",
+              "ema20": "0.002341071532455435",
+              "ema60": "0.002220570173476408"
+            }
+          }
+        }
+      },
+      "opened_ms": 1793006076427,
+      "post_flat": {
+        "adverse_excursion_pct": null,
+        "anchor_delay_ms": null,
+        "anchor_ms": null,
+        "basis": null,
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "favorable_excursion_pct": null,
+        "flat_ms": 1793006380092,
+        "market_return_not_trade_pnl": true,
+        "observed_end_ms": null,
+        "requested_horizon_minutes": 60,
+        "return_pct": null,
+        "status": "HORIZON_NOT_YET_OBSERVABLE"
+      },
+      "side": "BUY",
+      "symbol": "DOODUSDT",
+      "trend": {
+        "reason": "PROFIT_AUDIT_NOT_HELD_AT_HOUR_BOUNDARY",
+        "status": "UNAVAILABLE"
+      }
+    },
+    {
+      "closed_ms": 1793004694998,
+      "entry_mode": "S6B_TREND_TAKEOVER",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1793003880000,
+        "input_digest": "ae1846f129fad758877d477d3730106990bc75ab6fdce72ec60348f7f29f3595",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000041142857142857",
+              "atr_pct": "1.819675238516459215",
+              "ema20": "0.002261",
+              "ema60": "0.002261"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000041142857142857",
+              "atr_pct": "1.819675238516459215",
+              "ema20": "0.002261",
+              "ema60": "0.002261"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000014357142857143",
+              "atr_pct": "0.634990838440639414",
+              "ema20": "0.002050095714221916",
+              "ema60": "0.001848333333333333"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000041142857142857",
+              "atr_pct": "1.819675238516459215",
+              "ema20": "0.002050095714221916",
+              "ema60": "0.001848333333333333"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000003357142857143",
+              "atr_pct": "0.148480444809502748",
+              "ema20": "0.002050425092447686",
+              "ema60": "0.001913875870527893"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000041142857142857",
+              "atr_pct": "1.819675238516459215",
+              "ema20": "0.002050425092447686",
+              "ema60": "0.001913875870527893"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000003",
+              "atr_pct": "0.132684652808491818",
+              "ema20": "0.002050425092447388",
+              "ema60": "0.001913864456767169"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000041142857142857",
+              "atr_pct": "1.819675238516459215",
+              "ema20": "0.002050425092447388",
+              "ema60": "0.001913864456767169"
+            }
+          }
+        }
+      },
+      "opened_ms": 1793003912768,
+      "post_flat": {
+        "adverse_excursion_pct": null,
+        "anchor_delay_ms": null,
+        "anchor_ms": null,
+        "basis": null,
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "favorable_excursion_pct": null,
+        "flat_ms": 1793004694998,
+        "market_return_not_trade_pnl": true,
+        "observed_end_ms": null,
+        "requested_horizon_minutes": 60,
+        "return_pct": null,
+        "status": "HORIZON_NOT_YET_OBSERVABLE"
+      },
+      "side": "BUY",
+      "symbol": "DOODUSDT",
+      "trend": {
+        "reason": "PROFIT_AUDIT_NOT_HELD_AT_HOUR_BOUNDARY",
+        "status": "UNAVAILABLE"
+      }
+    },
+    {
+      "closed_ms": 1792933433964,
+      "entry_mode": "RIGHT_MOMENTUM",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1792932120000,
+        "input_digest": "32cacccfb42b559392bc6ea994268f94f6c0f4b577ffae5576b29118d36ed99f",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000037571428571429",
+              "atr_pct": "0.544434553998385327",
+              "ema20": "0.006901",
+              "ema60": "0.006901"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000037571428571429",
+              "atr_pct": "0.544434553998385327",
+              "ema20": "0.006901",
+              "ema60": "0.006901"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000063785714285714",
+              "atr_pct": "0.924296685780528702",
+              "ema20": "0.006929191562809362",
+              "ema60": "0.0071082"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000037571428571429",
+              "atr_pct": "0.544434553998385327",
+              "ema20": "0.006929191562809362",
+              "ema60": "0.0071082"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000061",
+              "atr_pct": "0.883929865236922185",
+              "ema20": "0.006928476913748333",
+              "ema60": "0.007045104034665163"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000037571428571429",
+              "atr_pct": "0.544434553998385327",
+              "ema20": "0.006928476913748333",
+              "ema60": "0.007045104034665163"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000090571428571429",
+              "atr_pct": "1.312439191007514439",
+              "ema20": "0.006928476913757548",
+              "ema60": "0.007044667514878135"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000037571428571429",
+              "atr_pct": "0.544434553998385327",
+              "ema20": "0.006928476913757548",
+              "ema60": "0.007044667514878135"
+            }
+          }
+        }
+      },
+      "opened_ms": 1792932137811,
+      "post_flat": {
+        "adverse_excursion_pct": "-4.431599229287090559",
+        "anchor_delay_ms": 66036,
+        "anchor_ms": 1792933500000,
+        "anchor_price": "0.0067470",
+        "anchor_provenance": {
+          "bar": {
+            "c": "0.0067470",
+            "h": "0.0067820",
+            "l": "0.0067470",
+            "o": "0.0067810",
+            "t": 1792933440000,
+            "v": "45319814"
+          },
+          "source": "CALLER_CLOSED_1M_ARCHIVE"
+        },
+        "availability_at_decision_proven": false,
+        "basis": "FIRST_FULLY_AFTER_FLAT_MINUTE_CLOSE",
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "end_price": "0.0069270",
+        "favorable_excursion_pct": "0.000000000000000000",
+        "flat_ms": 1792933433964,
+        "horizon_delay_ms": 6036,
+        "market_return_not_trade_pnl": true,
+        "observed_duration_ms": 3540000,
+        "observed_end_ms": 1792937040000,
+        "path_digest": "a46adde4777ae2d37efbd76b1cbdb5dc2b5088498a0ed60b744fed961c1366c6",
+        "requested_horizon_minutes": 60,
+        "return_pct": "-2.667852378835037795",
+        "status": "OBSERVED"
+      },
+      "side": "SELL",
+      "symbol": "JCTUSDT",
+      "trend": {
+        "actual_pnl": false,
+        "audit_as_of_ms": 1793007626038,
+        "comparison_scope": "same residual only; prior reductions and portfolio effects excluded",
+        "costs": {
+          "actual_fee_schedule_verified": false,
+          "exit_slippage_fraction_assumed": "0.0005",
+          "fee_rate_assumed": "0.0005",
+          "funding_complete": false,
+          "funding_convention": "ambiguous intrahour debits included; credits omitted"
+        },
+        "evidence_mode": "RETROSPECTIVE",
+        "execution_authorized": false,
+        "input_digest": "3b2ee3f11438ad6c6103665841cc13b0ef952d5db774af8c9bddd7e8983647c0",
+        "observation_window_truncated": false,
+        "policy": {
+          "atr_multiple": "3",
+          "atr_period": 14,
+          "baseline_trail_fraction": "0.02",
+          "baseline_trigger_fraction": "0.03",
+          "entry_evidence_max_age_hours": 6,
+          "exit_slippage_fraction": "0.0005",
+          "fast_period": 8,
+          "fee_rate": "0.0005",
+          "max_hold_hours": 168,
+          "max_stale_hours": 2,
+          "mode": "SHADOW",
+          "slow_period": 24,
+          "structure_period": 6
+        },
+        "policy_digest": "e33915554eba85adbc3ae05f2864479372609aa8a3d5a70ebfa15d355dc47c2c",
+        "profitability_valid": false,
+        "reason": "ACTIVATION_TREND_NOT_CONFIRMED",
+        "simulation_as_of_ms": 1793005200000,
+        "status": "INELIGIBLE",
+        "timeliness": "NOT_PROVEN",
+        "version": "residual-trend-shadow-v1"
+      }
+    },
+    {
+      "closed_ms": 1792938132313,
+      "entry_mode": "RIGHT_MOMENTUM",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1792932060000,
+        "input_digest": "4f7c6a69ab49a28016233862850ce30d46e6b387ec9c82578f5e8de6a176e422",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000051692857142857",
+              "atr_pct": "0.177293844765360649",
+              "ema20": "0.0291566",
+              "ema60": "0.0291566"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000051692857142857",
+              "atr_pct": "0.177293844765360649",
+              "ema20": "0.0291566",
+              "ema60": "0.0291566"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000089228571428571",
+              "atr_pct": "0.306032155424745782",
+              "ema20": "0.029139873592435387",
+              "ema60": "0.029265111666666667"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000051692857142857",
+              "atr_pct": "0.177293844765360649",
+              "ema20": "0.029139873592435387",
+              "ema60": "0.029265111666666667"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000214092857142857",
+              "atr_pct": "0.734286086659134271",
+              "ema20": "0.029139690617125454",
+              "ema60": "0.029185396650904174"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000051692857142857",
+              "atr_pct": "0.177293844765360649",
+              "ema20": "0.029139690617125454",
+              "ema60": "0.029185396650904174"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000042242857142857",
+              "atr_pct": "0.14488265827585227",
+              "ema20": "0.029139690617118711",
+              "ema60": "0.029185410704924236"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000051692857142857",
+              "atr_pct": "0.177293844765360649",
+              "ema20": "0.029139690617118711",
+              "ema60": "0.029185410704924236"
+            }
+          }
+        }
+      },
+      "opened_ms": 1792932104830,
+      "post_flat": {
+        "adverse_excursion_pct": "-0.321790835956628192",
+        "anchor_delay_ms": 107687,
+        "anchor_ms": 1792938240000,
+        "anchor_price": "0.0285900",
+        "anchor_provenance": {
+          "bar": {
+            "c": "0.0285900",
+            "h": "0.0286000",
+            "l": "0.0285830",
+            "o": "0.0285970",
+            "t": 1792938180000,
+            "v": "27909427"
+          },
+          "source": "CALLER_CLOSED_1M_ARCHIVE"
+        },
+        "availability_at_decision_proven": false,
+        "basis": "FIRST_FULLY_AFTER_FLAT_MINUTE_CLOSE",
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "end_price": "0.0285100",
+        "favorable_excursion_pct": "0.531654424623994404",
+        "flat_ms": 1792938132313,
+        "horizon_delay_ms": 47687,
+        "market_return_not_trade_pnl": true,
+        "observed_duration_ms": 3540000,
+        "observed_end_ms": 1792941780000,
+        "path_digest": "c0251007999ac999a11e5f4369895a686a41ce48e0afef40856ee75eba0851d2",
+        "requested_horizon_minutes": 60,
+        "return_pct": "-0.279818118223154949",
+        "status": "OBSERVED"
+      },
+      "side": "BUY",
+      "symbol": "AKEUSDT",
+      "trend": {
+        "actual_pnl": false,
+        "audit_as_of_ms": 1793007626038,
+        "comparison_scope": "same residual only; prior reductions and portfolio effects excluded",
+        "costs": {
+          "actual_fee_schedule_verified": false,
+          "exit_slippage_fraction_assumed": "0.0005",
+          "fee_rate_assumed": "0.0005",
+          "funding_complete": false,
+          "funding_convention": "ambiguous intrahour debits included; credits omitted"
+        },
+        "evidence_mode": "RETROSPECTIVE",
+        "execution_authorized": false,
+        "input_digest": "b79052d9eb9f67cdd1ead9f0d5293de9324bac7b9d14d2814719dfe37fe5d570",
+        "observation_window_truncated": false,
+        "policy": {
+          "atr_multiple": "3",
+          "atr_period": 14,
+          "baseline_trail_fraction": "0.02",
+          "baseline_trigger_fraction": "0.03",
+          "entry_evidence_max_age_hours": 6,
+          "exit_slippage_fraction": "0.0005",
+          "fast_period": 8,
+          "fee_rate": "0.0005",
+          "max_hold_hours": 168,
+          "max_stale_hours": 2,
+          "mode": "SHADOW",
+          "slow_period": 24,
+          "structure_period": 6
+        },
+        "policy_digest": "e33915554eba85adbc3ae05f2864479372609aa8a3d5a70ebfa15d355dc47c2c",
+        "profitability_valid": false,
+        "reason": "ACTIVATION_TREND_NOT_CONFIRMED",
+        "simulation_as_of_ms": 1793005200000,
+        "status": "INELIGIBLE",
+        "timeliness": "NOT_PROVEN",
+        "version": "residual-trend-shadow-v1"
+      }
+    },
+    {
+      "closed_ms": 1792936917614,
+      "entry_mode": "S6B_TREND_TAKEOVER",
+      "indicators": {
+        "availability_at_entry": "NOT_PROVEN",
+        "closed_at_ms": 1792932060000,
+        "input_digest": "b89d774fd0c5a2b5c85d19fc30111fe7893ec3d08b7e5e06863957a4fe819c24",
+        "interpretation": "ROLLING_MINUTE_FEATURES_NOT_HOURLY_EMA_OR_CAUSAL_ADMISSION_BACKTEST",
+        "status": "COMPARED",
+        "versions": [
+          "s3-closed-1m-v2",
+          "s3-closed-1m-v3"
+        ],
+        "windows": {
+          "15m": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000996428571428571",
+              "atr_pct": "2.352841963231573621",
+              "ema20": "0.04235",
+              "ema60": "0.04235"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000996428571428571",
+              "atr_pct": "2.352841963231573621",
+              "ema20": "0.04235",
+              "ema60": "0.04235"
+            }
+          },
+          "1h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.001012142857142857",
+              "atr_pct": "2.389947714623039298",
+              "ema20": "0.042214655897219667",
+              "ema60": "0.0407465"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000996428571428571",
+              "atr_pct": "2.352841963231573621",
+              "ema20": "0.042214655897219667",
+              "ema60": "0.0407465"
+            }
+          },
+          "24h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000029285714285714",
+              "atr_pct": "0.069151627593186035",
+              "ema20": "0.042207997466169154",
+              "ema60": "0.04111819437974743"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000996428571428571",
+              "atr_pct": "2.352841963231573621",
+              "ema20": "0.042207997466169154",
+              "ema60": "0.04111819437974743"
+            }
+          },
+          "4h": {
+            "s3-closed-1m-v2": {
+              "atr": "0.000169285714285714",
+              "atr_pct": "0.39973013998988025",
+              "ema20": "0.042207997466153231",
+              "ema60": "0.041117407717976298"
+            },
+            "s3-closed-1m-v3": {
+              "atr": "0.000996428571428571",
+              "atr_pct": "2.352841963231573621",
+              "ema20": "0.042207997466153231",
+              "ema60": "0.041117407717976298"
+            }
+          }
+        }
+      },
+      "opened_ms": 1792932090897,
+      "post_flat": {
+        "adverse_excursion_pct": "-7.442179986260590795",
+        "anchor_delay_ms": 62386,
+        "anchor_ms": 1792936980000,
+        "anchor_price": "0.0436700",
+        "anchor_provenance": {
+          "bar": {
+            "c": "0.0436700",
+            "h": "0.0436700",
+            "l": "0.0432600",
+            "o": "0.0432600",
+            "t": 1792936920000,
+            "v": "77878311"
+          },
+          "source": "CALLER_CLOSED_1M_ARCHIVE"
+        },
+        "availability_at_decision_proven": false,
+        "basis": "FIRST_FULLY_AFTER_FLAT_MINUTE_CLOSE",
+        "costs_included": false,
+        "counterfactual_execution_proven": false,
+        "end_price": "0.0408000",
+        "favorable_excursion_pct": "1.259445843828715365",
+        "flat_ms": 1792936917614,
+        "horizon_delay_ms": 2386,
+        "market_return_not_trade_pnl": true,
+        "observed_duration_ms": 3540000,
+        "observed_end_ms": 1792940520000,
+        "path_digest": "4cbd71c5fbb075568ee0e95827f5611b86e0b5256e981a10b466008a2c298974",
+        "requested_horizon_minutes": 60,
+        "return_pct": "-6.572017403251660179",
+        "status": "OBSERVED"
+      },
+      "side": "BUY",
+      "symbol": "APRUSDT",
+      "trend": {
+        "activation_at_ms": 1792933200000,
+        "activation_evidence": {
+          "atr": "0.005508628154448953",
+          "fast_ema": "0.038259438802056277",
+          "frozen_input_digest": "e8f03c13786a34ec650180f9732208541a2dce224993e0e25da0a7a898a68d29",
+          "last_closed_bar_ms": 1792933200000,
+          "slow_ema": "0.033996334633860307"
+        },
+        "actual_cost_comparison_verified": false,
+        "actual_pnl": false,
+        "arms": {
+          "baseline_wave": {
+            "ambiguous_funding_credits_omitted": 0,
+            "exit_bar_open_ms": 1792936800000,
+            "exit_price": "0.043652163",
+            "exit_reason": "TRAIL_STOP",
+            "exit_time_precision": "within_hour_unknown",
+            "funding_completeness": "PARTIAL_NOT_TOTAL",
+            "last_effective_stop": "0.043674",
+            "modeled_after_fees_before_funding": "4.9749102903",
+            "modeled_fees": "0.1633091097",
+            "modeled_gross": "5.1382194",
+            "modeled_net_with_reported_funding": null,
+            "reported_funding_cashflow": "0",
+            "status": "CLOSED",
+            "trace": [
+              {
+                "bar_open_ms": 1792933200000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792936800000,
+                "reason": "TRAIL_STOP",
+                "status": "CLOSED",
+                "stop_effective": "0.043674"
+              }
+            ]
+          },
+          "proposed_runner": {
+            "ambiguous_funding_credits_omitted": 0,
+            "exit_bar_open_ms": 1792965600000,
+            "exit_price": "0.03996001",
+            "exit_reason": "TRAIL_STOP",
+            "exit_time_precision": "within_hour_unknown",
+            "funding_completeness": "PARTIAL_NOT_TOTAL",
+            "last_effective_stop": "0.03998",
+            "modeled_after_fees_before_funding": "-9.048256019",
+            "modeled_fees": "0.156294019",
+            "modeled_gross": "-8.891962",
+            "modeled_net_with_reported_funding": null,
+            "reported_funding_cashflow": "0",
+            "status": "CLOSED",
+            "trace": [
+              {
+                "bar_open_ms": 1792933200000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792936800000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792940400000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792944000000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792947600000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792951200000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03812"
+              },
+              {
+                "bar_open_ms": 1792954800000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03876"
+              },
+              {
+                "bar_open_ms": 1792958400000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03876"
+              },
+              {
+                "bar_open_ms": 1792962000000,
+                "reason": null,
+                "status": "OPEN",
+                "stop_effective": "0.03876"
+              },
+              {
+                "bar_open_ms": 1792965600000,
+                "reason": "TRAIL_STOP",
+                "status": "CLOSED",
+                "stop_effective": "0.03998"
+              }
+            ]
+          }
+        },
+        "audit_as_of_ms": 1793007626038,
+        "comparison_complete": false,
+        "comparison_scope": "same residual only; prior reductions and portfolio effects excluded",
+        "cost_comparison_complete": false,
+        "costs": {
+          "actual_fee_schedule_verified": false,
+          "exit_slippage_fraction_assumed": "0.0005",
+          "fee_rate_assumed": "0.0005",
+          "funding_complete": false,
+          "funding_convention": "ambiguous intrahour debits included; credits omitted"
+        },
+        "entry_price": "0.0423",
+        "evidence_mode": "RETROSPECTIVE",
+        "execution_authorized": false,
+        "exit_comparison_complete": true,
+        "filled_quantity": "3800",
+        "input_digest": "ad24aa811027d3714305801651169899cb4c2cf324a511d8f6eb1db21ef921d8",
+        "modeled_net_delta_with_reported_funding": null,
+        "native_protection_proof_scope": "caller-supplied timestamps and quantity; no venue verification performed",
+        "native_protection_proven": false,
+        "observation_window_truncated": false,
+        "original_hard_stop": "0.03812",
+        "policy": {
+          "atr_multiple": "3",
+          "atr_period": 14,
+          "baseline_trail_fraction": "0.02",
+          "baseline_trigger_fraction": "0.03",
+          "entry_evidence_max_age_hours": 6,
+          "exit_slippage_fraction": "0.0005",
+          "fast_period": 8,
+          "fee_rate": "0.0005",
+          "max_hold_hours": 168,
+          "max_stale_hours": 2,
+          "mode": "SHADOW",
+          "slow_period": 24,
+          "structure_period": 6
+        },
+        "policy_digest": "e33915554eba85adbc3ae05f2864479372609aa8a3d5a70ebfa15d355dc47c2c",
+        "processed_forward_bars": 20,
+        "profitability_valid": false,
+        "reduced_quantity": "0",
+        "residual_quantity": "3800",
+        "side": "BUY",
+        "simulation_as_of_ms": 1793005200000,
+        "status": "SHADOW",
+        "timeliness": "NOT_PROVEN",
+        "version": "residual-trend-shadow-v1"
+      }
+    }
+  ],
+  "cohorts": {
+    "as_of_ms": 1793007626038,
+    "automatic_parameter_updates": false,
+    "cutoff_prospectively_registered": false,
+    "excluded": {
+      "EMBARGOED_UNAVAILABLE_AT_CUTOFF": 1
+    },
+    "execution_authorized": false,
+    "groups": [
+      {
+        "average_loss_usdt": "4.271239820000000000000000000000000000",
+        "average_win_usdt": "7.426797600000000000000000000000000000",
+        "breakeven": 0,
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "entry_mode": "RIGHT_MOMENTUM",
+        "fee_complete_count": 8,
+        "gross_complete_count": 8,
+        "gross_pnl_usdt": "-9.829484900000000000000000000000000000",
+        "losses": 6,
+        "mean_net_usdt": "-1.346730465000000000000000000000000000",
+        "net_minus_gross_usdt": "-0.944358820000000000000000000000000000",
+        "net_pnl_usdt": "-10.773843720000000000000000000000000000",
+        "observed": 8,
+        "observed_fees_usdt": "1.011764150000000000",
+        "payoff_ratio": "1.7387919931875892653576169366205243890988073809444865121153510879190108318478825",
+        "period": "HOLDOUT",
+        "profit_factor": "0.57959733106252975511920564554017479636626912698149550403845036263967027728262751",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 8,
+        "settlement_states": {
+          "SETTLED": 8
+        },
+        "side": "BUY",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 0,
+        "win_rate_pct": "25",
+        "wins": 2
+      },
+      {
+        "average_loss_usdt": "5.855830602500000000000000000000000000",
+        "average_win_usdt": "7.3826470433333333333333333333333333333333333333333333333333333333333333333333333",
+        "breakeven": 0,
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "entry_mode": "S6B_TREND_TAKEOVER",
+        "fee_complete_count": 7,
+        "gross_complete_count": 7,
+        "gross_pnl_usdt": "-0.479798000000000000000000000000000000",
+        "losses": 4,
+        "mean_net_usdt": "-0.18219732571428571428571428571428571428571428571428571428571428571428571428571429",
+        "net_minus_gross_usdt": "-0.795583280000000000000000000000000000",
+        "net_pnl_usdt": "-1.275381280000000000000000000000000000",
+        "observed": 8,
+        "observed_fees_usdt": "0.795583280000000000",
+        "payoff_ratio": "1.2607343935429924064872799286774336524761746356089769304991320970052485962999360",
+        "period": "HOLDOUT",
+        "profit_factor": "0.94555079515724430486545994650807523935713097670673269787434907275393644722495198",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 7,
+        "settlement_states": {
+          "OPEN_OR_PARTIAL_EXIT": 1,
+          "SETTLED": 7
+        },
+        "side": "BUY",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 1,
+        "win_rate_pct": "42.857142857142857142857142857142857142857142857142857142857142857142857142857143",
+        "wins": 3
+      },
+      {
+        "average_loss_usdt": "4.053321486250000000000000000000000000",
+        "average_win_usdt": "3.973298515000000000000000000000000000",
+        "breakeven": 0,
+        "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+        "entry_mode": "RIGHT_MOMENTUM",
+        "fee_complete_count": 14,
+        "gross_complete_count": 14,
+        "gross_pnl_usdt": "-6.876420500000000000000000000000000000",
+        "losses": 8,
+        "mean_net_usdt": "-0.61334148571428571428571428571428571428571428571428571428571428571428571428571429",
+        "net_minus_gross_usdt": "-1.710360300000000000000000000000000000",
+        "net_pnl_usdt": "-8.586780800000000000000000000000000000",
+        "observed": 15,
+        "observed_fees_usdt": "1.710360280000000000",
+        "payoff_ratio": "0.98025743294198096621554403850366434772701469183889114465377425377912805324300348",
+        "period": "HOLDOUT",
+        "profit_factor": "0.73519307470648572466165802887774826079526101887916835849033069033434603993225261",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 14,
+        "settlement_states": {
+          "OPEN_OR_PARTIAL_EXIT": 1,
+          "SETTLED": 14
+        },
+        "side": "SELL",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 1,
+        "win_rate_pct": "42.857142857142857142857142857142857142857142857142857142857142857142857142857143",
+        "wins": 6
+      },
+      {
+        "average_loss_usdt": "6.5637810065217391304347826086956521739130434782608695652173913043478260869565217",
+        "average_win_usdt": "5.833645893125000000000000000000000000",
+        "breakeven": 0,
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "entry_mode": "RIGHT_MOMENTUM",
+        "fee_complete_count": 55,
+        "gross_complete_count": 55,
+        "gross_pnl_usdt": "44.660935600000000000000000000000000000",
+        "losses": 23,
+        "mean_net_usdt": "0.64926737145454545454545454545454545454545454545454545454545454545454545454545455",
+        "net_minus_gross_usdt": "-8.951230170000000000000000000000000000",
+        "net_pnl_usdt": "35.709705430000000000000000000000000000",
+        "observed": 55,
+        "observed_fees_usdt": "8.914751810000000000",
+        "payoff_ratio": "0.88876302962099426718182613187181940077331415803868874473017443088176739282842228",
+        "period": "TRAIN",
+        "profit_factor": "1.2365398672987746326008015747781835141193936111842626013637209473137633291525875",
+        "sample_status": "DESCRIPTIVE_ONLY",
+        "settled": 55,
+        "settlement_states": {
+          "SETTLED": 55
+        },
+        "side": "BUY",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 0,
+        "win_rate_pct": "58.181818181818181818181818181818181818181818181818181818181818181818181818181818",
+        "wins": 32
+      },
+      {
+        "average_loss_usdt": "5.0296734052941176470588235294117647058823529411764705882352941176470588235294118",
+        "average_win_usdt": "7.558971975000000000000000000000000000",
+        "breakeven": 0,
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "entry_mode": "S6B_TREND_TAKEOVER",
+        "fee_complete_count": 29,
+        "gross_complete_count": 29,
+        "gross_pnl_usdt": "8.072780200000000000000000000000000000",
+        "losses": 17,
+        "mean_net_usdt": "0.17942123482758620689655172413793103448275862068965517241379310344827586206896552",
+        "net_minus_gross_usdt": "-2.869564390000000000000000000000000000",
+        "net_pnl_usdt": "5.203215810000000000000000000000000000",
+        "observed": 29,
+        "observed_fees_usdt": "2.843153570000000000",
+        "payoff_ratio": "1.5028753093677218292836578656259188436471874866812849728582698646789660008644961",
+        "period": "TRAIN",
+        "profit_factor": "1.0608531595536859971414055522065309484568382258926717455470140221263289417867031",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 29,
+        "settlement_states": {
+          "SETTLED": 29
+        },
+        "side": "BUY",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 0,
+        "win_rate_pct": "41.379310344827586206896551724137931034482758620689655172413793103448275862068966",
+        "wins": 12
+      },
+      {
+        "average_loss_usdt": null,
+        "average_win_usdt": "12.202081770000000000000000000000000000",
+        "breakeven": 0,
+        "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+        "entry_mode": "LEFT_REVERSAL",
+        "fee_complete_count": 1,
+        "gross_complete_count": 1,
+        "gross_pnl_usdt": "12.384870000000000000000000000000000000",
+        "losses": 0,
+        "mean_net_usdt": "12.202081770000000000000000000000000000",
+        "net_minus_gross_usdt": "-0.182788230000000000000000000000000000",
+        "net_pnl_usdt": "12.202081770000000000000000000000000000",
+        "observed": 1,
+        "observed_fees_usdt": "0.182788220000000000",
+        "payoff_ratio": null,
+        "period": "TRAIN",
+        "profit_factor": null,
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 1,
+        "settlement_states": {
+          "SETTLED": 1
+        },
+        "side": "SELL",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 0,
+        "win_rate_pct": "100",
+        "wins": 1
+      },
+      {
+        "average_loss_usdt": "5.738701620400000000000000000000000000",
+        "average_win_usdt": "3.7841446170588235294117647058823529411764705882352941176470588235294117647058824",
+        "breakeven": 0,
+        "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+        "entry_mode": "RIGHT_MOMENTUM",
+        "fee_complete_count": 42,
+        "gross_complete_count": 42,
+        "gross_pnl_usdt": "-73.202692600000000000000000000000000000",
+        "losses": 25,
+        "mean_net_usdt": "-1.8842162385714285714285714285714285714285714285714285714285714285714285714285714",
+        "net_minus_gross_usdt": "-5.934389420000000000000000000000000000",
+        "net_pnl_usdt": "-79.137082020000000000000000000000000000",
+        "observed": 42,
+        "observed_fees_usdt": "6.044066670000000000",
+        "payoff_ratio": "0.65940780116653989913229688812945012219065164418829523671449235042187379390830445",
+        "period": "TRAIN",
+        "profit_factor": "0.44839730479324713140996188392802608308964311804804076096585479828687417985764702",
+        "sample_status": "DESCRIPTIVE_ONLY",
+        "settled": 42,
+        "settlement_states": {
+          "SETTLED": 42
+        },
+        "side": "SELL",
+        "strategy_version": "directional-admission-v2-1",
+        "unvalued": 0,
+        "win_rate_pct": "40.476190476190476190476190476190476190476190476190476190476190476190476190476190",
+        "wins": 17
+      }
+    ],
+    "holdout_start_ms": 1792857600000,
+    "hypothetical_pnl": null,
+    "kind": "FACTUAL_PROFIT_CAPTURE_TEMPORAL_REVIEW",
+    "limitations": [
+      "净收益只采用当前账本版本且完整的 USDT 结算，费用与资金费已包含，不再次扣费。",
+      "毛收益与净减毛仅对数量匹配、金额完整的子样本统计；缺失费用不补零。",
+      "训练标签必须在切分点前已知，跨边界或未结算记录隔离；保持时序并不证明独立同分布或消除行情变化。",
+      "按方向、入场模式、策略和配置版本分组，不用同一批收益优化门槛，也不将样本不足解读为无效策略。",
+      "样本外是时间分割标签而非真实预注册证明；这是实成交复盘，不是替代策略回测或收益承诺。"
+    ],
+    "minimum_descriptive_sample": 30,
+    "periods": {
+      "HOLDOUT": {
+        "average_loss_usdt": "4.5265185122222222222222222222222222222222222222222222222222222222222222222222222",
+        "average_win_usdt": "5.5310297654545454545454545454545454545454545454545454545454545454545454545454545",
+        "breakeven": 0,
+        "fee_complete_count": 29,
+        "gross_complete_count": 29,
+        "gross_pnl_usdt": "-17.185703400000000000000000000000000000",
+        "losses": 18,
+        "mean_net_usdt": "-0.71158640689655172413793103448275862068965517241379310344827586206896551724137931",
+        "net_minus_gross_usdt": "-3.450302400000000000000000000000000000",
+        "net_pnl_usdt": "-20.636005800000000000000000000000000000",
+        "observed": 31,
+        "observed_fees_usdt": "3.517707710000000000",
+        "payoff_ratio": "1.2219169656591494684393424949430594309505087385355371868148899856467567653390384",
+        "profit_factor": "0.74672703456948023071293152468742520780308867354949494749798832456190691215163461",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 29,
+        "settlement_states": {
+          "OPEN_OR_PARTIAL_EXIT": 2,
+          "SETTLED": 29
+        },
+        "unvalued": 2,
+        "win_rate_pct": "37.931034482758620689655172413793103448275862068965517241379310344827586206896552",
+        "wins": 11
+      },
+      "TRAIN": {
+        "average_loss_usdt": "5.8452146392307692307692307692307692307692307692307692307692307692307692307692308",
+        "average_win_usdt": "5.7083366538709677419354838709677419354838709677419354838709677419354838709677419",
+        "breakeven": 0,
+        "fee_complete_count": 127,
+        "gross_complete_count": 127,
+        "gross_pnl_usdt": "-8.084106800000000000000000000000000000",
+        "losses": 65,
+        "mean_net_usdt": "-0.20489825992125984251968503937007874015748031496062992125984251968503937007874016",
+        "net_minus_gross_usdt": "-17.937972210000000000000000000000000000",
+        "net_pnl_usdt": "-26.022079010000000000000000000000000000",
+        "observed": 127,
+        "observed_fees_usdt": "17.984760270000000000",
+        "payoff_ratio": "0.97658289835224688276846525822578094600853938926237952990848827651823963562996578",
+        "profit_factor": "0.93150984150522010356376686169228336388506834052719278237425035606355165244704429",
+        "sample_status": "DESCRIPTIVE_ONLY",
+        "settled": 127,
+        "settlement_states": {
+          "SETTLED": 127
+        },
+        "unvalued": 0,
+        "win_rate_pct": "48.818897637795275590551181102362204724409448818897637795275590551181102362204724",
+        "wins": 62
+      }
+    },
+    "profit_improvement_proven": false,
+    "sides": [
+      {
+        "average_loss_usdt": "5.911785276000000000000000000000000000",
+        "average_win_usdt": "6.304189370000000000000000000000000000",
+        "breakeven": 0,
+        "fee_complete_count": 84,
+        "gross_complete_count": 84,
+        "gross_pnl_usdt": "52.733715800000000000000000000000000000",
+        "losses": 40,
+        "mean_net_usdt": "0.48705858619047619047619047619047619047619047619047619047619047619047619047619048",
+        "net_minus_gross_usdt": "-11.820794560000000000000000000000000000",
+        "net_pnl_usdt": "40.912921240000000000000000000000000000",
+        "observed": 84,
+        "observed_fees_usdt": "11.757905380000000000",
+        "payoff_ratio": "1.0663765809615985112108797775624758668924293995281434846213788634903728191497326",
+        "period": "TRAIN",
+        "profit_factor": "1.1730142390577583623319677553187234535816723394809578330835167498394101010647059",
+        "sample_status": "DESCRIPTIVE_ONLY",
+        "settled": 84,
+        "settlement_states": {
+          "SETTLED": 84
+        },
+        "side": "BUY",
+        "unvalued": 0,
+        "win_rate_pct": "52.380952380952380952380952380952380952380952380952380952380952380952380952380952",
+        "wins": 44
+      },
+      {
+        "average_loss_usdt": "5.738701620400000000000000000000000000",
+        "average_win_usdt": "4.2518077922222222222222222222222222222222222222222222222222222222222222222222222",
+        "breakeven": 0,
+        "fee_complete_count": 43,
+        "gross_complete_count": 43,
+        "gross_pnl_usdt": "-60.817822600000000000000000000000000000",
+        "losses": 25,
+        "mean_net_usdt": "-1.5566279127906976744186046511627906976744186046511627906976744186046511627906977",
+        "net_minus_gross_usdt": "-6.117177650000000000000000000000000000",
+        "net_pnl_usdt": "-66.935000250000000000000000000000000000",
+        "observed": 43,
+        "observed_fees_usdt": "6.226854890000000000",
+        "payoff_ratio": "0.74090065549110426829018172840743539666020274174110852718036572379765511012979974",
+        "period": "TRAIN",
+        "profit_factor": "0.53344847195359507316893084445335348559534597405359813956986332113431167929345581",
+        "sample_status": "DESCRIPTIVE_ONLY",
+        "settled": 43,
+        "settlement_states": {
+          "SETTLED": 43
+        },
+        "side": "SELL",
+        "unvalued": 0,
+        "win_rate_pct": "41.860465116279069767441860465116279069767441860465116279069767441860465116279070",
+        "wins": 18
+      },
+      {
+        "average_loss_usdt": "4.905076133000000000000000000000000000",
+        "average_win_usdt": "7.400307266000000000000000000000000000",
+        "breakeven": 0,
+        "fee_complete_count": 15,
+        "gross_complete_count": 15,
+        "gross_pnl_usdt": "-10.309282900000000000000000000000000000",
+        "losses": 10,
+        "mean_net_usdt": "-0.80328166666666666666666666666666666666666666666666666666666666666666666666666667",
+        "net_minus_gross_usdt": "-1.739942100000000000000000000000000000",
+        "net_pnl_usdt": "-12.049225000000000000000000000000000000",
+        "observed": 16,
+        "observed_fees_usdt": "1.807347430000000000",
+        "payoff_ratio": "1.5087038539958172755236213170516348436053928217386957324929252020643407208048732",
+        "period": "HOLDOUT",
+        "profit_factor": "0.75435192699790863776181065852581742180269641086934786624646260103217036040243659",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 15,
+        "settlement_states": {
+          "OPEN_OR_PARTIAL_EXIT": 1,
+          "SETTLED": 15
+        },
+        "side": "BUY",
+        "unvalued": 1,
+        "win_rate_pct": "33.333333333333333333333333333333333333333333333333333333333333333333333333333333",
+        "wins": 5
+      },
+      {
+        "average_loss_usdt": "4.053321486250000000000000000000000000",
+        "average_win_usdt": "3.973298515000000000000000000000000000",
+        "breakeven": 0,
+        "fee_complete_count": 14,
+        "gross_complete_count": 14,
+        "gross_pnl_usdt": "-6.876420500000000000000000000000000000",
+        "losses": 8,
+        "mean_net_usdt": "-0.61334148571428571428571428571428571428571428571428571428571428571428571428571429",
+        "net_minus_gross_usdt": "-1.710360300000000000000000000000000000",
+        "net_pnl_usdt": "-8.586780800000000000000000000000000000",
+        "observed": 15,
+        "observed_fees_usdt": "1.710360280000000000",
+        "payoff_ratio": "0.98025743294198096621554403850366434772701469183889114465377425377912805324300348",
+        "period": "HOLDOUT",
+        "profit_factor": "0.73519307470648572466165802887774826079526101887916835849033069033434603993225261",
+        "sample_status": "INSUFFICIENT_SAMPLE",
+        "settled": 14,
+        "settlement_states": {
+          "OPEN_OR_PARTIAL_EXIT": 1,
+          "SETTLED": 14
+        },
+        "side": "SELL",
+        "unvalued": 1,
+        "win_rate_pct": "42.857142857142857142857142857142857142857142857142857142857142857142857142857143",
+        "wins": 6
+      }
+    ],
+    "source_truncated": false,
+    "split_basis": "CALLER_FIXED_TIME_NOT_PNL_OPTIMIZED",
+    "timezone": "Asia/Shanghai",
+    "window_start_ms": 1791798026038
+  },
+  "execution_authorized": false,
+  "input_digest": "14f93353f6bbb05e841ec7f89584f47d400570482eae9c5ea314794e9720e562",
+  "limitations": [
+    "Actual settlement is separate from all hypothetical residual comparisons.",
+    "Archive arrival times and historical native stop confirmation are not proven.",
+    "Trend cases require actual residual inventory at a UTC hourly boundary; selection is not representative of all entries.",
+    "Missing funding keeps total-net comparison unknown; no fabricated zero funding.",
+    "Archive timeout is per request; overall deadline is checked before each bounded request."
+  ],
+  "policy": {
+    "max_archive_minutes": 30240,
+    "max_archive_seconds": 60,
+    "max_trades": 6,
+    "trend_cases": 3,
+    "trend_forward_hours": 24,
+    "trend_history_hours": 60
+  },
+  "profitability_valid": false,
+  "requested_archive_minutes": 23442,
+  "timezone": "Asia/Shanghai",
+  "trade_paths": {
+    "as_of": "2026-10-26T17:40:26.038000+08:00",
+    "as_of_ms": 1793007626038,
+    "automatic_parameter_updates": false,
+    "cohort": "按交易意图创建时间取已实际成交的订单；只对完整结算的非维护交易计算净收益。",
+    "eligible_in_loaded_cohort": 157,
+    "execution_authorized": false,
+    "kind": "OFFLINE_FACTUAL_TRADE_PATH_REVIEW",
+    "limitations": [
+      "毛路径=累计已实现毛收益+剩余仓位按行情估值；费用和资金费不计入路径极值，净收益直接取实际结算，不再次扣费。",
+      "MFE/MAE 是完整且仓位不变分钟的高低价与成交点得到的下界，不是逐笔精确极值，也不是可成交利润。",
+      "开平仓边界与分钟内仓位变化处不使用整根 K 线高低价；缺失行情不补值、不按剩余片段输出路径指标。",
+      "同毫秒多价格成交组只用于精确记账，不假定组内价格顺序；该组价格不用于路径极值。",
+      "回吐按毛口径计算；捕获比例的分母是已观察峰值，不能当完整行情的真实利润捕获率；负值保留。",
+      "无进展是连续分钟收盘采样未创新高，不是盘中精确停滞时长；变化分钟中断计数。",
+      "历史归档是事后读取，未证明每根数据在当时已到达；这些标签不得反馈当时的准入或作为样本外收益证明。",
+      "按最近开仓且已结算的有限样本选择，开放仓位及截断样本不在本报告，不能当全账户业绩。"
+    ],
+    "limits": {
+      "max_batch_minutes": 30240,
+      "max_trade_minutes": 2880
+    },
+    "reports": [
+      {
+        "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+        "input_digest": "15a755e6cc0142681060fd7700eb53119eb50e8101c985e1fdde09848186e40f",
+        "net_minus_gross_usdt": "0.000000000000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 7,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1793007056915,
+          "constant_inventory_minutes": 7,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 7,
+          "fill_changing_minutes_excluded": 0,
+          "giveback_gross_usdt_lower_bound": "5.387013000000000000",
+          "gross_return_per_held_hour": "-0.145638920105981653",
+          "held_minutes": "8.567350000000000000",
+          "longest_no_new_peak_sample_minutes": 7,
+          "mae_gross_usdt_lower_bound": "4.105891000000000000",
+          "mfe_gross_usdt_lower_bound": "1.281122000000000000",
+          "observed_peak_capture_ratio": "-3.204918032786885246",
+          "opened_ms": 1793006542874,
+          "opening_notional_usdt": "197.439802000000000000",
+          "profitable_close_sample_fraction": "0.000000000000000000",
+          "realized_gross_usdt": "-4.105891000000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "-4.105891000000000000000000000000000000",
+        "side": "SELL",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "HUMAUSDT"
+      },
+      {
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "input_digest": "f18072a13456b3cefcb6c0a598d2c4b9e2ee29d89f6588a9ebcd253b51e98664",
+        "net_minus_gross_usdt": "-0.182369220000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 4,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1793006380092,
+          "constant_inventory_minutes": 3,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 4,
+          "fill_changing_minutes_excluded": 1,
+          "giveback_gross_usdt_lower_bound": "1.979910000000000000",
+          "gross_return_per_held_hour": "0.777874287267134685",
+          "held_minutes": "5.061083333333333333",
+          "longest_no_new_peak_sample_minutes": 1,
+          "mae_gross_usdt_lower_bound": "0.000000000000000000",
+          "mfe_gross_usdt_lower_bound": "13.565920000000000000",
+          "observed_peak_capture_ratio": "0.854052655477844481",
+          "opened_ms": 1793006076427,
+          "opening_notional_usdt": "176.576232000000000000",
+          "profitable_close_sample_fraction": "1.000000000000000000",
+          "realized_gross_usdt": "11.586010000000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "11.403640780000000000000000000000000000",
+        "side": "BUY",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "DOODUSDT"
+      },
+      {
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "input_digest": "dc25e234d2e3ca68e29a0640737ac9bdd2e9b0ce57a0f159df265b3e16cb1447",
+        "net_minus_gross_usdt": "-0.139470710000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 12,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1793004694998,
+          "constant_inventory_minutes": 12,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 12,
+          "fill_changing_minutes_excluded": 0,
+          "giveback_gross_usdt_lower_bound": "4.367809000000000000",
+          "gross_return_per_held_hour": "0.095755047417284388",
+          "held_minutes": "13.037166666666666667",
+          "longest_no_new_peak_sample_minutes": 3,
+          "mae_gross_usdt_lower_bound": "0.957328000000000000",
+          "mfe_gross_usdt_lower_bound": "7.239793000000000000",
+          "observed_peak_capture_ratio": "0.396694214876033058",
+          "opened_ms": 1793003912768,
+          "opening_notional_usdt": "138.034731000000000000",
+          "profitable_close_sample_fraction": "1.000000000000000000",
+          "realized_gross_usdt": "2.871984000000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "2.732513290000000000000000000000000000",
+        "side": "BUY",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "DOODUSDT"
+      },
+      {
+        "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+        "input_digest": "7ec8a0157e1da9235c7a93eff02eeb5ec9c993fde461af4b05c11a655cf2175e",
+        "net_minus_gross_usdt": "-0.024418790000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 20,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1792933433964,
+          "constant_inventory_minutes": 20,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 20,
+          "fill_changing_minutes_excluded": 0,
+          "giveback_gross_usdt_lower_bound": "0.571200000000000000",
+          "gross_return_per_held_hour": "0.049101418040199265",
+          "held_minutes": "21.602550000000000000",
+          "longest_no_new_peak_sample_minutes": 15,
+          "mae_gross_usdt_lower_bound": "1.085280000000000000",
+          "mfe_gross_usdt_lower_bound": "1.006740000000000000",
+          "observed_peak_capture_ratio": "0.432624113475177305",
+          "opened_ms": 1792932137811,
+          "opening_notional_usdt": "24.636570000000000000",
+          "profitable_close_sample_fraction": "0.250000000000000000",
+          "realized_gross_usdt": "0.435540000000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "0.411121210000000000000000000000000000",
+        "side": "SELL",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "JCTUSDT"
+      },
+      {
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "input_digest": "51f4d48a3e2da5cadae9453067657d2478e8131407aac1f69bf6ca96f1d685be",
+        "net_minus_gross_usdt": "-0.071189460000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 100,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1792938132313,
+          "constant_inventory_minutes": 100,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 100,
+          "fill_changing_minutes_excluded": 0,
+          "giveback_gross_usdt_lower_bound": "1.446821900000000000",
+          "gross_return_per_held_hour": "-0.012016414274529818",
+          "held_minutes": "100.458050000000000000",
+          "longest_no_new_peak_sample_minutes": 100,
+          "mae_gross_usdt_lower_bound": "1.446821900000000000",
+          "mfe_gross_usdt_lower_bound": "0.000000000000000000",
+          "observed_peak_capture_ratio": null,
+          "opened_ms": 1792932104830,
+          "opening_notional_usdt": "71.912881000000000000",
+          "profitable_close_sample_fraction": "0.000000000000000000",
+          "realized_gross_usdt": "-1.446821900000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "-1.518011360000000000000000000000000000",
+        "side": "BUY",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "AKEUSDT"
+      },
+      {
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "input_digest": "3b0a988f95fbeb3d18f903225c80eb7c6800b75ba85a1d4841b3b6b3f2262e37",
+        "net_minus_gross_usdt": "-0.162564000000000000",
+        "path": {
+          "ambiguous_fill_price_groups_excluded": 0,
+          "available_full_minutes": 79,
+          "basis": "GROSS_REALIZED_PLUS_REMAINING_INVENTORY_MARK_TO_MARKET",
+          "closed_ms": 1792936917614,
+          "constant_inventory_minutes": 79,
+          "excursion_interpretation": "SAMPLED_LOWER_BOUND_NOT_EXECUTABLE_PROFIT",
+          "execution_authorized": false,
+          "expected_full_minutes": 79,
+          "fill_changing_minutes_excluded": 0,
+          "giveback_gross_usdt_lower_bound": "4.788000000000000000",
+          "gross_return_per_held_hour": "0.016927059875185238",
+          "held_minutes": "80.445283333333333333",
+          "longest_no_new_peak_sample_minutes": 33,
+          "mae_gross_usdt_lower_bound": "4.484000000000000000",
+          "mfe_gross_usdt_lower_bound": "8.436000000000000000",
+          "observed_peak_capture_ratio": "0.432432432432432432",
+          "opened_ms": 1792932090897,
+          "opening_notional_usdt": "160.740000000000000000",
+          "profitable_close_sample_fraction": "0.772151898734177215",
+          "realized_gross_usdt": "3.648000000000000000",
+          "status": "AVAILABLE_LOWER_BOUND",
+          "version": "fill-aware-trade-path-v1"
+        },
+        "settled_net_pnl_usdt": "3.485436000000000000000000000000000000",
+        "side": "BUY",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "symbol": "APRUSDT"
+      }
+    ],
+    "requested_minutes": 222,
+    "selected_count": 6,
+    "selection": "LATEST_OPENED_SETTLED_NON_MAINTENANCE_WITHIN_INTENT_WINDOW",
+    "selection_truncated": true,
+    "source_records_truncated": false,
+    "status_counts": {
+      "AVAILABLE_LOWER_BOUND": 6
+    },
+    "window_days": 14
+  },
+  "trend_case_statuses": {
+    "INELIGIBLE": 2,
+    "SHADOW": 1,
+    "UNAVAILABLE": 3
+  },
+  "version": "profitability-audit-v1"
+}

@@ -1,0 +1,182 @@
+{
+  "change_set": "symbol-exit-isolation-20261021",
+  "timezone": "Asia/Shanghai",
+  "status": "DEPLOYED_SANDBOX_REDUCE_ONLY_CANARY_FILLED_FINAL_SETTLEMENT_PENDING",
+  "scope": "SANDBOX independently verified reduce-only exits; account-wide opening barriers remain unchanged",
+  "features": [
+    "Complete raw seven-route account inventory, response digests, scope, mode, ownership and strict freshness validation",
+    "Only bound pending closes and missing confirmed stops may be isolated; unknown exposure, unbound orders and target pending orders still deny",
+    "The target requires a unique exact ledger/venue residual, terminal local orders and confirmed matching native stop",
+    "Fresh account facts, target ledger, policy version and protection are rechecked under the existing account lock",
+    "The final runner callback accepts only reduce-only CLOSE and runs after durable SUBMITTING but before the transport",
+    "Failed final checks are explicitly not sent; post-transport ambiguity remains UNKNOWN and never authorizes a replacement order",
+    "Original account route, worker token, binding and epoch guards still own all venue write authorization"
+  ],
+  "defaults": {
+    "exit.symbol_isolation_enabled": false,
+    "exit.preflight_max_age_ms": 10000
+  },
+  "qa": {
+    "candidate_final_regression": {
+      "passed": 1213,
+      "failed": 0,
+      "seconds": 606.21,
+      "selected_files": 39,
+      "diagnostics": "/tmp/v2-data-qa.cIIpSH",
+      "candidate_runtime_and_tests_frozen": true,
+      "actual_candidate_cwd": "/opt/trade-engine-v2/releases/symbol-exit-isolation-20261021-v1",
+      "command": "manifest proposed_selected_tests except non-runtime coverage_storage maintenance suite; plus runtime_policy, execution_routes, managed_resume and execution_controller",
+      "database_retained": false
+    },
+    "workspace_intermediate_regression": {
+      "passed": 1057,
+      "failed": 0,
+      "seconds": 604.27,
+      "diagnostics": "/tmp/v2-data-qa.dGEVIJ",
+      "limit": "Run began before actual wire-boundary fence was added; superseded for final release acceptance"
+    },
+    "candidate_focused_iterations": [
+      {"passed": 119, "failed": 1, "diagnostics": "/tmp/v2-data-qa.5h7iVI", "cause": "Successful callback count fixture still expected one check instead of the new runner plus adapter checks"},
+      {"passed": 114, "failed": 1, "diagnostics": "/tmp/v2-data-qa.akeWyC", "cause": "Test-only assertion update initially matched the failure case; corrected both cases and restarted with frozen tests"}
+    ],
+    "candidate_focused_final": {
+      "passed": 372,
+      "failed": 0,
+      "seconds": 100.31,
+      "diagnostics": "/tmp/v2-data-qa.FqjYQg",
+      "runtime_source_frozen": true,
+      "test_source_frozen": true,
+      "actual_candidate_cwd": "/opt/trade-engine-v2/releases/symbol-exit-isolation-20261021-v1",
+      "scope": "12 files including pure proof, real-PG two-symbol flows, runner, adapter, route guard, signed transport, delayed mode/guard/quota and configuration boundaries"
+    },
+    "candidate_extended_collection": {
+      "diagnostics": "/tmp/v2-data-qa.OhoAmm",
+      "collection_errors": 1,
+      "cause": "Proposed historical coverage-storage maintenance tests imported services.v2_coverage_storage, which is deliberately not in the active-based runtime candidate",
+      "action": "Excluded that non-runtime maintenance-tool suite instead of adding undeployed business code merely to satisfy test collection; coverage runtime behavior remains covered by account-coverage and integrated recovery suites"
+    },
+    "initial_focused_iteration": {
+      "passed": 104,
+      "failed": 1,
+      "seconds": 24.44,
+      "diagnostics": "/tmp/v2-data-qa.Kv0WcJ",
+      "cause": "New pre-submit denial reason was absent from SubmissionNotSent allowlist; zero-POST denial was incorrectly classified UNKNOWN",
+      "fix": "Added the specific fixed reason to the explicit no-submission allowlist; no risk gate relaxed"
+    },
+    "focused_after_fix": {
+      "passed": 154,
+      "failed": 0,
+      "seconds": 67.80,
+      "diagnostics": "/tmp/v2-data-qa.EtIWm4",
+      "files": [
+        "tests/v2_core/test_v2_symbol_reduction.py",
+        "tests/v2_core/test_v2_symbol_exit_isolation.py",
+        "tests/v2_core/test_v2_directional_exit_stage.py",
+        "tests/v2_core/test_v2_unprotected_emergency.py",
+        "tests/v2_core/test_v2_runtime_policy.py"
+      ]
+    },
+    "isolated_pg_redis": true,
+    "external_network_forbidden": true,
+    "whole_repository_pass_claim": false,
+    "live_end_to_end_claim": false
+  },
+  "release_requirements": [
+    "Build from immutable active release, never copy the dirty worktree as a deployment",
+    "Retain the current strategy evaluation; exclude unpublished quant, liquidity and excursion features",
+    "Patch account-admin policy schema compatibility before persisting new policy keys",
+    "Prepare an old-execution-logic rollback release that accepts the new schema; original pre-schema release cannot parse persisted new keys",
+    "Run independent candidate-specific QA and inspect exact changed-file manifest",
+    "Retain controller restart recovery into DRAINING with entries disabled; do not submit an ACTIVE resume request"
+  ],
+  "runtime_observation_before_changes": {
+    "active_release": "signal-evidence-repair-20261018-v1",
+    "observed_at": "2026-10-21T09:25:05+08:00",
+    "br": "Nonzero residual with bound ACKNOWLEDGED close and missing final fills; native parent TRIGGERING without child identity",
+    "nil": "Nonzero residual with confirmed native stop",
+    "account_blockers": ["LOCAL_ORDERS_NOT_FINAL", "MISSING_CONFIRMED_STOP"]
+  },
+  "not_resolved_by_this_feature": [
+    "Conflicting BR submission, order-query, fill and position evidence",
+    "NIL final settlement and directional outcome remain blocked by whole-account reconciliation despite a filled close and matched episode cash",
+    "Intermittent account inventory and income read failures still recur after successful observations; recovery reliability is not accepted as resolved",
+    "New recovery diagnostic namespace retention is not yet integrated; stable repeated diagnostics are deduplicated",
+    "Account-wide permission to open new positions",
+    "Profitability or research/model acceptance"
+  ],
+  "readonly_candidate_replay": {
+    "observed_at": "2026-10-21T10:03:49+08:00",
+    "nil_proof_status": "SYMBOL_REDUCTION_READY",
+    "quarantined_symbols": ["BRUSDT"],
+    "br_proof_blockers": ["TARGET_ORDERS_NOT_FINAL"],
+    "current_facts_match_stored_after": true,
+    "stored_before_matches_after": true,
+    "fact_rows": {"episodes": 3077, "orders": 3726, "protections": 540},
+    "facts_read_ms": 414.55,
+    "nil_pure_proof_ms": 553.43,
+    "authorizes_execution": false,
+    "network_calls": 0,
+    "database_writes": 0
+  },
+  "deployment": {
+    "environment": "SANDBOX",
+    "execution_release": "/opt/trade-engine-v2/releases/symbol-exit-isolation-20261021-v1",
+    "admin_release": "/opt/trade-engine-v2/releases/symbol-exit-account-admin-compat-20261021-v1",
+    "compatible_execution_rollback": "/opt/trade-engine-v2/releases/symbol-exit-execution-rollback-compat-20261021-v1",
+    "admin_started_at": "2026-10-21T10:16:53+08:00",
+    "controller_started_at": "2026-10-21T10:17:10+08:00",
+    "runtime_manifest_file_count": 23,
+    "runtime_hash_verification": "PASS",
+    "old_controller_processes_gone_before_start": true,
+    "route_phase": "DRAINING",
+    "route_epoch": 46,
+    "resume_requested": false,
+    "policy_before_version": 6,
+    "policy_after_version": 7,
+    "policy_changed_keys": {"exit.symbol_isolation_enabled": true},
+    "preflight_max_age_ms": 10000,
+    "other_policy_values_changed": false,
+    "local_authenticated_accounts_http_status": 200,
+    "local_authenticated_policy_http_status": 200,
+    "controller_and_admin_auto_restarts_since_deploy": 0,
+    "previous_recovery_artifact": "order-recovery-evidence-20261021.json",
+    "previous_artifact_scope": "Historical predeployment observations are retained unchanged; deployment status is superseded by this record",
+    "research_liquidity_hmm_or_quant_strategy_deployed": false
+  },
+  "live_reduce_only_canary": {
+    "symbol": "NILUSDT",
+    "reason": "LOW_YIELD_STAGNATION",
+    "submitted_by": "Deployed SANDBOX service through its guarded strategy exit path, not a manual diagnostic order",
+    "isolated_close_order_count_observed": 1,
+    "close_status": "FILLED",
+    "quantity": "972",
+    "filled_quantity": "972",
+    "fill_count": 1,
+    "close_fee_usdt": "0.0419904",
+    "opening_fee_usdt": "0.0418932",
+    "ledger_calculated_net_pnl_usdt": "0.1105164",
+    "ledger_pnl_is_final_settlement": false,
+    "episode_status": "ACTIVE",
+    "settlement_count_observed": 0,
+    "directional_outcome_count_observed": 0,
+    "latest_cash_status_observed": "CASH_MATCHED",
+    "latest_complete_inventory_positions": [{"symbol": "BRUSDT", "side": "BOTH", "quantity": "-256"}],
+    "latest_complete_inventory_failures": {},
+    "successful_inventory_coverage_blockers": ["LOCAL_ORDERS_NOT_FINAL", "MISSING_CONFIRMED_STOP"],
+    "earlier_postdeploy_transient_states": ["INCOMPLETE_ACCOUNT_READ", "INCOME_INCOMPLETE"],
+    "subsequent_readonly_sample": {
+      "observed_at": "2026-10-21T10:26:47+08:00",
+      "route_phase": "DRAINING",
+      "cycle_status": "ENTRY_BLOCKED",
+      "inventory_age_ms": 8488,
+      "inventory_failures": {"conditional_orders": "ACCOUNT_READ_UNAVAILABLE", "mode": "ACCOUNT_READ_UNAVAILABLE"},
+      "coverage_blockers": ["INCOMPLETE_ACCOUNT_READ"],
+      "empty_positions_in_failed_snapshot_are_not_flat_evidence": true
+    },
+    "acceptance_boundary": "Actual reduce-only close, fills, fees and a subsequent complete venue inventory verified; not final wallet reconciliation, episode settlement, opening recovery or whole-system end-to-end acceptance"
+  },
+  "runtime_services_restarted": true,
+  "business_database_changed": true,
+  "venue_orders_sent_by_agent": false,
+  "venue_orders_sent_by_deployed_service_observed": 1
+}

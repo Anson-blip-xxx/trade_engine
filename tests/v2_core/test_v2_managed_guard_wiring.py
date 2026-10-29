@@ -33,7 +33,7 @@ def child_case(monkeypatch):
     state = {"phase": "ACTIVE", "preflight_error": None}
     scope = AccountScope("BINANCE", "qa-registered-account", "SANDBOX", "FUTURES")
     config = SimpleNamespace(daemon=SimpleNamespace(interval_seconds=0))
-    pipeline = SimpleNamespace(enable_entries=None)
+    pipeline = SimpleNamespace(enable_entries=None, schedulers=())
     notifications = {"TG_NOTIFY_TOKEN": "qa-token", "TG_NOTIFY_CHAT_ID": "qa-chat"}
     private = {"api_key": "qa-key", "api_secret": "qa-secret"}
 

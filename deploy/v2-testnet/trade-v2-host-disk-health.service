@@ -1,0 +1,26 @@
+[Unit]
+Description=Independent V2 disk reserve and market freshness DM monitor
+After=postgresql@16-tradev2.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trade-engine-v2/host-maintenance
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_host_disk_health
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/trade-engine-v2/telegram-alerts.env
+EnvironmentFile=-/etc/trade-engine-v2/host-maintenance.env
+LoadCredentialEncrypted=v2-notifications:/etc/credstore.encrypted/trade-v2-notifications.cred
+TimeoutStartSec=45
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+StandardOutput=journal
+StandardError=journal

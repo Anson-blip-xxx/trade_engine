@@ -1,0 +1,31 @@
+[Unit]
+Description=V2 bounded structural checkpoint preparation (no order authority)
+After=network.target
+
+[Service]
+Type=oneshot
+User=tradev2reentry
+Group=tradev2reentry
+WorkingDirectory=/opt/trade-engine-v2/reentry-prepare
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_reentry_prepare_entry
+EnvironmentFile=/etc/trade-engine-v2/reentry-prepare.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=60
+TimeoutStopSec=10
+Nice=15
+CPUQuota=15%
+MemoryMax=256M
+TasksMax=16
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+AmbientCapabilities=

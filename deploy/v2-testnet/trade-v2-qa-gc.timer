@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly V2 disposable QA database reclamation
+
+[Timer]
+OnBootSec=5min
+OnCalendar=hourly
+RandomizedDelaySec=120
+Persistent=true
+Unit=trade-v2-qa-gc.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,63 @@
+{
+  "change_set": "recovery-read-budget-20261021-v1",
+  "timezone": "Asia/Shanghai",
+  "status": "DEPLOYED_MANAGEMENT_ONLY",
+  "environment": "SANDBOX",
+  "root_cause": {
+    "observed_at": "2026-10-21T10:36:55+08:00",
+    "shared_minute_budget": 1800,
+    "used_weight": 1800,
+    "market_weight": 244,
+    "venue_penalty_active": false,
+    "full_inventory_weight": 155,
+    "observed_cycles_per_minute": 5.3,
+    "estimated_management_demand_per_minute": 2624,
+    "recent_coverage_samples": {"complete": 34, "failed": 26},
+    "recent_cash_samples": {"matched": 38, "incomplete": 22},
+    "direct_recovery_error": "QUOTA_DENIED",
+    "not_explained_by_cpu_or_network_timeout": "First-read failures returned in 13-32ms without response pages; complete inventories took about 381-503ms"
+  },
+  "changes": ["Skip full exit inventory only when all candidate episodes remain held after query-only recovery", "Skip repeated cash/final-inventory work when existing local nonfinal orders already make final settlement impossible", "Persist bounded non-secret inventory failure details"],
+  "qa": {
+    "candidate_passed": 244,
+    "candidate_failed": 0,
+    "candidate_seconds": 137.49,
+    "diagnostics": "/tmp/v2-data-qa.BiiUnR",
+    "workspace_focused_passed": 99,
+    "workspace_focused_diagnostics": "/tmp/v2-data-qa.gtqY9Q",
+    "initial_fixture_failures": ["ACK fixture lacked required source evidence", "CANCELLED fixture lacked mandatory fills_complete evidence"],
+    "fixture_failures_fixed_without_relaxing_ledger": true,
+    "whole_repository_pass_claim": false
+  },
+  "release": "/opt/trade-engine-v2/releases/recovery-read-budget-20261021-v1",
+  "deployment": {
+    "started_at": "2026-10-21T10:52:23+08:00",
+    "service": "trade-v2-execution-controller.service",
+    "pid": 3030547,
+    "automatic_restarts": 0,
+    "route_phase": "DRAINING",
+    "route_epoch": 46,
+    "rollback_release": "/opt/trade-engine-v2/releases/symbol-exit-isolation-20261021-v1"
+  },
+  "runtime_acceptance": {
+    "checked_at": "2026-10-21T10:58:49+08:00",
+    "fresh_minute_complete_inventories": 45,
+    "fresh_minute_failed_inventories": 0,
+    "initial_old_minute_quota_denied": 2,
+    "initial_failure_times": ["2026-10-21T10:52:52+08:00", "2026-10-21T10:52:58+08:00"],
+    "last_five_minute_cycles": 39,
+    "all_entry_dispatch_disabled": true,
+    "new_intents_since_restart": 0,
+    "new_order_events_since_restart": 0,
+    "sample_host_weight": 1291,
+    "sample_market_weight": 277,
+    "host_limit": 1800,
+    "sample_is_not_a_peak_guarantee": true,
+    "remaining_account_blockers": ["LOCAL_ORDERS_NOT_FINAL", "MISSING_CONFIRMED_STOP"],
+    "trading_resumed": false
+  },
+  "account_open_authorized": false,
+  "br_incident": "br-venue-inconsistency-20261021.json",
+  "final_settlement_resolved": false,
+  "jev_deployed_by_this_release": false
+}

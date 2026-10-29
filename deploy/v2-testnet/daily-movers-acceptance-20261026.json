@@ -1,0 +1,121 @@
+{
+  "feature": "daily-big-move-review",
+  "accepted_at_local": "2026-10-26T22:31:44+08:00",
+  "release": "/opt/trade-engine-v2/releases/daily-mover-review-20261026-v2",
+  "runtime_pointer": "/opt/trade-engine-v2/daily-movers",
+  "timezone": "Asia/Shanghai",
+  "runtime_source_sha256": {
+    "v2_core/daily_movers.py": "9b44f76e6768d87c6cd05e98ac5795700d2ccefaa61856ddd68ea3521d0e38cb",
+    "services/v2_daily_mover_entry.py": "c49927becae9a2ff221a7dfc13484d190df68ac884e8212fa0313e3f42d65a5d",
+    "services/v2_daily_mover_job.py": "d1d4bec3420722244bb3adb8721c567128c144fb9b580f117912e9230d03be61",
+    "services/v2_daily_mover_market.py": "e5bef792d1315f43160c64004f3acbb2549d312a66b39835037b2db5e9a5c72c",
+    "services/v2_daily_mover_store.py": "99bf0673c1c1de24a15a6c0a20a5a46bc02231a46217000d2a133287eaa71672",
+    "services/v2_daily_mover_evidence.py": "6e39864afe00f45f4119d29c359f7aa8cc5e1a0a2e5ec77429e7d568a142a48e",
+    "services/v2_daily_mover_report.py": "b31ef66428e6896bfb5e35f36c0f8b494aa6f27eb9f95564c2f5bd75151a6d4c",
+    "services/v2_daily_mover_trade_paths.py": "6260173f6fb12fab09165684549f958e40c85e3363a9f6b5b0d7e117d91b60ba",
+    "services/v2_daily_mover_notify.py": "4af186b42ad84483799b9b4442fbe6c273a7056349b572eb892929af077e002d"
+  },
+  "schedule": {
+    "service": "trade-v2-daily-movers.service",
+    "timer": "trade-v2-daily-movers.timer",
+    "enabled": true,
+    "calendar": "*-*-* *:20:00 Asia/Shanghai",
+    "random_delay_seconds": 30,
+    "persistent": true,
+    "semantics": "First review of previous completed UTC+8 day at00:20; hourly idempotent resume and late-evidence retry; no blind resend of ambiguous Telegram delivery."
+  },
+  "qa": {
+    "passed": 432,
+    "failed": 0,
+    "skipped": 0,
+    "isolated_pg_log": "/tmp/v2-data-qa.yDeJWA/pytest.log",
+    "disposable_database_removed_after_confirmed_shutdown": true,
+    "ruff": "PASS",
+    "systemd_unit_validation": "PASS; unrelated existing tat_agent PIDFile deprecation warning"
+  },
+  "first_real_review": {
+    "date": "2026-10-25",
+    "market_source": "BINANCE_USDM_LIVE",
+    "execution_source": "BINANCE_USDM_SANDBOX",
+    "discovered_usdt_perpetuals": 659,
+    "eligible_complete_day_summaries": 522,
+    "excluded": 137,
+    "zero_return": 2,
+    "winners": 10,
+    "losers": 10,
+    "public_minute_paths_observed": 20,
+    "account_read_status": "READ_COMPLETED",
+    "deep_execution_path_selection": "Latest6 of11 eligible settled closed-day cases; selection_truncated explicitly true. All retained trade evidence and available settlement labels remain in the report.",
+    "same_environment_execution_paths_observed": 6,
+    "post_flat_60m_paths_observed": 6,
+    "immutable_report_revisions": 2,
+    "private_dm_confirmed": 1,
+    "total_dm_attempts": 1,
+    "subsequent_service_run": "EXISTING; ALREADY_HANDLED_OR_DELIVERY_UNKNOWN; no duplicate DM",
+    "content_digest_verified": true,
+    "new_research_storage_bytes_at_acceptance": 2416640
+  },
+  "actual_integration_fault_fixed": {
+    "cause": "ClickHouse readonly=1 profile rejects client max_execution_time override before archive queries.",
+    "fix": "Dedicated archive factory omits SET overrides and verifies existing server readonly/resource caps. No ClickHouse profile, privilege or trading service was changed.",
+    "server_caps": {"readonly": 1, "max_threads": 1, "max_execution_seconds": 3, "max_rows": 20000, "max_memory_bytes": 134217728},
+    "client_caps": {"connect_seconds": 1, "receive_seconds": 2, "retries": 0, "page_minutes": 720, "total_review_minutes": 10080, "path_budget_seconds": 30},
+    "verification": "Actual6/6 trade paths and6/6 post-flat paths succeeded after correction; original unknown revision retained."
+  },
+  "first_actionable_findings": {
+    "APRUSDT": {
+      "live_day_return_pct_rounded": "60.65",
+      "sandbox_settled_buy_trades": 6,
+      "actual_net_usdt": "1.804478960000000000000000000",
+      "median_held_minutes": "10.131475",
+      "maximum_held_minutes": "80.44528333333333333333333333",
+      "exit_reasons": {"PEAK_DRAWDOWN": 3, "EMERGENCY_LOSS": 3},
+      "sampled_long_jev_trend_unsupported_count": 8,
+      "interpretation": "Investigate actual entry timing, repeated entries, conditional trend-runner exits and JEV trend evidence. LIVE daily return is not hypothetical SANDBOX profit."
+    },
+    "no_retained_signal_examples": ["CAPUSDT", "CTUSDT", "IRYSUSDT", "UAIUSDT"],
+    "signal_coverage_warning": "No retained TV/quant signals found for these20 symbols/day; queries succeeded but historical retention completeness is NOT_PROVEN. Do not infer TV was never running.",
+    "next_validation": "Compare persistent-trend vs pump/reversal cases, event-time admission and actual exit paths against non-top20 controls; reject hypotheses contradicted by observations. No automatic policy promotion."
+  },
+  "isolation": {
+    "unix_pg_role": "tradev2movers",
+    "exchange_credentials_available": false,
+    "credential_vault_select": false,
+    "financial_table_writes": false,
+    "executable_security_definer_functions": 0,
+    "report_update_permission": false,
+    "mutable_existing_infrastructure": ["v2_egress_budgets", "v2_public_market_budgets"],
+    "public_request_budget": "Shared LIVE host market lane plus at most100 research weight/min; never consumes reserved management quota.",
+    "business_runtime_state": "PostgreSQL only; no local file state",
+    "orders_submitted_by_review": false,
+    "trading_services_restarted": false,
+    "trading_controller_pid_unchanged": true,
+    "market_hub_pid_unchanged": true,
+    "account_admin_pid_unchanged": true,
+    "trading_service_restart_counters": 0,
+    "last_checked_trading_cycle": "CYCLE_COMPLETE; age4s; protection CLEAR",
+    "signal_lag_state": "CLEAR",
+    "active_health_alerts": []
+  },
+  "retention_and_reproducibility": {
+    "raw_public_minute_paths_days": 30,
+    "cleanup_batch_max_rows": 100,
+    "compact_daily_summaries_reports": "Retained for cumulative research; immutable report revisions with source/content digests.",
+    "signal_sampling": "Up to250 unique source/time-stratified samples per symbol, three source quotas and four UTC+8 six-hour windows; earliest records within each window; lower bounds and truncation explicit.",
+    "account_initial_refresh": "One refresh after day-end+6h; read errors hourly; archive unknown retries bounded to3 revisions.",
+    "manual_research_refresh": "python -m services.v2_daily_mover_entry --day YYYY-MM-DD --refresh-evidence; same research-only role/DSN, never trading credentials; maximum3-day backfill.",
+    "accumulation": "Deduplicate market day and account day; retain control cohorts and falsifiable hypotheses; at least7 independent days and30 selected/control observations before out-of-sample research status, never automatic trading promotion."
+  },
+  "limitations": [
+    "Current discovery catalog used retrospectively; historical delisting/survivorship coverage is not proven.",
+    "GAIBUSDT historical public API failed; separately excluded and bounded retries exhausted, not zero-filled.",
+    "Daily close/open return ranking is hindsight selection, not an entry signal or guaranteed reachable peak.",
+    "Minute-bar excursion metrics are gross sampled lower bounds, not executable best profit; complete settled net remains separate.",
+    "Signal reasons are stratified sample observations, not exhaustive full-day attribution; absent retained evidence remains unknown.",
+    "Deep execution path analysis is bounded to6 latest eligible cases per account/day; full settlement evidence is retained separately.",
+    "Initial implementation reviews configured SANDBOX accounts against LIVE market movers; it does not authorize LIVE execution.",
+    "Only one market day is accumulated so far; no demonstrated improvement in future profitability yet."
+  ],
+  "rollback": "Disable/stop only trade-v2-daily-movers.timer and its research service. Retain PG research history; no trading restart or financial data rollback is required.",
+  "official_market_api_reference": "https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data"
+}

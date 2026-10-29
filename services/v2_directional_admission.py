@@ -7,12 +7,56 @@ venue leverage/margin setup and reconciliation must still gate dispatch.
 import json
 from dataclasses import asdict
 
-from services.v2_directional_replay import replay_decision
-from v2_core.directional import directional_events, supports_event
+from services.v2_directional_replay import (
+    decimal_features,
+    replay_decision,
+    source_policy,
+)
+from v2_core.directional import (
+    below_minimum_strength,
+    directional_events,
+    supports_event,
+)
 from v2_core.evidence import canonical
 from v2_core.runtime import DataRuntime
+from v2_core.runtime_policy import resolve
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision, StrategyScope, StrategyWorker
+
+
+def signal_only_rejection(signal, config):
+    """Reject only an already-disqualifying immutable fact; never authorize entry.
+
+    No fake market/account context. The original signal and frozen source policy
+    are retained by StrategyWorker. A passing prefilter still needs every gate.
+    """
+    if (
+        config["strategy"] != "S8"
+        or config.get("source", "s3") not in {"s3", "tv_bridge"}
+        or not supports_event("S8", signal["signal"])
+    ):
+        return None
+    if signal["features"].get("type", signal["signal"]) != signal["signal"]:
+        raise ValueError("conflicting event type")
+    policy, proof = source_policy(signal, config)
+    if not below_minimum_strength(
+        "S8",
+        signal["signal"],
+        decimal_features(signal["features"]["strength"]),
+        policy=policy,
+    ):
+        return None
+    return StrategyDecision(
+        "IGNORED",
+        "strength_below_minimum",
+        features_json=canonical(
+            {
+                "stage": "SIGNAL_ONLY_PREFILTER",
+                "source_scoring": proof,
+                "execution_authorized": False,
+            }
+        ),
+    )
 
 
 def admission_decision(signal, context, config):
@@ -21,6 +65,18 @@ def admission_decision(signal, context, config):
         or config.get("account_scope", {}).get("environment") != "SANDBOX"
     ):
         raise ValueError("explicit testnet admission configuration required")
+    if "opening_quarantine" in context:
+        from services.v2_opening_quarantine import quarantine_rejection
+        from v2_core.account_risk import AccountScope
+
+        return quarantine_rejection(
+            signal, context, scope=AccountScope(**config["account_scope"])
+        )
+    if (
+        config.get("source") == "quant"
+        and not resolve(config.get("policy"))["quant.admission_enabled"]
+    ):
+        return StrategyDecision("IGNORED", "QUANT_ACCOUNT_DISABLED")
     if config.get("source") == "tv_bridge":
         if signal["observed_at"] < config["tv_start_ms"]:
             return StrategyDecision("IGNORED", "TV_BEFORE_ENABLE_TIME")
@@ -34,6 +90,9 @@ def admission_decision(signal, context, config):
     # asking for market proof; only actionable events require that proof.
     if not supports_event(config["strategy"], signal["signal"]):
         return replay_decision(signal, context, {**config, "mode": "REPLAY_ONLY"})
+    rejection = signal_only_rejection(signal, config)
+    if rejection is not None:
+        return rejection
     if config.get("dynamic_universe", False):
         proof = context.get("universe_admission")
         if (
@@ -45,10 +104,44 @@ def admission_decision(signal, context, config):
         if proof.get("eligible") is not True:
             return StrategyDecision("IGNORED", "SYMBOL_NOT_TRADING")
     # One evaluator for replay and admission prevents drifting strategy rules.
+    settings = resolve(config.get("policy"))
+    if settings["entry.reentry_enabled"] and not context.get("market_only"):
+        from services.v2_reentry_gate import structure_policy, validate
+
+        proof = context.get("reentry")
+        reason = validate(
+            proof,
+            scope=config["account_scope"],
+            target=signal["symbol"],
+            side="BUY" if config["strategy"] == "S6" else "SELL",
+            observed=signal["observed_at"],
+            now=context["assembled_at"],
+        )
+        if proof["policy"] != asdict(structure_policy(settings)):
+            raise ValueError("REENTRY_POLICY_CHANGED")
+        if reason:
+            return StrategyDecision(
+                "IGNORED",
+                reason,
+                features_json=canonical(
+                    {"reentry": proof, "execution_authorized": False}
+                ),
+            )
+    if (
+        resolve(config.get("policy"))["portfolio_risk.enabled"]
+        and not context.get("market_only")
+        and context.get("directional", {})
+        .get("sizing", {})
+        .get("remaining_portfolio_risk")
+        is None
+    ):
+        raise ValueError("PORTFOLIO_SIZING_EVIDENCE_REQUIRED")
     evaluated = replay_decision(signal, context, {**config, "mode": "REPLAY_ONLY"})
     if evaluated.rationale != "DIRECTIONAL_REPLAY_ONLY":
         return evaluated
     features = json.loads(evaluated.features_json)
+    if settings["entry.reentry_enabled"]:
+        features["reentry"] = context["reentry"]
     features["admission_authorized"] = True
     # The feature remains false: PREPARED is not permission to call the venue.
     features["execution_authorized"] = False
@@ -72,6 +165,7 @@ def create_directional_admission_worker(
     allowed_symbols=(),
     tv_start_ms=None,
     dynamic_universe=False,
+    entry_filter=None,
 ):
     # Fail at construction instead of consuming formal signals while disabled.
     if type(enable_admission) is not bool or not enable_admission:
@@ -86,8 +180,10 @@ def create_directional_admission_worker(
         raise ValueError("account-bound testnet runtime with risk reference required")
     if strategy not in {"S6", "S8"} or analysis_mode not in {"hard", "soft"}:
         raise ValueError("explicit directional strategy and analysis mode required")
-    if source not in {"s3", "tv_bridge"}:
+    if source not in {"s3", "tv_bridge", "quant"}:
         raise ValueError("unsupported admission source")
+    if source == "quant" and not dynamic_universe:
+        raise ValueError("QUANT_DYNAMIC_UNIVERSE_REQUIRED")
     if source == "tv_bridge" and (
         type(tv_start_ms) is not int
         or not 0 < tv_start_ms <= 2**53 - 1
@@ -119,6 +215,7 @@ def create_directional_admission_worker(
         },
         decide=admission_decision,
         max_delay_ms=max_delay_ms,
+        entry_filter=entry_filter,
     )
 
 
@@ -129,9 +226,17 @@ def create_directional_admission_scheduler(runtime, *, context_provider, **setti
     return StrategyScheduler(
         worker,
         priority_events=directional_events(settings["strategy"]),
+        actionable_events=directional_events(settings["strategy"]),
         context_provider=context_provider,
         context_required=lambda snapshot: (
             supports_event(settings["strategy"], snapshot["signal"])
+            and signal_only_rejection(snapshot, json.loads(worker.config_json)) is None
+            and (
+                worker.source != "quant"
+                or resolve(json.loads(worker.config_json).get("policy"))[
+                    "quant.admission_enabled"
+                ]
+            )
             and (
                 worker.source != "tv_bridge"
                 or (

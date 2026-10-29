@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly bounded V2 diagnostic retention
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1h
+RandomizedDelaySec=120
+AccuracySec=30s
+Unit=trade-v2-diagnostic-retention.service
+
+[Install]
+WantedBy=timers.target

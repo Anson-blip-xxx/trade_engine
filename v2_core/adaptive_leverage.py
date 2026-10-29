@@ -120,7 +120,10 @@ def choose(plan, snapshot, *, source, age_ms, settings, notional):
             if side == "LONG"
             else settings["entry.flow_short"],
         ),
-        "volatility": Decimal(str(market["1h"]["atr_pct"]))
+        "volatility": max(
+            Decimal(str(market["1h"]["atr_pct"])),
+            Decimal(snapshot.get("quant_atr_pct", "0")),
+        )
         <= Decimal(settings["leverage.boost_max_atr"]),
         "fresh": age_ms <= settings["leverage.boost_max_age_ms"],
         "funding": abs(Decimal(snapshot["funding_rate"]))

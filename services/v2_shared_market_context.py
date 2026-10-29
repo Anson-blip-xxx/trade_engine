@@ -65,7 +65,7 @@ class SharedRegimeStage:
 
 class DynamicMarketContext:
     def __init__(self, connect, *, delegate, clock_ms, source):
-        if source not in {"s3", "tv_bridge"}:
+        if source not in {"s3", "tv_bridge", "quant"}:
             raise ValueError("FUSION_SOURCE_REQUIRED")
         self.source = source
         self.connect, self.delegate, self.clock = connect, delegate, clock_ms
@@ -73,6 +73,10 @@ class DynamicMarketContext:
 
     def __call__(self, signal):
         policy = MarketPolicy.read(self.connect, "SANDBOX")
+        from services.v2_signal_fusion_policy import read_policy
+        from v2_core.signal_fusion import build_fusion
+
+        fusion_policy, fusion_version = read_policy(self.connect)
         snapshot = self.catalog.snapshot(policy.catalog_max_age_seconds * 1000)
         target = signal["symbol"]
         now = self.clock()
@@ -97,36 +101,54 @@ class DynamicMarketContext:
                 "DO UPDATE SET expires_at_ms=greatest(v2_market_demands.expires_at_ms,EXCLUDED.expires_at_ms)",
                 (target, signal["expires_at_ms"]),
             )
-            other = "s3" if self.source == "tv_bridge" else "tv_bridge"
+            others = [s for s in ("s3", "tv_bridge", "quant") if s != self.source]
             rows = c.execute(
-                "SELECT signal_id::text,snapshot FROM v2_inbound_signals WHERE environment='SANDBOX' "
-                "AND source=%s AND snapshot->>'symbol'=%s AND received_at>clock_timestamp()-interval '10 minutes' "
+                "SELECT signal_id::text,snapshot,source FROM v2_inbound_signals WHERE environment='SANDBOX' "
+                "AND source=ANY(%s) AND snapshot->>'symbol'=%s AND received_at>clock_timestamp()-interval '10 minutes' "
                 "AND (snapshot->>'observed_at')::bigint BETWEEN %s AND %s "
                 "AND (snapshot->>'expires_at_ms')::bigint>%s ORDER BY received_at DESC LIMIT 50",
-                (other, target, now - policy.fusion_window_ms, now, now),
+                (others, target, now - fusion_policy.window_ms, now, now),
             ).fetchall()
-        context = self.delegate(signal)
-        context["universe_admission"] = proof
         own = "S6" if supports_event("S6", signal["signal"]) else "S8"
         peers = [
             {
                 "signal_id": identifier,
                 "source": other,
+                "environment": "SANDBOX",
+                "symbol": s["symbol"],
                 "signal": s["signal"],
                 "observed_at": s["observed_at"],
+                "expires_at_ms": s["expires_at_ms"],
                 "relationship": "CONFIRMS"
                 if supports_event(own, s["signal"])
                 else "CONFLICTS",
             }
-            for identifier, s in rows
+            for identifier, s, other in rows
             if supports_event("S6", s["signal"]) or supports_event("S8", s["signal"])
         ]
-        context["signal_fusion"] = {
+        fusion = {
             "version": "shared-context-v1",
             "window_ms": policy.fusion_window_ms,
             "peers": peers,
             "rule": "SHARED_MARKET_GATES_NO_AUTOMATIC_SIZE_BOOST",
         }
+        if self.source in {"s3", "tv_bridge"} and (
+            supports_event("S6", signal["signal"])
+            or supports_event("S8", signal["signal"])
+        ):
+            fusion = build_fusion(
+                signal, source=self.source, peers=peers,
+                policy=fusion_policy, policy_version=fusion_version, now_ms=now,
+            )
+        early = getattr(self.delegate, "with_signal_fusion", None)
+        if callable(early):
+            context = early(signal, fusion)
+        else:
+            if fusion_policy.enabled and self.source in {"s3", "tv_bridge"}:
+                raise ValueError("SIGNAL_FUSION_EARLY_CONTEXT_REQUIRED")
+            context = self.delegate(signal)
+        context["universe_admission"] = proof
+        context.setdefault("signal_fusion", fusion)
         return context
 
 

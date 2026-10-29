@@ -1,0 +1,11 @@
+[Unit]
+Description=Bounded V2 shadow research sampling every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+RandomizedDelaySec=120
+Persistent=true
+Unit=trade-v2-exit-research.service
+
+[Install]
+WantedBy=timers.target

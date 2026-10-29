@@ -25,7 +25,24 @@ class DirectionalContext:
         self.market_screen = market_screen
 
     def __call__(self, signal):
+        return self._assemble(signal)
+
+    def with_signal_fusion(self, signal, proof):
+        """Inject public cross-source evidence before the cheap market screen.
+
+        The shared provider validates the proof and replay validates it again.
+        This port never replaces fresh market/account evidence or timestamps.
+        In particular a confirming peer must not qualify a market-only result
+        without collecting the original full account context.
+        """
+        if not isinstance(proof, dict):
+            raise TypeError("SIGNAL_FUSION_PROOF_REQUIRED")
+        return self._assemble(signal, signal_fusion=proof)
+
+    def _assemble(self, signal, *, signal_fusion=None):
         market = deepcopy(self.market(signal))
+        if signal_fusion is not None:
+            market["signal_fusion"] = deepcopy(signal_fusion)
         now = self.clock()
         if (
             market["environment"] != self.scope.environment

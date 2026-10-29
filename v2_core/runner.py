@@ -5,6 +5,7 @@ transition is the single submission permit. Recovery only queries that identity;
 absence is never permission to resend a possibly accepted exchange request.
 """
 
+import logging
 from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
@@ -13,6 +14,9 @@ from uuid import uuid4
 from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import Ledger, lock_order_episode
 from v2_core.orders import Orders
+from v2_core.recovery_diagnostics import query_proof, transport_evidence
+from v2_core.recovery_diagnostics import record as record_recovery
+from v2_core.reduction_fence import reduction_fence
 from v2_core.scoping import predicate, require_scope, validate_scope
 from v2_core.transport import ExchangeTransportError
 
@@ -62,6 +66,7 @@ class ExecutionRunner:
         self.risk_reference = risk_reference
         self.orders = Orders(connection_factory)
         self.ledger = Ledger(connection_factory)
+        self._recovery_diagnostic_unavailable = False
 
     def snapshot(self, order_id, *, connection=None):
         with self._connect() if connection is None else nullcontext(connection) as conn:
@@ -107,10 +112,28 @@ class ExecutionRunner:
             side if data["leg"] == "OPEN" else ("SELL" if side == "BUY" else "BUY")
         )
         data["reduce_only"] = data["leg"] == "CLOSE"
+        if data["status"] == "UNKNOWN":
+            with (
+                self._connect()
+                if connection is None
+                else nullcontext(connection) as conn
+            ):
+                event = conn.execute(
+                    "SELECT evidence FROM v2_order_events WHERE order_id=%s AND version=%s AND status='UNKNOWN'",
+                    (order_id, data["version"]),
+                ).fetchone()
+            if event:
+                data["submission_failure"] = event[0]
         return data
 
-    def dispatch(self, order_id):
+    def dispatch(self, order_id, *, reduce_only_check=None):
+        if reduce_only_check is not None and not callable(reduce_only_check):
+            raise TypeError("callable reduction revalidation required")
         before = self.snapshot(order_id)
+        if reduce_only_check is not None and (
+            before["leg"] != "CLOSE" or before["reduce_only"] is not True
+        ):
+            raise ValueError("REDUCTION_REVALIDATION_CLOSE_ONLY")
         if before["status"] != "PREPARED":
             return self.recover(order_id)
         verdict = self.risk_check(deepcopy(before))
@@ -172,7 +195,18 @@ class ExecutionRunner:
         if not permitted:
             return "RACE_LOST"
         try:
-            observation = self.submit(deepcopy(before))
+            if reduce_only_check is not None:
+                try:
+                    if reduce_only_check(deepcopy(before)) is not True:
+                        raise ValueError("reduction not revalidated")
+                except Exception:  # noqa: BLE001 - no submit has occurred; fixed diagnostic only
+                    raise SubmissionNotSent("REDUCE_ONLY_REVALIDATION_FAILED") from None
+            with (
+                reduction_fence(before, reduce_only_check)
+                if reduce_only_check is not None
+                else nullcontext()
+            ):
+                observation = self.submit(deepcopy(before))
         except SubmissionNotSent as exc:
             applied = self.orders.transition(
                 order_id,
@@ -201,10 +235,77 @@ class ExecutionRunner:
         if current["status"] == "PREPARED":
             return "PREPARED"
         # Query failure propagates; durable SUBMITTING/UNKNOWN remains recoverable.
-        observation = self.query(current)
+        try:
+            observation = self.query(current)
+        except Exception as exc:
+            self._record_recovery(
+                current,
+                {
+                    "outcome": "QUERY_FAILED",
+                    "transport": transport_evidence(exc),
+                },
+            )
+            raise
         if observation is None:
+            self._record_recovery(current, {"outcome": "NO_OBSERVATION"})
             return "UNKNOWN"
-        return self._apply(order_id, observation)
+        diagnostic = {"outcome": "QUERY_OBSERVED"}
+        if (
+            isinstance(observation, ExchangeObservation)
+            and (observation.evidence or {}).get("recovery_query") is not None
+        ):
+            proof = query_proof(observation.evidence["recovery_query"])
+            if (
+                current["exchange_order_id"] is None
+                or observation.client_order_id != current["client_order_id"]
+                or observation.exchange_order_id != current["exchange_order_id"]
+            ):
+                raise ValueError("RECOVERY_QUERY_IDENTITY_MISMATCH")
+            absent = proof["attempts"][-1]["outcome"] == "ABSENT"
+            if absent and (observation.status != "UNKNOWN" or observation.fills):
+                raise ValueError("ABSENT_QUERY_CANNOT_PROVE_EXECUTION")
+            if absent:
+                # Absence is not a new venue status. Preserve the durable ACK
+                # (and any original submission failure), fills and risk reserve.
+                self._record_recovery(
+                    current,
+                    {"outcome": "BOUND_ORDER_LOOKUPS_ABSENT", "query": proof},
+                )
+                return "UNKNOWN"
+            diagnostic = {"outcome": "BOUND_ORDER_LOOKUP_FOUND", "query": proof}
+        # Observability must never prevent authoritative fills committing.
+        # Bind the diagnostic only to the version this observation would apply
+        # from its input snapshot. A fresh snapshot could borrow a concurrent
+        # worker's newer version and incorrectly make old query proof current.
+        applied = self._apply(order_id, observation)
+        if applied == observation.status:
+            changed = current["status"] != observation.status or (
+                current["exchange_order_id"] is None
+                and observation.exchange_order_id is not None
+                and current["status"] in {"UNKNOWN", "ACKNOWLEDGED"}
+            )
+            expected = {
+                **current,
+                "version": current["version"] + int(changed),
+                "status": observation.status,
+                "exchange_order_id": current["exchange_order_id"]
+                if current["exchange_order_id"] is not None
+                else observation.exchange_order_id,
+            }
+            self._record_recovery(expected, diagnostic)
+        return applied
+
+    def _record_recovery(self, current, diagnostic):
+        try:
+            record_recovery(self._connect, current, diagnostic)
+        except Exception:  # noqa: BLE001 - keep order recovery independent of diagnostics
+            if not self._recovery_diagnostic_unavailable:
+                logging.getLogger(__name__).warning(
+                    "ORDER_RECOVERY_DIAGNOSTIC_UNAVAILABLE"
+                )
+            self._recovery_diagnostic_unavailable = True
+        else:
+            self._recovery_diagnostic_unavailable = False
 
     def _apply(self, order_id, observation):
         # Identity checks, fills and outcome must commit together. A malformed

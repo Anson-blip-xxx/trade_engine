@@ -217,11 +217,13 @@ def test_real_sources_are_normalized_persisted_and_bound_to_drawdown(database):
         "drawdown_factor": "1",
     }
     assert all(method == "GET" for method, *_ in request.calls)
-    assert [path for path, _ in public.calls] == [
-        "/fapi/v1/exchangeInfo",
-        "/futures/data/globalLongShortAccountRatio",
-        "/fapi/v1/premiumIndex",
-    ]
+    assert sorted(path for path, _ in public.calls) == sorted(
+        [
+            "/fapi/v1/exchangeInfo",
+            "/futures/data/globalLongShortAccountRatio",
+            "/fapi/v1/premiumIndex",
+        ]
+    )
     with database() as conn:
         payload = conn.execute(
             "SELECT payload FROM v2_business_state WHERE state_id=%s",

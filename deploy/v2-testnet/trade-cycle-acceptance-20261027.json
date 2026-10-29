@@ -1,0 +1,154 @@
+{
+  "feature": "post-exit-same-direction-and-reversal-structure",
+  "recorded_at_local": "2026-10-27T00:02:24+08:00",
+  "timezone": "Asia/Shanghai",
+  "status": "CODE_QA_COMPLETE_NOT_DEPLOYED",
+  "runtime_enforcement_enabled_by_this_change": false,
+  "purpose": "Evaluate the next entry against the latest actually filled and settled episode, instead of treating flat inventory as evidence of a new independent opportunity.",
+  "implementation": {
+    "version": "trade-cycle-structure-v1",
+    "opt_in_gate_scope": "TRADE_CYCLE",
+    "backward_compatible_gate_scope_default": "CHASE_ONLY",
+    "mode_default": "OFF",
+    "cycle_policy_defaults": {
+      "confirmation_bars": 2,
+      "max_trigger_age_bars": 0
+    },
+    "same_direction": "A profitable trade with a profit-type exit can establish a new confirmed breakout. Other exits require a pullback/restart structure. Both require consecutive closed-bar confirmation, not merely a new signal or elapsed time.",
+    "opposite_direction": "Requires an independently confirmed break of the prior structure with volume evidence; changing BUY to SELL does not bypass the gate.",
+    "old_exit": "Builds an explicitly labelled bounded POST_EXIT_ROLLING_BASE. Only later bars can establish a new opportunity; time alone does not unlock entry.",
+    "decision_evidence": "Records prior episode, actual exit, net result when known, requested direction, structure path, confirmation timestamps, source freshness and immutable account-scoped controls.",
+    "configurability": "OFF/SHADOW/ENFORCE, both entry directions, confirmation count, optional trigger age, structural parameters and bounded history use existing per-account controls. Frozen legacy snapshots retain their original digest.",
+    "business_state": "Existing PostgreSQL evidence and account controls; no new local-file business state. This JSON is an acceptance record, not runtime state."
+  },
+  "failure_isolation": {
+    "wait_or_unknown": "Candidate-local refusal with receipt/task completion, not a global trading halt; other symbols continue.",
+    "context_expiry": "Exact ENTRY_STRUCTURE_CONTEXT_EXPIRED classification uses existing bounded candidate expiry handling, not a broad exception bypass.",
+    "close_and_reduce_only": "Do not pass through the new entry gate; existing protection, exit and settlement logic remain independent.",
+    "final_submit_fence": "Rechecks frozen controls, evidence freshness and the actual latest prior episode under the existing account lock. No archive or model request in this fence.",
+    "final_anchor_query": "Savepoint with at most 500ms statement timeout and 100ms lock timeout, respecting stricter existing values. Timeout refuses submission and leaves the outer transaction usable.",
+    "malformed_data": "Missing, duplicated, future or non-finite candles cannot produce READY. Unknown data is not inferred from unavailable observations."
+  },
+  "qa": {
+    "type": "SELECTED_ISOLATED_REGRESSION_NOT_LIVE_EXCHANGE_ACCEPTANCE",
+    "passed": 1017,
+    "failed": 0,
+    "duration_seconds": 364.34,
+    "runner": "V2_QA_PYTHON=python3 bash scripts/qa_v2_data_core.sh -q <selected test files below>",
+    "pytest_log": "/tmp/v2-data-qa.YqdNPj/pytest.log",
+    "pytest_log_sha256": "bbbb85f0fc59fe6d603bf881e888d3d8259968ab1b3652deeafc675065304455",
+    "disposable_postgresql_and_redis": true,
+    "qa_database_retained": false,
+    "exchange_execution": "Synthetic/mock exchange only; no live or Testnet orders submitted by these tests.",
+    "ruff": "PASS",
+    "git_diff_check": "PASS",
+    "independent_review": "No new severe execution defect found. Additional malformed-provider checks rejected missing, duplicated, future and NaN bars. Review explicitly does not certify profitability or production load.",
+    "test_selection": [
+      "tests/v2_core/test_v2_trade_cycle*.py",
+      "tests/v2_core/test_v2_entry_controls.py",
+      "tests/v2_core/test_v2_entry_structure.py",
+      "tests/v2_core/test_v2_entry_structure_core.py",
+      "tests/v2_core/test_v2_entry_upgrade_fullflow.py",
+      "tests/v2_core/test_v2_entry_upgrade_integration.py",
+      "tests/v2_core/test_v2_candidate_failure_isolation.py",
+      "tests/v2_core/test_v2_signal_context_isolation.py",
+      "tests/v2_core/test_v2_directional_replay.py",
+      "tests/v2_core/test_v2_directional_admission.py",
+      "tests/v2_core/test_v2_intent_admission.py",
+      "tests/v2_core/test_v2_venue_readiness.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_testnet_daemon_entry.py",
+      "tests/v2_core/test_v2_reentry.py",
+      "tests/v2_core/test_v2_reentry_checkpoints.py",
+      "tests/v2_core/test_v2_entry_quality.py",
+      "tests/v2_core/test_v2_liquidity_integration.py",
+      "tests/v2_core/test_v2_layered_history.py",
+      "tests/v2_core/test_v2_remaining_risk_sizing.py",
+      "tests/v2_core/test_v2_signal_fusion.py",
+      "tests/v2_core/test_v2_jev_fullflow.py",
+      "tests/v2_core/test_v2_submission_diagnostics.py",
+      "tests/v2_core/test_v2_session_lock_release.py"
+    ],
+    "important_cases": [
+      "Same-direction and opposite-direction entries both evaluated against actual previous close.",
+      "First-ever entry does not fabricate a prior exit or require history for a nonexistent cycle.",
+      "One symbol rejected while another symbol prepares an order in the same batch.",
+      "SHADOW records evidence without imposing the new veto.",
+      "Changed controls or a newly changed prior episode invalidates an already prepared open proposal.",
+      "S6 and S8 reduce-only exits bypass entry gates; full lifecycle reaches protection, close and settlement.",
+      "A real isolated PostgreSQL pg_sleep(5) anchor query is cancelled by the final fence budget and no order is sent.",
+      "TV/scanner and the workspace quant factory receive the structural wrapper; no source-name bypass.",
+      "Legacy frozen control digests remain valid; resealed malformed READY proofs are rejected."
+    ]
+  },
+  "historical_diagnostic": {
+    "type": "RETROSPECTIVE_DIAGNOSTIC_NOT_CAUSAL_BACKTEST",
+    "date_selection_utc8": "2026-10-21 through 2026-10-26, clipped to the read snapshot",
+    "environment": "SANDBOX",
+    "sample_sha256": "d922044f7f40f2388ebd84c1627acdcd4a40cc3d8342a91ef85b1fc1a00248f9",
+    "sample_digest_scope": "Pair identities and original net outcomes, not a hash of all historical candle contents.",
+    "diagnostic_core_sha256": "dfda27be506fb90ca722bdaec7632b7ae5b6db6b59072c95cf8ecd2200c1ddc6",
+    "diagnostic_snapshot_ms": 1793029727402,
+    "revision_caveat": "This historical run used an earlier source revision with the same 2-bar/zero-mechanical-age parameters. Its core hash differs from the final tested workspace hash; the figures are not certified as a per-pair replay of the final source revision.",
+    "raw_report_persistence": "The original JSON was returned in the task tool output, not saved as runtime state. This record retains its aggregate results and metadata, not the complete candle inputs.",
+    "loaded_filled_trades": 167,
+    "settled_filled_trades": 165,
+    "excluded_not_strictly_settled": 2,
+    "symbols": 33,
+    "flat_to_next_open_pairs": 132,
+    "unpaired_no_prior_flat_in_window": 33,
+    "pairs_truncated": false,
+    "active_route_unchanged_at_completion": true,
+    "decision_groups": {
+      "WAIT": {"pairs": 117, "actual_next_wins": 55, "actual_next_losses": 62, "actual_next_net_usdt": "-58.79198264"},
+      "READY": {"pairs": 15, "actual_next_wins": 7, "actual_next_losses": 8, "actual_next_net_usdt": "-10.90045303"},
+      "UNKNOWN": {"pairs": 0}
+    },
+    "profitable_exit_then_same_direction_within_5_minutes": {
+      "pairs": 22, "wait": 22, "actual_next_wins": 7, "actual_next_losses": 15,
+      "actual_next_net_usdt": "-63.14896118"
+    },
+    "opposite_direction_within_60_minutes": {
+      "pairs": 7, "wait": 7, "actual_next_wins": 3, "actual_next_losses": 4,
+      "actual_next_net_usdt": "-28.11562202",
+      "important_correction": "All seven prior trades were losses in this sample; this does not establish a frequent profitable-close-then-immediate-reversal pattern."
+    },
+    "counterevidence": "The proposed gate also rejects profitable trades, including the JCTUSDT 2026-10-24 18:24 UTC+8 entry whose actual net was +15.67543899 USDT. Rejected subsequent losses cannot be reported as realized savings or strategy profit improvement.",
+    "limitations": [
+      "Candle archive lacks ingestion timestamps; historical availability at the actual decision time is not proven.",
+      "Actual subsequent outcomes are ex-post labels, not rule inputs or a simulation of the changed strategy.",
+      "Suppressing one trade changes later opportunities, capital, execution and the previous-exit anchor; independent pair classification does not model that counterfactual path.",
+      "This short bounded sample and retrospectively adjusted rule are not independent out-of-sample validation.",
+      "Synchronous archive coverage, source lag and candidate load need observation before runtime enforcement."
+    ]
+  },
+  "workspace_source_sha256": {
+    "v2_core/trade_cycle.py": "77d383753b64f42b2c1b938da3e982f35f108a66278178ae634edfc38928732b",
+    "v2_core/entry_controls.py": "33e22c2344ef16633493266eb595ccc383574a184d9cfa7b248956a121dfe064",
+    "services/v2_entry_structure.py": "0e89c2d1b9850185810ad126868e52e5fec2fd72a90573a5beb7dcd0618be5fd",
+    "v2_core/entry_opportunities.py": "18ba56082d49364a03d4f466a6e5abb76cc2539e9d6256d502856d6b7b06de0a",
+    "v2_core/venue_readiness.py": "c9688d51b7387c0416c9bcb2eb477fecd22c0209968afe97d4d73f67fda991fd",
+    "services/v2_testnet_daemon_entry.py": "5569a3fff59adc639fdcb50567ce980e11b3536de8913b4d7d78fa5c3e94be27",
+    "v2_core/scheduling.py": "514327a090e8b9c67d14779ad2c77cc2bb32fbd917bef9d2ace69740d56b73e8",
+    "scripts/research_v2_trade_cycle_readonly.py": "9de30650241de525e90ad1a2f5bfdb132b305924ebe84c994a753760aa8bca27"
+  },
+  "runtime_actions_this_change": {
+    "deployed": false,
+    "services_restarted": false,
+    "runtime_controls_modified": false,
+    "trading_database_written": false,
+    "private_exchange_calls": false,
+    "orders_or_positions_modified": false,
+    "last_read_only_position_check_local": "2026-10-26T23:46:44+08:00",
+    "positions_at_that_check": 2,
+    "position_check_is_not_a_current_flatness_guarantee": true
+  },
+  "remaining_release_work": [
+    "Prepare a release from the actual deployed controller, not a wholesale copy of the dirty workspace containing unrelated unpublished changes.",
+    "Repeat historical diagnostics against the final candidate source hash and retain reproducible inputs before claiming final-revision historical results.",
+    "Validate SHADOW source coverage, query latency, candidate throughput and independent close/protection progress before proposing enforcement.",
+    "Use forward/out-of-sample observations and full sequential replay including costs to test whether lost winners outweigh avoided losses.",
+    "Use fresh account/position checks and the existing graceful managed release procedure for any later restart; this record is not permission to bypass release guards."
+  ]
+}

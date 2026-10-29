@@ -1,49 +1,36 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>ATLAS / V2 · 交易驾驶舱</title>
-  <link rel="stylesheet" href="/app.css">
-  <script src="/app.js" defer></script>
-</head>
-<body>
-  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
-  <div class="shell">
-    <aside class="rail">
-      <div class="brand"><span class="brand-mark">A<span>✦</span></span><div><strong>ATLAS</strong><small>TRADE ENGINE / V2</small></div></div>
-      <div class="rail-label">WORKSPACE</div>
-      <nav class="nav"><a class="active" href="#overview"><span>▦</span> 总览</a><a href="#positions"><span>◈</span> 仓位</a><a href="#trades"><span>⇄</span> 交易记录</a><a href="#signals"><span>⌁</span> 信号流</a><a href="/accounts"><span aria-hidden="true">⚙</span> 账户管理</a></nav>
-      <div class="rail-bottom"><div class="live-tag"><i></i> TESTNET 运行中</div><p>只读控制台<br>数据来自 V2 PostgreSQL</p><span>北京时间 · UTC+8</span></div>
-    </aside>
-    <main class="main">
-      <header class="topbar"><div class="crumb">WORKSPACE <span>/</span> TRADING OVERVIEW</div><div class="top-actions"><a href="/accounts">账户管理</a><div class="clock" id="clock">--:--:-- CST</div><button id="refresh" title="刷新数据">↻ <span>刷新</span></button></div></header>
-      <section class="panel" aria-label="当前执行账户"><div class="section-head"><div><div class="kicker">当前账户别名</div><h2 id="account-alias">正在加载…</h2></div><span class="pill">Testnet 测试环境</span></div><p id="execution-account" role="status">正在读取当前执行账户…</p></section>
-      <section class="hero" id="overview">
-        <div><div class="eyebrow"><span class="signal-dot"></span> LIVE MONITORING <span class="eyebrow-line"></span> BINANCE TESTNET</div><h1>交易驾驶舱<span class="hero-star">✦</span></h1><p>从信号触发到成交、结算，每一步都有迹可循。</p></div>
-        <div class="hero-meta"><span>当前环境</span><strong>V2 / SANDBOX</strong><small id="asof">等待数据同步</small></div>
-      </section>
-      <div id="error" class="error" hidden>数据暂不可用，正在等待服务恢复。<button id="retry">重试</button></div>
-      <section class="panel" aria-live="polite"><div class="section-head"><div><div class="kicker">BUSINESS HEALTH</div><h2>交易链路健康</h2></div><span class="pill">独立检查 · 15 秒</span></div><div id="health-list" class="position-list"><div class="placeholder">等待业务健康检查，不以进程存活判断交易正常。</div></div></section>
-      <section class="metrics">
-        <article class="metric"><div class="metric-head">已实现净收益 <span>↗</span></div><div class="metric-main" id="pnl">—</div><div class="metric-note">已结算 · USDT</div><div class="metric-glow mint"></div></article>
-        <article class="metric"><div class="metric-head">账本未平仓 <span>◈</span></div><div class="metric-main" id="open">—</div><div class="metric-note">按成交数量计算</div><div class="metric-glow orange"></div></article>
-        <article class="metric"><div class="metric-head">开仓意图 <span>⇄</span></div><div class="metric-main" id="intents">—</div><div class="metric-note">S6 / S8 测试网</div><div class="metric-glow blue"></div></article>
-        <article class="metric"><div class="metric-head">已结算胜率 <span>◌</span></div><div class="metric-main" id="winrate">—</div><div class="metric-note" id="settled">基于已结算交易</div><div class="metric-glow violet"></div></article>
-      </section>
-      <section class="panel"><div class="section-head"><div><div class="kicker">DAILY ACCOUNTING · UTC+8</div><h2>每日收益口径</h2></div><span class="pill">收支与整笔业绩不可相加</span></div><div id="daily-report" class="position-list"></div></section>
-      <section class="panel"><div class="section-head"><div><div class="kicker">SIGNAL FUNNEL</div><h2>今日信号处理</h2></div><span class="pill">市场信号共享 · 消费与成交按当前账户</span></div><div id="signal-funnel" class="position-list"></div></section>
-      <section class="two-col" id="positions">
-        <article class="panel pnl-panel"><div class="section-head"><div><div class="kicker">PERFORMANCE</div><h2>收益轨迹</h2></div><span class="pill">已结算净收益</span></div><div class="chart-value" id="chart-value">—</div><div class="chart-sub">累计 USDT · 按结算时间</div><div class="chart-wrap"><svg id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" aria-label="累计收益图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#63f0c5" stop-opacity=".27"/><stop offset="100%" stop-color="#63f0c5" stop-opacity="0"/></linearGradient></defs><path id="chart-area" fill="url(#fill)"></path><path id="chart-line" fill="none" stroke="#63f0c5" stroke-width="2.5" vector-effect="non-scaling-stroke"></path></svg><div id="chart-empty" class="chart-empty" hidden>结算后将在这里形成收益曲线</div></div><div class="chart-foot"><span>最早结算</span><span>最近结算</span></div></article>
-        <article class="panel positions-panel"><div class="section-head"><div><div class="kicker">ACTIVE BOOK</div><h2>当前仓位</h2></div><span class="pill" id="position-count">0 个仓位</span></div><div id="position-list" class="position-list"><div class="placeholder">正在读取仓位...</div></div><div class="panel-note">账本仓位基于已记录成交；此处不显示实时浮动盈亏。</div></article>
-      </section>
-      <section class="panel trades-panel" id="trades"><div class="section-head trades-heading"><div><div class="kicker">EXECUTION JOURNAL</div><h2>最近交易</h2></div><div class="tools"><div class="tabs"><button class="selected" data-filter="all">全部</button><button data-filter="open">持仓</button><button data-filter="settled">已结算</button></div><input id="search" type="search" placeholder="搜索币种" aria-label="搜索币种"></div></div>
-        <div class="table-scroll"><table><thead><tr><th>币种 / 策略</th><th>方向</th><th>状态</th><th>开仓均价</th><th>成交数量</th><th>已结算收益</th><th>开仓时间</th><th></th></tr></thead><tbody id="trade-rows"><tr><td colspan="8" class="empty-cell">正在加载交易记录...</td></tr></tbody></table></div><div class="table-footer">点击任意交易查看决策证据、订单与成交明细 <span id="trade-count">—</span></div></section>
-      <section class="panel signals-panel" id="signals"><div class="section-head"><div><div class="kicker">SIGNAL STREAM</div><h2>最新信号</h2></div><span class="pill">TradingView + S3</span></div><div id="signal-list" class="signal-list"><div class="placeholder">等待信号...</div></div></section>
-      <footer>ATLAS V2 <span>·</span> 只读监控 <span>·</span> 所有时间 UTC+8 <span>·</span> 自动刷新 30 秒</footer>
-    </main>
-  </div>
-  <div id="drawer-shade" class="drawer-shade" hidden></div><aside id="drawer" class="drawer" aria-label="交易详情" aria-hidden="true"><div class="drawer-head"><div><small>TRADE INSPECTOR</small><h2 id="drawer-title">交易详情</h2></div><button id="drawer-close" aria-label="关闭详情">×</button></div><div id="drawer-body" class="drawer-body"></div></aside>
-</body>
-</html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>交易看板 · ATLAS</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/accounts/workspace.css"><script src="/accounts/workspace.js" defer></script><script src="/app.js" defer></script></head>
+<body data-page="dashboard"><a class="skip-link" href="#workspace">跳到主要内容</a><div id="atlas-nav"></div><div class="app-shell"><div id="atlas-header"></div><main id="workspace" tabindex="-1">
+<div class="page-heading"><div><h1>交易看板</h1><p>跟随实际执行账户，查看仓位、成交与链路状态。</p></div><button id="refresh" class="button secondary" type="button">↻ 刷新数据</button></div>
+<div class="context-bar dashboard-context"><div><span class="caption">实际执行账户 · Testnet</span><h2 id="account-alias">正在加载…</h2></div><span class="badge">测试环境 · 只读监控</span><a class="button secondary" href="/accounts" data-workspace-path="/accounts">管理账户 →</a></div>
+<div class="context-caption"><span id="execution-account" role="status">正在读取当前执行账户…</span><span>查看其他账户不改变此处实际执行状态</span></div><div class="status-line"><span>自动刷新 30 秒</span><span id="asof">等待数据同步</span></div>
+<div id="view-context-note" class="notice info" hidden><span>首页展示实际执行账户；你之前选择的分析账户仍已保留。</span><a class="text-button" href="/accounts/strategy" data-workspace-path="/accounts/strategy">返回所选账户分析 →</a></div>
+<div id="error" class="notice danger" role="alert" hidden><span>数据暂不可用，已隐藏旧账户统计。</span><button id="retry" class="text-button">重新加载</button></div>
+<nav class="tabs" role="tablist" aria-label="交易看板功能"><button id="tab-overview" role="tab" aria-controls="panel-overview" aria-selected="true">总览</button><button id="tab-trades" role="tab" aria-controls="panel-trades" aria-selected="false" tabindex="-1">交易记录</button><button id="tab-signals" role="tab" aria-controls="panel-signals" aria-selected="false" tabindex="-1">信号监控</button><button id="tab-health" role="tab" aria-controls="panel-health" aria-selected="false" tabindex="-1">链路诊断</button></nav>
+<section id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="tab-overview">
+  <div class="metrics"><article class="metric"><span class="metric-label">已实现净收益 · USDT</span><strong id="pnl">—</strong><small>仅已结算交易</small></article><article class="metric"><span class="metric-label">账本未平仓</span><strong id="open">—</strong><small>按已记录成交数量计算</small></article><article class="metric"><span class="metric-label">开仓意图</span><strong id="intents">—</strong><small>不等于实际成交笔数</small></article><article class="metric"><span class="metric-label">已结算胜率</span><strong id="winrate">—</strong><small id="settled">基于已结算交易</small></article></div>
+  <button id="health-shortcut" class="health-shortcut" type="button"><span id="health-status">正在读取链路状态…</span><span>查看诊断 →</span></button>
+  <div class="two-column"><article class="card"><div class="card-heading"><div><h2>收益轨迹</h2><p>累计已结算净收益，不包含浮动损益。</p></div></div><div class="chart-value" id="chart-value">—</div><div class="chart-wrap"><svg id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" aria-label="累计已结算收益图"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#a4ceff" stop-opacity=".2"/><stop offset="100%" stop-color="#a4ceff" stop-opacity="0"/></linearGradient></defs><path id="chart-area" fill="url(#fill)"></path><path id="chart-line" fill="none" stroke="#a4ceff" stroke-width="2.5" vector-effect="non-scaling-stroke"></path></svg><div id="chart-empty" class="chart-empty" hidden>暂无可绘制的结算记录</div></div><div class="chart-foot"><span>最早结算</span><span>最近结算 · UTC+8</span></div></article>
+  <article class="card"><div class="card-heading"><div><h2>当前仓位</h2><p>账本仓位，不替代交易所实时查询。</p></div><span class="badge subtle" id="position-count">—</span></div><div id="position-list" class="position-list"><div class="placeholder">正在读取仓位…</div></div><p class="caption">此处不显示实时浮动盈亏。</p></article></div>
+  <details class="card disclosure"><summary>每日收益与收支<span>两种口径不能相加</span></summary><div id="daily-report"></div></details>
+</section>
+<section id="panel-trades" class="tab-panel" role="tabpanel" aria-labelledby="tab-trades" hidden><article class="card"><div class="card-heading"><div><h2>最近交易</h2><p>当前执行账户最近 100 笔意图；点击详情查看成交与结算证据。</p></div></div><div class="trade-tools"><div class="filter-tabs" role="group" aria-label="交易状态筛选"><button class="selected" data-filter="all">全部</button><button data-filter="open">持仓</button><button data-filter="settled">已结算</button></div><input id="search" type="search" placeholder="搜索币种，如 BTC" aria-label="搜索币种"></div><div class="table-wrap" tabindex="0" aria-label="最近交易表格"><table><thead><tr><th>币种 / 策略</th><th>方向</th><th>状态</th><th>开仓均价</th><th>成交数量</th><th>已结算收益</th><th>开仓时间</th><th></th></tr></thead><tbody id="trade-rows"></tbody></table></div><div class="pagination"><span id="trade-count" role="status">—</span><div><button id="trade-prev" class="button secondary" disabled>上一页</button><button id="trade-next" class="button secondary" disabled>下一页</button></div></div></article></section>
+<section id="panel-signals" class="tab-panel" role="tabpanel" aria-labelledby="tab-signals" hidden><article class="card"><div class="card-heading"><div><h2>今日信号处理</h2><p>市场信号共享；消费和成交按当前执行账户统计。</p></div></div><div id="signal-funnel" class="signal-funnel"></div></article><article class="card"><div class="card-heading"><div><h2>最新信号</h2><p>展示最近收到的市场信号及当前账户处理结果。</p></div></div><div id="signal-list" class="signal-list"></div></article></section>
+<section id="panel-health" class="tab-panel" role="tabpanel" aria-labelledby="tab-health" hidden>
+  <div class="notice info">以交易链路检查结果判断运行情况，不以进程存活代替交易健康。</div>
+  <article class="card" aria-labelledby="health-title">
+    <div class="card-heading">
+      <div>
+        <h2 id="health-title">交易链路健康</h2>
+        <p>检查时间过期时显示未知，不沿用“正常”状态。</p>
+      </div>
+      <span class="badge subtle">后台独立检查</span>
+    </div>
+    <div id="health-list"></div>
+  </article>
+</section>
+<footer>ATLAS V2 <span>只读监控 · 时间 UTC+8</span></footer>
+</main>
+</div>
+<dialog id="drawer" class="trade-dialog" aria-labelledby="drawer-title"><div class="dialog-heading"><h2 id="drawer-title">交易详情</h2><button id="drawer-close" class="button secondary" aria-label="关闭交易详情">关闭</button></div><div id="drawer-body"></div></dialog><div id="drawer-shade" hidden></div>
+</body></html>

@@ -11,6 +11,8 @@ from decimal import Decimal, localcontext
 
 from v2_core.errors import SubmissionNotSent
 from v2_core.ledger import amount
+from v2_core.precision import decimal_text
+from v2_core.reduction_fence import revalidate_reduction_write
 from v2_core.runner import ExchangeObservation
 from v2_core.transport import ExchangeTransportError
 
@@ -25,6 +27,65 @@ def wire_amount(value):
     """Exact fixed-point serialization; remove only insignificant zero padding."""
     result = format(amount(value, positive=True), "f")
     return result.rstrip("0").rstrip(".") if "." in result else result
+
+
+def _receipt_time(value):
+    # Bounded Unix milliseconds, representable through 9999-12-31. A receipt
+    # timestamp is venue evidence, not a local clock or freshness assertion.
+    if type(value) is not int or not 0 <= value <= 253402300799999:
+        raise ValueError("unavailable venue receipt time")
+    return value
+
+
+def _receipt_price(value):
+    return decimal_text(amount(value, positive=True))
+
+
+def _optional_receipt(raw, key, read):
+    if key not in raw:
+        return {"status": "MISSING"}
+    try:
+        value = read(raw[key])
+    except ValueError:
+        # Optional malformed diagnostics cannot reject an accepted order. Do
+        # not copy the original value, exception text, or other response keys.
+        return {"status": "UNAVAILABLE"}
+    return {"status": "OBSERVED", "value": value}
+
+
+def _submission_evidence(order, raw, executed):
+    """Whitelisted receipt only; no synthetic fill or historical backfill."""
+    status = raw.get("status")
+    if not isinstance(status, str) or status not in {
+        "NEW",
+        "PARTIALLY_FILLED",
+        "FILLED",
+        "CANCELED",
+        "EXPIRED",
+        "EXPIRED_IN_MATCH",
+        "REJECTED",
+    }:
+        status = "UNAVAILABLE"
+    return {
+        "source": "binance-submit",
+        "venue_status": status,
+        "fills_complete": False,
+        "submission_receipt": {
+            "schema": "binance-submit-receipt-v1",
+            # _scope and _order validated these against the persisted request.
+            # IDs already belong to the typed observation, not duplicated here.
+            "symbol": order["symbol"],
+            "side": order["side"],
+            "position_side": "BOTH",
+            "order_type": order["order_type"],
+            "reduce_only": order["reduce_only"],
+            "original_quantity": wire_amount(order["quantity"]),
+            "executed_quantity": decimal_text(executed),
+            "average_price": _optional_receipt(raw, "avgPrice", _receipt_price),
+            "venue_time_ms": _optional_receipt(raw, "time", _receipt_time),
+            "venue_update_time_ms": _optional_receipt(raw, "updateTime", _receipt_time),
+        },
+    }
 
 
 class BinanceFutures:
@@ -106,6 +167,7 @@ class BinanceFutures:
         if order.get("request_evidence", {}).get("origin") in {
             "BINANCE_ALGO_CHILD",
             "APPROVED_TESTNET_MAINTENANCE",
+            "BINANCE_EXTERNAL_CLOSE",
         }:
             raise SubmissionNotSent("EXCHANGE_CREATED_ORDER_QUERY_ONLY")
         self._scope(order)
@@ -130,6 +192,9 @@ class BinanceFutures:
                 price=wire_amount(order["limit_price"]),
                 timeInForce=order["time_in_force"],
             )
+        revalidate_reduction_write(
+            self.account_id, self.environment, "POST", "/fapi/v1/order", params
+        )
         try:
             raw = self.request("POST", "/fapi/v1/order", params)
         except ExchangeTransportError as exc:
@@ -157,6 +222,7 @@ class BinanceFutures:
                     -1117,
                     -1121,
                     -1130,
+                    -4131,  # Synchronous MARKET_ORDER_REJECT (PERCENT_PRICE).
                 }
             ):
                 return ExchangeObservation(
@@ -170,13 +236,13 @@ class BinanceFutures:
                     },
                 )
             raise
-        order_id, _ = self._order(order, raw)
+        order_id, executed = self._order(order, raw)
         # Even a FILLED response lacks per-fill commissions. Query before finality.
         return ExchangeObservation(
             order["client_order_id"],
             "ACKNOWLEDGED",
             order_id,
-            evidence={"source": "binance-submit", "venue_status": raw["status"]},
+            evidence=_submission_evidence(order, raw, executed),
         )
 
     def query(self, order):
@@ -184,6 +250,7 @@ class BinanceFutures:
         if binding.get("origin") in {
             "BINANCE_ALGO_CHILD",
             "APPROVED_TESTNET_MAINTENANCE",
+            "BINANCE_EXTERNAL_CLOSE",
         }:
             if (
                 order.get("leg") != "CLOSE"
@@ -208,19 +275,119 @@ class BinanceFutures:
                         (
                             "native_child_binding"
                             if binding["origin"] == "BINANCE_ALGO_CHILD"
+                            else "external_close_binding"
+                            if binding["origin"] == "BINANCE_EXTERNAL_CLOSE"
                             else "maintenance_binding"
                         ): binding,
                     },
                 )
             )
         self._scope(order)
-        raw = self.request(
-            "GET",
-            "/fapi/v1/order",
-            {"symbol": order["symbol"], "origClientOrderId": order["client_order_id"]},
+        bound_order_id = order.get("exchange_order_id")
+        if bound_order_id is not None and (
+            not isinstance(bound_order_id, str)
+            or not re.fullmatch(r"[1-9][0-9]{0,18}", bound_order_id)
+            or int(bound_order_id) > 2**63 - 1
+        ):
+            raise ValueError("invalid bound exchange order ID")
+        raw, attempt = self._query_order(
+            order["symbol"], "CLIENT_ORDER_ID", order["client_order_id"]
         )
-        if isinstance(raw, dict) and raw.get("code") == -2013:
+        recovery_query = None
+        if raw is None and bound_order_id is not None:
+            # One bounded read through the other *persisted* identity. Absence
+            # is not finality, and never authorizes resubmission or a guessed ID.
+            raw, fallback = self._query_order(
+                order["symbol"], "EXCHANGE_ORDER_ID", int(bound_order_id)
+            )
+            recovery_query = {
+                "bound_exchange_order_id": True,
+                "attempts": [attempt, fallback],
+            }
+            if raw is None:
+                return ExchangeObservation(
+                    order["client_order_id"],
+                    "UNKNOWN",
+                    bound_order_id,
+                    evidence={
+                        "source": "binance-recovery",
+                        "reason": "BOUND_ORDER_LOOKUPS_ABSENT",
+                        "recovery_query": recovery_query,
+                    },
+                )
+        if raw is None:
+            # Repair old UNKNOWN classification only from the original durable
+            # synchronous reject, never from absence or a later query failure.
+            failure = order.get("submission_failure", {})
+            if (
+                order.get("status") == "UNKNOWN"
+                and order.get("exchange_order_id") is None
+                and failure.get("reason") == "submission response unavailable"
+                and failure.get("transport")
+                == {
+                    "category": "EXCHANGE_RESPONSE_ERROR",
+                    "http_status": 400,
+                    "exchange_code": -4131,
+                }
+            ):
+                return ExchangeObservation(
+                    order["client_order_id"],
+                    "REJECTED",
+                    evidence={
+                        "source": "binance-recovery",
+                        "reason": "DURABLE_MARKET_REJECT_CONFIRMED",
+                        "submission_failure": failure,
+                        "query_code": -2013,
+                    },
+                )
             return None
+        return self._query_trades(order, raw, recovery_query=recovery_query)
+
+    def _query_order(self, symbol, method, identity):
+        """Read once; report fixed diagnostics, never venue text or request data."""
+        key = "origClientOrderId" if method == "CLIENT_ORDER_ID" else "orderId"
+        try:
+            raw = self.request(
+                "GET",
+                "/fapi/v1/order",
+                {"symbol": symbol, key: identity},
+            )
+        except ExchangeTransportError as exc:
+            if (
+                str(exc) != "EXCHANGE_RESPONSE_ERROR"
+                or type(exc.status) is not int
+                or exc.status != 400
+                or type(exc.code) is not int
+                or exc.code != -2013
+            ):
+                raise
+            return None, {
+                "method": method,
+                "outcome": "ABSENT",
+                "transport": exc.diagnostic_evidence(),
+            }
+        if (
+            isinstance(raw, dict)
+            and type(raw.get("code")) is int
+            and raw["code"] == -2013
+        ):
+            # Compatibility with injected transports returning the API error
+            # body. HTTP status is unknown here and must not be invented.
+            return None, {
+                "method": method,
+                "outcome": "ABSENT",
+                "transport": {
+                    "category": "EXCHANGE_RESPONSE_ERROR",
+                    "exchange_code": -2013,
+                },
+            }
+        if raw is None:
+            # None is our internal explicit-absence sentinel, never a valid
+            # wire response or permission to try another lookup identity.
+            raise ValueError("invalid exchange response")
+        return raw, {"method": method, "outcome": "FOUND", "transport": {}}
+
+    def _query_trades(self, order, raw, *, recovery_query):
         order_id, executed = self._order(order, raw)
         fills, seen, cursor, complete = [], set(), 0, False
         for _ in range(self.max_pages):
@@ -308,5 +475,6 @@ class BinanceFutures:
                 "venue_status": raw["status"],
                 "fills_complete": complete,
                 "executed_quantity": raw["executedQty"],
+                **({"recovery_query": recovery_query} if recovery_query else {}),
             },
         )

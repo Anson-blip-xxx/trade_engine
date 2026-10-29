@@ -1,0 +1,233 @@
+{
+  "change_set": "jev-reentry-evidence-20261024-v1",
+  "status": "DEPLOYED_SANDBOX_RELATED_QA_PASSED",
+  "environment": "SANDBOX",
+  "timezone": "Asia/Shanghai",
+  "controller_base": "/opt/trade-engine-v2/releases/operational-progress-20261024-v1",
+  "controller_candidate": "/opt/trade-engine-v2/releases/jev-reentry-evidence-20261024-v1",
+  "live_environment_changed": false,
+  "account_switch": false,
+  "artificial_trade": false,
+  "ledger_reset": false,
+  "risk_limits_changed": false,
+  "changes": [
+    "Configurable shared UTC+8 daily JEV input-token pacing; hard daily/minute limits and all existing counters/reservations preserved. Full reservation, atomic DB clock and account-shared global lock.",
+    "TOKEN_BUDGET_PACED is explicit BASELINE/SKIP availability handling, not a model PASS, and never overrides a veto/ambiguous model result; no claim/model call/queue wait when paced. Cache precedes quota checks.",
+    "Independent account-scoped JEV local daily allowance exhaustion DM with persistent existing dedupe; planned pacing is not an alarm. Missing same-day counters or unreadable diagnostics do not invent recovery.",
+    "Bounded read-only reentry review separates actual settled USDT outcomes, retrospective structural labels and decision-time availability. No strategy gate or threshold enabled without causal evidence."
+  ],
+  "source_sha256": {
+    "services/v2_jev_coordinator.py": "2c52a9b423dc8f7fbb9df52d7366c48ef71c265387ec5ce909cb3c08e35b5190",
+    "services/v2_jev_reference.py": "1b98cd3f43d529b607fd654209610a5b0c2fcc465cd45bf7b01f96b8bfd12d36",
+    "services/v2_jev_entry_context.py": "8ccf63ebe4c1a0d2220eedf891cb3287716b6da3734554bbb7e9b5c11e6e6c8a",
+    "v2_core/jev_advisory.py": "c3c5ede046df85ed9b703d363333b611263d66226c768c377619dac4937b00f4",
+    "v2_core/jev_entry_gate.py": "d22a18cbc2be202b56afa4d45412861fcc41cd04a11fe8f08136363fb02bcfc7",
+    "services/v2_trading_health.py": "e67b457999492d45d09dedb5a204281e6e19599dc8243e17092129526fb89246",
+    "services/v2_testnet_watchdog.py": "81858d884de34bdfdac77497a17e40970648ab398a3104b593abac236ab5c3f7",
+    "v2_core/telegram.py": "22f2b9a0364a8c485e5a93c08b537b590b3edb0b92272016119b6402ebfa4cb2",
+    "services/v2_jev_budget_health.py": "1f8f6081b66d3840dd45ab20c66aa19780ce75ea75d7c7072d25af4eb6119f1b",
+    "tests/v2_core/test_v2_jev_budget_health.py": "5252c615ecb90d013ebcb4568b3065375a705df0b7e0232c220895f9257c3c47",
+    "tests/v2_core/test_v2_jev_budget_pacing.py": "cecc85ff575b15dfbe870ff436a3afe0aed6c501b761209972a0c7600d628c84",
+    "scripts/research_v2_reentry_evidence_readonly.py": "a5babbc700f70fbc3ef74f68ead538ab2761ede883db271cf7343abfeca6412a",
+    "tests/v2_core/test_v2_reentry_evidence_review.py": "4ace962feb1ef7fd8cbf3e04ad95a61dcb89b07a5934f552473b7dcc061eb61b",
+    "docs/reentry_evidence_audit_20261024.json": "63632026b8f659a489df1930037b4824522188db8a4bdc18c446dbda935b61ac"
+  },
+  "configuration": {
+    "daily_input_token_cap": 500000,
+    "requests_per_minute_cap": 5,
+    "reserve_per_call": 8192,
+    "token_budget_pacing": true,
+    "token_pacing_burst_tokens": 16384,
+    "budget_counter_reset": false,
+    "formula": "min(daily_limit, burst + floor((daily_limit - burst) * UTC8_elapsed_ms / 86400000)), burst includes reservation; grant requires used + reserve <= released"
+  },
+  "strategy_decision": {
+    "reentry_mode": "OFF_UNCHANGED",
+    "reason": "Existing gate would reject observed winners, and all137 available observer labels were collected after actual entry decisions; no executable counterfactual profit claim.",
+    "synchronous_shadow_added": false,
+    "extra_hot_path_archive_reads": false
+  },
+  "qa": {
+    "related_regression": {
+      "passed": 2470,
+      "files": 89,
+      "seconds": 729.7,
+      "log": "/tmp/v2-data-qa.bC71wq/pytest.log",
+      "scope": "Related regression frozen before final diagnostic missing-row/format boundary refinements; final diagnostic suite rerun separately.",
+      "log_sha256": "840691c57766edf6b3408b61bf5e2e7d3931e639d087b9d2a491383d123aede9"
+    },
+    "final_diagnostic_and_pacing_revision": {
+      "passed": 202,
+      "files": 7,
+      "seconds": 38.55,
+      "log": "/tmp/v2-data-qa.TeEeVP/pytest.log",
+      "log_sha256": "192e019055e0859232ac6241464eca0f74d3b22c0330f667a0fdd4e0b9615490"
+    },
+    "workspace_pure_tests": {
+      "passed": 43,
+      "selection": "Health and reentry reducers, before final extreme timestamp negative-case addition; final candidate suite includes that case."
+    },
+    "static_checks": "ruff and git diff --check passed",
+    "counting_note": "Suites overlap; do not add2470 and202 as unique tests. Final diagnostic refinements were separately retested after the broader suite.",
+    "network_boundary": "Dedicated disposable PostgreSQL/Redis and external TCP denial; no real venue or paid JEV requests."
+  },
+  "rollback": {
+    "base": "/opt/trade-engine-v2/releases/operational-progress-20261024-v1",
+    "control": "Under the same JEV advisory transaction lock, CAS-remove only token_budget_pacing and token_pacing_burst_tokens before running old code; keep all other control fields and every budget/request/ledger row. Old AdvisoryPolicy rejects unknown fields.",
+    "controller": "Graceful stop, restore prior symlink, start manage-only recovery, request same binding with fresh monotonic epoch through ExecutionRoutes. Never SQL-force ACTIVE.",
+    "preexisting_bindings": "Policy digest changes may safely retire old pending bindings; never extend stale signal or model lifetimes."
+  },
+  "reentry_artifact": "docs/reentry_evidence_audit_20261024.json",
+  "observed_budget_before": {
+    "status": "EXHAUSTED",
+    "observed_at_ms": 1792839369204,
+    "day_start_ms": 1792771200000,
+    "reset_at_ms": 1792857600000,
+    "used_tokens": 492241,
+    "limit_tokens": 500000,
+    "reservation_tokens": 8192,
+    "unavailable_action": "BASELINE",
+    "scope": "SHARED_LOCAL_INPUT_TOKEN_ALLOWANCE",
+    "budget_row_present": true
+  },
+  "historical_pacing_schedule_check": {
+    "date_utc8": "2026-10-23",
+    "actual_requests": 600,
+    "allowed_with_pacing": 524,
+    "paced": 76,
+    "charged_with_pacing": 431124,
+    "remaining_hard_limit": 68876,
+    "limitations": "Only observed provider requests replayed with actual completion-time accounting. Does not include later uncalled candidates or altered positions; not causal profitability or full-day coverage evidence."
+  },
+  "limitations": [
+    "Today's492241 already charged/held leaves7759, below8192 reservation; enabling pacing does not restore today or reset paid quota.",
+    "Next-day sustained coverage and performance require subsequent real samples; no profitability improvement claimed.",
+    "Health SQL deadlines are100ms and locks50ms per query, not a hard end-to-end latency bound; connection setup may use existing5s timeout.",
+    "Existing per-code notification dedupe remains; future corrupt diagnostics can leave a retained alarm rather than fake recovery.",
+    "No auto-promotion, leverage/sizing changes, exit-rule changes or same-direction time ban."
+  ],
+  "config_change": {
+    "old_version": 1,
+    "version": 2,
+    "token_budget_pacing": true,
+    "token_pacing_burst_tokens": 16384,
+    "tokens_per_day": 500000,
+    "daily_budget_unchanged": true
+  },
+  "deployment": {
+    "controller_pid": 2564354,
+    "controller_restarts": 0,
+    "route_epoch": 10,
+    "binding_version": 1,
+    "same_account": true,
+    "source_worker_stop": {
+      "forced": false,
+      "stopped": true
+    },
+    "recovery_worker_stop": {
+      "forced": false,
+      "stopped": true
+    },
+    "resumed_via": "ExecutionRoutes.request with same binding, epoch9→10 and fresh recovery checks; no direct SQL ACTIVE flip",
+    "market_hub_pid": 591888,
+    "market_hub_unchanged": true,
+    "other_services_restarted": false,
+    "release_started_at_ms": 1792839923725,
+    "pointer_switched_at_ms": 1792839967882
+  },
+  "online_window": {
+    "as_of_ms": 1792840147427,
+    "cycles": 12,
+    "statuses": {
+      "CYCLE_COMPLETE": 11,
+      "ENTRY_BLOCKED": 1
+    },
+    "phases": {
+      "protection": {
+        "CLEAR": 12
+      },
+      "exits": {
+        "CLEAR": 12
+      },
+      "settlement": {
+        "CLEAR": 12
+      }
+    },
+    "decision_groups": [
+      [
+        "IGNORED",
+        null,
+        null,
+        null,
+        264
+      ]
+    ],
+    "watchdog_delivery_state_updates": 1
+  },
+  "latest_observation": {
+    "observed_at_ms": 1792840147084,
+    "cycle_finished_at_ms": 1792840136163,
+    "cycle_age_ms": 10921,
+    "cycle_status": "CYCLE_COMPLETE",
+    "phases": {
+      "protection": "CLEAR",
+      "exits": "CLEAR",
+      "settlement": "CLEAR"
+    },
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "native_stop_states": {
+      "NEW": 2
+    },
+    "exits": {
+      "WAIT": 2
+    },
+    "scan": {
+      "limit": 10,
+      "complete": true,
+      "selected": 2,
+      "cursor_invalid": false,
+      "cursor_rebuilt": false,
+      "cursor_advanced": false,
+      "count_is_lower_bound": false,
+      "active_count_lower_bound": 2,
+      "remaining_count_lower_bound": 0
+    },
+    "nonterminal_orders": [],
+    "nonterminal_episodes": [
+      [
+        "ACTIVE",
+        2
+      ]
+    ],
+    "health_age_ms": 4525,
+    "health_active": [
+      "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED"
+    ],
+    "health_findings": [
+      "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED"
+    ]
+  },
+  "telegram_delivery": {
+    "code": "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED",
+    "status": "ACKNOWLEDGED_AND_PERSISTED",
+    "destination": "CONFIGURED_ALERT_DM",
+    "synthetic_message": false,
+    "watchdog_delivery_state_updates": 1,
+    "proof": "Existing watchdog persists reported codes only after Telegram sink returns confirmed success."
+  },
+  "public_dashboard": {
+    "http_status": 200,
+    "elapsed_ms": 143,
+    "via": "localhost overview endpoint"
+  },
+  "online_limits": [
+    "12 post-switch cycles:1 manage-only startup ENTRY_BLOCKED, then11 CYCLE_COMPLETE; all protection/exit/settlement checks CLEAR. A transient unconfirmed signal-lag finding cleared after recovery.",
+    "264 postrelease decisions in observed window were IGNORED before JEV gate; no new natural open/close or paid-model acceptance was observed. No forced test order or forced closure was used.",
+    "Today's persisted492241 token count remained unchanged; quota pacing cannot be proven across a full real day before subsequent UTC+8-day samples.",
+    "The daily local-allowance alarm is expected and does not block protection or exits; all other active health alarms cleared in the final sample."
+  ],
+  "followup_requirements": [
+    "Measure next-day JEV coverage by time and PASS/VETO/FALLBACK separately without increasing budget or resetting counters.",
+    "Do not promote retrospective reentry labels; obtain demonstrably predecision available structural evidence and cost-aware held-out validation before changing execution gates."
+  ]
+}

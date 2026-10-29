@@ -43,6 +43,10 @@ def main():
         preflight=ports.preflight,
         source_clear=ports.source_clear,
         spawn=ports.spawn,
+        resume_preflight=ports.resume_preflight,
+        recovery_retry_seconds=int(
+            values.get("V2_CONTROLLER_RECOVERY_RETRY_SECONDS", "30")
+        ),
     )
     stop = threading.Event()
     health = build_managed_health(tenant, values, stop)

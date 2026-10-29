@@ -3,7 +3,12 @@
 Web appends desired-account requests only. A separate non-Web database role owns
 actual route transitions. The supervisor holds a session advisory lock for its
 lifetime and launches a fresh Python child per immutable account binding.
-Systemd uses KillMode=control-group and encrypted master/notification credentials.
+Systemd uses KillMode=mixed and encrypted master/notification credentials.
+SIGTERM reaches the supervisor first; its shared stop event cooperatively drains
+the child. Remaining cgroup processes are still forcibly cleaned up on timeout.
+The child grace is configurable through V2_CONTROLLER_STOP_GRACE_SECONDS
+(default 30, range 1..60), with a 90-second systemd stop timeout. See
+V2_PENDING_CAPACITY_20261001.md for deployment/acceptance checkpoints.
 
 Before a target starts, signed read-only inventory checks mode, balance, positions
 and orders twice; accountConfig must report canTrade. Local episodes/orders must

@@ -8,15 +8,20 @@ cash is necessary, not sufficient: wallet/exposure reconciliation remains separa
 import json
 from contextlib import nullcontext
 from dataclasses import asdict
-from decimal import Decimal, localcontext
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from v2_core.binance_income import BinanceIncomeImporter
 from v2_core.evidence import canonical, digest
 from v2_core.income_ownership import income_owner
 from v2_core.ledger import amount
+from v2_core.liquidation_cash import insurance_clear_candidate
+from v2_core.precision import money_context
 from v2_core.runtime_policy import PolicyStore
+from v2_core.scheduling import diagnostic_code
 from v2_core.service import TradingData
+from v2_core.session_lock import session_advisory_lock
+from v2_core.settlement_precision import rounding_proof
 from v2_core.state import BusinessState, StateKey
 
 
@@ -42,8 +47,7 @@ def reconcile_cash(trace, report, rows, *, scope):
         raise ValueError("UNSUPPORTED_CASH_CURRENCY")
     if not trace["request"]["symbol"].endswith("USDT") or trace["cash"]:
         raise ValueError("EXISTING_CASH_REQUIRES_RECONCILIATION")
-    with localcontext() as ctx:
-        ctx.prec = 100
+    with money_context():
         expected, totals, trades, timeline = {}, {}, set(), []
         for fill in trace["fills"]:
             proof = fill["evidence"]
@@ -90,7 +94,7 @@ def reconcile_cash(trace, report, rows, *, scope):
                 raise ValueError("INVALID_EXPOSURE_TIMELINE")
         if balance != 0:
             raise ValueError("EXPOSURE_NOT_CLOSED")
-        actual, funding, seen = {}, [], set()
+        actual, funding, insurance, seen = {}, [], [], set()
         for row in rows:
             identity = (row["income_type"], row["source_id"])
             if (
@@ -102,7 +106,9 @@ def reconcile_cash(trace, report, rows, *, scope):
                 raise ValueError("UNATTRIBUTED_CASH")
             seen.add(identity)
             value = amount(row["amount"])
-            if row["income_type"] == "FUNDING_FEE":
+            if row["income_type"] == "INSURANCE_CLEAR":
+                insurance.append(insurance_clear_candidate(trace, row))
+            elif row["income_type"] == "FUNDING_FEE":
                 when = row["occurred_at_ms"]
                 if (
                     any(t == when for t, _ in timeline)
@@ -132,9 +138,13 @@ def reconcile_cash(trace, report, rows, *, scope):
         fees = -sum(
             (v for (kind, _), v in expected.items() if kind == "COMMISSION"), Decimal(0)
         )
-        if gross != Decimal(report["gross_pnl"]) or fees != Decimal(report["fees"]):
+        if fees != Decimal(report["fees"]):
+            raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
+        precision = rounding_proof(trace, report)
+        if gross != Decimal(report["gross_pnl"]) + amount(precision["amount"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
         funding_total = sum((Decimal(f["amount"]) for f in funding), Decimal(0))
+        insurance_total = sum((Decimal(f["amount"]) for f in insurance), Decimal(0))
         return {
             "status": "CASH_MATCHED",
             "episode": trace["intent_id"],
@@ -142,8 +152,11 @@ def reconcile_cash(trace, report, rows, *, scope):
             "gross_pnl": str(gross),
             "fees": str(fees),
             "funding": str(funding_total),
-            "provisional_net_pnl": str(gross - fees + funding_total),
+            "provisional_net_pnl": str(gross - fees + funding_total + insurance_total),
             "funding_candidates": funding,
+            "insurance_clear": str(insurance_total),
+            "insurance_candidates": insurance,
+            "precision_reconciliation": precision,
             "settlement_authorized": False,
             "trade_ids": sorted(trades),
             "income_digest": digest(canonical({"rows": rows})),
@@ -195,20 +208,18 @@ class DirectionalCashAudit:
             trace["scope"].get(k) != v for k, v in asdict(self.scope).items()
         ):
             raise ValueError("CASH_SCOPE_MISMATCH")
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BUSY", "settlement_authorized": False}
-            guard.commit()
             # A crash during the new import must not leave a stale positive head.
             self._pending(episode, {"status": "AUDITING"})
             try:
                 result = self._audit(episode)
             except Exception as exc:
                 self._pending(
-                    episode, {"status": "BLOCKED", "error_code": type(exc).__name__}
+                    episode, {"status": "BLOCKED", "error_code": diagnostic_code(exc)}
                 )
                 raise
             if result["status"] != "CASH_MATCHED":
@@ -239,13 +250,11 @@ class DirectionalCashAudit:
         """
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError("bounded cash batch required")
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("directional-cash-stage:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "directional-cash-stage:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BLOCKED", "reason": "BUSY"}
-            guard.commit()
             store = BusinessState(self.connect)
             key = StateKey(
                 **asdict(self.scope),
@@ -274,7 +283,7 @@ class DirectionalCashAudit:
                 except Exception as exc:  # noqa: BLE001 - isolate bad episodes, no signed details
                     audits[episode] = {
                         "status": "BLOCKED",
-                        "error_code": type(exc).__name__,
+                        "error_code": diagnostic_code(exc),
                     }
                 version = cursor.version if cursor else 0
                 saved = store.change(

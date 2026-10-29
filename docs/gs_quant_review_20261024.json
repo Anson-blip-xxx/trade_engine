@@ -1,0 +1,57 @@
+{
+  "review_date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "repository": "https://github.com/goldmansachs/gs-quant",
+  "reviewed_commit": "bbe7071653ccfc0d431e11c3a31dbd511afc394f",
+  "classification": "Quantitative research, pricing and risk toolkit; not a proven Binance trading strategy",
+  "license": "Apache-2.0; preserve applicable attribution and notices if reusing code",
+  "runtime_change": "NONE: not installed, not imported into execution, no new external dependency",
+  "data_access_boundary": "Open-source code does not grant access to Goldman Sachs data/pricing APIs; institutional client credentials may be required",
+  "existing_local_capabilities": [
+    {"file": "v2_core/quant_replay.py", "capability": "Single-symbol next-bar replay with explicit fees, slippage and funding inputs"},
+    {"file": "v2_core/walk_forward.py", "capability": "Train/test separated windows; not a shared-capital multi-symbol portfolio"},
+    {"file": "v2_core/trade_path.py", "capability": "Fill-aware MFE/MAE, gross excursions; not executable peak profit"},
+    {"file": "services/v2_integration_effectiveness.py", "capability": "TV/JEV evidence grouping"},
+    {"file": "services/v2_walk_forward_research.py", "capability": "Explicit unproven historical arrivals/universe/funding/cost stress/independent validation flags"}
+  ],
+  "deployment_caveat": "Repository presence does not mean adoption by the active trading process. Do not bulk-deploy unpublished research with the quota hotfix.",
+  "recommended_order": [
+    {
+      "priority": "P1",
+      "status": "RECOMMENDED_NOT_IMPLEMENTED_BY_THIS_REVIEW",
+      "feature": "Signal-to-fill event timeline and delay-cost comparison",
+      "benefit": "Measure whether faster consumption improves net outcomes, rather than optimizing latency alone",
+      "requirements": ["Event time and arrival time both constrain historical visibility", "Compare same candidate and exit/cost assumptions", "Separate missed opportunity from avoided chasing", "Never fill unknown quotes from future data"],
+      "reference": "https://github.com/goldmansachs/gs-quant/blob/bbe7071653ccfc0d431e11c3a31dbd511afc394f/gs_quant/backtests/data_handler.py"
+    },
+    {
+      "priority": "P1",
+      "status": "RECOMMENDED_NOT_IMPLEMENTED_BY_THIS_REVIEW",
+      "feature": "Component cost model and reconciled trade attribution",
+      "requirements": ["Actual gross PnL minus fees plus funding reconciles to ledger net PnL", "Decision-to-submit delay and submit-to-fill slippage reported separately", "Do not deduct execution slippage twice from realized PnL", "Unknown costs/reference prices stay unknown", "Low/base/high cost assumptions are simulations, not observed results"],
+      "reference": "https://github.com/goldmansachs/gs-quant/blob/bbe7071653ccfc0d431e11c3a31dbd511afc394f/gs_quant/backtests/backtest_objects.py"
+    },
+    {
+      "priority": "P2",
+      "status": "RECOMMENDED_NOT_IMPLEMENTED_BY_THIS_REVIEW",
+      "feature": "Multi-symbol shared-capital portfolio replay",
+      "requirements": ["One capital pool and actual signal ordering", "Account for existing positions and concurrent candidates", "Apply 70 percent aggregate margin-use ceiling", "Model funding, unavailable capacity and rebalance costs"],
+      "reference": "https://github.com/goldmansachs/gs-quant/blob/bbe7071653ccfc0d431e11c3a31dbd511afc394f/gs_quant/timeseries/backtesting.py"
+    },
+    {
+      "priority": "P2",
+      "status": "RECOMMENDED_NOT_IMPLEMENTED_BY_THIS_REVIEW",
+      "feature": "Portfolio liquidity and correlated-loss scenarios",
+      "requirements": ["BTC/altcoin correlated shock", "Wider spreads and reduced depth", "Funding stress and delayed/partial fills", "State assumptions, not uncalibrated event probabilities", "Research first; no automatic new hard entry veto"],
+      "reference": "https://developer.gs.com/docs/gsquant/pricing-and-risk/scenarios/"
+    }
+  ],
+  "do_not_copy_blindly": [
+    "PricingContext and GenericEngine remote valuation dependencies",
+    "252-business-day annualization for a 24x7 market",
+    "Whole-series interpolation that may use future endpoints",
+    "Assuming full fills at modeled prices proves venue executability",
+    "Interest-rate or option sample parameters as evidence for crypto perpetual profitability"
+  ],
+  "validation": "This is source and local-code review, not a performance backtest or evidence of profitability"
+}

@@ -397,7 +397,7 @@ def test_missing_history_and_implicit_disable_rejected():
 @pytest.mark.parametrize(
     "move,reason",
     [
-        ("0", "MARKET_GATES_PASSED"),
+        ("0", "EXPECTED_MOVE_EVIDENCE_UNAVAILABLE"),
         ("8", "MARKET_GATES_PASSED"),
         ("7.999999999999999999", "REWARD_RISK_TOO_LOW"),
     ],

@@ -99,6 +99,7 @@ class BinancePublicMarket:
         timeout=5,
         connection_factory=HTTPSConnection,
         incremental=False,
+        depth=False,
     ):
         if (
             environment not in self.HOSTS
@@ -106,13 +107,15 @@ class BinancePublicMarket:
             or type(timeout) is not int
             or not 1 <= timeout <= 10
             or type(incremental) is not bool
+            or type(depth) is not bool
         ):
             raise ValueError("explicit environment and bounded public timeout required")
         self.environment, self.budget, self.enabled = environment, budget, enabled
         self.timeout, self._connection = timeout, connection_factory
         self.incremental = incremental
+        self.depth = depth
 
-    def __call__(self, path, params):
+    def __call__(self, path, params, *, admission_ticket=None, account_id=None):
         if not self.enabled:
             raise PublicMarketError("PUBLIC_MARKET_DISABLED")
         if not isinstance(params, dict):
@@ -124,6 +127,18 @@ class BinancePublicMarket:
         elif path == "/fapi/v1/ticker/bookTicker" and set(params) == {"symbol"}:
             symbol(params["symbol"])
             weight = 2
+        elif (
+            self.depth
+            and self.environment == "LIVE"
+            and path == "/fapi/v1/depth"
+            and set(params) == {"symbol", "limit"}
+            and type(params["limit"]) is int
+            and params["limit"] == 100
+        ):
+            # Explicit opt-in, one symbol, bounded depth. Binance documents
+            # weight 5 for limit=100; never share the Testnet safety budget.
+            symbol(params["symbol"])
+            weight = 5
         elif (path == "/fapi/v1/premiumIndex" and set(params) == {"symbol"}) or (
             path == "/futures/data/globalLongShortAccountRatio"
             and params == {"symbol": params.get("symbol"), "period": "1h", "limit": 3}
@@ -173,11 +188,44 @@ class BinancePublicMarket:
                 raise ValueError("bounded closed-market request required")
         else:
             raise PublicMarketError("PUBLIC_ENDPOINT_DISABLED")
-        if self.budget.permit(weight) is not True:
+        if admission_ticket is not None:
+            params = dict(params)
+            consume = getattr(self.budget, "consume_context", None)
+            if (
+                not callable(consume)
+                or consume(
+                    admission_ticket,
+                    account_id=account_id,
+                    environment=self.environment,
+                    method="GET",
+                    path=path,
+                    params=params,
+                    weight=weight,
+                )
+                is not True
+            ):
+                raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
+        elif self.budget.permit(weight) is not True:
             raise PublicMarketError("QUOTA_DENIED")
         conn = None
+        checking_ticket = False
         try:
             conn = self._connection(self.HOSTS[self.environment], timeout=self.timeout)
+            if admission_ticket is not None:
+                conn.connect()
+                checking_ticket = True
+                revalidate = getattr(self.budget, "revalidate_context", None)
+                if (
+                    not callable(revalidate)
+                    or revalidate(
+                        admission_ticket,
+                        account_id=account_id,
+                        environment=self.environment,
+                    )
+                    is not True
+                ):
+                    raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
+                checking_ticket = False
             conn.request(
                 "GET",
                 path + ("?" + urlencode(params) if params else ""),
@@ -218,7 +266,9 @@ class BinancePublicMarket:
             return result
         except PublicMarketError:
             raise
-        except Exception:  # noqa: BLE001 - never expose network response details
+        except Exception:  # preserve local validation; redact network detail
+            if checking_ticket:
+                raise
             raise PublicMarketError("PUBLIC_TRANSPORT_FAILURE") from None
         finally:
             if conn is not None:

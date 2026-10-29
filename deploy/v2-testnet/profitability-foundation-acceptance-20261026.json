@@ -1,0 +1,173 @@
+{
+  "change_set": "profitability-foundation-20261026-v1",
+  "status": "IMPLEMENTED_OFFLINE_QA_PASSED_EXECUTION_NOT_PROMOTED",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "business_database_mutations": false,
+  "service_restarts": false,
+  "trading_orders_submitted": false,
+  "model_calls": false,
+  "deployed_to_execution": false,
+  "runtime_policy_changed": false,
+  "existing_positions_exit_policy_changed": false,
+  "new_default_feature_version_enabled": false,
+  "changes": [
+    "Opt-in s3-closed-1m-v3: latest14 minute true ranges, explicit rolling-minute semantics; immutable v1/v2 replay golden hashes preserved.",
+    "True UTC closed-time-bar aggregation and EMA/Wilder ATR with explicit warmup, gaps and as-of cutoff.",
+    "Exact version/digest replay compatibility through market publisher, S0 and opening risk reference; unknown/mixed versions remain rejected.",
+    "Opt-in binance-public-exit-v2 true hourly EMA with fixed60 closed-hour seed history; legacy exit default unchanged.",
+    "Strict complete current-accounting-revision settlement labels and side/mode/config temporal comparisons, with boundary embargo.",
+    "Fill-aware lower-bound holding excursions, correctly anchored post-flat market paths and explicit legacy all-close-VWAP T+60 labels in API/web source.",
+    "Independent OFF/SHADOW BUY/SELL residual trend exit model with monotone native-stop floor, exact residual fills, event availability queue, explicit costs and no execution port.",
+    "End-to-end read-only audit CLI; PG snapshot closed before bounded local archive reads; per-case isolation, redacted report, no local business state."
+  ],
+  "qa": {
+    "passed": 707,
+    "failed": 0,
+    "files": 29,
+    "seconds": 118.9,
+    "log": "/tmp/v2-data-qa.fI7Wpq/pytest.log",
+    "log_sha256": "43b6f07e63ecc73841dec12029ff8bfe9ee60de04862445ed69f79ebd5ab7cee",
+    "isolated_postgresql_and_redis": true,
+    "external_network_denied": true,
+    "temporary_qa_databases_reclaimed": true,
+    "ruff": "PASSED",
+    "diff_check": "PASSED",
+    "earlier_runs_not_added_to_count": true,
+    "earlier_test_fixture_correction": "Legacy exchange fill timestamps3/10ms predate today's DB intent; integration test now expects INVALID_LABEL_TIMING exclusion rather than falsely forcing holdout eligibility."
+  },
+  "real_data_readonly_validation": {
+    "as_of": "2026-10-26T17:40:26.038000+08:00",
+    "report": "docs/research/PROFITABILITY_AUDIT_20261026.json",
+    "actual_path_cases": 6,
+    "path_statuses": {
+      "AVAILABLE_LOWER_BOUND": 6
+    },
+    "indicator_pairs": 6,
+    "post_flat_statuses": {
+      "HORIZON_NOT_YET_OBSERVABLE": 3,
+      "OBSERVED": 3
+    },
+    "trend_statuses": {
+      "INELIGIBLE": 2,
+      "SHADOW": 1,
+      "UNAVAILABLE": 3
+    },
+    "archive_requests": 42,
+    "requested_archive_minutes": 23442,
+    "historical_availability_proven": false,
+    "funding_complete": false,
+    "interpretation": "Actual settled PnL is factual; all alternate exit results are retrospective models. One eligible residual example was weaker under the trend model before unknown funding; this is counter-evidence to blanket longer holding, not a statistically validated strategy verdict."
+  },
+  "runtime_observation": {
+    "observed_at_ms": 1793008013733,
+    "recent_cycles": [
+      {
+        "status": "CYCLE_COMPLETE",
+        "age_ms": 8188,
+        "phases": {
+          "s6": null,
+          "s8": null,
+          "exits": "CLEAR",
+          "s6:tv": null,
+          "s8:tv": null,
+          "market": "CURRENT",
+          "regime": "PROJECTED",
+          "recovery": null,
+          "followups": "CLEAR",
+          "protection": "CLEAR",
+          "settlement": "CLEAR",
+          "configuration": "CURRENT",
+          "signal_maintenance": null
+        }
+      },
+      {
+        "status": "CYCLE_COMPLETE",
+        "age_ms": 15684,
+        "phases": {
+          "s6": null,
+          "s8": null,
+          "exits": "CLEAR",
+          "s6:tv": null,
+          "s8:tv": null,
+          "market": "CURRENT",
+          "regime": "PROJECTED",
+          "recovery": null,
+          "followups": "CLEAR",
+          "protection": "CLEAR",
+          "settlement": "CLEAR",
+          "configuration": "CURRENT",
+          "signal_maintenance": null
+        }
+      },
+      {
+        "status": "CYCLE_COMPLETE",
+        "age_ms": 39128,
+        "phases": {
+          "s6": null,
+          "s8": null,
+          "exits": "CLEAR",
+          "s6:tv": null,
+          "s8:tv": null,
+          "market": "CURRENT",
+          "regime": "PROJECTED",
+          "recovery": null,
+          "followups": "CLEAR",
+          "protection": "CLEAR",
+          "settlement": "CLEAR",
+          "configuration": "CURRENT",
+          "signal_maintenance": null
+        }
+      }
+    ]
+  },
+  "source_sha256": {
+    "services/v2_price_features.py": "ab52c7b8da744ce8a956b8bf83e59462d5c7811e02a32a7cf71f456e450c3859",
+    "services/v2_s3_candles.py": "464346302acee7dd4ae8f1708cef335443b15aeebefa96185ce34fa32ce7ec29",
+    "v2_core/timeframe_indicators.py": "010d40e0587f9e3db0554d7fd017c64ebb66e470395f32b3e925e33b861a1d71",
+    "services/v2_shared_market.py": "cec069e892980f4d88144a827093458e8a0aa020910962f88f05691d56407eea",
+    "services/v2_s0_regime.py": "aacf1e6de392c73788ce3cf5557b70356204d8bbdca6b3333ff846f7ffd1e6dc",
+    "services/v2_shared_risk_reference.py": "4eeeebe36fc80dc18bb9d8367683f535505b1b6324af4476415e7f9ef1c8ff29",
+    "services/v2_directional_exit_market.py": "437198a15a57a267e9093862dd46f29b1844d7edf279aba0a5ad9124e5d37d96",
+    "v2_core/directional_outcomes.py": "052fa9d321fe2eb75a28e2d735d6c4b4050f0036498206e327556e3c7af76efd",
+    "services/v2_trade_review.py": "dfa19f8151e220cf44dfbc670f532726c3e5a07d84a6a691a23ac7d17cfa3c6f",
+    "services/v2_trade_path_review.py": "e530cc5f83ce7f44d3e708f5b27d352b03fb72b72741677379706fe4a98f2e35",
+    "services/v2_profit_capture_review.py": "21abb516a4d585d0ff29e6ffbb1e279640975850aa7edee639efd30023c4ba25",
+    "services/v2_profitability_audit.py": "a87e488b93f4419ca34622564600f854260a86147f37c74b8275b7a44ef5cb8b",
+    "services/v2_profitability_audit_entry.py": "eb494929469f6f38f80f788970112abfd60683c317367bfbec2d9e671dab3edb",
+    "v2_core/trend_runner.py": "b01fbc52a6a8d7c8daa35d33ae9b67094f925ebff99d40a76e40f24a8c7e5220",
+    "services/v2_trend_runner_shadow.py": "d10c88a01c595862777ee7dded87b6c345dacd593c27c7c1e94e38a986da59f0",
+    "web/v2_strategy/app.js": "7779360ce2e46e39818d51c425ff986af158179335484453d953f036821009a5",
+    "tests/v2_core/test_v2_indicator_contract_v3.py": "3174fd1a9bac9d94f20435991de50d5838c694a6a98906004ed4f4a2ba7fc09f",
+    "tests/v2_core/test_v2_indicator_v3_flow.py": "cc2184f40b480c03cc0405d7406552fbe9d312004d15855630b6d1b7c083bdca",
+    "tests/v2_core/test_v2_exit_indicator_versioning.py": "f12ad61df6f7634d5573f95b28e3e8e9d95457d59f785281f52dd7c4908a7a95",
+    "tests/v2_core/test_v2_profit_capture_review.py": "a4f81ced765ae5de57d3b519d461598554880a83aad537239730a2d2e0ad7d49",
+    "tests/v2_core/test_v2_followup_basis.py": "556d75094796944da0f336b73371b92211edd3c912701d9bf685331c1dc01bc1",
+    "tests/v2_core/test_v2_trend_runner.py": "e412669a97a4527cbba9ce1c0bdf9a3b335ef18f39b18ec416efe3404e8ae839",
+    "tests/v2_core/test_v2_profitability_audit.py": "17a05993d4df0cc0bab4e1c0e906a1773ddf076d539cb7512174812aa9a74989",
+    "tests/v2_core/test_v2_profitability_audit_database.py": "aafd5d2c6624c00fa55062651ce53f89e3d9d1b4cbbdc47a49f9328c1f3daad6"
+  },
+  "promotion_requirements": [
+    "Do not switch the running producer to v3 until candidate configuration and signals have been prospectively compared; v3 changes ATR scale and therefore admission/sizing, not merely a label.",
+    "Keep prior protected positions on their frozen exit contract; a true-hour EMA rollout must not silently change old position exits.",
+    "Acquire prospectively timestamped candidate/market/protection evidence and complete funding/cost data; current retrospective one-case trend result does not justify release.",
+    "Evaluate entry quality and residual exits separately across independent time periods; do not fit all gates to the same sample or permanently ban shorts from this cohort.",
+    "Only an explicit controlled SANDBOX release may enable a new execution contract; these research modules cannot place orders, change risk caps or promote themselves."
+  ],
+  "reproduction": {
+    "module": "services.v2_profitability_audit_entry",
+    "dsn_environment_variable": "V2_PROFIT_REVIEW_READ_DSN",
+    "account_selection": "--active-sandbox with least-privilege read role, or --scope-stdin from an authorized runtime route resolver. Never hardcode account IDs/keys.",
+    "arguments": [
+      "--days",
+      "14",
+      "--holdout-start-ms",
+      "1792857600000",
+      "--max-trades",
+      "6",
+      "--trend-cases",
+      "3"
+    ],
+    "report_storage": "This JSON is a bounded development research artifact, not runtime position/ledger storage."
+  }
+}

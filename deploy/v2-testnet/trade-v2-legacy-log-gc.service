@@ -1,0 +1,19 @@
+[Unit]
+Description=Retire old closed ClickHouse rotated logs only
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/trade-engine-v2/retention/scripts/v2_legacy_log_gc.py --apply --days 30
+Environment=PYTHONDONTWRITEBYTECODE=1
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=60
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/log/clickhouse-server
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+UMask=0077

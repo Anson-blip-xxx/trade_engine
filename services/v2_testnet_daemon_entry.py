@@ -66,6 +66,7 @@ class TestnetProcessConfig:
     enable_tv_signals: bool = False
     tv_admission_start_ms: int | None = None
     shared_market: bool = False
+    enable_quant_signals: bool = False
 
     @classmethod
     def from_mapping(cls, values):
@@ -77,6 +78,9 @@ class TestnetProcessConfig:
         mode = values.get("V2_SHARED_MARKET", "false")
         if mode not in {"true", "false"}:
             raise ValueError("EXPLICIT_SHARED_MARKET_MODE_REQUIRED")
+        quant = values.get("V2_ENABLE_QUANT_SIGNALS", "false")
+        if quant not in {"true", "false"} or (quant == "true" and mode != "true"):
+            raise ValueError("QUANT_SHARED_MARKET_REQUIRED")
         items = []
         if mode != "true":
             raw = values.get("V2_SYMBOLS")
@@ -135,6 +139,7 @@ class TestnetProcessConfig:
             tv_enabled == "true",
             tv_start,
             mode == "true",
+            quant == "true",
         )
 
     def public_summary(self):
@@ -145,6 +150,7 @@ class TestnetProcessConfig:
             "external_position_exclusions": list(self.external_position_exclusions),
             "exit_fee_rate": self.exit_fee_rate,
             "enable_tv_signals": self.enable_tv_signals,
+            "enable_quant_signals": self.enable_quant_signals,
             "tv_admission_start_ms": self.tv_admission_start_ms,
             "notifications": True,
         }
@@ -260,6 +266,15 @@ def execution_guard_for(values, *, config, connect):
 
 
 class PrivateRatePermit:
+    _CONTEXT_READS = frozenset(
+        {
+            "/fapi/v3/account",
+            "/fapi/v3/positionRisk",
+            "/fapi/v1/accountConfig",
+            "/fapi/v1/symbolConfig",
+            "/fapi/v1/leverageBracket",
+        }
+    )
     _READS: ClassVar = {
         "/fapi/v1/algoOrder": 1,
         "/fapi/v1/order": 1,
@@ -306,6 +321,26 @@ class PrivateRatePermit:
 
     def penalize(self, seconds):
         self.budget.penalize(seconds)
+
+    def consume_context(self, ticket, *, account_id, environment, method, path, params):
+        consume = getattr(self.budget, "consume_context", None)
+        if method != "GET" or path not in self._CONTEXT_READS or not callable(consume):
+            raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
+        return consume(
+            ticket,
+            account_id=account_id,
+            environment=environment,
+            method=method,
+            path=path,
+            params=params,
+            weight=self._READS[path],
+        )
+
+    def revalidate_context(self, ticket, *, account_id, environment):
+        revalidate = getattr(self.budget, "revalidate_context", None)
+        if not callable(revalidate):
+            raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")  # noqa: TRY004 - fixed capability rejection
+        return revalidate(ticket, account_id=account_id, environment=environment)
 
 
 class BinanceTestnetMark:
@@ -366,6 +401,7 @@ class TestnetProcess:
     daemon: TestnetTradingDaemon
     market: object
     runtime: object
+    reentry_archive: object = None
 
 
 def create_testnet_process(
@@ -383,6 +419,7 @@ def create_testnet_process(
     public_connection_factory=None,
     execution_guard=None,
     shared_market=None,
+    reentry_archive=None,
 ):
     if (
         not isinstance(config, TestnetProcessConfig)
@@ -467,11 +504,25 @@ def create_testnet_process(
     private_budget = PublicRateBudget(
         connect, scope="v2-testnet-private:" + scope.account_id, limit=2400
     )
+    admission_budget, admission_public = private_budget, public_market
     if shared_market:
-        from v2_core.shared_market import HostBudget
+        from v2_core.shared_market import AdmissionBudget, HostBudget
 
         private_budget = HostBudget(connect, environment="SANDBOX")
-        sentiment_market.budget = HostBudget(connect, environment="LIVE")
+        admission_budget = AdmissionBudget(connect, environment="SANDBOX")
+        sentiment_market.budget = AdmissionBudget(connect, environment="LIVE")
+        # The original public transport is also used by position management.
+        # Candidate reads must not borrow its reserved management allowance.
+        admission_public = BinancePublicMarket(
+            environment="SANDBOX",
+            budget=admission_budget,
+            enabled=True,
+            **(
+                {"connection_factory": public_connection_factory}
+                if public_connection_factory is not None
+                else {}
+            ),
+        )
     permit = PrivateRatePermit(
         private_budget,
         entries=daemon_cfg.enable_entries,
@@ -498,11 +549,34 @@ def create_testnet_process(
             else {}
         ),
     )
+    # Separate capability and quota: even when trading is enabled, the account
+    # context receives a GET-only client. No retry borrows the management port.
+    admission_request = BinanceSignedTransport(
+        account_id=scope.account_id,
+        environment="SANDBOX",
+        api_key=secrets["BINANCE_TESTNET_API_KEY"],
+        api_secret=secrets["BINANCE_TESTNET_API_SECRET"],
+        clock_ms=clock_ms,
+        permit=PrivateRatePermit(
+            admission_budget, entries=False, protection=False, exits=False
+        ),
+        **(
+            {"connection_factory": signed_connection_factory}
+            if signed_connection_factory is not None
+            else {}
+        ),
+    )
     if execution_guard is not None:
         from v2_core.guarded_transport import GuardedSignedRequest
 
         request = GuardedSignedRequest(
             request,
+            account_id=scope.account_id,
+            environment=scope.environment,
+            guard=execution_guard,
+        )
+        admission_request = GuardedSignedRequest(
+            admission_request,
             account_id=scope.account_id,
             environment=scope.environment,
             guard=execution_guard,
@@ -570,10 +644,27 @@ def create_testnet_process(
         from services.v2_shared_market_context import ConfiguredMarketContext
 
         market_context = ConfiguredMarketContext(connect, cache, clock_ms)
+    from services.v2_jev_entry_context import JevEntryContext
+    from services.v2_jev_reference import JevReference
+
+    jev_reference = JevReference(connect, clock_ms=clock_ms, stop=stop)
+    jev_filter = JevEntryContext(
+        connect,
+        jev_reference,
+        scope=scope,
+        interval_seconds=daemon_cfg.interval_seconds,
+    )
     schedulers = []
+    from services.v2_liquidity_context import LiquidityContext, LiveDepth
+
+    liquidity_depth = LiveDepth(
+        connect, clock_ms=clock_ms, connection_factory=public_connection_factory
+    )
     sources = [("S6", "s3"), ("S8", "s3")]
     if config.enable_tv_signals:
         sources.extend((("S6", "tv_bridge"), ("S8", "tv_bridge")))
+    if config.enable_quant_signals:
+        sources.extend((("S6", "quant"), ("S8", "quant")))
     for strategy, source in sources:
         from services.v2_directional_replay import MARKET_ONLY_REJECTIONS, market_plan
         from v2_core.runtime_policy import PolicyStore
@@ -596,20 +687,23 @@ def create_testnet_process(
         )
         account = BinanceDirectionalAccountContext(
             connect,
-            request,
-            public_market,
+            admission_request,
+            admission_public,
             history,
             drawdown,
             scope=scope,
             clock_ms=clock_ms,
             sentiment_market=sentiment_market,
+            reserve_context=(
+                admission_budget.reserve_context if shared_market else None
+            ),
         )
         context = DirectionalContext(
             market_context,
             account,
             scope=scope,
             clock_ms=clock_ms,
-            market_screen=market_screen,
+            market_screen=None if source == "quant" else market_screen,
         )
         if shared_market:
             from services.v2_shared_market_context import DynamicMarketContext
@@ -617,10 +711,71 @@ def create_testnet_process(
             context = DynamicMarketContext(
                 connect, delegate=context, clock_ms=clock_ms, source=source
             )
+        if source == "quant":
+            from services.v2_quant_research import QuantEvidenceContext
+
+            context = QuantEvidenceContext(
+                connect,
+                context,
+                archive=IncrementalArchive(clickhouse, scope.environment),
+                environment=scope.environment,
+            )
+        from services.v2_reentry_gate import StructuralReentryContext
+        from services.v2_shared_market import IncrementalArchive
+
+        if reentry_archive is None:
+            from services.v2_reentry_archive import ReentryArchive
+
+            reentry_archive = ReentryArchive()
+
+        context = StructuralReentryContext(
+            connect,
+            context,
+            scope=scope,
+            strategy=strategy,
+            read_bars=reentry_archive.read,
+            clock_ms=clock_ms,
+        )
+        from services.v2_entry_structure import EntryStructureContext
+
+        # Exit context belongs to the account+symbol, not a particular signal
+        # producer. Quant/TV/scanner signals must not bypass the cycle gate.
+        context = EntryStructureContext(
+            connect,
+            context,
+            scope=scope,
+            strategy=strategy,
+            read_bars=reentry_archive.read,
+            clock_ms=clock_ms,
+        )
+        if source in {"s3", "tv_bridge"}:
+            from services.v2_entry_research_context import EntryResearchContext
+
+            context = EntryResearchContext(
+                connect,
+                context,
+                scope=scope,
+                strategy=strategy,
+                source=source,
+                clock_ms=clock_ms,
+            )
+        context = LiquidityContext(
+            connect,
+            context,
+            scope=scope,
+            strategy=strategy,
+            source=source,
+            clock_ms=clock_ms,
+            depth=liquidity_depth,
+        )
+        from services.v2_opening_quarantine import OpeningQuarantineContext
+
+        context = OpeningQuarantineContext(connect, context, scope=scope)
         schedulers.append(
             create_directional_admission_scheduler(
                 runtime,
                 context_provider=context,
+                entry_filter=jev_filter,
                 strategy=strategy,
                 analysis_mode="hard",
                 max_delay_ms=30000,
@@ -633,6 +788,8 @@ def create_testnet_process(
                 else None,
             )
         )
+    from services.v2_quant_exit import QuantExitMarket
+
     pipeline = create_directional_testnet_pipeline(
         runtime=runtime,
         request=request,
@@ -647,6 +804,9 @@ def create_testnet_process(
         enable_protection_writes=daemon_cfg.enable_protection_writes,
         enable_reduce_only_exits=daemon_cfg.enable_reduce_only_exits,
         external_position_exclusions=config.external_position_exclusions,
+        quant_market=QuantExitMarket(IncrementalArchive(clickhouse, scope.environment))
+        if shared_market
+        else None,
     )
     notifier = DaemonTelegramNotifier(
         telegram_sink, account_id=scope.account_id, clock_ms=clock_ms
@@ -661,7 +821,7 @@ def create_testnet_process(
         interval_seconds=daemon_cfg.interval_seconds,
         trade_notifications=trade_notifications,
     )
-    return TestnetProcess(daemon, market, runtime)
+    return TestnetProcess(daemon, market, runtime, reentry_archive)
 
 
 def main(environ=None):
@@ -710,7 +870,10 @@ def main(environ=None):
         ),
         environment="SANDBOX",
     )
+    process = None
     try:
+        from services.v2_reentry_archive import ReentryArchive
+
         process = create_testnet_process(
             config,
             secrets,
@@ -722,6 +885,9 @@ def main(environ=None):
             clock_ms=lambda: time.time_ns() // 1000000,
             monotonic_ms=lambda: time.monotonic_ns() // 1000000,
             execution_guard=execution_guard,
+            reentry_archive=ReentryArchive.from_mapping(
+                os.environ if environ is None else environ
+            ),
         )
         print(
             json.dumps(
@@ -731,6 +897,8 @@ def main(environ=None):
         )
         process.daemon.serve()
     finally:
+        if process is not None and process.reentry_archive is not None:
+            process.reentry_archive.close()
         archive.close()
         cache.close()
 

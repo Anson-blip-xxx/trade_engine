@@ -316,7 +316,32 @@ def test_real_s3_detection_through_context_strategy_and_pg_order(case, database)
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone()[0] == len(rows)
 
 
-@pytest.mark.parametrize("stage", ["protection", "exits", "settlement", "followups"])
+@pytest.mark.parametrize("status", ["PENDING", "BLOCKED", "ERROR"])
+def test_post_close_research_never_blocks_live_decisions(case, database, status):
+    pipeline, _, _, _, _ = case
+    pipeline.followups.status = status
+    result = pipeline.run_once()
+    assert result["status"] == "CYCLE_COMPLETE"
+    assert result["phases"]["followups"]["status"] == status
+    assert "s6" in result["phases"] and "s8" in result["phases"]
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_strategy_decisions").fetchone()[0] > 0
+
+
+def test_post_close_research_exception_is_recorded_without_blocking(case):
+    pipeline, _, _, _, _ = case
+
+    def unavailable():
+        raise TimeoutError("private research connection")
+
+    pipeline.followups.run_once = unavailable
+    result = pipeline.run_once()
+    assert result["status"] == "CYCLE_COMPLETE"
+    assert result["phases"]["followups"]["error_code"] == "TimeoutError"
+    assert "private research" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("stage", ["protection", "exits", "settlement"])
 def test_incomplete_lifecycle_stage_prevents_new_decisions(case, database, stage):
     pipeline, calls, _, _, _ = case
     getattr(pipeline, stage).status = "PENDING"

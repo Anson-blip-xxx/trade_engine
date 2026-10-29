@@ -7,7 +7,7 @@ All numeric amounts are decimal strings; one quote currency per account scope.
 
 import re
 from dataclasses import asdict, dataclass
-from decimal import ROUND_CEILING, Decimal, localcontext
+from decimal import ROUND_CEILING, Decimal
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 from v2_core.evidence import canonical
 from v2_core.ingress import identity, milliseconds, symbol
 from v2_core.ledger import amount, emit
+from v2_core.precision import money_context
 
 
 class AccountRiskDenied(ValueError):
@@ -329,8 +330,7 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         from v2_core.managed_portfolio import reserve_capital
 
         try:
-            with localcontext() as context:
-                context.prec = 100
+            with money_context():
                 capital = reserve_capital(
                     conn,
                     AccountScope(*row[1:5]),
@@ -369,8 +369,7 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         }
     if not cooldown_ready:
         raise deny("RISK_COOLDOWN")
-    with localcontext() as ctx:
-        ctx.prec = 80
+    with money_context():
         notional = (
             amount(row[5]["quantity"], positive=True)
             * amount(reference.price, positive=True)

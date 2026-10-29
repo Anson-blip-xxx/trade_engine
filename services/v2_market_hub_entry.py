@@ -6,6 +6,7 @@ import signal
 import threading
 import time
 
+from services.v2_quant_research import QuantResearch
 from services.v2_shared_market import IncrementalArchive, SharedMarketHub
 from services.v2_testnet_inventory import deployment_database
 from v2_core.public_market import BinancePublicMarket
@@ -54,6 +55,12 @@ def main():
                 archive=IncrementalArchive(archive, "SANDBOX"),
                 clock_ms=lambda: time.time_ns() // 1000000,
                 monotonic_ms=lambda: time.monotonic_ns() // 1000000,
+                quant_research=QuantResearch(
+                    connect,
+                    archive=IncrementalArchive(archive, "SANDBOX"),
+                    environment="SANDBOX",
+                    clock_ms=lambda: time.time_ns() // 1000000,
+                ),
             )
             while not stop.is_set():
                 # Loss of this session fences the writer; do not reconnect it.

@@ -6,6 +6,7 @@ No DB transaction spans exchange I/O; failed checkpoints are safely replayed.
 """
 
 import json
+from contextlib import nullcontext
 from dataclasses import asdict
 from decimal import Decimal, localcontext
 from uuid import uuid4
@@ -14,10 +15,113 @@ from psycopg.types.json import Jsonb
 
 from v2_core.evidence import canonical, digest
 from v2_core.operational import OperationalProjector
-from v2_core.protection import ProtectionSpec
+from v2_core.protection import ProtectionSpec, protection_error_evidence
 from v2_core.protection_child import ProtectionChildReconciler
 from v2_core.service import TradingData
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
+
+
+def external_flat_result(connect, *, scope, spec, payload):
+    """Validate durable external-close proof, never infer flatness from -2013.
+
+    The importer writes the resolution, exact close fills and parent marker in
+    one transaction after fresh, bracketed venue inventory. This independent
+    check also protects restart recovery from malformed or stale local markers.
+    A newly opened episode on the symbol is not this historical episode.
+    """
+    key = StateKey(
+        **asdict(scope), namespace="external-close-resolution-v1", key=spec.episode
+    )
+    expected = {
+        "state_id": key.identity,
+        "episode": spec.episode,
+        "symbol": spec.symbol,
+        "account_scope": asdict(scope),
+    }
+    if (
+        payload.get("status") != "EXTERNAL_FLAT_RECONCILED"
+        or payload.get("external_reconciliation") != expected
+    ):
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_IDENTITY_MISMATCH")
+    with connect() as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        snapshot = BusinessState(lambda: nullcontext(conn)).read(key)
+        if snapshot is None or snapshot.deleted:
+            raise ValueError("EXTERNAL_FLAT_RESOLUTION_MISSING")
+        proof = json.loads(snapshot.payload_json)
+        trace = TradingData(connect).trace(spec.episode, connection=conn)
+        exchange_by_close = dict(
+            conn.execute(
+                "SELECT order_id::text,exchange_order_id FROM v2_orders "
+                "WHERE episode_id=%s AND leg='CLOSE' AND status='FILLED'",
+                (spec.episode,),
+            ).fetchall()
+        )
+    if (
+        proof.get("status") != "CONFIRMED"
+        or proof.get("account_scope") != asdict(scope)
+        or proof.get("episode") != spec.episode
+        or proof.get("symbol") != spec.symbol
+        or proof.get("remaining_quantity") != "0"
+        or trace is None
+        or {key: trace["scope"][key] for key in asdict(scope)} != asdict(scope)
+        or trace["request"]["symbol"] != spec.symbol
+        or trace["request"]["side"] == spec.side
+    ):
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_SCOPE_MISMATCH")
+    closed = proof.get("close_order_ids")
+    exchange_ids = proof.get("exchange_order_ids")
+    if (
+        not isinstance(closed, list)
+        or not closed
+        or any(not isinstance(value, str) for value in closed)
+        or len(set(closed)) != len(closed)
+        or not isinstance(exchange_ids, list)
+        or not exchange_ids
+        or any(
+            not isinstance(value, str)
+            or not value.isascii()
+            or not value.isdecimal()
+            or int(value) <= 0
+            for value in exchange_ids
+        )
+    ):
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_ORDERS_MISSING")
+    inventory = proof.get("inventory", {})
+    summary = inventory.get("summary", {})
+    if any(
+        not isinstance(summary.get(field), list)
+        or any(row.get("symbol") == spec.symbol for row in summary[field])
+        for field in ("positions", "ordinary_orders", "conditional_orders")
+    ):
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_INVENTORY_MISMATCH")
+    final = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
+    if any(order["status"] not in final for order in trace["orders"]):
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_ORDERS_PENDING")
+    closes = {
+        order["order_id"]
+        for order in trace["orders"]
+        if order["leg"] == "CLOSE" and order["status"] == "FILLED"
+    }
+    if not set(closed) <= closes:
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_CLOSE_NOT_FINAL")
+    if set(exchange_ids) != {exchange_by_close.get(order_id) for order_id in closed}:
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_EXCHANGE_ID_MISMATCH")
+    legs = {order["order_id"]: order["leg"] for order in trace["orders"]}
+    with localcontext() as ctx:
+        ctx.prec = 100
+        remaining = sum(
+            (
+                Decimal(fill["quantity"])
+                * (1 if legs[fill["order_id"]] == "OPEN" else -1)
+                for fill in trace["fills"]
+            ),
+            Decimal(0),
+        )
+    if remaining:
+        raise ValueError("EXTERNAL_FLAT_RESOLUTION_LEDGER_NOT_FLAT")
+    return {"status": "TERMINAL_FLAT_LEDGER", "resolution_state_id": key.identity}
 
 
 class ProtectionAlertProjector(OperationalProjector):
@@ -50,6 +154,10 @@ class ProtectionSupervisor:
 
     def _result(self, payload):
         spec = ProtectionSpec(**payload["spec"])
+        if payload.get("status") == "EXTERNAL_FLAT_RECONCILED":
+            return external_flat_result(
+                self.connect, scope=self.scope, spec=spec, payload=payload
+            )
         result = self.child.reconcile(spec)
         if result["status"] == "WAITING_TRIGGER":
             trace = TradingData(self.connect).trace(spec.episode)
@@ -72,7 +180,9 @@ class ProtectionSupervisor:
                     ),
                     Decimal(0),
                 )
-            if result["parent_status"] in {"CANCELED", "EXPIRED", "REJECTED"}:
+            if result["parent_status"] in {
+                "CANCELED", "EXPIRED", "REJECTED", "NOT_SENT"
+            }:
                 result["status"] = (
                     "UNPROTECTED" if remaining else "TERMINAL_FLAT_LEDGER"
                 )
@@ -129,19 +239,20 @@ class ProtectionSupervisor:
             raise ValueError("bounded protection batch required")
         if not callable(stop_requested):
             raise TypeError("callable shutdown check required")
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BUSY", "results": {}}
-            guard.commit()  # session lock survives; do not hold a transaction over I/O
             cursor = self.store.read(self.cursor)
             after = json.loads(cursor.payload_json)["after"] if cursor else ""
             with self.connect() as conn:
+                conn.execute("SET LOCAL jit=off")
                 rows = conn.execute(
                     """SELECT s.state_id::text,s.payload FROM v2_business_state s
-                    JOIN v2_trade_intents i ON i.intent_id::text=s.payload->'spec'->>'episode'
+                    JOIN v2_trade_intents i ON i.intent_id=CASE
+                        WHEN s.payload->'spec'->>'episode' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        THEN (s.payload->'spec'->>'episode')::uuid END
                     WHERE NOT s.deleted AND s.scope->>'namespace'='testnet-protection-v1'
                     AND s.scope @> %s::jsonb
                     AND (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
@@ -152,7 +263,7 @@ class ProtectionSupervisor:
                         AND r.scope @> %s::jsonb
                         WHERE e.episode_id=i.intent_id AND e.status='SETTLED'
                         AND r.payload->>'status' IN ('FILLED','TERMINAL_FLAT_LEDGER')
-                        AND s.payload->>'status' IN ('FINISHED','CANCELED','EXPIRED','REJECTED'))
+                        AND s.payload->>'status' IN ('FINISHED','CANCELED','EXPIRED','REJECTED','NOT_SENT','EXTERNAL_FLAT_RECONCILED'))
                     ORDER BY (s.state_id::text<=%s),s.state_id LIMIT %s""",
                     (
                         canonical(asdict(self.scope)),
@@ -176,6 +287,9 @@ class ProtectionSupervisor:
                         "status": "RECOVERY_PENDING",
                         "error_code": type(exc).__name__,
                     }
+                    diagnostic = protection_error_evidence(exc)
+                    if "category" in diagnostic:
+                        result["diagnostic"] = diagnostic
                 self._record(state_id, result)
                 version = cursor.version if cursor else 0
                 saved = self.store.change(

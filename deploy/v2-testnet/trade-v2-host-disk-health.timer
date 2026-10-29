@@ -1,0 +1,11 @@
+[Unit]
+Description=Check V2 disk reserve and market freshness every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+Unit=trade-v2-host-disk-health.service
+
+[Install]
+WantedBy=timers.target

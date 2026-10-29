@@ -1,0 +1,538 @@
+{
+  "schema": "review-progress-v1",
+  "kind": "CURRENT_SHADOW_REVIEW_PROGRESS_NOT_ACTUAL_PNL",
+  "as_of_ms": 1792821742376,
+  "window_start_ms": 1791612142376,
+  "as_of": "2026-10-24T14:02:22.376000+08:00",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "account_scoped": true,
+  "minimum_effective_pairs": 30,
+  "truncated": false,
+  "job_counts": {
+    "DONE": 81,
+    "PENDING": 3,
+    "UNCOVERED": 2
+  },
+  "waiting_horizon": 3,
+  "excluded_records": {},
+  "execution_authorized": false,
+  "automatic_parameter_updates": false,
+  "promotion_authorized": false,
+  "limitations": [
+    "Current mutable research job snapshot, not historical knowledge reconstruction.",
+    "Shadow net differences are not actual additional profit or causal improvement.",
+    "No-op samples do not establish that an alternative exit would have helped.",
+    "Effective means a changed simulated path; counts do not establish independence or statistical significance.",
+    "Costs are research assumptions; funding, historical venue filters and portfolio reuse remain unproven.",
+    "Pending unclosed horizons are expected censoring, not trading failures.",
+    "Registration cohorts, strategy versions, configurations and research/cost definitions are never pooled.",
+    "Frozen quote-asset evidence is unavailable: deltas are per-instrument quote units, never labeled USDT or pooled across instruments.",
+    "Actual-holding trigger coverage ends at first partial close or the fixed research horizon."
+  ],
+  "runtime_query_ms": 228.205,
+  "group_count": 76,
+  "effective_group_count": 7,
+  "changed_or_gap_groups": [
+    {
+      "group_id": "cd5878bf7df91f8867efef66fde5501ae75146e95722ab9c7ada1b2c3db7587b",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "AGTUSDT"
+      },
+      "variant": "partial",
+      "job_counts": {
+        "DONE": 2
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 2,
+      "effective_pairs": 1,
+      "no_op_pairs": 1,
+      "positive_pairs": 1,
+      "negative_pairs": 0,
+      "zero_delta_pairs": 1,
+      "paired_net_delta_quote_units": "0.763052782750",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 2,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 2,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 2,
+        "research_trigger_without_actual_holding_trigger_samples": 1,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "INSUFFICIENT_ACTIONABLE_EVIDENCE",
+      "next_action": "Collect changed-path pairs and resolve unknown coverage; do not tune against these same outcomes."
+    },
+    {
+      "group_id": "e77ca38568e47c51b730c4958716b5926ec7d0766255fd33e8593a73031d7651",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "BIRBUSDT"
+      },
+      "variant": "partial",
+      "job_counts": {
+        "DONE": 4
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 4,
+      "effective_pairs": 1,
+      "no_op_pairs": 3,
+      "positive_pairs": 1,
+      "negative_pairs": 0,
+      "zero_delta_pairs": 3,
+      "paired_net_delta_quote_units": "0.122318030390",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 4,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 4,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 4,
+        "research_trigger_without_actual_holding_trigger_samples": 1,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "INSUFFICIENT_ACTIONABLE_EVIDENCE",
+      "next_action": "Collect changed-path pairs and resolve unknown coverage; do not tune against these same outcomes."
+    },
+    {
+      "group_id": "cd94261928ba6340d08553b82c616c25bd926a70ee2cc0e47c77f03fc48985c2",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "BULLAUSDT"
+      },
+      "variant": "partial",
+      "job_counts": {
+        "DONE": 1
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 1,
+      "effective_pairs": 1,
+      "no_op_pairs": 0,
+      "positive_pairs": 0,
+      "negative_pairs": 1,
+      "zero_delta_pairs": 0,
+      "paired_net_delta_quote_units": "-0.150349537625",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 1,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 1,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 1,
+        "research_trigger_without_actual_holding_trigger_samples": 1,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "DO_NOT_PROMOTE_NEGATIVE",
+      "next_action": "Retain baseline; inspect loss-making paired cases before proposing another frozen variant."
+    },
+    {
+      "group_id": "49b4236e0961e590157756608f75863fa11f295aba441a4549220e4ff6def348",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "BULLAUSDT"
+      },
+      "variant": "tighten",
+      "job_counts": {
+        "DONE": 1
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 1,
+      "effective_pairs": 1,
+      "no_op_pairs": 0,
+      "positive_pairs": 0,
+      "negative_pairs": 1,
+      "zero_delta_pairs": 0,
+      "paired_net_delta_quote_units": "-0.511108318000",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 1,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 1,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 1,
+        "research_trigger_without_actual_holding_trigger_samples": 1,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "DO_NOT_PROMOTE_NEGATIVE",
+      "next_action": "Retain baseline; inspect loss-making paired cases before proposing another frozen variant."
+    },
+    {
+      "group_id": "64f32b7172bad09e1a30628b4924d35fc161362bcb00b63da5bd534a47afb7c8",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "JCTUSDT"
+      },
+      "variant": "partial",
+      "job_counts": {
+        "DONE": 6
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 6,
+      "effective_pairs": 2,
+      "no_op_pairs": 4,
+      "positive_pairs": 2,
+      "negative_pairs": 0,
+      "zero_delta_pairs": 4,
+      "paired_net_delta_quote_units": "2.661537075745",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 6,
+          "unknown_samples": 0,
+          "triggered_samples": 2
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 6,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 6,
+        "research_trigger_without_actual_holding_trigger_samples": 2,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "INSUFFICIENT_ACTIONABLE_EVIDENCE",
+      "next_action": "Collect changed-path pairs and resolve unknown coverage; do not tune against these same outcomes."
+    },
+    {
+      "group_id": "cb0b98c5a20b730f821da9187171d535b8c8f02281adf58b467fb32b2a443e0b",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "JCTUSDT"
+      },
+      "variant": "tighten",
+      "job_counts": {
+        "DONE": 6
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 6,
+      "effective_pairs": 1,
+      "no_op_pairs": 5,
+      "positive_pairs": 1,
+      "negative_pairs": 0,
+      "zero_delta_pairs": 5,
+      "paired_net_delta_quote_units": "1.453539086890",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 6,
+          "unknown_samples": 0,
+          "triggered_samples": 2
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 6,
+          "unknown_samples": 0,
+          "triggered_samples": 0
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 6,
+        "research_trigger_without_actual_holding_trigger_samples": 2,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "INSUFFICIENT_ACTIONABLE_EVIDENCE",
+      "next_action": "Collect changed-path pairs and resolve unknown coverage; do not tune against these same outcomes."
+    },
+    {
+      "group_id": "460f4d500d5da6b2f6b838087f37691ccfe64e25ee06894267dd19dcefad5629",
+      "definition": {
+        "cohort": "POST_REGISTRATION_REPLAY",
+        "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+        "cost_digest": "bb251f63ef23b58beb7178f68ab60edd58c0024cf986c6570daf7a208089f788",
+        "exit_policy_digest": "c5b3907711ee8b748bb1d22a0c02cc5e9983c1f49479b178e0ab780bb37c7cfd",
+        "parameters_digest": "acc5c3692cc205e1856da7a74511179f3673d165b0606741e0f2e950314cd56d",
+        "policy_digest": "d20e735b55df666b001eb0fe27e98004dd30733074b464b7c2fdb420ecb712f5",
+        "producer": "s6",
+        "research_version": "actual-filled-exit-shadow-v1",
+        "source": "s3",
+        "strategy_version": "directional-admission-v2-1",
+        "study_digest": "15ce68c7ec080875c0bbdafc6b29fa7548d02314636714b16473f1cc257a8024",
+        "study_id": "actual-exit-20261010-v1",
+        "symbol": "XNYUSDT"
+      },
+      "variant": "partial",
+      "job_counts": {
+        "DONE": 2
+      },
+      "waiting_horizon": 0,
+      "pending_other": 0,
+      "paired_samples": 2,
+      "effective_pairs": 1,
+      "no_op_pairs": 1,
+      "positive_pairs": 0,
+      "negative_pairs": 1,
+      "zero_delta_pairs": 1,
+      "paired_net_delta_quote_units": "-5.901297785045",
+      "quote_currency": "UNKNOWN",
+      "coverage_gaps": {},
+      "trigger_coverage": {
+        "research_trigger_count": {
+          "known_samples": 2,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        },
+        "actual_holding_trigger_count": {
+          "known_samples": 2,
+          "unknown_samples": 0,
+          "triggered_samples": 1
+        }
+      },
+      "trigger_mismatch": {
+        "both_known_samples": 2,
+        "research_trigger_without_actual_holding_trigger_samples": 0,
+        "interpretation": "Investigate whether the research exit becomes actionable only after the real full-inventory holding interval; counts alone do not prove exact timing."
+      },
+      "conclusion": "DO_NOT_PROMOTE_NEGATIVE",
+      "next_action": "Retain baseline; inspect loss-making paired cases before proposing another frozen variant."
+    }
+  ],
+  "variant_sample_counts": {
+    "partial": {
+      "paired_samples": 81,
+      "effective_pairs": 6,
+      "no_op_pairs": 75,
+      "positive_pairs": 4,
+      "negative_pairs": 2
+    },
+    "tighten": {
+      "paired_samples": 81,
+      "effective_pairs": 2,
+      "no_op_pairs": 79,
+      "positive_pairs": 1,
+      "negative_pairs": 1
+    }
+  },
+  "trigger_counts_without_double_counting": {
+    "research_trigger_count": 6,
+    "actual_holding_trigger_count": 1
+  },
+  "trigger_mismatch_samples": 5,
+  "findings": [
+    {
+      "id": "EXIT-REVIEW-20261024-01",
+      "status": "VERIFIED_MEASUREMENT_MISMATCH",
+      "evidence": "Four of five research-trigger/full-inventory-window mismatches first triggered after real remaining quantity reached zero.",
+      "samples": [
+        {
+          "symbol": "BIRBUSDT",
+          "close_date_utc8": "2026-10-23",
+          "trigger_after_flat_ms": 386830
+        },
+        {
+          "symbol": "JCTUSDT",
+          "close_date_utc8": "2026-10-22",
+          "trigger_after_flat_ms": 132824
+        },
+        {
+          "symbol": "AGTUSDT",
+          "close_date_utc8": "2026-10-22",
+          "trigger_after_flat_ms": 1392671
+        },
+        {
+          "symbol": "JCTUSDT",
+          "close_date_utc8": "2026-10-21",
+          "trigger_after_flat_ms": 244198
+        }
+      ],
+      "decision": "Do not interpret post-flat shadow deltas as achievable improvement for the real exit path.",
+      "next_validation": "Use frozen FULL/PARTIAL/FLAT inventory-at-trigger classifications before testing a revised exit variant."
+    },
+    {
+      "id": "EXIT-REVIEW-20261024-02",
+      "status": "VERIFIED_RESIDUAL_PATH_GAP",
+      "symbol": "BULLAUSDT",
+      "date_utc8": "2026-10-22",
+      "initial_quantity": "175",
+      "already_closed_at_trigger": "52",
+      "remaining_at_trigger": "123",
+      "trigger_before_full_close_ms": 304342,
+      "evidence": "Research variant simulates partial closing 87.5 from initial175, rather than inheriting real52 already closed and residual123.",
+      "decision": "Do not treat full-inventory window exclusion as absence of all actionable residual opportunities. Existing counterfactual is not a matched residual comparison.",
+      "next_validation": "Replay residual-aware candidate from the same immutable prior fills, execution time and costs; prohibit hindsight tuning."
+    },
+    {
+      "id": "EXIT-REVIEW-20261024-03",
+      "status": "VERIFIED_TIME_RESOLUTION_GAP",
+      "symbol": "BIRBUSDT",
+      "evidence": "Actual full-inventory holding interval contains zero complete closed5minute bars.",
+      "decision": "Do not label absent5minute observations a missed close; validate source timeframe against actual holding duration."
+    },
+    {
+      "id": "EXIT-REVIEW-20261024-04",
+      "status": "IMPLEMENTED_AND_READONLY_VERIFIED",
+      "evidence": "Execution path fingerprint previously included reason text. Reason-only changes now cannot inflate effective paired samples; current6/2 counts unchanged.",
+      "decision": "Compare ordered execution time/quantity/price/fees/remaining/closed time, with malformed or missing evidence reported unknown."
+    },
+    {
+      "id": "ENTRY-REVIEW-20261024-05",
+      "status": "VERIFIED_CONFIGURED_BASELINE_REENTRY_REQUIRES_COMPARISON",
+      "symbol": "MAGMAUSDT",
+      "environment": "SANDBOX",
+      "side": "SELL",
+      "events": [
+        {
+          "at": "2026-10-24T14:09:20.740+08:00",
+          "action": "PARTIAL_TAKE_PROFIT",
+          "closed_quantity": "194"
+        },
+        {
+          "at": "2026-10-24T14:15:43.300+08:00",
+          "action": "PEAK_DRAWDOWN",
+          "closed_quantity": "453",
+          "remaining_quantity": "0"
+        },
+        {
+          "at": "2026-10-24T14:17:33.027+08:00",
+          "action": "NEW_BASELINE_ENTRY",
+          "opened_quantity": "669"
+        }
+      ],
+      "reentry_after_actual_flat_ms": 109727,
+      "entry_controls": {
+        "version": 2,
+        "reentry_mode": "OFF",
+        "history_mode": "OFF",
+        "configured_since": "2026-10-12T09:01:29+08:00",
+        "enforced_sides": [
+          "BUY"
+        ],
+        "structure_context": null,
+        "wired_but_disabled": true,
+        "changed_by_this_release": false
+      },
+      "jev": {
+        "status": "FALLBACK",
+        "reason": "TOKEN_BUDGET_EXHAUSTED",
+        "interpretation": "This system's UTC+8 daily token budget declined a model call. Not a model PASS and not evidence of supplier account credit exhaustion."
+      },
+      "decision": "Execution worked; strategy quality is unproven. Neither a structural reentry permit nor JEV model approval justified this new entry. No claim yet whether this particular reentry helped or hurt.",
+      "next_validation": "Freeze a SELL-aware structural reentry comparison against the baseline using actual exit/new-entry evidence, net costs, foregone opportunity and independent future cohorts; do not merely flip ENFORCE (current side list BUY-only), add a blind fixed cooldown, or tune against one trade."
+    }
+  ],
+  "operation_policy": {
+    "single_local_fault": "Isolate local issues; retain safe independently proven reduction paths. Account/ownership/unknown-order faults still block new entries until reconciled.",
+    "portfolio_safety": "Do not clear ledger, pretend positions are flat, or repeat unconfirmed orders to bypass a blocked record.",
+    "review_promotion": "No automatic promotion; require compatible frozen definitions, effective execution pairs, full cost/portfolio validation and independent future cohorts.",
+    "current_decision": "Keep existing trading parameters. Negative groups do not promote; small positive groups are not proof of improvement."
+  },
+  "delivery_limits": [
+    "This is an acceptance/review artifact, not a local business-state database or an automated parameter-updater.",
+    "The review CLI is reusable read-only tooling; no new recurring schedule or dashboard page was enabled in this change.",
+    "FULL/PARTIAL/FLAT residual-aware simulation is a next research improvement, not implemented here.",
+    "Review results represent a current mutable research snapshot, not reconstruction of historical knowledge.",
+    "Current research jobs join performance was about228ms; bounded output is not constant work as history grows."
+  ]
+}

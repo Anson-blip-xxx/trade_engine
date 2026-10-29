@@ -6,27 +6,11 @@ implicit: mixed fee currencies leave settlement pending for an explicit FX leg.
 
 import json
 from contextlib import nullcontext
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from v2_core.evidence import canonical, digest
-
-
-def amount(value, *, positive=False):
-    if not isinstance(value, str) or len(value) > 100:
-        raise ValueError("amount requires a bounded decimal string")
-    try:
-        result = Decimal(value)
-    except InvalidOperation as exc:
-        raise ValueError("invalid decimal") from exc
-    if (
-        not result.is_finite()
-        or result.copy_abs() >= Decimal("1e20")
-        or result.as_tuple().exponent < -18
-        or (positive and result <= 0)
-    ):
-        raise ValueError("amount outside exact NUMERIC(38,18) domain")
-    return result
+from v2_core.precision import amount, money_context
 
 
 def emit(conn, intent_id, kind, payload):
@@ -139,8 +123,7 @@ class Ledger:
                 "SELECT COALESCE(sum(quantity),0) FROM v2_fills WHERE order_id=%s",
                 (order_id,),
             ).fetchone()[0]
-            with localcontext() as ctx:
-                ctx.prec = 80
+            with money_context():
                 if total + qty > row[1]:
                     raise ValueError(
                         "fill exceeds order quantity; reconciliation required"
@@ -359,8 +342,7 @@ class Ledger:
                 return Decimal(0)
             return value * rate
 
-        with localcontext() as ctx:
-            ctx.prec = 100
+        with money_context():
             opened = sum((q for leg, q, p, f, c in fills if leg == "OPEN"), Decimal(0))
             closed = sum((q for leg, q, p, f, c in fills if leg == "CLOSE"), Decimal(0))
             entry = sum(

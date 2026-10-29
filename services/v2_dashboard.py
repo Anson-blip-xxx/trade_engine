@@ -1,15 +1,20 @@
 """Read-only operator dashboard for the isolated V2 Testnet PostgreSQL schema."""
 
 import json
+import logging
 import os
 import re
+import traceback
 from datetime import datetime
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import BoundedSemaphore
 from urllib.parse import urlsplit
+from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+from psycopg.errors import QueryCanceled
 
 from services.v2_performance_reporting import performance, signal_funnel
 from v2_core.database import connection_factory
@@ -17,6 +22,7 @@ from v2_core.database import connection_factory
 _ZONE = ZoneInfo("Asia/Shanghai")
 _ASSETS = Path(__file__).resolve().parent.parent / "web" / "v2_dashboard"
 _TRADE = re.compile(r"^/api/trades/([0-9a-fA-F-]{36})$")
+_LOG = logging.getLogger(__name__)
 
 
 def _value(value):
@@ -52,7 +58,7 @@ class DashboardData:
             LEFT JOIN v2_account_aliases n ON n.tenant_id=a.tenant_id AND n.registry_id=a.registry_id
             WHERE r.tenant_id=%s AND r.environment='SANDBOX'
               AND a.environment='SANDBOX' AND a.exchange='BINANCE' AND a.product='FUTURES'
-              AND r.phase IN ('ACTIVE','DRAINING')
+              AND r.phase IN ('ACTIVE','DRAINING','BLOCKED','STARTING','STOPPED')
         """,
                 (self.tenant_id,),
             )
@@ -61,13 +67,16 @@ class DashboardData:
             raise ValueError("NO_CONFIRMED_EXECUTION_ACCOUNT")
         return rows[0]
 
-    def overview(self):
-        with self.connect() as conn:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            context = self.context(conn)
-            account = context["account_id"] if context else None
-            reports = performance(conn, account)
-            funnel = [
+    @staticmethod
+    def _funnel(conn, account):
+        # Roll back only the optional query if it exceeds its budget.
+        try:
+            with conn.transaction():
+                rows = signal_funnel(conn, account)
+        except QueryCanceled:
+            return {"signal_funnel": [], "signal_funnel_status": "TIMEOUT"}
+        return {
+            "signal_funnel": [
                 dict(
                     zip(
                         ("source", "received", "processed", "intents", "filled"),
@@ -75,8 +84,37 @@ class DashboardData:
                         strict=True,
                     )
                 )
-                for row in signal_funnel(conn, account)
-            ]
+                for row in rows
+            ],
+            "signal_funnel_status": "AVAILABLE",
+        }
+
+    def funnel(self):
+        with self.connect() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            conn.execute("SET LOCAL jit=off")
+            conn.execute("SET LOCAL statement_timeout='3s'")
+            context = self.context(conn)
+            result = self._funnel(conn, context["account_id"] if context else None)
+        return {
+            "as_of": datetime.now(_ZONE).isoformat(),
+            "execution_account": context,
+            **result,
+        }
+
+    def overview(self, *, include_funnel=True):
+        with self.connect() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            conn.execute("SET LOCAL jit=off")
+            conn.execute("SET LOCAL statement_timeout='2s'")
+            context = self.context(conn)
+            account = context["account_id"] if context else None
+            reports = performance(conn, account)
+            funnel = (
+                self._funnel(conn, account)
+                if include_funnel
+                else {"signal_funnel": [], "signal_funnel_status": "DEFERRED"}
+            )
             health = _rows(
                 conn.execute(
                     """
@@ -90,6 +128,13 @@ class DashboardData:
             trades = _rows(
                 conn.execute(
                     """
+                WITH recent_intents AS MATERIALIZED (
+                    SELECT i.* FROM v2_trade_intents i
+                    WHERE i.environment='SANDBOX' AND i.product='FUTURES'
+                      AND i.exchange='BINANCE' AND (%s::text IS NULL OR i.account_id=%s)
+                      AND i.producer IN ('s6','s8')
+                    ORDER BY i.created_at DESC,i.intent_id DESC LIMIT 100
+                )
                 SELECT i.intent_id::text AS id,i.created_at,i.producer,i.status,
                   i.payload->>'symbol' AS symbol,i.payload->>'side' AS side,
                   i.payload->>'quantity' AS planned_quantity,
@@ -102,7 +147,7 @@ class DashboardData:
                   f.entry_price,f.exit_price,f.first_open_ms,f.last_close_ms,
                   o.net_pnl,o.return_pct,
                   st.evidence->>'net_pnl' AS settled_net_pnl,st.settled_at
-                FROM v2_trade_intents i
+                FROM recent_intents i
                 JOIN v2_decision_evidence e ON e.evidence_ref=i.evidence_ref
                 LEFT JOIN v2_episodes ep ON ep.episode_id=i.intent_id
                 LEFT JOIN LATERAL (
@@ -122,10 +167,7 @@ class DashboardData:
                     WHERE episode_id=i.intent_id ORDER BY revision DESC LIMIT 1
                 ) st ON TRUE
                 LEFT JOIN v2_directional_outcomes o ON o.episode_id=i.intent_id
-                WHERE i.environment='SANDBOX' AND i.product='FUTURES'
-                  AND i.exchange='BINANCE' AND (%s::text IS NULL OR i.account_id=%s)
-                  AND i.producer IN ('s6','s8')
-                ORDER BY i.created_at DESC LIMIT 100
+                ORDER BY i.created_at DESC,i.intent_id DESC
             """,
                     (account, account),
                 )
@@ -133,15 +175,22 @@ class DashboardData:
             signals = _rows(
                 conn.execute(
                     """
+                WITH recent AS MATERIALIZED (
+                  SELECT s.* FROM (VALUES ('tv_bridge'),('s3'),('quant')) sources(source)
+                  CROSS JOIN LATERAL (
+                    SELECT signal_id,source,received_at,snapshot FROM v2_inbound_signals
+                    WHERE environment='SANDBOX' AND source=sources.source
+                    ORDER BY received_at DESC LIMIT 24
+                  ) s ORDER BY s.received_at DESC LIMIT 24
+                )
                 SELECT signal_id::text AS id,source,received_at,
                   (SELECT jsonb_agg(jsonb_build_object('consumer',r.consumer,'outcome',r.outcome,'reason',r.reason))
-                   FROM v2_signal_receipts r WHERE r.signal_id=v2_inbound_signals.signal_id
+                   FROM v2_signal_receipts r WHERE r.signal_id=recent.signal_id
                    AND (%s::text IS NULL OR r.consumer=ANY(%s))) AS decisions,
                   snapshot->>'symbol' AS symbol,snapshot->>'signal' AS signal,
                   snapshot->>'observed_at' AS observed_at_ms,
                   snapshot->'features'->>'strength' AS strength
-                FROM v2_inbound_signals WHERE environment='SANDBOX'
-                  AND source IN ('tv_bridge','s3')
+                FROM recent
                 ORDER BY received_at DESC LIMIT 24
             """,
                     (account, self.consumers(account)),
@@ -170,7 +219,7 @@ class DashboardData:
             "signal_scope": "共享市场信号；消费结果、意图和成交仅统计当前执行账户",
             "summary": reports["summary"],
             "daily": reports["daily"],
-            "signal_funnel": funnel,
+            **funnel,
             "trades": trades,
             "signals": signals,
             "settlements": settlements,
@@ -294,6 +343,7 @@ class _Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     data = None
+    _analytics_slots = BoundedSemaphore(2)
 
     def log_message(self, _format, *_args):
         pass
@@ -302,7 +352,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             if path == "/api/overview":
-                return self._json(200, self.data.overview())
+                return self._json(200, self.data.overview(include_funnel=False))
+            if path == "/api/signal-funnel":
+                if not self._analytics_slots.acquire(blocking=False):
+                    return self._json(503, {"error": "ANALYTICS_BUSY"})
+                try:
+                    return self._json(200, self.data.funnel())
+                finally:
+                    self._analytics_slots.release()
             match = _TRADE.fullmatch(path)
             if match:
                 trade = self.data.trade(match.group(1))
@@ -320,7 +377,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, "text/plain", b"Not found")
             filename, mime = assets[path]
             return self._send(200, mime, (_ASSETS / filename).read_bytes())
-        except Exception:  # noqa: BLE001 - hide database details from public UI
+        except Exception as exc:  # noqa: BLE001 - never log SQL, params or exception text
+            sqlstate = getattr(exc, "sqlstate", None)
+            frames = traceback.extract_tb(exc.__traceback__)
+            _LOG.error(
+                "dashboard_request_failed %s",
+                json.dumps(
+                    {
+                        "request_id": uuid4().hex,
+                        "route": path
+                        if path in {"/api/overview", "/api/signal-funnel"}
+                        else "trade_detail"
+                        if _TRADE.fullmatch(path)
+                        else "static",
+                        "error_type": type(exc).__name__,
+                        "sqlstate": sqlstate
+                        if isinstance(sqlstate, str)
+                        and re.fullmatch(r"[0-9A-Z]{5}", sqlstate)
+                        else None,
+                        "frames": [
+                            {"function": frame.name, "line": frame.lineno}
+                            for frame in frames[-5:]
+                        ],
+                    },
+                    sort_keys=True,
+                ),
+            )
             return self._json(503, {"error": "DATA_UNAVAILABLE"})
 
     def _json(self, status, payload):

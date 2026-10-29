@@ -1,0 +1,65 @@
+{
+  "change_set": "indicator-v4-candidate-20261028",
+  "status": "OFFLINE_CANDIDATE_RELEASE_RESTRICTED",
+  "candidate_feature_version": "s3-closed-1m-v4",
+  "release_eligible": false,
+  "business_database_mutations": false,
+  "service_restarts": false,
+  "trading_orders_submitted": false,
+  "deployed_to_execution": false,
+  "new_default_feature_version_enabled": false,
+  "default_batch_feature_version": "s3-closed-1m-v1",
+  "default_shared_feature_version": "s3-closed-1m-v2",
+  "semantics": {
+    "window_semantics": "ROLLING_1M_LOOKBACK",
+    "ema_period_unit": "1m_bar",
+    "atr_method": "LATEST_14_TRUE_RANGES_ARITHMETIC_MEAN",
+    "close_pos": "LATEST_CLOSE_WITHIN_ROLLING_WINDOW_HIGH_LOW_PERCENT",
+    "close_pos_range": [0, 100],
+    "flat_window_close_pos": 50,
+    "claims_standard_hourly_ema": false,
+    "claims_profitability_improvement": false
+  },
+  "release_restrictions": [
+    {
+      "code": "ATR_EXPAND_CROSS_WINDOW_ATR_INCOMPATIBLE",
+      "status": "UNRESOLVED",
+      "blocks_activation": true,
+      "affected_versions": ["s3-closed-1m-v3", "s3-closed-1m-v4"],
+      "consumer": "s3/detector.py:ATR_EXPAND",
+      "existing_condition": "atr_pct_15m > 2 * atr_pct_1h and atr_pct_15m > 0.5",
+      "reason": "Every lookback shares the same latest fourteen closed one-minute true ranges and latest close, so the four ATR/ATR-percent values are equal. The existing cross-window expansion condition cannot become true.",
+      "observed_fixture": {
+        "input": "1426 closed minutes with true range 2, followed by 14 with true range 20; close remains 100",
+        "s3-closed-1m-v2": {"atr_pct_15m": "20", "atr_pct_1h": "2", "ATR_EXPAND": true},
+        "s3-closed-1m-v4": {"atr_pct_15m": "20", "atr_pct_1h": "20", "ATR_EXPAND": false}
+      },
+      "required_before_activation": "Independently specify and validate a versioned volatility-expansion consumer compatible with this producer contract, then validate changed signal/admission behavior. This candidate does not select or implement that strategy."
+    }
+  ],
+  "version_consumer_audit": {
+    "verified": [
+      "services/v2_shared_market.py:IncrementalCandles",
+      "services/v2_shared_risk_reference.py:SharedRiskReference",
+      "services/v2_risk_reference.py:ArchivedRiskReference",
+      "services/v2_s0_regime.py:build_s0_state",
+      "services/v2_s0_regime.py:ArchivedS0Stage",
+      "s3/detector.py:detect_candidate_events"
+    ],
+    "repaired_implicit_v1_only_consumer": "services/v2_risk_reference.py:ArchivedRiskReference now reconstructs the exact PG-attested supported version and rejects unknown or mismatched identities",
+    "unchanged_v1_producer_path": [
+      "services/v2_market_pipeline.py",
+      "services/v2_s3_source.py:DurableCandleSource",
+      "services/v2_s3_candles.py:S3CandleRunner"
+    ],
+    "unchanged_fixed_historical_comparison": "services/v2_profitability_audit.py intentionally compares v2/v3 and is not a general version consumer"
+  },
+  "validation": {
+    "regression_test": "tests/v2_core/test_v2_indicator_v4_release.py",
+    "contract_test": "tests/v2_core/test_v2_indicator_contract_v4.py",
+    "version_flow_test": "tests/v2_core/test_v2_indicator_v4_flow.py",
+    "old_v1_v2_v3_frame_golden_preserved": true,
+    "external_io_in_new_tests": false,
+    "retrospective_or_prospective_market_profitability_validation": "NOT_PERFORMED"
+  }
+}

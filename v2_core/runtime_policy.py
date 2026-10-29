@@ -17,6 +17,32 @@ from v2_core.state import BusinessState, StateKey
 # profile. Bounds are validation invariants, not hidden trading thresholds.
 # name: (default, minimum, maximum). Decimal settings are exact JSON strings.
 SCHEMA = {
+    # Fail-safe reductions are independently gated from opening permission.
+    "protection.emergency_exit_enabled": (True, None, None),
+    "protection.unconfirmed_grace_ms": (30000, 0, 300000),
+    "exit.symbol_isolation_enabled": (False, None, None),
+    "exit.preflight_max_age_ms": (10000, 1000, 30000),
+    "entry.reentry_enabled": (False, None, None),
+    "entry.reentry_max_age_ms": (30000, 1000, 60000),
+    "entry.reentry_max_minutes": (720, 30, 1440),
+    "entry.reentry_page_bars": (120, 1, 1000),
+    "entry.reentry_max_bar_age_ms": (90000, 60000, 180000),
+    "entry.reentry_anchor_bars": (20, 2, 200),
+    "entry.reentry_atr_period": (14, 2, 200),
+    "entry.reentry_volume_period": (20, 2, 200),
+    "entry.reentry_reset_atr": ("0.5", "0.01", "20"),
+    "entry.reentry_breakout_buffer_atr": ("0.15", "0.01", "20"),
+    "entry.reentry_resume_buffer_atr": ("0.1", "0.01", "20"),
+    "entry.reentry_min_relative_volume": ("1.2", "0.01", "20"),
+    "entry.reentry_max_chase_atr": ("1.5", "0.01", "20"),
+    "entry.reentry_stagnation_expansion_atr": ("1.2", "0.01", "20"),
+    "entry.price_guard_enabled": (False, None, None),
+    "entry.max_adverse_price_fraction": ("0.01", "0.0001", "0.05"),
+    "entry.max_stop_risk_increase": ("1.10", "1", "1.5"),
+    "quant.admission_enabled": (False, None, None),
+    "quant.trailing_exit_enabled": (False, None, None),
+    "quant.max_chase_atr": ("1", "0.01", "5"),
+    "quant.base_leverage": (2, 1, 5),
     "capital.enabled": (False, None, None),
     "capital.pool_fraction": ("0.70", "0.01", "1"),
     "capital.margin_buffer": ("1.10", "1", "2"),
@@ -116,6 +142,13 @@ SCHEMA = {
     "analysis.min_follow_pct": ("-0.8", "-100", "100"),
     "analysis.soft_factor": ("0.5", "0", "1"),
     "scheduler.signal_batch": (20, 1, 1000),
+    "scheduler.discovery_reconcile_seconds": (60, 1, 3600),
+    "scheduler.progress_seconds": (300, 1, 3600),
+    "scheduler.backlog_weighted_budget": (True, None, None),
+    "scheduler.max_demand_weight": (16, 1, 1000),
+    "scheduler.continue_after_capacity_denial": (True, None, None),
+    "scheduler.max_capacity_declines": (4, 1, 20),
+    "context.read_workers": (4, 1, 4),
     "scheduler.evaluation_budget_ms": (8000, 100, 60000),
     "scheduler.tv_first": (False, None, None),
     "scheduler.expiry_batch": (1000, 1, 5000),
@@ -187,6 +220,10 @@ def resolve(values=None):
         result["sizing.max_allocation"]
     ):
         raise ValueError("INVERTED_ALLOCATION_RANGE")
+    if Decimal(result["entry.reentry_reset_atr"]) <= Decimal(
+        result["entry.reentry_resume_buffer_atr"]
+    ):
+        raise ValueError("REENTRY_HYSTERESIS_REQUIRED")
     if result["leverage.low_score"] > result["leverage.high_score"]:
         raise ValueError("INVERTED_LEVERAGE_SCORE")
     if not (

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>策略工作台 · ATLAS</title>
+  <link rel="stylesheet" href="/accounts/strategy/app.css"><link rel="stylesheet" href="/accounts/workspace.css"><script src="/accounts/workspace.js" defer></script><script src="/accounts/strategy/app.js" defer></script>
+</head>
+<body data-page="strategy">
+<a class="skip-link" href="#workspace">跳到主要内容</a>
+<div id="atlas-nav"></div>
+<div class="app-shell">
+  <div id="atlas-header"></div>
+  <main id="workspace" tabindex="-1">
+    <div class="page-heading"><div><h1>策略工作台</h1><p>看清表现，找到原因，再调整配置。</p></div><span id="environment-badge" class="badge">测试环境</span></div>
+    <div class="context-bar">
+      <label>环境<select id="environment"><option value="SANDBOX">Testnet · 测试</option><option value="LIVE">生产 · 只读</option></select></label>
+      <label class="account-picker">查看账户<select id="account" aria-label="查看账户"></select></label>
+      <label>统计范围<select id="days"><option value="1">最近 24 小时</option><option value="7">最近 7 天</option><option value="14" selected>最近 14 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></label>
+      <button id="refresh" class="button secondary" type="button">↻ 刷新数据</button>
+    </div>
+    <div class="context-caption"><span id="account-context">正在读取账户…</span><span>此处切换查看，不切换交易执行账户</span></div>
+    <div class="status-line"><span id="status" role="status" aria-live="polite">正在加载…</span><span id="updated-at"></span></div>
+    <div id="error-banner" class="notice danger" role="alert" hidden><span id="error-message"></span><button id="retry" class="text-button" type="button">重新加载</button></div>
+    <nav class="tabs" role="tablist" aria-label="策略工作台功能">
+      <button id="tab-overview" role="tab" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-tab="overview">总览</button>
+      <button id="tab-trades" role="tab" aria-controls="panel-trades" aria-selected="false" tabindex="-1" data-tab="trades">交易明细<span id="trade-count" class="tab-count">—</span></button>
+      <button id="tab-signals" role="tab" aria-controls="panel-signals" aria-selected="false" tabindex="-1" data-tab="signals">信号诊断</button>
+      <button id="tab-risk" role="tab" aria-controls="panel-risk" aria-selected="false" tabindex="-1" data-tab="risk">资金设置<span id="dirty-dot" class="dirty-dot" hidden aria-label="有未保存修改"></span></button>
+      <button id="tab-history" role="tab" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-tab="history">变更记录</button>
+    </nav>
+
+    <section id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="tab-overview">
+      <div class="section-caption"><span>策略表现 <small>仅已结算、非维护交易</small></span><span id="sample-badge" class="badge subtle">等待数据</span></div>
+      <div class="metrics" id="summary" aria-label="策略表现指标"></div>
+      <div class="overview-grid">
+        <article class="card chart-card"><div class="card-heading"><div><h2>账户净值</h2><p>含浮动损益与资金进出，不等于策略收益。</p></div><span id="equity-badge" class="badge subtle">等待采样</span></div>
+          <div class="equity-headline"><strong id="equity-total">—</strong><span>USDT</span></div>
+          <div id="equity-chart" aria-label="账户净值观测图"></div>
+          <output id="chart-readout" class="chart-readout">选择观测点查看时间和金额</output>
+          <label class="sr-only" for="chart-point">查看净值采样点</label><input id="chart-point" class="chart-slider" type="range" min="0" max="0" value="0" disabled>
+          <p id="equity-coverage" class="caption"></p>
+        </article>
+        <article class="card balance-card"><div class="card-heading"><div><h2>资金快照</h2><p>账户金额与风险预算分开看</p></div></div><div id="equity-summary"></div><a class="inline-link" href="#risk" data-go="risk">查看资金设置 <span>→</span></a></article>
+      </div>
+      <div class="insight-grid"><button id="signal-shortcut" class="insight" type="button"><span class="insight-icon" aria-hidden="true">⌁</span><span><small>信号处理</small><strong id="signal-insight">等待数据</strong><span>查看过滤原因与仓位限制</span></span><span aria-hidden="true">→</span></button><button id="risk-shortcut" class="insight" type="button"><span class="insight-icon" aria-hidden="true">◇</span><span><small>当前资金规则</small><strong id="risk-insight">等待配置</strong><span>修改前可预览影响</span></span><span aria-hidden="true">→</span></button></div>
+      <article class="card"><div class="card-heading"><div><h2>策略表现拆分</h2><p>按来源、版本与市场状态区分，不混算不同策略。</p></div></div><div class="table-wrap" id="groups" tabindex="0" aria-label="策略表现表格"></div></article>
+      <details class="card disclosure"><summary>数据范围与计算口径<span>查看采样限制、费用和现金流说明</span></summary><ul id="limitations"></ul><ul id="equity-notes"></ul><h3>已记录的账户现金事件</h3><div class="table-wrap" id="equity-cash"></div></details>
+    </section>
+
+    <section id="panel-trades" class="tab-panel" role="tabpanel" aria-labelledby="tab-trades" hidden>
+      <article class="card">
+        <div class="card-heading"><div><h2>结构再入场 · 旁路观测</h2><p>记录新开仓决策的结构判断，不拦截现有交易，不等于盈利回测。</p></div><button id="shadow-load" class="button secondary" type="button">查看旁路记录</button></div>
+        <p id="shadow-status" role="status" aria-live="polite">点击读取所选账户的观测结果。</p>
+        <p id="shadow-coverage" class="caption"></p>
+        <p id="shadow-evaluation-status" class="caption"></p>
+        <details class="disclosure"><summary>原交易结算标签 · 按参数版本分组（不是影子收益）</summary><div class="table-wrap" id="shadow-groups" tabindex="0" aria-label="旁路判断对应的原交易结算"></div></details>
+        <div class="table-wrap" id="shadow-rows" tabindex="0" aria-label="结构再入场旁路记录"></div>
+        <details class="disclosure"><summary>观测边界</summary><div id="shadow-notes"></div></details>
+      </article>
+      <article class="card">
+        <div class="card-heading"><div><h2>交易复盘与影子对照</h2><p>仅分析历史事实，不下单、不修改参数。按需生成，60 秒内复用结果。</p></div><button id="review-load" class="button secondary" type="button">生成只读复盘</button></div>
+        <p id="review-status" role="status" aria-live="polite">点击生成，查看再入场和强趋势接管的历史样本对照。</p>
+        <p id="review-risk-summary" class="caption"></p>
+        <details class="disclosure"><summary>风险收益：按策略版本和参数分组</summary><div class="table-wrap" id="review-risk-groups" tabindex="0" aria-label="历史风险收益统计"></div></details>
+        <div class="table-wrap" id="review-variants" tabindex="0" aria-label="历史入场规则对照"></div>
+        <details class="disclosure"><summary>逐笔复盘与缺失数据</summary><div class="table-wrap" id="review-trades" tabindex="0" aria-label="逐笔复盘"></div></details>
+        <details class="disclosure"><summary>统计边界与限制</summary><div id="review-notes"></div></details>
+      </article>
+      <article class="card"><div class="card-heading"><div><h2>交易明细</h2><p>筛选当前已读取样本；维护交易不计入策略业绩。</p></div><span id="trade-scope" class="badge subtle"></span></div>
+        <div class="filters"><label class="search-label"><span class="sr-only">搜索币种</span><input id="trade-search" type="search" placeholder="搜索币种，如 BTC" maxlength="32" autocomplete="off"></label><label><span class="sr-only">信号来源</span><select id="trade-source"><option value="">全部来源</option></select></label><label><span class="sr-only">盈亏状态</span><select id="trade-result"><option value="">全部状态</option><option value="win">盈利</option><option value="loss">亏损</option><option value="flat">持平</option><option value="unknown">未结算 / 未估值</option><option value="maintenance">维护交易</option></select></label><label><span class="sr-only">交易排序</span><select id="trade-sort"><option value="recent">默认顺序</option><option value="profit">净收益从高到低</option><option value="loss">净收益从低到高</option><option value="duration">持仓时间从长到短</option></select></label><button id="reset-filters" class="text-button" type="button">重置</button></div>
+        <div class="table-wrap" id="trades" tabindex="0" aria-label="交易明细表格"></div><div class="pagination"><span id="trade-page-info" role="status"></span><div><button id="trade-prev" class="button secondary" type="button" disabled>上一页</button><button id="trade-next" class="button secondary" type="button" disabled>下一页</button></div></div>
+      </article>
+    </section>
+
+    <section id="panel-signals" class="tab-panel" role="tabpanel" aria-labelledby="tab-signals" hidden>
+      <div class="notice info">这里统计的是信号消费回执，同一个信号可能被多个策略处理，不等于独立信号数量。</div>
+      <div class="diagnosis-grid"><article class="card"><div class="card-heading"><div><h2>信号处理结果</h2><p id="receipt-coverage">等待数据</p></div></div><div id="receipts"></div></article><article class="card"><div class="card-heading"><div><h2>仓位被什么限制？</h2><p>来自定仓时记录的实际约束</p></div></div><div id="limits"></div><p id="sizing-coverage" class="caption"></p></article></div>
+    </section>
+
+    <section id="panel-risk" class="tab-panel" role="tabpanel" aria-labelledby="tab-risk" hidden>
+      <div class="notice info" id="edit-notice">只调整 Testnet 资金参数。不会下单、强制平仓或改变正在运行的账户。</div>
+      <div class="settings-layout"><article class="card"><div class="card-heading"><div><h2>资金与风险预算</h2><p id="policy-status">正在读取配置…</p></div><span class="badge subtle">1 修改 · 2 预览 · 3 发布</span></div>
+        <div class="pool-summary"><div><span>总保证金使用上限</span><strong id="pool-label">—</strong></div><progress id="pool-meter" max="100" value="0" aria-label="总保证金使用上限"></progress><p id="reserve-label">至少保留 30%，不代表会把预算全部用完。</p><p id="pool-config-note"></p></div>
+        <div id="fields"></div><details class="advanced-settings"><summary>高级资金参数<span>分配范围与成本缓冲</span></summary><div id="advanced-fields"></div></details>
+        <p id="draft-status" class="caption" role="status">尚未修改</p><div class="form-actions"><button id="preview" class="button primary" type="button" disabled>预览修改</button><button id="discard" class="button secondary" type="button" disabled>撤销修改</button></div>
+      </article><article class="card preview-card"><div class="card-heading"><div><h2>变更预览</h2><p id="preview-context">先调整左侧参数，再预览影响。</p></div></div><div id="preview-result" class="empty-state compact"><span class="empty-symbol">◇</span><strong>修改前，先看影响</strong><p>对比修改前后的参数和示例仓位，再决定是否发布。</p></div><p id="preview-expiry" class="caption" role="status"></p>
+        <div id="publish-fields" hidden><label class="reason-label" for="reason">变更原因</label><input id="reason" maxlength="240" placeholder="说明这次调整的依据，不要填写密钥" autocomplete="off"><button id="apply" class="button primary full-width" type="button" disabled>确认发布到 Testnet</button></div><p id="apply-status" class="action-status" role="status" aria-live="polite"></p>
+      </article></div>
+    </section>
+
+    <section id="panel-history" class="tab-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+      <article class="card"><div class="card-heading"><div><h2>配置变更记录</h2><p>恢复会创建新版本，不覆盖历史，也不恢复交易权限或旧仓位退出参数。</p></div></div><div class="history-actions"><label for="history">选择要恢复的版本</label><select id="history"></select><button id="restore" class="button secondary" type="button" disabled>预览恢复</button></div><div id="history-list"></div></article>
+      <details class="card disclosure"><summary>技术参数（只读）<span>完整字段与当前配置值</span></summary><pre id="full-policy"></pre></details>
+    </section>
+    <footer>ATLAS V2 <span>数据驱动决策 · 时间 UTC+8</span></footer>
+  </main>
+</div>
+<dialog id="trade-dialog" aria-labelledby="trade-dialog-title"><div class="dialog-heading"><div><span class="eyebrow">交易详情</span><h2 id="trade-dialog-title"></h2></div><button id="close-trade" class="icon-button" type="button" aria-label="关闭交易详情">×</button></div><div id="trade-detail"></div></dialog>
+</body></html>

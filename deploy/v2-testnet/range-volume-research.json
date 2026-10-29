@@ -1,0 +1,21 @@
+{
+  "stage": "P1_OFFLINE_SHADOW_RESEARCH",
+  "entrypoint": "services.v2_range_volume_study_entry",
+  "automatic_execution": false,
+  "live_signal_publication": false,
+  "source_code_reused_from_tradingview": false,
+  "implementation": "Independent prior-range, prior-mean-true-range, path-efficiency, relative-volume and close-location hypotheses; not a replica of the cited scripts",
+  "concept_references": [
+    "https://www.tradingview.com/script/WC3DYn1W-Trend-Range-Detector-Zeiierman/",
+    "https://in.tradingview.com/script/MXn4pESD-HTF-Volume-Spike-Imbalance-Projection-LuxAlgo/",
+    "https://www.tradingview.com/script/Y5CIZ9CB-Universal-Signal-Backtester-LuxAlgo/"
+  ],
+  "variants": ["baseline", "range", "volume", "combined"],
+  "baseline": "Existing Donchian or Squeeze research simulator; not the live account strategy",
+  "storage": "Immutable PostgreSQL range-volume-study-v1 business state; ClickHouse read-only market input; no local business state",
+  "limits": {"symbols_per_job": 3, "bars_per_symbol": 3000, "archive_minutes": 14400},
+  "validation": "Fixed-parameter chronological development/holdout split, same-cost ablation, double-fee-and-slippage holdout; not parameter search or walk-forward certification",
+  "cost_stress_interpretation": "Cost stress recomputes position sizing and venue-size eligibility; a smaller net loss can reflect fewer fills, not improved robustness. Inspect entry_rejections and trade counts alongside PnL.",
+  "release_gate": "No automatic selection or live admission. Require complete market data, funding and contract-rule validation, representative out-of-sample samples and operational latency acceptance before any later activation.",
+  "next_stages_not_implemented": ["exhaustion_exit_experiment", "adaptive_smoothing_comparison", "live_TV_S3_matched_decision_replay"]
+}

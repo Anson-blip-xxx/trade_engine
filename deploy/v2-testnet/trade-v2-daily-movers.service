@@ -1,0 +1,39 @@
+[Unit]
+Description=V2 daily top/bottom10 mover research (no order authority)
+After=network-online.target postgresql@16-tradev2.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradev2movers
+Group=tradev2movers
+WorkingDirectory=/opt/trade-engine-v2/daily-movers
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_daily_mover_entry
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment="V2_DAILY_MOVER_DSN=dbname=trade_v2_testnet host=/var/run/postgresql port=55432 user=tradev2movers"
+EnvironmentFile=/etc/trade-engine-v2/telegram-alerts.env
+LoadCredentialEncrypted=v2-notifications:/etc/credstore.encrypted/trade-v2-notifications.cred
+TimeoutStartSec=1800
+TimeoutStopSec=15
+Nice=15
+CPUQuota=15%
+MemoryMax=384M
+TasksMax=16
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+StandardOutput=journal
+StandardError=journal

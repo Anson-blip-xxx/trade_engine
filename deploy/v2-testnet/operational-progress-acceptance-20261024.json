@@ -1,0 +1,211 @@
+{
+  "change_set": "operational-progress-20261024-v1",
+  "status": "DEPLOYED_QA_PASSED_NATURAL_SANDBOX_FLOW_OBSERVED",
+  "environment": "SANDBOX",
+  "timezone": "Asia/Shanghai",
+  "controller_base": "/opt/trade-engine-v2/releases/admission-bundles-20261024-v1",
+  "controller_candidate": "/opt/trade-engine-v2/releases/operational-progress-20261024-v1",
+  "live_environment_changed": false,
+  "account_switch": false,
+  "artificial_trade": false,
+  "ledger_reset": false,
+  "risk_limits_changed": false,
+  "changes": [
+    "Bounded durable round-robin exit scan replaces all-or-nothing active-position capacity failure; existing order recovery and independent-symbol reduce-only proof remain mandatory.",
+    "Only scoped operational cursor payload corruption can restart the scan; true database or identity conflict still blocks safely. No repeated history writes for unchanged full scan cursor.",
+    "Persistent latest rejected CLOSE with remaining local ledger independently appears in health and DM alert details; venue inability is never inferred from local ledger alone.",
+    "Alert details distinguish OPEN/CLOSE, residual, idle duration, known reasons, scan backlog, unavailable protection; optional detail failures preserve base alert. Terminal recoveries and ordinary WAIT/DISPATCHED are not labeled uncloseable.",
+    "Read-only account/cohort/cost/instrument scoped review compares actual simulated execution paths, not labels or no-op sample counts. No automatic strategy or leverage change."
+  ],
+  "source_sha256": {
+    "services/v2_directional_exit.py": "ddd6cc54ed84e25dcef1ec5ed4edcef177e1cc65dccff13e4892572a8b7a0177",
+    "services/v2_trading_health.py": "8ef7d6da0ad8f18887ba4a86a1f408a7d3703b1e744f10f041697464c876ca26",
+    "services/v2_testnet_watchdog.py": "fb86f5c29c2f6eb4530a31cae7290c7acf80f7f413e744eefd6458ea60fbf2ba",
+    "services/v2_managed_health.py": "559eae78bdf93f41736db8b8f2d5e6d99d3c01d9e5b41db8dc79ed38faf981d2",
+    "v2_core/telegram.py": "1645ada0fc9c77d686077cda5ebebd6e6a8bde307e4dfac736605603cee821f0",
+    "services/v2_review_progress.py": "cab14d0a03e4e3c590e3d549746ac219fb2c354bb5aa6516402d8e803dc8a851",
+    "tests/v2_core/test_v2_review_progress.py": "3490a79830ea218bc0f559a3ba21fd395cd0244a38cfac0d34833274f4d39d18",
+    "tests/v2_core/test_v2_exit_scan_fairness.py": "6bb6747ce30aa93c2cf4d46ea5f9b0986a63b06aede936e7de8e90d94a961944",
+    "tests/v2_core/test_v2_position_alert_details.py": "6ba2c53db6fe9ac008860eee8f0445f12b111dcc1928594682b15b5b074932c4"
+  },
+  "qa": {
+    "passed": 2397,
+    "files": 86,
+    "seconds": 739.93,
+    "log": "/tmp/v2-data-qa.6D1ZLL/pytest.log",
+    "log_sha256": "d0a9403d2ea90ef36fde6c165fa4e8f24e32f264073ba7d96d2bf2d02e243be7",
+    "network_boundary": "Dedicated temporary PostgreSQL/Redis; external TCP denied; no real venue orders in QA.",
+    "workspace_readonly_review_tests": {
+      "passed": 36
+    },
+    "static_checks": "ruff and git diff --check passed",
+    "earlier_fixture_corrections": "New tests initially lacked required venue outcome evidence and attempted illegal filled-order rejection / close after flat. Fixtures corrected to use valid overlapping native-child/reduce-only identities; production order invariants were never relaxed.",
+    "counting_note": "Do not sum overlapping earlier suites with the2397 final suite."
+  },
+  "deployment": {
+    "status": "ACTIVE",
+    "controller_pid": 1248092,
+    "route_epoch": 9,
+    "binding_version": 1,
+    "same_account": true,
+    "source_worker_stop": {
+      "forced": false,
+      "stopped": true
+    },
+    "recovery_worker_stop": {
+      "forced": false,
+      "stopped": true
+    },
+    "resumed_via": "ExecutionRoutes.request and controller same-binding fresh resume_preflight; no direct actual-route SQL",
+    "market_hub_unchanged": true,
+    "other_services_restarted": false,
+    "rollback_base": "/opt/trade-engine-v2/releases/admission-bundles-20261024-v1",
+    "rollback_method": "Gracefully stop controller, restore prior immutable release symlink, start management recovery, then request same binding with fresh monotonic epoch after coverage checks. Do not reset ledger, cursor, policy, capital or prior route events."
+  },
+  "limits": [
+    "Incomplete exit slices continue held-position exit attempts but conservatively block new entries until the scan can be complete.",
+    "Account/ownership/unknown-order uncertainty is not fail-open; no guarantee every failure can leave entries running.",
+    "Existing per-code alert dedupe remains: additional symbols under the same continuously active alert code do not trigger separate DM messages.",
+    "Fresh detail display horizon120seconds is diagnostic only; normal health confirmation thresholds remain dynamic.",
+    "Review CLI is read-only tooling plus a current evidence artifact, not a newly scheduled auto-optimizer.",
+    "Residual-aware FULL/PARTIAL/FLAT counterfactual replay not implemented; negative or low-effective-sample groups not promoted.",
+    "No claim this fixes every source of signal latency or proves improved profitability."
+  ],
+  "release_started_at_ms": 1792822489119,
+  "pointer_switched_at_ms": 1792822511045,
+  "online_window": {
+    "window_start_ms": 1792822511045,
+    "window_end_ms": 1792822670032,
+    "cycles_with_new_scan": 11,
+    "cycle_statuses": {
+      "CYCLE_COMPLETE": 9,
+      "ENTRY_BLOCKED": 2
+    },
+    "scan_incomplete": 0,
+    "phase_states": {
+      "protection": {
+        "CLEAR": 11
+      },
+      "exits": {
+        "CLEAR": 10,
+        "BLOCKED": 1
+      },
+      "settlement": {
+        "CLEAR": 7,
+        "BLOCKED": 4
+      }
+    },
+    "natural_recent_closes": [
+      {
+        "symbol": "MAGMAUSDT",
+        "order_status": "FILLED",
+        "episode_status": "SETTLED",
+        "close_quantity": "453.000000000000000000",
+        "closed_observed_at_ms": 1792822552515,
+        "settlement_revisions": 1
+      }
+    ],
+    "cursor_version_and_history_rows": [
+      2,
+      2
+    ]
+  },
+  "latest_observation": {
+    "observed_at_ms": 1792822969693,
+    "cycle_finished_at_ms": 1792822960381,
+    "cycle_age_ms": 9312,
+    "cycle_status": "CYCLE_COMPLETE",
+    "phases": {
+      "protection": "CLEAR",
+      "exits": "CLEAR",
+      "settlement": "CLEAR"
+    },
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "native_stop_states": {
+      "NEW": 2
+    },
+    "exits": {
+      "WAIT": 2
+    },
+    "scan": {
+      "limit": 10,
+      "complete": true,
+      "selected": 2,
+      "cursor_invalid": false,
+      "cursor_rebuilt": false,
+      "cursor_advanced": false,
+      "count_is_lower_bound": false,
+      "active_count_lower_bound": 2,
+      "remaining_count_lower_bound": 0
+    },
+    "nonterminal_orders": [],
+    "nonterminal_episodes": [
+      [
+        "ACTIVE",
+        2
+      ]
+    ],
+    "health_age_ms": 5833,
+    "health_active": [],
+    "health_findings": []
+  },
+  "natural_orders": [
+    {
+      "symbol": "MAGMAUSDT",
+      "entry_side": "SELL",
+      "leg": "OPEN",
+      "order_status": "FILLED",
+      "episode_status": "ACTIVE",
+      "quantity": "669.000000000000000000",
+      "observed_at_ms": 1792822653250,
+      "source": "s3",
+      "market_gate": "MARKET_GATES_PASSED"
+    },
+    {
+      "symbol": "MAGMAUSDT",
+      "entry_side": "SELL",
+      "leg": "CLOSE",
+      "order_status": "FILLED",
+      "episode_status": "SETTLED",
+      "quantity": "453.000000000000000000",
+      "observed_at_ms": 1792822552516,
+      "source": "s3",
+      "market_gate": "MARKET_GATES_PASSED"
+    }
+  ],
+  "telegram_delivery": {
+    "status": "CONFIRMED",
+    "destination": "CONFIGURED_ALERT_DM",
+    "labeled_test": true,
+    "message_id": 2998,
+    "business_state_written": false,
+    "trading_action": false
+  },
+  "public_dashboard": {
+    "http_status": 200,
+    "checked_via": "localhost read-only overview endpoint",
+    "elapsed_ms": 152
+  },
+  "review_artifact": "docs/review_progress_20261024.json",
+  "online_limits": [
+    "Natural postrelease open and close belong to separate S3 decisions on the same instrument, not a forced synthetic end-to-end trade.",
+    "Natural close had temporary WAITING_INCOME_LAG; settled normally after the configured existing publication delay without clearing records.",
+    "A transient signal-lag finding without active alarm appeared and cleared during postrelease observations; no sustained-latency improvement claim.",
+    "No artificial uncloseable venue position was created. Fault isolation and rejected-residual alerts were validated in isolated QA; DM delivery was a clearly labeled test."
+  ],
+  "strategy_followup": {
+    "reentry_mode": "OFF",
+    "history_mode": "OFF",
+    "entry_controls_version": 2,
+    "configured_since": "2026-10-12T09:01:29+08:00",
+    "changed_by_this_release": false,
+    "current_enforced_sides": [
+      "BUY"
+    ],
+    "natural_reentry_ms": 109727,
+    "jev_entry_mode": "FALLBACK",
+    "jev_reason": "TOKEN_BUDGET_EXHAUSTED",
+    "jev_scope": "Local UTC+8 daily token budget; not supplier balance proof",
+    "action": "Research SELL-aware structural reentry and residual-aware exit comparisons before changing active thresholds. Current successful execution is not evidence of profitable entry decisions."
+  }
+}

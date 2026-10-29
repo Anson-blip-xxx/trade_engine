@@ -261,7 +261,8 @@ def test_failure_after_funding_allocation_rolls_back_whole_settlement(
         and trace["settlements"] == []
     )
     monkeypatch.setattr(Ledger, "settle", original)
-    assert service(database, income).run_once()["status"] == "CLEAR"
+    result = service(database, income).run_once()
+    assert result["status"] == "CLEAR", result
 
 
 def test_final_inventory_is_persisted_on_wallet_mismatch(database, closed):
@@ -351,15 +352,16 @@ def test_superseded_cash_evidence_cannot_commit(database, closed, monkeypatch):
     assert runtime.data.trace(episode)["settlements"] == []
 
 
+@pytest.mark.parametrize("_attempt", range(8))
 def test_unified_cycle_settles_old_episode_before_admitting_new_signals(
-    database, closed, pipeline_case
+    database, closed, pipeline_case, _attempt
 ):
     runtime, episode, income = closed
     baseline(database, runtime, episode)
     pipeline, _, _, _, _ = pipeline_case
     pipeline.settlement = service(database, income)
     result = pipeline.run_once()
-    assert result["status"] == "CYCLE_COMPLETE", result
+    assert result["status"] == "CYCLE_COMPLETE", json.dumps(result, sort_keys=True)
     assert result["phases"]["settlement"]["settlements"][episode]["status"] == "SETTLED"
     assert "s6" in result["phases"] and "s8" in result["phases"]
     assert runtime.data.trace(episode)["episode"]["status"] == "SETTLED"

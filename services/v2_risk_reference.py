@@ -7,7 +7,13 @@ prove consistency with PG receipts, not authenticity against a malicious publish
 
 import json
 
-from services.v2_s3_candles import build_frame
+from services.v2_s3_candles import (
+    BREAKOUT_VERSION,
+    PRICE_VERSION,
+    ROLLING_VERSION,
+    VERSION,
+    build_frame,
+)
 from services.v2_s3_source import frame_digest
 from v2_core.account_risk import AccountScope, RiskProvenance, RiskReference
 from v2_core.errors import SubmissionNotSent
@@ -80,6 +86,9 @@ class ArchivedRiskReference:
         started = milliseconds(self.clock_ms())
         if not observed <= started < deadline:
             raise ReferenceUnavailable("REFERENCE_STALE")
+        version = frame_id.split(":", 1)[0] if isinstance(frame_id, str) else None
+        if version not in {VERSION, PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION}:
+            raise ReferenceUnavailable("REFERENCE_FEATURE_VERSION_UNSUPPORTED")
         encoded = self.archive.get(archive_hash)
         if (
             not isinstance(encoded, str)
@@ -89,7 +98,9 @@ class ArchivedRiskReference:
             raise ReferenceUnavailable("REFERENCE_ARCHIVE_UNAVAILABLE")
         try:
             batch = json.loads(encoded)
-            frame = build_frame(batch, environment=self.scope.environment)
+            frame = build_frame(
+                batch, environment=self.scope.environment, feature_version=version
+            )
             if (
                 frame["frame_id"] != frame_id
                 or frame["observed_at"] != observed

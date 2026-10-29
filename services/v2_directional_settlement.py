@@ -14,7 +14,10 @@ from v2_core.evidence import canonical, digest
 from v2_core.income import IncomeJournal
 from v2_core.income_ownership import income_owner
 from v2_core.ledger import Ledger, amount
+from v2_core.precision import money_context
 from v2_core.runtime_policy import PolicyStore
+from v2_core.scheduling import diagnostic_code
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 
@@ -61,6 +64,11 @@ class DirectionalSettlementStage:
             raise ValueError("REQUIRED_SETTLEMENT_EVIDENCE_MISSING")
         return json.loads(value.payload_json), value.version
 
+    def entry_clearance(self, result, protection_coverage):
+        from services.v2_settlement_entry import entry_clearance
+
+        return entry_clearance(self, result, protection_coverage)
+
     def _baseline(self, episode):
         with self.connect() as conn:
             rows = conn.execute(
@@ -96,6 +104,29 @@ class DirectionalSettlementStage:
 
     def settle(self, episode):
         episode = str(UUID(episode))
+        # A known local blocker already makes final account settlement
+        # impossible. Do not repeatedly spend income + seven-route inventory
+        # quota on it. This is a denial-only prefilter, not a cached clearance:
+        # once it clears, all existing fresh cash/inventory/fact fences still run.
+        with self.connect() as conn:
+            pending = conn.execute(
+                """SELECT 1 FROM v2_orders o JOIN v2_trade_intents i
+                ON i.intent_id=o.episode_id
+                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED')
+                AND NOT (o.status='PREPARED' AND o.leg='OPEN'
+                    AND o.exchange_order_id IS NULL AND NOT EXISTS
+                    (SELECT 1 FROM v2_fills f WHERE f.order_id=o.order_id))
+                LIMIT 1""",
+                tuple(asdict(self.scope).values()),
+            ).fetchone()
+        if pending:
+            return {
+                "status": "BLOCKED",
+                "reason": "LOCAL_ORDERS_NOT_FINAL",
+                "network_deferred": True,
+                "settlement_authorized": False,
+            }
         cash = self.cash.audit(episode)
         if cash.get("status") != "CASH_MATCHED":
             return {
@@ -103,17 +134,15 @@ class DirectionalSettlementStage:
                 "reason": cash.get("status"),
                 "settlement_authorized": False,
             }
-        with self.connect() as account:
-            if not account.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("testnet-protocol-account:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {
                     "status": "BLOCKED",
                     "reason": "ACCOUNT_BUSY",
                     "settlement_authorized": False,
                 }
-            account.commit()
             result = self._settle_locked(episode, cash)
         if result.get("status") == "SETTLED":
             result["outcome"] = self.outcomes.record(episode)
@@ -234,8 +263,10 @@ class DirectionalSettlementStage:
             fill_end=window[1],
             cash=cash,
         )
-        external_amount = sum((Decimal(row["amount"]) for row in external), Decimal(0))
-        attributed_wallet_delta = final_wallet - start_wallet - external_amount
+        with money_context():
+            external_amount = sum((Decimal(row["amount"]) for row in external), Decimal(0))
+            wallet_delta = final_wallet - start_wallet
+            attributed_wallet_delta = wallet_delta - external_amount
         if attributed_wallet_delta != provisional:
             raise ValueError("WALLET_CASH_MISMATCH")
         cash_saved, cash_version = self._state("directional-cash-audit-v1", episode)
@@ -302,7 +333,38 @@ class DirectionalSettlementStage:
                     connection=conn,
                 )
                 revision += 1
+            for insurance in cash.get("insurance_candidates", []):
+                inserted = journal.assign_insurance_clear(
+                    insurance["income_id"], episode, expected_revision=revision,
+                    evidence={
+                        "source": "directional-settlement-v1",
+                        "fills_complete": True,
+                        "cash_audit_digest": digest(canonical(cash)),
+                        "baseline_digest": digest(canonical(baseline_proof)),
+                        "final_inventory": final["observation_id"],
+                    },
+                    connection=conn,
+                )
+                revision += int(inserted)
             ledger = Ledger(lambda: nullcontext(conn))
+            precision = cash["precision_reconciliation"]
+            if amount(precision["amount"]) != 0:
+                inserted = ledger.adjustment(
+                    episode_id=episode,
+                    source_id=f"{precision['model']}:{episode}",
+                    amount_text=precision["amount"],
+                    currency="USDT",
+                    kind="CORRECTION",
+                    occurred_at_ms=window[1],
+                    evidence={
+                        "source": "directional-settlement-precision-v1",
+                        "precision": precision,
+                        "cash_audit_digest": digest(canonical(cash)),
+                        "income_digest": cash["income_digest"],
+                        "final_inventory": final["observation_id"],
+                    },
+                )
+                revision += int(inserted)
             report = ledger.report(episode, settlement_currency="USDT", connection=conn)
             if (
                 report["accounting_revision"] != revision
@@ -324,7 +386,8 @@ class DirectionalSettlementStage:
                 "final_inventory": final["observation_id"],
                 "final_inventory_digest": digest(canonical(final)),
                 "cash_audit_digest": digest(canonical(cash)),
-                "wallet_delta": str(final_wallet - start_wallet),
+                "wallet_delta": str(wallet_delta),
+                "precision_reconciliation": precision,
                 "attributed_wallet_delta": str(attributed_wallet_delta),
                 "external_income_run": income_run,
                 "external_income": [
@@ -339,6 +402,9 @@ class DirectionalSettlementStage:
                 "funding_income_ids": [
                     f["income_id"] for f in cash["funding_candidates"]
                 ],
+                "insurance_clear_income_ids": [
+                    f["income_id"] for f in cash.get("insurance_candidates", [])
+                ],
             }
             ledger.settle(episode, currency="USDT", evidence=proof)
         return {
@@ -350,13 +416,11 @@ class DirectionalSettlementStage:
         }
 
     def run_once(self):
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("directional-settlement-stage:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "directional-settlement-stage:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BLOCKED", "reason": "BUSY"}
-            guard.commit()
             with self.connect() as conn:
                 pending = conn.execute(
                     """SELECT i.intent_id::text FROM v2_trade_intents i
@@ -376,7 +440,7 @@ class DirectionalSettlementStage:
                 except Exception as exc:  # noqa: BLE001 - isolate corrupt analysis evidence
                     outcomes[episode] = {
                         "status": "BLOCKED",
-                        "error_code": type(exc).__name__,
+                        "error_code": diagnostic_code(exc),
                     }
             with self.connect() as conn:
                 rows = conn.execute(
@@ -398,7 +462,7 @@ class DirectionalSettlementStage:
                 except Exception as exc:  # noqa: BLE001 - isolate and sanitize one episode
                     results[episode] = {
                         "status": "BLOCKED",
-                        "error_code": type(exc).__name__,
+                        "error_code": diagnostic_code(exc),
                     }
             unresolved = any(
                 r.get("status") != "SETTLED" for r in results.values()

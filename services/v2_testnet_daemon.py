@@ -32,6 +32,7 @@ def create_directional_testnet_pipeline(
     enable_protection_writes=False,
     enable_reduce_only_exits=False,
     external_position_exclusions=(),
+    quant_market=None,
 ):
     flags = (enable_entries, enable_protection_writes, enable_reduce_only_exits)
     scope = runtime.scope
@@ -81,6 +82,7 @@ def create_directional_testnet_pipeline(
         reference=mark_reference,
         allow_writes=enable_reduce_only_exits,
         excluded_position_symbols=external_position_exclusions,
+        quant_market=quant_market,
     )
     settlement = DirectionalSettlementStage(
         runtime.data._connect,
@@ -166,7 +168,7 @@ class TestnetTradingDaemon:
     def run_once(self):
         # Durable start marker must commit before any stage or exchange action.
         self._checkpoint({"status": "STARTING"})
-        result = self.pipeline.run_once()
+        result = self.pipeline.run_once(stop_requested=self.stop.is_set)
         self._checkpoint(
             {
                 "status": "RUNNING"
@@ -176,7 +178,7 @@ class TestnetTradingDaemon:
                 "cycle_id": result.get("cycle_id"),
             }
         )
-        if self.trade_notifications is not None:
+        if self.trade_notifications is not None and not self.stop.is_set():
             try:
                 self.trade_notifications.run_once()
             except Exception:  # noqa: BLE001, S110 - durable projector retries later

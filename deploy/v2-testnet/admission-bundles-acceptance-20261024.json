@@ -1,0 +1,1221 @@
+{
+  "change_set": "admission-bundles-20261024-v1",
+  "status": "DEPLOYED_FUNCTIONAL_ACCEPTANCE_PASSED_LATENCY_REDUCTION_NOT_PROVEN",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "controller_base": "/opt/trade-engine-v2/releases/signal-isolation-20261024-v1",
+  "controller_candidate": "/opt/trade-engine-v2/releases/admission-bundles-20261024-v1",
+  "hub_base": "/opt/trade-engine-v2/releases/storage-dedup-market-hub-20261004-v1",
+  "hub_candidate": "/opt/trade-engine-v2/releases/admission-budget-hub-20261024-v1",
+  "live_changed": false,
+  "account_switch": false,
+  "artificial_trade": false,
+  "ledger_reset": false,
+  "risk_limits_changed": false,
+  "quota": {
+    "total_per_minute": 2000,
+    "noncritical_per_minute": 550,
+    "management_reserved": 1450,
+    "base_context_weight": 27,
+    "adaptive_context_weight": 30,
+    "policy_namespace": "admission-budget-policy",
+    "policy_not_yet_activated": false,
+    "policy_version": 1,
+    "admission_minimum": 120,
+    "market_minimum": 100
+  },
+  "changes": [
+    "Atomic complete account-context GET reservation before any SANDBOX HTTP",
+    "Scoped per-endpoint single-use tickets, no private account cache, no automatic refunds",
+    "DNS/TLS completion before fresh HMAC signing and final ticket validity check",
+    "Separate bidirectional allocation policy; existing MarketPolicy and monitoring readers unchanged",
+    "Web verification SQL shares admission allowance and preserves EXECUTE-only privileges",
+    "No control threshold relaxation, no alert suppression, no new gs-quant hot-path dependency"
+  ],
+  "qa": {
+    "main": {
+      "passed": 2138,
+      "files": 76,
+      "seconds": 593.24,
+      "log": "/tmp/v2-data-qa.gtfG6P/pytest.log",
+      "log_sha256": "993219f436c2a603ee2b60f5dcb929aa53a43ed615a3ca45c80dd455fa986c10"
+    },
+    "supplemental": {
+      "passed": 178,
+      "files": 5,
+      "seconds": 77.81,
+      "log": "/tmp/v2-data-qa.22tLHr/pytest.log",
+      "log_sha256": "5bd8a01590d5ced1ad07db83d95f08732fc17c5e3e302847ccc72cbb0f041b81"
+    },
+    "network_boundary": "External TCP denied; dedicated temporary PostgreSQL and Redis sockets; no venue QA trades",
+    "earlier_failures": "Corrected new test fixtures for tombstone payloads, invalid JSON numeric injection and version/history constraints; unrelated absent host-maintenance test excluded from controller suite",
+    "hub": {
+      "passed": 138,
+      "files": 3,
+      "seconds": 43.21,
+      "log": "/tmp/v2-data-qa.cJoefO/pytest.log",
+      "log_sha256": "505e0fe2b0738988cbbfbc6bbd246703e6996484a8f6cf07dbc266b573ef0573"
+    },
+    "counting_note": "Suites overlap; do not sum as unique tests."
+  },
+  "baseline_10m": {
+    "captured_at": "2026-10-24T11:37:27.012000+08:00",
+    "window_from_ms": 1792812326711,
+    "window_to_ms": 1792812926711,
+    "observation_at_ms": 1792813047012,
+    "cycles": 40,
+    "cycle_statuses": {
+      "CYCLE_COMPLETE": 40
+    },
+    "cycle_times": {
+      "count": 40,
+      "p50_ms": 3326,
+      "p95_ms": 16190,
+      "max_ms": 18647
+    },
+    "cycle_start_intervals": {
+      "count": 39,
+      "p50_ms": 15000,
+      "p95_ms": 17276,
+      "max_ms": 19741
+    },
+    "failures": [
+      {
+        "consumer_source": "s6:s3",
+        "cause": "ADMISSION_BUDGET_UNAVAILABLE",
+        "outcome": "DEFERRED",
+        "attempts": 93,
+        "distinct_signals": 41
+      },
+      {
+        "consumer_source": "s8:s3",
+        "cause": "ADMISSION_BUDGET_UNAVAILABLE",
+        "outcome": "DEFERRED",
+        "attempts": 2,
+        "distinct_signals": 1
+      },
+      {
+        "consumer_source": "s6:s3",
+        "cause": "SHORT_RATIO_STALE",
+        "outcome": "DEFERRED",
+        "attempts": 2,
+        "distinct_signals": 2
+      },
+      {
+        "consumer_source": "s6:s3",
+        "cause": "SHORT_RATIO_STALE",
+        "outcome": "IGNORED",
+        "attempts": 2,
+        "distinct_signals": 2
+      }
+    ],
+    "phase_states": [
+      {
+        "phase": "protection",
+        "status": "CLEAR",
+        "cycles": 40
+      },
+      {
+        "phase": "exits",
+        "status": "CLEAR",
+        "cycles": 40
+      },
+      {
+        "phase": "settlement",
+        "status": "CLEAR",
+        "cycles": 40
+      }
+    ],
+    "phase_times": {
+      "s6": {
+        "count": 40,
+        "p50_ms": 1773,
+        "p95_ms": 11154,
+        "max_ms": 13671
+      },
+      "s8": {
+        "count": 40,
+        "p50_ms": 542,
+        "p95_ms": 3943,
+        "max_ms": 4874
+      },
+      "exits": {
+        "count": 40,
+        "p50_ms": 15,
+        "p95_ms": 25,
+        "max_ms": 32
+      },
+      "s6:tv": {
+        "count": 40,
+        "p50_ms": 25,
+        "p95_ms": 36,
+        "max_ms": 38
+      },
+      "s8:tv": {
+        "count": 40,
+        "p50_ms": 26,
+        "p95_ms": 42,
+        "max_ms": 43
+      },
+      "market": {
+        "count": 40,
+        "p50_ms": 64,
+        "p95_ms": 89,
+        "max_ms": 133
+      },
+      "regime": {
+        "count": 40,
+        "p50_ms": 65,
+        "p95_ms": 109,
+        "max_ms": 120
+      },
+      "recovery": {
+        "count": 40,
+        "p50_ms": 36,
+        "p95_ms": 60,
+        "max_ms": 73
+      },
+      "followups": {
+        "count": 40,
+        "p50_ms": 7,
+        "p95_ms": 11,
+        "max_ms": 20
+      },
+      "protection": {
+        "count": 40,
+        "p50_ms": 827,
+        "p95_ms": 1141,
+        "max_ms": 1271
+      },
+      "settlement": {
+        "count": 40,
+        "p50_ms": 24,
+        "p95_ms": 38,
+        "max_ms": 65
+      },
+      "configuration": {
+        "count": 40,
+        "p50_ms": 11,
+        "p95_ms": 18,
+        "max_ms": 37
+      },
+      "signal_maintenance": {
+        "count": 40,
+        "p50_ms": 0,
+        "p95_ms": 0,
+        "max_ms": 0
+      }
+    },
+    "candidate_resolution_attempts": 2,
+    "candidate_resolution_commits": 2,
+    "invalid_resolution_commits": 0,
+    "cohorts": [
+      {
+        "producer": "s6",
+        "source": "s3",
+        "category": "NON_DIRECTIONAL_BOOKKEEPING",
+        "received": 623,
+        "outcomes": {
+          "EXPIRED": 623
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 623,
+        "resolved_latency": {
+          "count": 0
+        },
+        "expiry_latency": {
+          "count": 623,
+          "p50_ms": 77395,
+          "p95_ms": 90880,
+          "max_ms": 98219
+        }
+      },
+      {
+        "producer": "s6",
+        "source": "s3",
+        "category": "OPPOSITE_DIRECTION_BOOKKEEPING",
+        "received": 151,
+        "outcomes": {
+          "EXPIRED": 151
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 151,
+        "resolved_latency": {
+          "count": 0
+        },
+        "expiry_latency": {
+          "count": 151,
+          "p50_ms": 80022,
+          "p95_ms": 93614,
+          "max_ms": 97754
+        }
+      },
+      {
+        "producer": "s6",
+        "source": "s3",
+        "category": "DIRECTIONAL_MATCH",
+        "received": 253,
+        "outcomes": {
+          "IGNORED": 253
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 0,
+        "resolved_latency": {
+          "count": 253,
+          "p50_ms": 17109,
+          "p95_ms": 56041,
+          "max_ms": 60102
+        },
+        "expiry_latency": {
+          "count": 0
+        }
+      },
+      {
+        "producer": "s8",
+        "source": "s3",
+        "category": "NON_DIRECTIONAL_BOOKKEEPING",
+        "received": 623,
+        "outcomes": {
+          "EXPIRED": 623
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 623,
+        "resolved_latency": {
+          "count": 0
+        },
+        "expiry_latency": {
+          "count": 623,
+          "p50_ms": 79148,
+          "p95_ms": 93866,
+          "max_ms": 97893
+        }
+      },
+      {
+        "producer": "s8",
+        "source": "s3",
+        "category": "DIRECTIONAL_MATCH",
+        "received": 151,
+        "outcomes": {
+          "IGNORED": 151
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 0,
+        "resolved_latency": {
+          "count": 151,
+          "p50_ms": 7552,
+          "p95_ms": 16460,
+          "max_ms": 18442
+        },
+        "expiry_latency": {
+          "count": 0
+        }
+      },
+      {
+        "producer": "s8",
+        "source": "s3",
+        "category": "OPPOSITE_DIRECTION_BOOKKEEPING",
+        "received": 253,
+        "outcomes": {
+          "EXPIRED": 253
+        },
+        "valid_unreceipted_over_30s": 0,
+        "expired_unreceipted": 0,
+        "young_pending": 0,
+        "unreceipted_causes": {},
+        "expired_without_decision": 253,
+        "resolved_latency": {
+          "count": 0
+        },
+        "expiry_latency": {
+          "count": 253,
+          "p50_ms": 87422,
+          "p95_ms": 96818,
+          "max_ms": 97608
+        }
+      }
+    ],
+    "health": {
+      "observed_at_ms": 1792813036437,
+      "active": [],
+      "findings": {},
+      "expected_waits": {
+        "s6:s3:non_actionable": {
+          "count": 116,
+          "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+        },
+        "s8:s3:non_actionable": {
+          "count": 124,
+          "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+        }
+      },
+      "queue_diagnostics": {
+        "s6:s3": {
+          "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+          "query_ms": 626,
+          "valid_lag": 0,
+          "reason_codes": {},
+          "valid_actionable": 0,
+          "leased_actionable": 0,
+          "backoff_actionable": 0,
+          "expired_actionable": 0,
+          "account_capacity_wait": 0,
+          "expired_bookkeeping_lag": 0,
+          "admission_read_quota_wait": 0,
+          "candidate_dependency_wait": 0
+        },
+        "s8:s3": {
+          "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+          "query_ms": 570,
+          "valid_lag": 0,
+          "reason_codes": {},
+          "valid_actionable": 0,
+          "leased_actionable": 0,
+          "backoff_actionable": 0,
+          "expired_actionable": 0,
+          "account_capacity_wait": 0,
+          "expired_bookkeeping_lag": 0,
+          "admission_read_quota_wait": 0,
+          "candidate_dependency_wait": 0
+        },
+        "s6:tv_bridge": {
+          "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+          "query_ms": 6,
+          "valid_lag": 0,
+          "reason_codes": {},
+          "valid_actionable": 0,
+          "leased_actionable": 0,
+          "backoff_actionable": 0,
+          "expired_actionable": 0,
+          "account_capacity_wait": 0,
+          "expired_bookkeeping_lag": 0,
+          "admission_read_quota_wait": 0,
+          "candidate_dependency_wait": 0
+        },
+        "s8:tv_bridge": {
+          "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+          "query_ms": 6,
+          "valid_lag": 0,
+          "reason_codes": {},
+          "valid_actionable": 0,
+          "leased_actionable": 0,
+          "backoff_actionable": 0,
+          "expired_actionable": 0,
+          "account_capacity_wait": 0,
+          "expired_bookkeeping_lag": 0,
+          "admission_read_quota_wait": 0,
+          "candidate_dependency_wait": 0
+        }
+      },
+      "signal_lag_state": {
+        "status": "CLEAR",
+        "alarm_active": false,
+        "current_lag_observed": false,
+        "recovery_remaining_ms": 0,
+        "recovery_started_at_ms": null
+      }
+    },
+    "budgets_snapshot": [
+      [
+        "fapi.binance.com",
+        29880217,
+        8,
+        8,
+        "-infinity"
+      ],
+      [
+        "demo-fapi.binance.com",
+        29880217,
+        618,
+        423,
+        "-infinity"
+      ]
+    ]
+  },
+  "research_review": "docs/gs_quant_review_20261024.json",
+  "web_function_before": {
+    "owner": "ubuntu",
+    "sha256": "557910d0f83348b74983da6ec4337a31aa8532e065f2c7697d985e1fd72b8f41",
+    "acl_unchanged_required": true
+  },
+  "file_sha256": {
+    "v2_core/shared_market.py": "62278cc9e1e64f8697a4a148d55b4af16bb1f285dffb8e2bc971465b6b77e274",
+    "v2_core/transport.py": "58a22e91542029b23990b12e8c47b3367c1be7fd50923bb202281bb133535c25",
+    "v2_core/public_market.py": "b22e7af314c09053aef65a094e81df5f21f72459d02d80b96208c9a08257f8ce",
+    "v2_core/guarded_transport.py": "6ab27829f00ea91af31b8a33ef86c35dc6c06fe63df598c0196cf25f55606f2f",
+    "services/v2_directional_account_context.py": "6697d809815cadb175622d7f6a806bcf2f757d5cac014943b07bbc13d10316c5",
+    "services/v2_testnet_daemon_entry.py": "9cc3a54e513bfe9d2a7e2c31ff7785c0e690accc3f31b9ee3ea870a90737192f",
+    "services/v2_admission_budget_policy.py": "5f10ef000405f4190a61790ec0361c93f42a547194074ae7665d9b72924da205",
+    "tests/v2_core/test_v2_context_group_budget.py": "ce3939e5f962bfb6e70d89b6ddce326ea06488b947087a9e2e64c08bf50297ad",
+    "tests/v2_core/test_v2_context_budget_wiring.py": "715781230cd0edefbdf7722a42ed1f33ff9b772eb6d16af1bbd195b7f779c243",
+    "tests/v2_core/test_v2_admission_policy_cli.py": "63e6651d535b78030fa988a0966beea1605aca835a599527ba7c36b4262dc41e",
+    "db/migrations/20261024_admission_budget_fairness.sql": "c6dc0f8155a07fd46006bff35e9c795cb7e49d62add2b317ebf8784a32f947e3",
+    "tests/v2_core/test_v2_web_budget_fairness.py": "b0d60868f798854ac649bd7f65b2a83ca11051eb78f7d5ff8d2860e86efebc97"
+  },
+  "rollback": [
+    "CAS set both admission-budget-policy reserve fields to zero; do not tombstone the policy",
+    "Cooperative stop then restore only validated old controller/hub pointers",
+    "Resume same SANDBOX binding through normal execution route request and verified ACTIVE epoch",
+    "Never restore old ledger/receipts/reservations or reset request counters",
+    "Original Web function definition saved for optional rollback; existing grants must be preserved"
+  ],
+  "limitations": [
+    "Quota tickets are conservatively charged even after early exit or unknown network outcome",
+    "Minute-tail deferral preserves original context deadline; no claim of zero latency",
+    "DB check and actual socket write cannot be made perfectly atomic against arbitrary OS pause",
+    "Reserve values are an initial measured-load allocation, not proof all 524 contracts refresh each minute",
+    "Bounded natural-load observation completed, but latency objective remains open; no profit, permanent stability or zero-lag claim."
+  ],
+  "deployment": {
+    "services_started_ms": 1792813621059,
+    "policy_activated_ms": 1792813675189,
+    "route_epoch": 8,
+    "same_binding_verified": true,
+    "graceful_worker_stop": true,
+    "management_limits_unchanged": true,
+    "web_function_after_sha256": "d2291ea3c6725e2c482e96598d791753d887b64af311b7f5ef1264e80f799431",
+    "web_function_oid_unchanged": true,
+    "web_function_acl_unchanged": true
+  },
+  "remaining_work": [
+    {
+      "priority": "P0",
+      "status": "NOT_IMPLEMENTED",
+      "feature": "Public-data necessary-gate preflight",
+      "observed_subset": {
+        "completed_contexts": 74,
+        "reward_risk_too_low": 51,
+        "score_below_minimum": 18,
+        "adverse_funding": 4,
+        "jev_deadline": 1
+      },
+      "requirements": [
+        "Use validated real sentiment with original event timestamp, exact signal/fusion/scope and frozen policy identity for score screening",
+        "Reuse exact Decimal rounded-stop computation with fresh exchange tick-size evidence for reward/risk; unrounded stop-fraction screening is UNSAFE because stops round toward entry",
+        "Never synthesize balances, sizing success, account evidence, or an opening permit",
+        "Passing public checks must still use all fresh private/account/protection/entry gates",
+        "Label early rejection as a necessary public gate; rejection reason ordering may differ from full account evaluation",
+        "Reserve full context budget only after cheap rejection; preserve expiry and concurrent policy change handling"
+      ],
+      "rationale": "Most sampled full contexts ended in pure-market rejection; this is the larger remaining request-demand optimization",
+      "offline_recheck": {
+        "window_to": "2026-10-24T11:54:00+08:00",
+        "score_still_rejected": 18,
+        "score_rechecked": 18,
+        "rr_stop_prices_identical": 51,
+        "rr_still_rejected": 51,
+        "rr_rechecked": 51,
+        "no_network_calls": true,
+        "no_database_writes": true,
+        "scope_note": "Observational historic sample only, not future equivalence proof or deployed optimization"
+      }
+    },
+    {
+      "priority": "P1",
+      "status": "NOT_IMPLEMENTED",
+      "feature": "Auditable budget denial subreasons and bounded retry-after",
+      "requirements": [
+        "Separate total cap, noncritical cap, lane minimum, minute-tail deadline, active penalty and clock/deadline errors without exposing secrets",
+        "Preserve ADMISSION_BUDGET_UNAVAILABLE compatibility and no blanket catch of database/network errors",
+        "Measure per-reason waits before changing scheduling; do not extend signal TTL or borrow protection reserve"
+      ]
+    }
+  ],
+  "operator_notes": {
+    "inspect_command": "/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_admission_budget_policy",
+    "working_directory": "/opt/trade-engine-v2/execution-controller",
+    "update_semantics": "Explicit complete JSON policy replacement using the currently inspected expected version; always supply both reserve fields",
+    "admission_cap": 450,
+    "market_cap": 430,
+    "combined_cap": 550,
+    "shared_slack": 330,
+    "management_reserve": 1450,
+    "minute_rollout": "Upgrade all host-budget participants and Web SQL before enabling minimum shares; wait a fresh PG minute; do not reset counters.",
+    "rollback_policy": "CAS both reserve fields to 0 before restoring old compatible binaries; never restore financial state."
+  },
+  "acceptance": {
+    "post_10m": {
+      "captured_at": "2026-10-24T11:59:53.537000+08:00",
+      "window_from_ms": 1792813675189,
+      "window_to_ms": 1792814275189,
+      "observation_at_ms": 1792814393537,
+      "cycles": 39,
+      "cycle_statuses": {
+        "CYCLE_COMPLETE": 39
+      },
+      "cycle_times": {
+        "count": 39,
+        "p50_ms": 6641,
+        "p95_ms": 17444,
+        "max_ms": 18141
+      },
+      "cycle_start_intervals": {
+        "count": 38,
+        "p50_ms": 15001,
+        "p95_ms": 18566,
+        "max_ms": 19235
+      },
+      "failures": [
+        {
+          "consumer_source": "s6:s3",
+          "cause": "ADMISSION_BUDGET_UNAVAILABLE",
+          "outcome": "DEFERRED",
+          "attempts": 152,
+          "distinct_signals": 67
+        },
+        {
+          "consumer_source": "s8:s3",
+          "cause": "ADMISSION_BUDGET_UNAVAILABLE",
+          "outcome": "DEFERRED",
+          "attempts": 16,
+          "distinct_signals": 9
+        },
+        {
+          "consumer_source": "s6:s3",
+          "cause": "SHORT_RATIO_MISSING",
+          "outcome": "DEFERRED",
+          "attempts": 3,
+          "distinct_signals": 3
+        },
+        {
+          "consumer_source": "s6:s3",
+          "cause": "SHORT_RATIO_MISSING",
+          "outcome": "IGNORED",
+          "attempts": 3,
+          "distinct_signals": 3
+        }
+      ],
+      "phase_states": [
+        {
+          "phase": "protection",
+          "status": "CLEAR",
+          "cycles": 39
+        },
+        {
+          "phase": "exits",
+          "status": "CLEAR",
+          "cycles": 39
+        },
+        {
+          "phase": "settlement",
+          "status": "CLEAR",
+          "cycles": 39
+        }
+      ],
+      "phase_times": {
+        "s6": {
+          "count": 39,
+          "p50_ms": 3978,
+          "p95_ms": 10924,
+          "max_ms": 11811
+        },
+        "s8": {
+          "count": 39,
+          "p50_ms": 759,
+          "p95_ms": 5504,
+          "max_ms": 5663
+        },
+        "exits": {
+          "count": 39,
+          "p50_ms": 14,
+          "p95_ms": 24,
+          "max_ms": 26
+        },
+        "s6:tv": {
+          "count": 39,
+          "p50_ms": 24,
+          "p95_ms": 30,
+          "max_ms": 30
+        },
+        "s8:tv": {
+          "count": 39,
+          "p50_ms": 24,
+          "p95_ms": 30,
+          "max_ms": 40
+        },
+        "market": {
+          "count": 39,
+          "p50_ms": 58,
+          "p95_ms": 138,
+          "max_ms": 140
+        },
+        "regime": {
+          "count": 39,
+          "p50_ms": 57,
+          "p95_ms": 93,
+          "max_ms": 93
+        },
+        "recovery": {
+          "count": 39,
+          "p50_ms": 33,
+          "p95_ms": 51,
+          "max_ms": 116
+        },
+        "followups": {
+          "count": 39,
+          "p50_ms": 7,
+          "p95_ms": 10,
+          "max_ms": 13
+        },
+        "protection": {
+          "count": 39,
+          "p50_ms": 772,
+          "p95_ms": 980,
+          "max_ms": 1011
+        },
+        "settlement": {
+          "count": 39,
+          "p50_ms": 22,
+          "p95_ms": 36,
+          "max_ms": 45
+        },
+        "configuration": {
+          "count": 39,
+          "p50_ms": 10,
+          "p95_ms": 24,
+          "max_ms": 26
+        },
+        "signal_maintenance": {
+          "count": 39,
+          "p50_ms": 0,
+          "p95_ms": 0,
+          "max_ms": 0
+        }
+      },
+      "candidate_resolution_attempts": 3,
+      "candidate_resolution_commits": 3,
+      "invalid_resolution_commits": 0,
+      "cohorts": [
+        {
+          "producer": "s6",
+          "source": "s3",
+          "category": "NON_DIRECTIONAL_BOOKKEEPING",
+          "received": 659,
+          "outcomes": {
+            "EXPIRED": 659
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 659,
+          "resolved_latency": {
+            "count": 0
+          },
+          "expiry_latency": {
+            "count": 659,
+            "p50_ms": 75257,
+            "p95_ms": 90616,
+            "max_ms": 97100
+          }
+        },
+        {
+          "producer": "s6",
+          "source": "s3",
+          "category": "DIRECTIONAL_MATCH",
+          "received": 369,
+          "outcomes": {
+            "IGNORED": 369
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 0,
+          "resolved_latency": {
+            "count": 369,
+            "p50_ms": 17927,
+            "p95_ms": 55956,
+            "max_ms": 64591
+          },
+          "expiry_latency": {
+            "count": 0
+          }
+        },
+        {
+          "producer": "s6",
+          "source": "s3",
+          "category": "OPPOSITE_DIRECTION_BOOKKEEPING",
+          "received": 212,
+          "outcomes": {
+            "EXPIRED": 212
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 212,
+          "resolved_latency": {
+            "count": 0
+          },
+          "expiry_latency": {
+            "count": 212,
+            "p50_ms": 76256,
+            "p95_ms": 93360,
+            "max_ms": 97104
+          }
+        },
+        {
+          "producer": "s8",
+          "source": "s3",
+          "category": "NON_DIRECTIONAL_BOOKKEEPING",
+          "received": 659,
+          "outcomes": {
+            "EXPIRED": 659
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 659,
+          "resolved_latency": {
+            "count": 0
+          },
+          "expiry_latency": {
+            "count": 659,
+            "p50_ms": 77829,
+            "p95_ms": 93333,
+            "max_ms": 97058
+          }
+        },
+        {
+          "producer": "s8",
+          "source": "s3",
+          "category": "OPPOSITE_DIRECTION_BOOKKEEPING",
+          "received": 369,
+          "outcomes": {
+            "EXPIRED": 369
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 369,
+          "resolved_latency": {
+            "count": 0
+          },
+          "expiry_latency": {
+            "count": 369,
+            "p50_ms": 84705,
+            "p95_ms": 93161,
+            "max_ms": 96707
+          }
+        },
+        {
+          "producer": "s8",
+          "source": "s3",
+          "category": "DIRECTIONAL_MATCH",
+          "received": 212,
+          "outcomes": {
+            "IGNORED": 212
+          },
+          "valid_unreceipted_over_30s": 0,
+          "expired_unreceipted": 0,
+          "young_pending": 0,
+          "unreceipted_causes": {},
+          "expired_without_decision": 0,
+          "resolved_latency": {
+            "count": 212,
+            "p50_ms": 8249,
+            "p95_ms": 21497,
+            "max_ms": 55986
+          },
+          "expiry_latency": {
+            "count": 0
+          }
+        }
+      ],
+      "health": {
+        "observed_at_ms": 1792814391127,
+        "active": [],
+        "findings": {},
+        "expected_waits": {
+          "s6:s3": {
+            "count": 4,
+            "reason": "ADMISSION_READ_QUOTA_WAIT",
+            "account_capacity_wait": 0,
+            "admission_read_quota_wait": 4
+          },
+          "s8:s3": {
+            "count": 4,
+            "reason": "ADMISSION_READ_QUOTA_WAIT",
+            "account_capacity_wait": 0,
+            "admission_read_quota_wait": 4
+          },
+          "s6:s3:non_actionable": {
+            "count": 54,
+            "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+          },
+          "s8:s3:non_actionable": {
+            "count": 78,
+            "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+          }
+        },
+        "queue_diagnostics": {
+          "s6:s3": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 460,
+            "valid_lag": 0,
+            "reason_codes": {
+              "ADMISSION_BUDGET_UNAVAILABLE": 4
+            },
+            "valid_actionable": 4,
+            "leased_actionable": 0,
+            "backoff_actionable": 2,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 4,
+            "candidate_dependency_wait": 0
+          },
+          "s8:s3": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 457,
+            "valid_lag": 0,
+            "reason_codes": {
+              "ADMISSION_BUDGET_UNAVAILABLE": 4
+            },
+            "valid_actionable": 4,
+            "leased_actionable": 0,
+            "backoff_actionable": 4,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 4,
+            "candidate_dependency_wait": 0
+          },
+          "s6:tv_bridge": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 7,
+            "valid_lag": 0,
+            "reason_codes": {},
+            "valid_actionable": 0,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 0,
+            "candidate_dependency_wait": 0
+          },
+          "s8:tv_bridge": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 6,
+            "valid_lag": 0,
+            "reason_codes": {},
+            "valid_actionable": 0,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 0,
+            "candidate_dependency_wait": 0
+          }
+        },
+        "signal_lag_state": {
+          "status": "CLEAR",
+          "alarm_active": false,
+          "current_lag_observed": false,
+          "recovery_remaining_ms": 0,
+          "recovery_started_at_ms": null
+        }
+      },
+      "budgets_snapshot": [
+        [
+          "demo-fapi.binance.com",
+          29880239,
+          850,
+          550,
+          "-infinity"
+        ],
+        [
+          "fapi.binance.com",
+          29880239,
+          17,
+          17,
+          "-infinity"
+        ]
+      ]
+    },
+    "telemetry": {
+      "samples": 114,
+      "first_ms": 1792813675410,
+      "last_ms": 1792814334526,
+      "probe_exit": 0,
+      "sample_output_truncation": true,
+      "unparseable_lines": 3,
+      "max_sample_gap_ms": 95591,
+      "capture_caveat": "One tool poll truncated intermediate lines; sample statistics are not continuous monitoring proof. Health-history acceptance is separately queried from durable PG history.",
+      "market_age_ms": {
+        "count": 114,
+        "min": 37,
+        "p50": 4118,
+        "p95": 31008,
+        "max": 34566
+      },
+      "fresh_heads": {
+        "count": 114,
+        "min": 88,
+        "p50": 128,
+        "p95": 166,
+        "max": 177
+      },
+      "core_heads": {
+        "count": 114,
+        "min": 4,
+        "p50": 4,
+        "p95": 4,
+        "max": 4
+      },
+      "demand_stale_samples": 0,
+      "budget_violations": [],
+      "minutes": {
+        "29880227": {
+          "host_max": 1241,
+          "noncritical_max": 531,
+          "market_max": 171,
+          "admission_max": 360,
+          "samples": 2
+        },
+        "29880228": {
+          "host_max": 846,
+          "noncritical_max": 546,
+          "market_max": 186,
+          "admission_max": 360,
+          "samples": 9
+        },
+        "29880230": {
+          "host_max": 950,
+          "noncritical_max": 550,
+          "market_max": 160,
+          "admission_max": 390,
+          "samples": 8
+        },
+        "29880231": {
+          "host_max": 950,
+          "noncritical_max": 550,
+          "market_max": 160,
+          "admission_max": 390,
+          "samples": 13
+        },
+        "29880232": {
+          "host_max": 931,
+          "noncritical_max": 531,
+          "market_max": 171,
+          "admission_max": 360,
+          "samples": 11
+        },
+        "29880233": {
+          "host_max": 946,
+          "noncritical_max": 546,
+          "market_max": 186,
+          "admission_max": 360,
+          "samples": 13
+        },
+        "29880234": {
+          "host_max": 930,
+          "noncritical_max": 530,
+          "market_max": 170,
+          "admission_max": 360,
+          "samples": 11
+        },
+        "29880235": {
+          "host_max": 950,
+          "noncritical_max": 550,
+          "market_max": 160,
+          "admission_max": 390,
+          "samples": 13
+        },
+        "29880236": {
+          "host_max": 846,
+          "noncritical_max": 546,
+          "market_max": 186,
+          "admission_max": 360,
+          "samples": 11
+        },
+        "29880237": {
+          "host_max": 945,
+          "noncritical_max": 550,
+          "market_max": 130,
+          "admission_max": 420,
+          "samples": 12
+        },
+        "29880238": {
+          "host_max": 850,
+          "noncritical_max": 550,
+          "market_max": 130,
+          "admission_max": 420,
+          "samples": 11
+        }
+      },
+      "nonclear_health_samples": 3,
+      "penalty_samples": 0
+    },
+    "durable_health_history": {
+      "checks": 68,
+      "states": {
+        "CLEAR": 67,
+        "CONFIRMATION_PENDING": 1
+      },
+      "active_codes": {},
+      "finding_codes": {
+        "SIGNAL_CONSUMPTION_LAG": 1
+      },
+      "latest_age_ms": 3317,
+      "max_check_gap_ms": 11483,
+      "first_observed_at_ms": 1792813679877,
+      "last_observed_at_ms": 1792814424508
+    },
+    "transient_findings": [
+      {
+        "observed_at_ms": 1792814202315,
+        "active": [],
+        "findings": {
+          "SIGNAL_CONSUMPTION_LAG": {
+            "s6:s3": {
+              "count": 1,
+              "reason_codes": {
+                "SHORT_RATIO_MISSING": 1
+              },
+              "valid_pending": 1,
+              "classification": "VALID_SIGNAL_LAG",
+              "expired_pending": 0,
+              "oldest_received_at_ms": 1792814170226
+            }
+          }
+        },
+        "expected_waits": {
+          "s6:s3": {
+            "count": 4,
+            "reason": "ADMISSION_READ_QUOTA_WAIT",
+            "account_capacity_wait": 0,
+            "admission_read_quota_wait": 4
+          },
+          "s6:s3:non_actionable": {
+            "count": 26,
+            "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+          },
+          "s8:s3:non_actionable": {
+            "count": 35,
+            "reason": "NON_DIRECTIONAL_BOOKKEEPING"
+          }
+        },
+        "queue_diagnostics": {
+          "s6:s3": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 405,
+            "valid_lag": 1,
+            "reason_codes": {
+              "SHORT_RATIO_MISSING": 1,
+              "ADMISSION_BUDGET_UNAVAILABLE": 4
+            },
+            "valid_actionable": 5,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 4,
+            "candidate_dependency_wait": 1
+          },
+          "s8:s3": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 411,
+            "valid_lag": 0,
+            "reason_codes": {},
+            "valid_actionable": 0,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 0,
+            "candidate_dependency_wait": 0
+          },
+          "s6:tv_bridge": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 5,
+            "valid_lag": 0,
+            "reason_codes": {},
+            "valid_actionable": 0,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 0,
+            "candidate_dependency_wait": 0
+          },
+          "s8:tv_bridge": {
+            "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+            "query_ms": 4,
+            "valid_lag": 0,
+            "reason_codes": {},
+            "valid_actionable": 0,
+            "leased_actionable": 0,
+            "backoff_actionable": 0,
+            "expired_actionable": 0,
+            "account_capacity_wait": 0,
+            "expired_bookkeeping_lag": 0,
+            "admission_read_quota_wait": 0,
+            "candidate_dependency_wait": 0
+          }
+        },
+        "signal_lag_state": {
+          "status": "CONFIRMATION_PENDING",
+          "alarm_active": false,
+          "current_lag_observed": true,
+          "recovery_remaining_ms": 0,
+          "recovery_started_at_ms": null
+        }
+      }
+    ],
+    "functional": "PASS in observed window; 39 COMPLETE cycles, all 581 directional receipts IGNORED, no directional expiry or pending tail",
+    "performance": "NOT PROVEN: S6 P95 56.041s -> 55.956s, S8 P95 16.460s -> 21.497s; directional volume 404 -> 581. Different market/load, not a controlled performance experiment.",
+    "new_natural_order": false,
+    "tv_live_pushes_in_window": 0,
+    "remarks": [
+      "No artificial trade or forced close was used for acceptance",
+      "No new natural opening/closing or live TV push was observed; this release does not claim new end-to-end venue-trade or JEV-effectiveness proof",
+      "One durable transient SHORT_RATIO_MISSING lag finding entered CONFIRMATION_PENDING and cleared without an active alarm; retained in results rather than removed",
+      "Three repeated missing-sentiment candidates reached isolated atomic abstention, with no linked intent; no global ENTRY_BLOCKED cycle",
+      "Core four market heads and all active candidate demand were fresh in captured samples, not all 524 contracts simultaneously",
+      "Sample capture includes a 95.591-second gap due to one truncated tool poll; durable health-history query independently covers the interval"
+    ],
+    "deployment_retained_because": "No observed safety/global-block/venue-penalty regression; quota-ticket correctness and explicit protected shares verified. The performance gap remains open, not accepted as solved."
+  },
+  "artifact_path": "deploy/v2-testnet/admission-bundles-acceptance-20261024.json",
+  "dashboard_check": {
+    "http_status": 200,
+    "elapsed_ms": 154,
+    "local_endpoint": "http://127.0.0.1:19527/api/overview"
+  },
+  "final_live_state": {
+    "observed_at_ms": 1792814428101,
+    "cycle_age_ms": 339,
+    "cycle_status": "CYCLE_COMPLETE",
+    "phases": {
+      "protection": "CLEAR",
+      "exits": "CLEAR",
+      "settlement": "CLEAR"
+    },
+    "nonterminal_orders": [],
+    "nonterminal_episodes": [],
+    "coverage": "ACCOUNT_COVERAGE_CLEAR"
+  }
+}

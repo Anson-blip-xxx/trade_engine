@@ -6,6 +6,7 @@ Persist each observation and its notification atomically in PG, with no files.
 This intentionally blocks on ALL existing exposure until recovery owns it.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds, symbol
 from v2_core.ledger import amount
 from v2_core.operational import OperationalProjector
+from v2_core.recovery_diagnostics import transport_evidence
 from v2_core.state import StateKey
 
 ROUTES = (
@@ -27,6 +29,39 @@ ROUTES = (
     ("conditional_orders", "/fapi/v1/openAlgoOrders"),
     ("positions_after", "/fapi/v3/positionRisk"),
 )
+ACCOUNT_CONFIG_PATH = "/fapi/v1/accountConfig"
+COMBINED_ROUTES = (
+    ("positions_before", "/fapi/v3/positionRisk"),
+    ("account_config", ACCOUNT_CONFIG_PATH),
+    *ROUTES[3:],
+)
+
+
+def account_config_derivations(response):
+    """Explicit field projections, never fabricated endpoint responses.
+
+    Only the two required mode booleans are interpreted. All other venue fields
+    remain in the raw evidence and digest, including future API additions.
+    updateTime is reserved and cannot establish freshness.
+    """
+    if not isinstance(response, dict) or any(
+        type(response.get(field)) is not bool
+        for field in ("dualSidePosition", "multiAssetsMargin")
+    ):
+        raise ValueError("INVALID_ACCOUNT_CONFIG_RESPONSE")
+    source_digest = digest(canonical({"response": response}))
+    return {
+        name: {
+            "response": {field: response[field]},
+            "source_response": "account_config",
+            "source_path": ACCOUNT_CONFIG_PATH,
+            "source_digest": source_digest,
+        }
+        for name, field in (
+            ("mode", "dualSidePosition"),
+            ("margin_mode", "multiAssetsMargin"),
+        )
+    }
 
 
 class InventoryProjector(OperationalProjector):
@@ -85,6 +120,8 @@ class AccountInventory:
         clock_ms,
         max_duration_ms=30000,
         excluded_position_symbols=(),
+        read_workers=1,
+        combined_account_config=False,
     ):
         if not isinstance(scope, AccountScope) or not callable(clock_ms):
             raise TypeError("explicit scope and clock required")
@@ -106,25 +143,79 @@ class AccountInventory:
         self.request, self.scope, self.clock_ms = request, scope, clock_ms
         self.max_duration_ms = max_duration_ms
         self.excluded_position_symbols = exclusions
+        if not callable(read_workers) and (
+            type(read_workers) is not int or not 1 <= read_workers <= 4
+        ):
+            raise ValueError("bounded inventory read workers required")
+        self.read_workers = read_workers
+        if (
+            not callable(combined_account_config)
+            and type(combined_account_config) is not bool
+        ):
+            raise ValueError("explicit combined account configuration required")
+        self.combined_account_config = combined_account_config
 
     def collect(self, observation_id):
         observation_id = str(UUID(observation_id))
+        workers = (
+            self.read_workers() if callable(self.read_workers) else self.read_workers
+        )
+        if type(workers) is not int or not 1 <= workers <= 4:
+            raise ValueError("bounded inventory read workers required")
+        combined = (
+            self.combined_account_config()
+            if callable(self.combined_account_config)
+            else self.combined_account_config
+        )
+        if type(combined) is not bool:
+            raise ValueError("explicit combined account configuration required")
+        routes = COMBINED_ROUTES if combined else ROUTES
         started = milliseconds(self.clock_ms())
-        raw, failures = {}, {}
-        for name, path in ROUTES:
+        raw, failures, failure_details = {}, {}, {}
+
+        def fetch(name, path):
             now = milliseconds(self.clock_ms())
             if not started <= now <= started + self.max_duration_ms:
-                failures[name] = "ACQUISITION_DEADLINE"
-                break
+                return name, None, "ACQUISITION_DEADLINE", None
             try:
                 value = self.request("GET", path, {})
                 canonical({"response": value})
+                return name, value, None, None
+            except Exception as exc:  # noqa: BLE001 - only fixed transport categories and numeric codes
+                return name, None, "ACCOUNT_READ_UNAVAILABLE", transport_evidence(exc)
+
+        def record(result):
+            name, value, error, details = result
+            if error:
+                failures[name] = error
+                if details:
+                    failure_details[name] = details
+            else:
                 raw[name] = value
-            except Exception:  # noqa: BLE001 - do not retain URLs, keys or raw exception text
-                failures[name] = "ACCOUNT_READ_UNAVAILABLE"
-                break
+
+        if workers == 1:
+            for name, path in routes:
+                record(fetch(name, path))
+                if failures:
+                    break
+        else:
+            # Only independent GETs overlap; position observations bracket the
+            # whole set, never reuse snapshots between protection and exit.
+            record(fetch("positions_before", "/fapi/v3/positionRisk"))
+            if not failures:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [
+                        pool.submit(fetch, name, path)
+                        for name, path in routes
+                        if name not in {"positions_before", "positions_after"}
+                    ]
+                    for future in futures:
+                        record(future.result())
+                if not failures:
+                    record(fetch("positions_after", "/fapi/v3/positionRisk"))
         finished = milliseconds(self.clock_ms())
         blockers = []
+        derived = {}
         summary = {"positions": [], "ordinary_orders": [], "conditional_orders": []}
         if failures:
             blockers.append("INCOMPLETE_ACCOUNT_READ")
@@ -132,9 +223,15 @@ class AccountInventory:
             blockers.append("ACQUISITION_DEADLINE")
         if not failures:
             try:
-                if raw["mode"].get("dualSidePosition") is not False:
+                if combined:
+                    derived = account_config_derivations(raw["account_config"])
+                    mode = derived["mode"]["response"]
+                    margin_mode = derived["margin_mode"]["response"]
+                else:
+                    mode, margin_mode = raw["mode"], raw["margin_mode"]
+                if mode.get("dualSidePosition") is not False:
                     blockers.append("ONE_WAY_MODE_REQUIRED")
-                if raw["margin_mode"].get("multiAssetsMargin") is not False:
+                if margin_mode.get("multiAssetsMargin") is not False:
                     blockers.append("SINGLE_ASSET_MODE_REQUIRED")
                 before_all = positions(raw["positions_before"])
                 after_all = positions(raw["positions_after"])
@@ -184,11 +281,13 @@ class AccountInventory:
             "blockers": blockers,
             "summary": summary,
             "failures": failures,
+            "failure_details": failure_details,
             "response_digests": {
                 key: digest(canonical({"response": value}))
                 for key, value in raw.items()
             },
             "responses": raw,
+            **({"derived_responses": derived} if combined else {}),
         }
 
 

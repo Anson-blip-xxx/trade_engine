@@ -1,0 +1,25 @@
+<clickhouse>
+  <profiles>
+    <v2_exit_research_readonly>
+      <readonly>1</readonly>
+      <max_threads>1</max_threads>
+      <max_execution_time>8</max_execution_time>
+      <max_memory_usage>134217728</max_memory_usage>
+      <constraints>
+        <readonly><min>1</min><max>1</max></readonly>
+        <max_threads><max>1</max></max_threads>
+        <max_execution_time><min>1</min><max>8</max></max_execution_time>
+        <max_memory_usage><min>1</min><max>134217728</max></max_memory_usage>
+      </constraints>
+    </v2_exit_research_readonly>
+  </profiles>
+  <users>
+    <tradev2research>
+      <password></password>
+      <networks><ip>127.0.0.1</ip></networks>
+      <profile>v2_exit_research_readonly</profile>
+      <quota>default</quota>
+      <grants><query>GRANT SELECT ON trade_v2_testnet.v2_market_candles_incremental</query></grants>
+    </tradev2research>
+  </users>
+</clickhouse>

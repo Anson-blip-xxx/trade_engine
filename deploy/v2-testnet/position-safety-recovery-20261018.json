@@ -1,0 +1,63 @@
+{
+  "release": "position-safety-recovery-20261018-v1",
+  "base_release": "entry-sample-upgrade-20261012-v1",
+  "environment": "SANDBOX",
+  "timezone": "Asia/Shanghai",
+  "deployment": {
+    "service": "trade-v2-execution-controller.service",
+    "started_at": "2026-10-18T15:36:48+08:00",
+    "activation": "atomic release symlink; initial manage-only recovery; audited same-account resume",
+    "database_migration": false,
+    "risk_policy_relaxed": false,
+    "account_changed": false,
+    "live_enabled": false
+  },
+  "qa": {
+    "scope": "candidate release: protection, external close, emergency exit, lifecycle, settlement, cash, pipeline, daemon, notifications, account risk",
+    "passed": 332,
+    "duration_seconds": 261.32,
+    "diagnostics": "/tmp/v2-data-qa.Jta5iX",
+    "isolated_database_retained": false,
+    "internet_socket_audit_fence": true,
+    "credentials_loaded": false,
+    "entire_repository_test_claim": false
+  },
+  "acceptance": {
+    "external_close": "real venue liquidation order and two fills atomically adopted; no exchange order replay",
+    "settlement": "SETTLED; wallet delta exactly equals net PnL; funding, commission and insurance clear included",
+    "risk_reservation": "RELEASED by normal settlement flow",
+    "notification": "one settlement event; Telegram first attempt delivered and pinned",
+    "natural_entry": "new signal-driven SANDBOX opening FILLED; venue stop confirmed NEW",
+    "consecutive_clear_cycles": [
+      "2026-10-18T15:39:02+08:00",
+      "2026-10-18T15:39:22+08:00",
+      "2026-10-18T15:39:37+08:00",
+      "2026-10-18T15:39:54+08:00"
+    ],
+    "entry_dispatch_enabled": true,
+    "safety_stages": {"protection": "CLEAR", "exits": "CLEAR", "settlement": "CLEAR"},
+    "caveats": [
+      "First final inventory read was incomplete; normal next-cycle retry settled successfully.",
+      "Two post-resume cycles encountered local QUOTA_DENIED; subsequent four cycles recovered without bypassing quota or safety gates.",
+      "External-close recovery deadline is currently per episode; abnormal multi-episode batches can accumulate latency.",
+      "Original protection submission did not retain its transport category; its precise historical failure cause cannot be reconstructed."
+    ]
+  },
+  "runtime_sha256": {
+    "services/v2_directional_lifecycle.py": "3f4b9c40ecf6cef567c9c912f66b57ed133a514ea3e89158ade8e2ce8dedbfe0",
+    "services/v2_directional_cash.py": "3c531da43aea83a47c7fcfb172b20deb9ab77852555c0c83f379917bc47d204c",
+    "services/v2_directional_settlement.py": "ae076a5771c6ba13e641a6805bede38ed3f9eade48bf8bfe9372631f911e5362",
+    "services/v2_directional_exit.py": "a1f600d3f86a848b07a24788f03db9b040585a8d0cd31fe0fc47d06de61134f8",
+    "v2_core/runtime_policy.py": "ff1abb39be54108d88ef78082c10bfa74a137827bda5265aedb3e6ed3f8f219b",
+    "v2_core/liquidation_cash.py": "95086e6f7c7865d1ca9a26555c5a46149c72cd23eb1dbe0ae6e719904865bff3",
+    "v2_core/income.py": "01933d4d9cfaf76bfd6b2e5d25c35797dfd14f26acdc49b489b6d5ef5ce098b7",
+    "v2_core/binance.py": "05445e1bb613aeacdd4eab8c7eb5192bc4334518f271e8915f125c138ba6ed45",
+    "v2_core/telegram.py": "25f8aa351dbea49c793172097bdf2fa6531cc821d1e5921197d8a6e3c90641f3",
+    "v2_core/directional_outcomes.py": "81d8b33d32fd6fcb8acdfb5cab0b85d1d44e36932281396e68f601338a570438",
+    "v2_core/protection_supervisor.py": "13b0ade3590a492c805a7ae3080a52942b8027c61cac5135a6958c32c0161897",
+    "v2_core/income_ownership.py": "fefc5642da8601f3fc9bde7b175504f90f4cd913bbfa2ec62b296def89297e33",
+    "v2_core/trade_notifications.py": "4caa6e323cb60e84dd81fbc2ce9700068c874222bb2645484c8c281134a1b47a",
+    "v2_core/protection.py": "e8e6db226f9c33bce4f62f68e9bbb2ffe02cde44f89f8e02c3e940ca21484593",
+    "v2_core/external_close_recovery.py": "c201b00d3b484071b863f3bfd5641b4b6858ce30a9fc25c2a59ef03eb6f5c88b"
+  }
+}

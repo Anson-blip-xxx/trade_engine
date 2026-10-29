@@ -345,6 +345,19 @@ FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 
 -- Non-ledger strategy state. Every write is versioned, audited and idempotent.
 -- Financial mutations spanning these rows and orders require one transaction.
+-- Full coverage facts are content-addressed instead of copied every poll.
+CREATE TABLE v2_coverage_blobs (
+    blob_id TEXT PRIMARY KEY CHECK (blob_id ~ '^[0-9a-f]{64}$'),
+    content_json TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    CHECK (blob_id=encode(sha256(convert_to(content_json,'UTF8')),'hex')),
+    CHECK (jsonb_typeof(content_json::jsonb)='object'),
+    CHECK (content_json::jsonb->>'kind' IN ('EPISODE','ORDER','PROTECTION','CHUNK','MANIFEST')),
+    CHECK (jsonb_typeof(content_json::jsonb->'account_scope')='object')
+);
+CREATE TRIGGER v2_coverage_blobs_immutable BEFORE UPDATE OR DELETE ON v2_coverage_blobs
+FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
+
 CREATE TABLE v2_business_state (
     state_id UUID PRIMARY KEY,
     scope JSONB NOT NULL CHECK (jsonb_typeof(scope)='object'),
@@ -352,6 +365,11 @@ CREATE TABLE v2_business_state (
     payload JSONB NOT NULL CHECK (jsonb_typeof(payload)='object'),
     deleted BOOLEAN NOT NULL DEFAULT FALSE
 );
+-- Keep safety scans independent of unrelated historical state volume.
+CREATE INDEX v2_protection_active_states ON v2_business_state(state_id)
+WHERE NOT deleted AND scope->>'namespace'='testnet-protection-v1';
+CREATE INDEX v2_protection_recovery_keys ON v2_business_state((scope->>'key'))
+WHERE NOT deleted AND scope->>'namespace'='protection-recovery-result-v1';
 CREATE TABLE v2_state_history (
     event_id UUID PRIMARY KEY,
     state_id UUID NOT NULL REFERENCES v2_business_state(state_id),
@@ -386,6 +404,7 @@ FOR EACH ROW EXECUTE FUNCTION v2_guard_state_version();
 CREATE TRIGGER v2_state_no_delete BEFORE DELETE ON v2_business_state
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 
+-- Hot discovery's expiry index is defined immediately after this table.
 CREATE TABLE v2_inbound_signals (
     signal_id UUID PRIMARY KEY,
     source TEXT NOT NULL,
@@ -395,6 +414,9 @@ CREATE TABLE v2_inbound_signals (
     received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     UNIQUE (source,environment,request_key)
 );
+CREATE INDEX v2_signals_live_discovery
+ON v2_inbound_signals(source,environment,((snapshot->>'expires_at_ms')::bigint))
+INCLUDE(signal_id);
 CREATE TRIGGER v2_signals_immutable BEFORE UPDATE OR DELETE ON v2_inbound_signals
 FOR EACH ROW EXECUTE FUNCTION v2_reject_mutation();
 CREATE TABLE v2_signal_receipts (

@@ -13,6 +13,8 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
+from psycopg.errors import InsufficientPrivilege, UndefinedFunction
+
 from services.v2_execution_guard import create_execution_guard
 from services.v2_systemd_master_keys import SystemdMasterKeys
 from services.v2_testnet_daemon_entry import (
@@ -20,8 +22,10 @@ from services.v2_testnet_daemon_entry import (
     TestnetProcessConfig,
     create_testnet_process,
 )
+from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.account_inventory import AccountInventory, persist_inventory
 from v2_core.account_risk import AccountPolicy, AccountRisk, AccountScope
+from v2_core.cycle_cadence import cycle_delay
 from v2_core.database import connection_factory
 from v2_core.public_market import PublicRateBudget
 from v2_core.runtime_credentials import resolve_runtime_credentials
@@ -90,6 +94,56 @@ def readonly_request(tenant, target, scope):
     )
 
 
+def _initialize_fresh_capital(conn, scope, *, wallet, started_at_ms):
+    """Honor an explicit fresh-ledger marker, never reset an accrued account.
+
+    Called only after the controller's fresh venue inventory is clear. The
+    retained policy is authoritative; a template must not overwrite its rules.
+    """
+    if not isinstance(scope, AccountScope) or scope.environment != "SANDBOX":
+        raise ValueError("FRESH_CAPITAL_SANDBOX_REQUIRED")
+    store = PolicyStore(lambda: nullcontext(conn), scope)
+    current = store.read()
+    if current.version == 0 or current.values["capital.started_at_ms"] != 0:
+        return False
+    if (
+        not isinstance(wallet, Decimal)
+        or not wallet.is_finite()
+        or wallet < 1
+        or type(started_at_ms) is not int
+        or not 0 < started_at_ms <= 4133980800000
+    ):
+        raise ValueError("FRESH_CAPITAL_INVALID_BASELINE")
+    # Only this one-time, explicitly requested initialization takes table locks.
+    # Facts cannot appear between the empty-ledger check and the policy CAS.
+    conn.execute("SET LOCAL lock_timeout='1s'")
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+        ("testnet-protocol-account:" + scope.key,),
+    )
+    current = store.read()
+    if current.version == 0 or current.values["capital.started_at_ms"] != 0:
+        return False
+    identity = (scope.exchange, scope.account_id, scope.environment, scope.product)
+    clear = conn.execute(
+        "SELECT v2_fresh_capital_scope_clear(%s,%s,%s,%s)", identity
+    ).fetchone()
+    if clear != (True,):
+        raise ValueError("FRESH_CAPITAL_LEDGER_NOT_EMPTY")
+    store.patch(
+        {
+            "capital.reference_wallet": format(wallet, "f"),
+            "capital.started_at_ms": started_at_ms,
+            "capital.initial_equity": format(
+                min(wallet, Decimal(current.values["capital.initial_equity"])), "f"
+            ),
+        },
+        expected_version=current.version,
+        reason="MANAGED_TESTNET_FRESH_LEDGER_BASELINE",
+    )
+    return True
+
+
 class TestnetPorts:
     def __init__(self, tenant, values):
         self.tenant, self.values = tenant, dict(values)
@@ -133,6 +187,28 @@ class TestnetPorts:
         except Exception:  # noqa: BLE001
             return ["SOURCE_READINESS_UNAVAILABLE"]
 
+    def resume_preflight(self, target):
+        """Same binding only (controller-enforced); never reset policy or capital."""
+        try:
+            scope = scope_for(self.tenant, target)
+            connect = database()
+            if PolicyStore(connect, scope).read().version == 0:
+                return ["RESUME_EXISTING_POLICY_REQUIRED"]
+            request = readonly_request(self.tenant, target, scope)
+            if request("GET", "/fapi/v1/accountConfig", {}).get("canTrade") is not True:
+                return ["TRADE_PERMISSION_UNVERIFIED"]
+            coverage = AccountCoverageAudit(
+                connect,
+                request,
+                scope=scope,
+                clock_ms=lambda: time.time_ns() // 1000000,
+            ).run_once()
+            if coverage.get("status") != "ACCOUNT_COVERAGE_CLEAR":
+                return coverage.get("blockers") or ["RESUME_COVERAGE_UNAVAILABLE"]
+            return []
+        except Exception:  # noqa: BLE001 - no raw credential/transport diagnostics
+            return ["RESUME_READINESS_UNAVAILABLE"]
+
     def preflight(self, target):
         try:
             scope, observation, blockers = self.inventory(target)
@@ -140,34 +216,40 @@ class TestnetPorts:
             if blockers:
                 return blockers
             wallet = Decimal(observation["summary"]["balance"]["totalWalletBalance"])
-            initial = min(
-                wallet, Decimal(self.values.get("V2_CONTROLLER_INITIAL_EQUITY", "1000"))
-            )
-            if initial <= 0:
-                return ["INVALID_INITIAL_EQUITY"]
             connect = database()
-            # Copy configuration, never an account's accrued PnL/high-water state.
-            template_scope = AccountScope(
-                "BINANCE", self.values["V2_ACCOUNT_ID"], "SANDBOX", "FUTURES"
-            )
-            profile = PolicyStore(connect, template_scope).read().values
-            profile = {
-                **profile,
-                "capital.enabled": True,
-                "capital.model_enabled": True,
-                "capital.initial_equity": format(initial, "f"),
-                "capital.reference_wallet": format(wallet, "f"),
-                "capital.started_at_ms": time.time_ns() // 1000000,
-                "capital.pool_fraction": "0.70",
-            }
             with connect() as c:
                 nested = lambda: nullcontext(c)
                 store = PolicyStore(nested, scope)
                 if store.read().version == 0:
+                    initial = min(
+                        wallet,
+                        Decimal(
+                            self.values.get("V2_CONTROLLER_INITIAL_EQUITY", "1000")
+                        ),
+                    )
+                    if initial <= 0:
+                        return ["INVALID_INITIAL_EQUITY"]
+                    # New accounts retain the original template initialization.
+                    template_scope = AccountScope(
+                        "BINANCE", self.values["V2_ACCOUNT_ID"], "SANDBOX", "FUTURES"
+                    )
+                    profile = {
+                        **PolicyStore(nested, template_scope).read().values,
+                        "capital.enabled": True,
+                        "capital.model_enabled": True,
+                        "capital.initial_equity": format(initial, "f"),
+                        "capital.reference_wallet": format(wallet, "f"),
+                        "capital.started_at_ms": time.time_ns() // 1000000,
+                        "capital.pool_fraction": "0.70",
+                    }
                     store.patch(
                         profile,
                         expected_version=0,
                         reason="MANAGED_TESTNET_INITIAL_PROFILE",
+                    )
+                else:
+                    _initialize_fresh_capital(
+                        c, scope, wallet=wallet, started_at_ms=time.time_ns() // 1000000
                     )
                 if not c.execute(
                     "SELECT 1 FROM v2_risk_accounts WHERE scope=%s", (scope.key,)
@@ -180,6 +262,10 @@ class TestnetPorts:
                         expected_version=0,
                     )
             return []
+        except InsufficientPrivilege:
+            return ["TARGET_PREFLIGHT_PERMISSION_DENIED"]
+        except UndefinedFunction:
+            return ["FRESH_CAPITAL_SCHEMA_NOT_READY"]
         except Exception:  # noqa: BLE001
             return ["TARGET_PREFLIGHT_FAILED"]
 
@@ -188,7 +274,8 @@ class TestnetPorts:
 
 
 def child_main(tenant, target, values, stop, release, channel):
-    cache = archive = None
+    maintenance = None
+    cache = archive = process = None
     try:
         import clickhouse_connect
         import redis
@@ -258,6 +345,8 @@ def child_main(tenant, target, values, stop, release, channel):
             alerts_chat_id=values.get("V2_TG_ALERT_CHAT_ID"),
             environment="SANDBOX",
         )
+        from services.v2_reentry_archive import ReentryArchive
+
         process = create_testnet_process(
             config,
             {
@@ -268,6 +357,7 @@ def child_main(tenant, target, values, stop, release, channel):
             connect=connect,
             redis_client=cache,
             clickhouse=archive,
+            reentry_archive=ReentryArchive.from_mapping(values),
             stop=stop,
             telegram_sink=sink,
             clock_ms=lambda: time.time_ns() // 1000000,
@@ -279,7 +369,17 @@ def child_main(tenant, target, values, stop, release, channel):
         while not release.wait(0.5):
             if stop.is_set():
                 return
+        from services.v2_signal_maintenance import SignalMaintenance
+
+        maintenance = SignalMaintenance(
+            process.daemon.pipeline.schedulers,
+            settings=lambda: PolicyStore(connect, scope).read().values,
+            stop=stop,
+        )
+        process.daemon.pipeline.background_maintenance = maintenance
+        maintenance.start()
         while not stop.is_set():
+            cycle_started = time.monotonic()
             with guard.connect() as c:
                 row = c.execute(
                     "SELECT phase,worker_token::text FROM v2_execution_routes WHERE tenant_id=%s AND environment='SANDBOX'",
@@ -294,13 +394,43 @@ def child_main(tenant, target, values, stop, release, channel):
             process.daemon.pipeline.enable_entries = (
                 entries == "true" and row[0] == "ACTIVE"
             )
+            degraded = False
             try:
                 process.daemon.run_once()
                 channel.send("CYCLE")
             except Exception:  # noqa: BLE001
+                degraded = True
                 channel.send("DEGRADED")
-            stop.wait(config.daemon.interval_seconds)
+            stop.wait(
+                cycle_delay(
+                    config.daemon.interval_seconds,
+                    started=cycle_started,
+                    finished=time.monotonic(),
+                    degraded=degraded,
+                )
+            )
     except Exception as exc:  # noqa: BLE001 - only a fixed SQLSTATE classification crosses IPC
+        # No exception message, locals, SQL, credentials or transport URL.
+        frames = []
+        cursor = exc.__traceback__
+        while cursor is not None:
+            frames.append(
+                {
+                    "function": cursor.tb_frame.f_code.co_name,
+                    "line": cursor.tb_lineno,
+                }
+            )
+            cursor = cursor.tb_next
+        print(
+            json.dumps(
+                {
+                    "component": "execution-worker-failure",
+                    "error_type": type(exc).__name__,
+                    "frames": frames[-5:],
+                }
+            ),
+            flush=True,
+        )
         try:
             channel.send(
                 "FAILED:EXECUTION_GUARD_PERMISSION_DENIED"
@@ -310,6 +440,13 @@ def child_main(tenant, target, values, stop, release, channel):
         except Exception:  # noqa: BLE001,S110 - closed IPC channel must not disclose context
             pass
     finally:
+        if maintenance is not None:
+            maintenance.close()
+        if (
+            process is not None
+            and getattr(process, "reentry_archive", None) is not None
+        ):
+            process.reentry_archive.close()
         if archive is not None:
             archive.close()
         if cache is not None:
@@ -325,6 +462,15 @@ class ChildWorker:
         )
         if not 30 <= self.progress_timeout <= 3600:
             raise ValueError("BOUNDED_PROGRESS_TIMEOUT_REQUIRED")
+        grace = values.get("V2_CONTROLLER_STOP_GRACE_SECONDS", "30")
+        if (
+            not isinstance(grace, str)
+            or not grace.isascii()
+            or not grace.isdecimal()
+            or not 1 <= int(grace) <= 60
+        ):
+            raise ValueError("BOUNDED_STOP_GRACE_REQUIRED")
+        self.stop_grace = int(grace)
         self.entries_enabled = (
             values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") == "true"
         )
@@ -370,11 +516,25 @@ class ChildWorker:
 
     def stop(self):
         self.stop_event.set()
-        self.process.join(15)
+        self.process.join(self.stop_grace)
+        forced = False
         if self.process.is_alive():
+            forced = True
             self.process.terminate()
             self.process.join(5)
         if self.process.is_alive():
             self.process.kill()
             self.process.join(5)
-        return not self.process.is_alive()
+        stopped = not self.process.is_alive()
+        print(
+            json.dumps(
+                {
+                    "component": "execution-worker-stop",
+                    "forced": forced,
+                    "stopped": stopped,
+                    "grace_seconds": self.stop_grace,
+                }
+            ),
+            flush=True,
+        )
+        return stopped

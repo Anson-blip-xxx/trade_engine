@@ -15,6 +15,8 @@ from v2_core.ingress import milliseconds, symbol
 WINDOWS = (("15m", 15), ("1h", 60), ("4h", 240), ("24h", 1440))
 VERSION = "s3-closed-1m-v1"
 PRICE_VERSION = "s3-closed-1m-v2"
+ROLLING_VERSION = "s3-closed-1m-v3"
+BREAKOUT_VERSION = "s3-closed-1m-v4"
 
 
 def amount(value, *, positive):
@@ -39,7 +41,12 @@ def amount(value, *, positive):
 
 
 def build_frame(batch, *, environment, feature_version=VERSION):
-    if feature_version not in {VERSION, PRICE_VERSION}:
+    if feature_version not in {
+        VERSION,
+        PRICE_VERSION,
+        ROLLING_VERSION,
+        BREAKOUT_VERSION,
+    }:
         raise ValueError("MARKET_FEATURE_VERSION_UNSUPPORTED")
     if environment not in ("SANDBOX", "LIVE"):
         raise ValueError("explicit environment required")
@@ -114,11 +121,19 @@ def build_frame(batch, *, environment, feature_version=VERSION):
             computed[name] = feature_values(
                 build_window_features(ascending, ema(closes, 20), ema(closes, 60))
             )
-            if feature_version == PRICE_VERSION:
-                from services.v2_price_features import price_features
+            if feature_version in {PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION}:
+                from services.v2_price_features import (
+                    price_features,
+                    price_features_v3,
+                    price_features_v4,
+                )
 
                 computed[name].update(
-                    price_features(list(reversed(normalized[:count])))
+                    {
+                        PRICE_VERSION: price_features,
+                        ROLLING_VERSION: price_features_v3,
+                        BREAKOUT_VERSION: price_features_v4,
+                    }[feature_version](list(reversed(normalized[:count])))
                 )
             if Decimal(computed[name]["close"]) <= 0:
                 raise ValueError("price below indicator output precision")
@@ -131,6 +146,24 @@ def build_frame(batch, *, environment, feature_version=VERSION):
             "bars_digest": digest(encoded),
             "bar_count": 1440,
         }
+        if feature_version in {ROLLING_VERSION, BREAKOUT_VERSION}:
+            computed["input_evidence"]["indicator_contract"] = {
+                "input_interval": "1m",
+                "window_semantics": "ROLLING_1M_LOOKBACK",
+                "lookback_bars": dict(WINDOWS),
+                "ema_period_unit": "1m_bar",
+                "ema_periods": [20, 60],
+                "ema_seed": "FIRST_PERIOD_SMA",
+                "ema_insufficient_history": "LAST_CLOSE_LEGACY_COMPATIBILITY",
+                "atr_method": "LATEST_14_TRUE_RANGES_ARITHMETIC_MEAN",
+                "atr_period_unit": "1m_bar",
+            }
+            if feature_version == BREAKOUT_VERSION:
+                computed["input_evidence"]["indicator_contract"].update(
+                    close_pos_method="LATEST_CLOSE_WITHIN_ROLLING_WINDOW_HIGH_LOW_PERCENT",
+                    close_pos_range=[0, 100],
+                    close_pos_flat_window=50,
+                )
         windows[target] = computed
         # These are rolling minute windows, NOT exchange 4h/15m candles. Match
         # the existing detector's raw input convention without mislabelling it.

@@ -1,0 +1,95 @@
+{
+  "change_set": "move-precursor-research-20261028",
+  "timezone": "Asia/Shanghai",
+  "status": "RESEARCH_DEPLOYED_AND_VERIFIED_TRADING_UNCHANGED",
+  "research_release": "/opt/trade-engine-v2/releases/daily-mover-precursors-20261028-v1",
+  "research_pointer": "/opt/trade-engine-v2/daily-movers",
+  "rollback_release": "/opt/trade-engine-v2/releases/daily-mover-review-20261026-v2",
+  "overlay_only": {
+    "services/v2_daily_mover_job.py": "cf998d496e3aa3fad21c31e158ddaa95470c299f28ded515eb5a9f4ba51b5d2d",
+    "services/v2_daily_mover_precursors.py": "be896a9b7a3fecb91735a1418e993297ad1cbc47709c597152a3354d26130d4d",
+    "v2_core/move_precursors.py": "df3b4e6f7b963d400a460dfd47dc31539d82fbc046ca173cdd4ae2f62e61931c"
+  },
+  "execution_changes": false,
+  "trading_service_restarts": false,
+  "trading_orders_submitted_by_this_task": false,
+  "automatic_parameter_updates": false,
+  "new_external_market_requests_from_precursor_analysis": 0,
+  "storage": "Existing PG daily research report JSON; no local business-data store or new schema",
+  "validation": {
+    "isolated_postgresql_targeted_suite": {"passed": 673, "skipped": 0, "seconds": 78.49},
+    "isolated_qa_diagnostics": "/tmp/v2-data-qa.1og9LS",
+    "isolated_qa_database_removed_after_verified_shutdown": true,
+    "candidate_release_targeted_suite": {"passed": 94, "skipped": 5, "skip_reason": "PG-only tests are covered in the isolated PostgreSQL run"},
+    "ruff": "PASS",
+    "read_only_real_archive_days": [
+      {"day": "2026-10-27", "cases": 240, "observed_features": 210, "unknown_features": 30, "forward_labels_observed": 210, "bytes": 230322, "pure_analysis_ms": 89.6},
+      {"day": "2026-10-26", "cases": 240, "observed_features": 204, "unknown_features": 36, "forward_labels_observed": 204, "bytes": 224972, "pure_analysis_ms": 101.9},
+      {"day": "2026-10-25", "cases": 234, "observed_features": 198, "unknown_features": 36, "forward_labels_observed": 198, "bytes": 219233, "pure_analysis_ms": 97.6}
+    ],
+    "installed_service_run": {
+      "first_run": "CREATED_RESEARCH_REVISION",
+      "second_run": "EXISTING",
+      "exit_status_both_runs": 0,
+      "persisted_day": "2026-10-27",
+      "persisted_at": "2026-10-28T15:50:56.217087+08:00",
+      "new_research_revision_count_after_two_runs": 1,
+      "content_digest_verified": true,
+      "duplicate_dm_suppressed": true,
+      "hourly_timer": "ACTIVE_WAITING"
+    },
+    "trading_processes_unchanged": {
+      "execution_controller_pid": 923638,
+      "market_hub_pid": 912360,
+      "both_active": true,
+      "both_restart_count": 0
+    }
+  },
+  "research_design": {
+    "version": "daily-fixed-clock-precursors-v1",
+    "source": "BINANCE_USDM_LIVE",
+    "cutoff_hours_utc8": [6, 12, 18],
+    "baseline_and_recent_hours_each": 3,
+    "forward_label_hours": 6,
+    "fixed_hash_cohort_symbols": 20,
+    "directions": ["BUY", "SELL"],
+    "features": ["range_ratio", "volume_ratio", "directional_return_pct", "favorable_close_step_pct"],
+    "future_labels_separate_from_features": true,
+    "missing_samples_preserved_as_unknown": true,
+    "top_movers_separate_from_reference_cohort": true,
+    "claims_predictive_accuracy": false,
+    "claims_strategy_pnl": false,
+    "claims_spot_accumulation_or_participant_intent": false
+  },
+  "example_not_strategy_pnl_or_predictive_evidence": {
+    "day": "2026-10-27",
+    "symbol": "AINUSDT",
+    "cutoff_utc8": "12:00",
+    "recent_three_hour_return_pct_rounded": "7.48",
+    "recent_vs_baseline_base_volume_ratio_rounded": "1.50",
+    "next_six_hour_close_return_pct_rounded": "79.42",
+    "interpretation": "An already-started move can continue. This hindsight-selected example does not validate a signal or prove a spot-flow mechanism."
+  },
+  "remaining_limits": [
+    "Current catalog has survivorship and eligibility limitations; the hash cohort is not liquidity-matched.",
+    "Archived closed candles do not prove historical receipt time or actual advance warnings.",
+    "Hourly close outcomes miss intrahour extrema and execution costs; LIVE prices must not be presented as SANDBOX PnL.",
+    "BUY/SELL cases and clock windows are dependent, not independent statistical samples.",
+    "Spot aggressor flow, continuous depth/replenishment, aligned OI/funding/liquidations are not yet integrated.",
+    "No calibrated model, live entry influence, or profitability claim is made."
+  ],
+  "next_steps_not_completed": [
+    "Map spot and futures instruments explicitly; use UNKNOWN for absent spot markets, not zero buying.",
+    "Archive bounded spot executed buy/sell notional with event and receipt time, volume units, coverage and gaps in the separate research process.",
+    "Add time-aligned OI and actually known funding observations; never fill missing OI or use a later funding settlement at an earlier cutoff.",
+    "Evaluate continuation versus exhaustion and failed patterns on time-ordered held-out days with liquidity-matched controls, costs and lead time.",
+    "Only after evidence improves over the price-only baseline, propose a reversible entry/holding-policy change; JEV may consume evidence but must not manufacture observations."
+  ],
+  "indicator_repair": {
+    "candidate": "s3-closed-1m-v4",
+    "deployed": false,
+    "release_eligible": false,
+    "blocker": "ATR_EXPAND cross-window comparison is incompatible with latest14 identical one-minute ATR values",
+    "details": "deploy/v2-testnet/indicator-v4-candidate-acceptance-20261028.json"
+  }
+}

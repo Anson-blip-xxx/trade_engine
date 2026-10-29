@@ -1372,6 +1372,7 @@ def test_expiry_rechecks_lease_renewed_after_stable_time_discovery(database):
     scheduler = StrategyScheduler(worker, context_provider=lambda _: {})
     identifier = scheduler_signal(database, "renewed-during-expiry", expires=2)
     consumer = worker.scope.consumer
+    renewals = []
     with database() as c:
         c.execute(
             "INSERT INTO v2_strategy_tasks(consumer,signal_id,lease_token,lease_until) "
@@ -1385,7 +1386,7 @@ def test_expiry_rechecks_lease_renewed_after_stable_time_discovery(database):
 
         def execute(self, query, args=None):
             result = self.connection.execute(query, args)
-            if query.startswith("SELECT s.signal_id FROM v2_inbound_signals s"):
+            if query.startswith("WITH pending AS MATERIALIZED ("):
                 assert "statement_timestamp()" in query
                 assert "clock_timestamp()" not in query
                 # Another legitimate task owner renews after candidate row
@@ -1397,6 +1398,7 @@ def test_expiry_rechecks_lease_renewed_after_stable_time_discovery(database):
                         "WHERE consumer=%s AND signal_id=%s",
                         (consumer, identifier),
                     )
+                renewals.append(identifier)
             return result
 
     @contextmanager
@@ -1405,7 +1407,9 @@ def test_expiry_rechecks_lease_renewed_after_stable_time_discovery(database):
             yield Connection(connection)
 
     scheduler._connect = interleaved
-    assert scheduler.expire_pending() == 0
+    expired = scheduler.expire_pending()
+    assert renewals == [identifier], "lease-renewal interleaving hook did not run"
+    assert expired == 0
     with database() as c:
         assert c.execute(
             "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (identifier,)
@@ -2177,15 +2181,41 @@ def test_pg_webhook_bad_context_prevents_order_then_signal_expires(
         clock_ms=lambda: now[0],
     )
     scheduler = StrategyScheduler(worker, context_provider=provider)
-    assert scheduler.run_once() == {result["signal_id"]: "UNAVAILABLE"}
+    # Freshness alone is a bounded candidate wait, not an account-wide error.
+    # Missing context and foreign-scope evidence still fail closed distinctly.
+    expected = "DEFERRED" if context_failure == "stale" else "UNAVAILABLE"
+    error_code = {
+        "missing": "MISSING_CONTEXT",
+        "stale": "STALE_CONTEXT",
+        "wrong-environment": "CONTEXT_SCOPE_MISMATCH",
+    }[context_failure]
+    assert scheduler.run_once() == {result["signal_id"]: expected}
     with database() as conn:
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
         assert conn.execute(
             "SELECT count(*) FROM v2_strategy_decisions"
         ).fetchone() == (0,)
+        assert conn.execute(
+            "SELECT error_code,completed_at IS NULL,lease_token IS NULL,"
+            "lease_until IS NULL FROM v2_strategy_tasks "
+            "WHERE consumer=%s AND signal_id=%s",
+            (worker.scope.consumer, result["signal_id"]),
+        ).fetchone() == (error_code, True, True, True)
+        assert conn.execute("SELECT count(*) FROM v2_signal_receipts").fetchone() == (0,)
     scheduler_due(database)
     now[0] = 201
     assert scheduler.run_once() == {result["signal_id"]: "EXPIRED"}
+    with database() as conn:
+        assert conn.execute(
+            "SELECT outcome,intent_id FROM v2_signal_receipts "
+            "WHERE consumer=%s AND signal_id=%s",
+            (worker.scope.consumer, result["signal_id"]),
+        ).fetchone() == ("EXPIRED", None)
+        assert conn.execute(
+            "SELECT completed_at IS NOT NULL,lease_token IS NULL "
+            "FROM v2_strategy_tasks WHERE consumer=%s AND signal_id=%s",
+            (worker.scope.consumer, result["signal_id"]),
+        ).fetchone() == (True, True)
 
 
 def test_context_freshness_deadline_survives_waiting_and_expired_dispatch(database):

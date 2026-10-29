@@ -1,0 +1,22 @@
+<!-- Additive fragment beside the existing ClickHouse user configuration.
+     No default-user changes, no SQL account-management grant, no trading keys. -->
+<clickhouse>
+  <profiles>
+    <v2_reentry_readonly>
+      <readonly>1</readonly>
+      <max_threads>1</max_threads>
+      <max_execution_time>3</max_execution_time>
+      <max_memory_usage>134217728</max_memory_usage>
+      <max_result_rows>20000</max_result_rows>
+    </v2_reentry_readonly>
+  </profiles>
+  <users>
+    <tradev2shadow>
+      <password></password>
+      <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+      <profile>v2_reentry_readonly</profile>
+      <quota>default</quota>
+      <grants><query>GRANT SELECT ON trade_v2_testnet.v2_market_candles_incremental</query></grants>
+    </tradev2shadow>
+  </users>
+</clickhouse>

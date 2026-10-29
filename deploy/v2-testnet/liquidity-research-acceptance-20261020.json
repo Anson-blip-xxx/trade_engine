@@ -1,0 +1,108 @@
+{
+  "feature": "liquidity-entry-and-causal-research-foundation",
+  "date": "2026-10-20",
+  "timezone": "Asia/Shanghai",
+  "deployment": {
+    "status": "WORKSPACE_VERIFIED_NOT_DEPLOYED",
+    "active_release_changed": false,
+    "services_restarted": false,
+    "account_configuration_changed": false,
+    "orders_sent": false,
+    "business_schema_migrated": false,
+    "activation_blockers": [
+      "Current exchange inventory confirms two non-flat positions.",
+      "One close order remains locally acknowledged with unresolved recovery.",
+      "Coverage reports LOCAL_ORDERS_NOT_FINAL and MISSING_CONFIRMED_STOP.",
+      "LIVE depth validity must be checked against natural proposal-to-submit latency before rollout."
+    ],
+    "rule": "Do not force-close positions, clear safety blockers, or copy the unrelated dirty worktree to the active release."
+  },
+  "existing_runtime_recovery_findings": {
+    "observed_at_utc8": "2026-10-20T22:33:06+08:00",
+    "latest_exchange_inventory_matches_ledger": true,
+    "nonflat_position_count": 2,
+    "close_submit_event": "BINANCE_SUBMIT_ACK_WITH_VENUE_STATUS_FILLED",
+    "local_close_fills": 0,
+    "latest_close_recovery": "UNKNOWN",
+    "stop_parent_observation": "TRIGGERING_WITH_EMPTY_ACTUAL_ORDER_ID",
+    "scope_limitations": [
+      "The submit status alone is not a validated fill or ledger settlement.",
+      "No durable latest venue query error code exists; a specific venue error is not independently established.",
+      "Flat-only external-close reconciliation does not repair this non-flat exposure.",
+      "No manual order, cancellation, forced state rewrite or restart was performed."
+    ]
+  },
+  "implemented": {
+    "entry_gate": [
+      "Account-scoped OFF, SHADOW and ENFORCE controls with CAS audit and submission locking.",
+      "Explicit LIVE, credential-free, host-budgeted depth GET for otherwise qualified candidates.",
+      "Direction-aware final-quantity depth, spread, worst-level impact and price-basis checks.",
+      "Independent SANDBOX execution quote spread and freshness veto.",
+      "Frozen evidence and control digests shared by replay and S3/TradingView admission.",
+      "Re-evaluation using actual order side and quantity before submission; original risk checks retained.",
+      "No liquidity dependency added to reduce-only exits or native stop management."
+    ],
+    "research": [
+      "Expanding-window, train-only selection with complete non-overlapping out-of-sample folds.",
+      "All candidate baselines, configured fees/slippage, cash baseline and open-position disclosure.",
+      "Read-only bounded archive runner with per-fold research acceptance and content digests.",
+      "Causal Gaussian-HMM forward filtering with immutable model/scaler/feature/timeframe contracts.",
+      "Log-domain numerical safeguards and future-prefix invariance checks.",
+      "Brier score and reliability bins for explicitly observed binary events, not latent market-state labels.",
+      "Evidence-explicit acceptance that never authorizes orders or automatic deployment."
+    ]
+  },
+  "qa": {
+    "isolated_pg_and_regression": {
+      "passed": 662,
+      "failed": 0,
+      "seconds": 127.10,
+      "diagnostics": "/tmp/v2-data-qa.Hquf9E",
+      "disposable_database_retained": false
+    },
+    "causal_filter_and_archive_adapter": {
+      "passed": 114,
+      "failed": 0,
+      "seconds": 4.15
+    },
+    "ruff": "PASS",
+    "whole_repository_test_claim": false,
+    "new_gate_natural_order_acceptance": "NOT_PERFORMED"
+  },
+  "bounded_runtime_probes": {
+    "public_depth": {
+      "source_environment": "LIVE",
+      "symbol": "BTCUSDT",
+      "levels_per_side": 100,
+      "request_milliseconds": 86,
+      "observed_age_milliseconds": 14,
+      "result": "LIQUIDITY_PASSED_FOR_SYNTHETIC_QUANTITY_ONLY",
+      "orders_sent": false,
+      "quota_accounting_only_write": true
+    },
+    "archive_walk_forward": {
+      "source_environment": "SANDBOX",
+      "symbol": "BTCUSDT",
+      "closed_at_utc8": "2026-10-20T22:30:00+08:00",
+      "minute_rows": 1440,
+      "timeframe_minutes": 5,
+      "bars": 288,
+      "queries": 2,
+      "complete_oos_folds": 2,
+      "selected_settled_oos_samples": 1,
+      "acceptance": "INSUFFICIENT_EVIDENCE",
+      "raw_report_digest": "157bf72c8f333891825dae27376e6e597156ff54740177c9d01ebffe17992729",
+      "raw_result_digest": "3b7438d61da16cd982b18f3d7da690f9f14eeeda59be77a47895fac6aa3ec3f2",
+      "profitability_claim": false
+    }
+  },
+  "still_not_implemented_or_established": [
+    "A fitted and independently accepted HMM model, multi-seed state-count selection or live state switching.",
+    "Historical arrival-time proof, listing/universe history and complete funding coverage.",
+    "A shared-capital multi-symbol portfolio simulator.",
+    "Order-book cancellation/OFI/VPIN history or a twenty-day same-session depth baseline.",
+    "Model drift monitoring and retraining with stable economic state labels.",
+    "A unified persisted research-run dashboard and automatic model publication.",
+    "Improved realized profitability, live slippage or real-money acceptance."
+  ]
+}

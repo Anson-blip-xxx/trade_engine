@@ -1,0 +1,867 @@
+{
+  "actual_trades_truncated": false,
+  "as_of_utc8": "2026-10-24T18:50:57.998000+08:00",
+  "automatic_parameter_updates": false,
+  "counterfactual_pnl": null,
+  "descriptive_gap_groups_not_proposed_cooldowns": {
+    "30m_to_2h": {
+      "actual_net_pnl_usdt": "16.721138730000000000000000000000000000",
+      "entries": 11,
+      "fees_known_settlements": 11,
+      "known_recorded_fees_usdt": "1.339821970000000000",
+      "losses": 4,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 11
+      },
+      "settled": 11,
+      "wins": 7
+    },
+    "5m_to_30m": {
+      "actual_net_pnl_usdt": "22.044780910000000000000000000000000000",
+      "entries": 12,
+      "fees_known_settlements": 11,
+      "known_recorded_fees_usdt": "1.347764340000000000",
+      "losses": 5,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "OPEN_OR_PARTIAL_EXIT": 1,
+        "SETTLED": 11
+      },
+      "settled": 11,
+      "wins": 6
+    },
+    "over_2h": {
+      "actual_net_pnl_usdt": "9.748526250000000000000000000000000000",
+      "entries": 16,
+      "fees_known_settlements": 16,
+      "known_recorded_fees_usdt": "2.599997050000000000",
+      "losses": 7,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 16
+      },
+      "settled": 16,
+      "wins": 9
+    },
+    "under_5m": {
+      "actual_net_pnl_usdt": "-27.299494790000000000000000000000000000",
+      "entries": 22,
+      "fees_known_settlements": 21,
+      "known_recorded_fees_usdt": "3.089269230000000000",
+      "losses": 12,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "OPEN_OR_PARTIAL_EXIT": 1,
+        "SETTLED": 21
+      },
+      "settled": 21,
+      "wins": 9
+    }
+  },
+  "environment": "SANDBOX",
+  "execution_authorized": false,
+  "first_observed_ms": 1792561779157,
+  "gap_is_actual_new_open_fill_time": false,
+  "gap_time_basis": "INTENT_CREATED_AT_MINUS_PREVIOUS_ACTUAL_FINAL_CLOSE_FILL",
+  "kind": "SCOPED_REENTRY_FACTUAL_ASSOCIATION_AND_CAUSALITY_AUDIT",
+  "limitations": [
+    "USDT unit is established by currency='USDT' settlement evidence, not the symbol suffix.",
+    "Net labels require revision-matching complete settlements; open or unknown outcomes are not zero.",
+    "Gap groups are descriptive, not optimized thresholds or independent observations.",
+    "Gap uses new intent database creation minus prior final close exchange fill time, not new opening fill minus prior fill.",
+    "Prior episodes outside the audited entry window remain unknown to the same-side subset; missing context is not a non-reentry label.",
+    "Observer verdicts completed after the decision are retrospective labels, not available entry-time permits.",
+    "Closed historical bars do not prove archive arrival before entry; this is not an executable counterfactual backtest.",
+    "No replacement entries, portfolio competition, hypothetical exits or prevented-loss totals are simulated.",
+    "Frozen comparison groups retain side, strategy, config, policy and source; do not promote from pooled labels.",
+    "Existing factual reader bounds 500 entries plus 24-hour prior context; missing prior context is unknown."
+  ],
+  "observer_groups": [
+    {
+      "actual_net_pnl_usdt": "-1.649767370000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 8,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 3,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 8
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "PRIOR_NOT_SAME_SIDE_OR_MAINTENANCE",
+      "settled": 8,
+      "side": "BUY",
+      "source": "s3",
+      "status": "NOT_APPLICABLE",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 5
+    },
+    {
+      "actual_net_pnl_usdt": "-22.361512080000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 13,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 6,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 11,
+        "UNFILLED": 2
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "PRIOR_NOT_SAME_SIDE_OR_MAINTENANCE",
+      "settled": 11,
+      "side": "SELL",
+      "source": "s3",
+      "status": "NOT_APPLICABLE",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 5
+    },
+    {
+      "actual_net_pnl_usdt": "4.595972510000000000000000000000000000",
+      "claim": "DUPLICATE_OPPORTUNITY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 0,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NEW_STRUCTURE_CONFIRMED",
+      "settled": 1,
+      "side": "BUY",
+      "source": "s3",
+      "status": "READY",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "-4.423952870000000000000000000000000000",
+      "claim": "RECORDED",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 11,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 3,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 6,
+        "UNFILLED": 5
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NEW_STRUCTURE_CONFIRMED",
+      "settled": 6,
+      "side": "BUY",
+      "source": "s3",
+      "status": "READY",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 3
+    },
+    {
+      "actual_net_pnl_usdt": "-5.193205500000000000000000000000000000",
+      "claim": "RECORDED",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 1,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NEW_STRUCTURE_CONFIRMED",
+      "settled": 1,
+      "side": "SELL",
+      "source": "s3",
+      "status": "READY",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 0
+    },
+    {
+      "actual_net_pnl_usdt": "11.610207000000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 10,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 3,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 7,
+        "UNFILLED": 3
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "ARCHIVE_WINDOW_EXCEEDS_BUDGET",
+      "settled": 7,
+      "side": "BUY",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 4
+    },
+    {
+      "actual_net_pnl_usdt": "7.770940750000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 0,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "ARCHIVE_WINDOW_EXCEEDS_BUDGET",
+      "settled": 1,
+      "side": "SELL",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "10.257549710000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 3,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 0,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1,
+        "UNFILLED": 2
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "EXIT_FILL_PRICE_AMBIGUOUS_OR_MISSING",
+      "settled": 1,
+      "side": "BUY",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "-3.371871920000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 1,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "EXIT_FILL_PRICE_AMBIGUOUS_OR_MISSING",
+      "settled": 1,
+      "side": "SELL",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 0
+    },
+    {
+      "actual_net_pnl_usdt": "34.217859940000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 28,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 8,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 19,
+        "UNFILLED": 9
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NO_PRIOR_CLOSE_IN_BOUNDED_HISTORY",
+      "settled": 19,
+      "side": "BUY",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 11
+    },
+    {
+      "actual_net_pnl_usdt": "-41.277709610000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 13,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 8,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 9,
+        "UNFILLED": 4
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NO_PRIOR_CLOSE_IN_BOUNDED_HISTORY",
+      "settled": 9,
+      "side": "SELL",
+      "source": "s3",
+      "status": "UNKNOWN",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "-19.239143160000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 6,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 4,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 6
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NO_POST_EXIT_CLOSED_BAR",
+      "settled": 6,
+      "side": "BUY",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 2
+    },
+    {
+      "actual_net_pnl_usdt": "-0.121467150000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 2,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 1,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 2
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "NO_POST_EXIT_CLOSED_BAR",
+      "settled": 2,
+      "side": "SELL",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "-10.534418180000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 1,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "SIGNAL_PREDATES_CONFIRMATION",
+      "settled": 1,
+      "side": "SELL",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 0
+    },
+    {
+      "actual_net_pnl_usdt": "10.647276480000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 0,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "SIGNAL_PREDATES_EXIT",
+      "settled": 1,
+      "side": "BUY",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "32.888273420000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 9,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 2,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 9
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "STRUCTURE_CHASE_TOO_FAR",
+      "settled": 9,
+      "side": "BUY",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 7
+    },
+    {
+      "actual_net_pnl_usdt": "3.688619100000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 1,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 0,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "SETTLED": 1
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "STRUCTURE_CHASE_TOO_FAR",
+      "settled": 1,
+      "side": "SELL",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 1
+    },
+    {
+      "actual_net_pnl_usdt": "-27.288208510000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5e6fcd841b1f5824b792a768a6b40d4cb12da4ad6cb3302ae932b221b56a5d1e",
+      "entries": 18,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 10,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "OPEN_OR_PARTIAL_EXIT": 1,
+        "SETTLED": 15,
+        "UNFILLED": 2
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "STRUCTURE_NOT_REARMED",
+      "settled": 15,
+      "side": "BUY",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 5
+    },
+    {
+      "actual_net_pnl_usdt": "9.928379420000000000000000000000000000",
+      "claim": "NOT_READY",
+      "config_digest": "5ac5324f29271537b025517ab8d4707496a3ca08113eba57975bdebf6e5a6c7e",
+      "entries": 9,
+      "fees_known_settlements": 0,
+      "known_recorded_fees_usdt": null,
+      "losses": 2,
+      "net_already_includes_settlement_costs": true,
+      "outcome_states": {
+        "OPEN_OR_PARTIAL_EXIT": 1,
+        "SETTLED": 6,
+        "UNFILLED": 2
+      },
+      "policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+      "reason": "STRUCTURE_NOT_REARMED",
+      "settled": 6,
+      "side": "SELL",
+      "source": "s3",
+      "status": "WAIT",
+      "strategy_version": "directional-admission-v2-1",
+      "wins": 4
+    }
+  ],
+  "observer_rows_truncated": false,
+  "overall": {
+    "actual_net_pnl_usdt": "-9.856178020000000000000000000000000000",
+    "entries": 108,
+    "fees_known_settlements": 106,
+    "known_recorded_fees_usdt": "15.364286850000000000",
+    "losses": 53,
+    "net_already_includes_settlement_costs": true,
+    "outcome_states": {
+      "OPEN_OR_PARTIAL_EXIT": 2,
+      "SETTLED": 106
+    },
+    "settled": 106,
+    "wins": 53
+  },
+  "prior_context_coverage": {
+    "filled_entries": 108,
+    "missing_prior_is_not_first_entry_proof": true,
+    "no_prior_observed_in_bounded_history": 28,
+    "opposite_side_prior_in_audited_window": 19,
+    "prior_outside_audited_entries_or_maintenance_excluded": 0,
+    "same_side_prior_in_audited_window": 61
+  },
+  "prior_episode_comparison": {
+    "compared": 59,
+    "same_previous_episode": 59
+  },
+  "promotion_authorized": false,
+  "rapid_reentry_observer_overlap": {
+    "actual_reentries_under_5m": 22,
+    "frozen_observations": [
+      {
+        "actual_net_pnl_usdt": "-8.223407700000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 69328,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "IOSTUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "10.855737010000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 68929,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "QUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-3.289243610000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 282893,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "JCTUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-6.785724460000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 69798,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "BMTUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "10.257549710000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 130885,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "EXIT_FILL_PRICE_AMBIGUOUS_OR_MISSING",
+        "observer_status": "UNKNOWN",
+        "side": "BUY",
+        "symbol": "DOODUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-9.308478240000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 96222,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "DOODUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-11.164554200000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 131433,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "ALTUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-6.237428130000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 76782,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "IOSTUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-4.481667110000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 74010,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "SELL",
+        "symbol": "BULLAUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-3.927757430000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 135667,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "MAGMAUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "3.299160710000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 200140,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "PTBUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "0.082235650000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 239652,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "BIRBUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "1.853631760000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 107985,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "SELL",
+        "symbol": "MAGMAUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "4.360199960000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 69921,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "SELL",
+        "symbol": "AKEUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-3.371871920000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 178936,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "EXIT_FILL_PRICE_AMBIGUOUS_OR_MISSING",
+        "observer_status": "UNKNOWN",
+        "side": "SELL",
+        "symbol": "AKEUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "10.280649330000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 233250,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "BIRBUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-10.617975900000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 219506,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "BIRBUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-2.132495430000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 220351,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "SELL",
+        "symbol": "MAGMAUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "0.460158360000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 84867,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "NO_POST_EXIT_CLOSED_BAR",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "ORDERUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "10.647276480000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 85072,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "SIGNAL_PREDATES_EXIT",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "ORDERUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": "-9.855489630000000000000000000000000000",
+        "actual_outcome_state": "SETTLED",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 87250,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "ORDERUSDT"
+      },
+      {
+        "actual_net_pnl_usdt": null,
+        "actual_outcome_state": "OPEN_OR_PARTIAL_EXIT",
+        "archive_arrival_at_decision_proven": false,
+        "completed_before_or_at_decision": false,
+        "gap_ms": 107015,
+        "observer_policy_digest": "a36a0038d3f2288c3adf818c8793d2175d320eb266db9ce8065122a423ad988a",
+        "observer_reason": "STRUCTURE_NOT_REARMED",
+        "observer_status": "WAIT",
+        "side": "BUY",
+        "symbol": "JCTUSDT"
+      }
+    ]
+  },
+  "research_source_sha256": {
+    "services/v2_reentry_evaluation.py": "4c1cd5632dab686c64d1ec37da846e7a710454808a03bfa614ae596e9f38fc64",
+    "services/v2_reentry_observer.py": "24cce33a566b52426cbc347c508815a629fa6f6addfe75cc7db4882d0d3a638c",
+    "services/v2_trade_review.py": "d448c2c6ea03117c62e590f9aace53e914c5b266d1b700d3610b8abd4153ebdd",
+    "v2_core/reentry.py": "6c0720dfbb46b13f8de75bd1aad90bfaf3de5cbf93a09cdf072d224d5e16d80f"
+  },
+  "same_side_reentries": {
+    "actual_net_pnl_usdt": "21.214951100000000000000000000000000000",
+    "entries": 61,
+    "fees_known_settlements": 59,
+    "known_recorded_fees_usdt": "8.376852590000000000",
+    "losses": 28,
+    "net_already_includes_settlement_costs": true,
+    "outcome_states": {
+      "OPEN_OR_PARTIAL_EXIT": 2,
+      "SETTLED": 59
+    },
+    "settled": 59,
+    "wins": 31
+  },
+  "scope_selection": "UNIQUE_ACTIVE_SANDBOX_ROUTE_NOT_AN_ACCOUNT_SWITCH",
+  "snapshot_clock": "POSTGRESQL_CLOCK_TIMESTAMP_FIXED_ONCE",
+  "timing_and_frozen_input_audit": {
+    "archive_arrival_at_decision_proven": 0,
+    "candidate_clock_mismatch": 0,
+    "completed_after_decision": 137,
+    "completed_before_or_at_decision": 0,
+    "completed_before_or_at_intent_persist": 0,
+    "completion_timestamp_missing": 0,
+    "future_or_unclosed_bar": 0,
+    "input_digest_mismatch": 0,
+    "maximum_observer_start_lag_ms": 15592,
+    "minimum_observer_start_lag_ms": 219,
+    "observations": 137,
+    "observer_started_after_decision": 137,
+    "prior_exit_known_after_decision": 0,
+    "recomputed_assessment_mismatch": 0,
+    "recomputed_assessments": 60,
+    "with_archived_bars": 60,
+    "with_frozen_prior_close": 71
+  },
+  "window_days": 14,
+  "review_decision": {
+    "status": "DO_NOT_ENABLE_EXISTING_STRUCTURAL_ENFORCEMENT",
+    "reason_zh": "当前结构门槛没有证明提高入场质量；快速再入场存在亏损集中，但不能由此推出固定冷却或全部禁止再入场。",
+    "existing_observer_is_sufficient_for_retrospective_labels": true,
+    "add_synchronous_shadow_to_hot_path": false,
+    "evidence_zh": [
+      "14天106笔完整结算净额为-9.85617802 USDT；费用15.36428685 USDT已包含在净额中，不再次扣除。",
+      "同向再入场59笔结算整体净额+21.21495110 USDT；前次最终平仓成交至新意图创建不足5分钟的21笔结算净额-27.29949479 USDT。此处不是新开仓实际成交时间差；不能由分组直接推导禁入策略收益。",
+      "READY且非重复机会的BUY组6笔结算3赢、净额-4.42395287 USDT；SELL组1笔结算亏损-5.19320550 USDT，样本量不能支撑提升门槛到硬拦截。",
+      "被现有CHASE_TOO_FAR判定的BUY组9笔结算7赢净额+32.88827342 USDT，SELL组1笔结算净额+3.68861910 USDT，是盲目开启追价限制的直接反证。",
+      "STRUCTURE_NOT_REARMED的BUY组15笔结算5赢净额-27.28820851 USDT；SELL组6笔结算4赢净额+9.92837942 USDT。应分方向研究，不把同一阈值强制视为双向有效。",
+      "137份观测全部晚于入场决策；60份有历史K线的证据重算一致，无未来K线，但归档到达时点未被证明。因此仅是事后冻结研究标签，不是当时已可执行的订单许可。"
+    ],
+    "next_small_steps_zh": [
+      "保留现有异步观察器，避免把新的网络读取与同步影子计算加入交易关键路径。",
+      "后续对照冻结方向、策略/配置版本、实际结算成本和知识可用时间，先验证再入场修复状态，不以事后利润自动选择门槛。",
+      "将结构恢复、过度追价、前次止损后的新机会视为独立假设；不得将本报告的分组净额称为可避免亏损或新策略收益。",
+      "未来若接入真实执行过滤，须用下单前已收到的数据、对应信号与最新已确认平仓证据，并在样本外验证误拦盈利机会和成交成本。"
+    ],
+    "automatic_threshold_change": false,
+    "automatic_order_permission": false
+  },
+  "reproducibility": {
+    "helper": "scripts/research_v2_reentry_evidence_readonly.py",
+    "helper_sha256": "a5babbc700f70fbc3ef74f68ead538ab2761ede883db271cf7343abfeca6412a",
+    "test": "tests/v2_core/test_v2_reentry_evidence_review.py",
+    "tests_passed": 19,
+    "ruff": "PASS",
+    "flags": "--active-sandbox --days 14 --research-root /home/ubuntu/.opencode/trade/trading_engine-v2",
+    "connection_source": "V2_REENTRY_AUDIT_DSN; operator-provided environment only, no credentials or account identifiers in source/output",
+    "transaction": "READ ONLY, REPEATABLE READ; statement_timeout=5s; lock_timeout=100ms",
+    "bounds": "500 factual entries and 500 observer rows; outcome lookup batches <=100; all selected from unique active SANDBOX route",
+    "observer_release": "/opt/trade-engine-v2/releases/storage-dedup-reentry-observer-20261004-v1",
+    "observer_source_and_core_match_research_root": true,
+    "writes_or_exchange_calls": false,
+    "test_sha256": "4ace962feb1ef7fd8cbf3e04ad95a61dcb89b07a5934f552473b7dcc061eb61b"
+  }
+}

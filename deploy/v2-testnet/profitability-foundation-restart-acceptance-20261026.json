@@ -1,0 +1,317 @@
+{
+  "change_set": "profitability-foundation-20261026-v1",
+  "status": "DEPLOYED_SANDBOX_RESTART_VERIFIED_STRATEGY_PROMOTION_WITHHELD",
+  "timezone": "Asia/Shanghai",
+  "deployment": {
+    "at_ms": 1793016075884,
+    "controller_epoch": 11,
+    "same_binding": true,
+    "controller_pid": 923638,
+    "market_pid": 912360,
+    "admin_pid": 911666,
+    "controller_qa": {
+      "passed": 293,
+      "log": "/tmp/v2-data-qa.7Y5Ahd/pytest.log"
+    },
+    "hub_qa": {
+      "passed": 73,
+      "log": "/tmp/v2-data-qa.NdKHcQ/pytest.log"
+    },
+    "release_tools_qa": {
+      "passed": 36
+    },
+    "admin_real_review": {
+      "rows": 12,
+      "basis": true,
+      "summary_unchanged": true,
+      "comparisons_unchanged": true
+    },
+    "admin_probe": {
+      "read_only": true,
+      "expect_new_basis": true,
+      "route": {
+        "http_status": 200,
+        "elapsed_ms": 18
+      },
+      "review": {
+        "http_status": 200,
+        "elapsed_ms": 89,
+        "rows": 12,
+        "known_basis_rows": 12,
+        "missing_basis_rows": 0,
+        "unknown_basis_rows": 0,
+        "has_basis_explanation": true
+      },
+      "asset": {
+        "http_status": 200,
+        "elapsed_ms": 1,
+        "new_basis_labels": true,
+        "old_basis_label": false
+      },
+      "unauthenticated": {
+        "http_status": 403,
+        "elapsed_ms": 1
+      },
+      "passed": true
+    }
+  },
+  "runtime_after": {
+    "observed_at_ms": 1793016532722,
+    "since_ms": 1793016075884,
+    "route": {
+      "epoch": 11,
+      "phase": "ACTIVE",
+      "blockers": []
+    },
+    "cycles": {
+      "count": 28,
+      "statuses": {
+        "CYCLE_COMPLETE": 26,
+        "ENTRY_BLOCKED": 2
+      },
+      "latest_completed_age_ms": 5199,
+      "entry_dispatch_enabled": true,
+      "phases": {
+        "market": {
+          "CURRENT": 28
+        },
+        "regime": {
+          "PROJECTED": 28
+        },
+        "configuration": {
+          "CURRENT": 28
+        },
+        "protection": {
+          "CLEAR": 28
+        },
+        "exits": {
+          "CLEAR": 27,
+          "BLOCKED": 1
+        },
+        "settlement": {
+          "CLEAR": 25,
+          "BLOCKED": 3
+        }
+      }
+    },
+    "account-coverage-v1": {
+      "status": "ACCOUNT_COVERAGE_CLEAR",
+      "blockers": []
+    },
+    "trading-health-v1": {
+      "age_ms": 13115,
+      "active_alerts": [],
+      "signal_lag_state": {
+        "status": "CLEAR",
+        "alarm_active": false,
+        "current_lag_observed": false,
+        "recovery_remaining_ms": 0,
+        "recovery_started_at_ms": null
+      },
+      "findings": []
+    },
+    "new_strategy_decisions": [
+      {
+        "source": "s3",
+        "action": "IGNORED",
+        "count": 441
+      }
+    ],
+    "updated_orders": [
+      {
+        "leg": "CLOSE",
+        "status": "FILLED",
+        "count": 1
+      }
+    ],
+    "exchange_fills_since_restart": [
+      {
+        "leg": "CLOSE",
+        "count": 1
+      }
+    ]
+  },
+  "settlement_evidence": {
+    "post_restart_closed_episodes": [
+      {
+        "status": "SETTLED",
+        "episodes": 1,
+        "current_revision_outcomes": 1
+      }
+    ]
+  },
+  "releases": [
+    {
+      "release": "/opt/trade-engine-v2/releases/profitability-foundation-controller-20261026-v1",
+      "based_on": "/opt/trade-engine-v2/releases/jev-reentry-evidence-20261024-v1",
+      "source_sha256": {
+        "services/v2_price_features.py": "ab52c7b8da744ce8a956b8bf83e59462d5c7811e02a32a7cf71f456e450c3859",
+        "services/v2_s3_candles.py": "464346302acee7dd4ae8f1708cef335443b15aeebefa96185ce34fa32ce7ec29",
+        "services/v2_s0_regime.py": "aacf1e6de392c73788ce3cf5557b70356204d8bbdca6b3333ff846f7ffd1e6dc",
+        "services/v2_shared_risk_reference.py": "4eeeebe36fc80dc18bb9d8367683f535505b1b6324af4476415e7f9ef1c8ff29",
+        "services/v2_directional_exit_market.py": "437198a15a57a267e9093862dd46f29b1844d7edf279aba0a5ad9124e5d37d96",
+        "services/v2_equity_analytics.py": "538c2fbff050f295c29ecf150db1d066df19e8a310816f61ec2491cbf331742c",
+        "services/v2_profit_capture_review.py": "21abb516a4d585d0ff29e6ffbb1e279640975850aa7edee639efd30023c4ba25",
+        "services/v2_profitability_audit.py": "a87e488b93f4419ca34622564600f854260a86147f37c74b8275b7a44ef5cb8b",
+        "services/v2_profitability_audit_entry.py": "eb494929469f6f38f80f788970112abfd60683c317367bfbec2d9e671dab3edb",
+        "services/v2_reentry_evaluation.py": "4c1cd5632dab686c64d1ec37da846e7a710454808a03bfa614ae596e9f38fc64",
+        "services/v2_reentry_research.py": "098c3653653af255f574d563acb47620997e07291d53b1f694b63c1ab31a1b18",
+        "services/v2_reentry_research_entry.py": "7851f628c6ed4eb0efd6af69a0bae5bb4b696d17a92a693988edf7da35c81238",
+        "services/v2_review_risk.py": "451f29b1da5edf0ab8bbac0ffe892f545e9671d3490880dae1c9240f00d42729",
+        "services/v2_strategy_analytics.py": "077da6b50c886432c96109b814011b283c6eab687b51ac25ada835c8b06c101c",
+        "services/v2_trade_path_review.py": "e530cc5f83ce7f44d3e708f5b27d352b03fb72b72741677379706fe4a98f2e35",
+        "services/v2_trade_review.py": "dfa19f8151e220cf44dfbc670f532726c3e5a07d84a6a691a23ac7d17cfa3c6f",
+        "services/v2_trend_runner_shadow.py": "d10c88a01c595862777ee7dded87b6c345dacd593c27c7c1e94e38a986da59f0",
+        "v2_core/timeframe_indicators.py": "010d40e0587f9e3db0554d7fd017c64ebb66e470395f32b3e925e33b861a1d71",
+        "v2_core/trade_path.py": "5ceedd52e79ffdc659c207e1a78595a8ad27c2b70d487f6a0f6ead7d4da301f9",
+        "v2_core/trend_runner.py": "b01fbc52a6a8d7c8daa35d33ae9b67094f925ebff99d40a76e40f24a8c7e5220",
+        "services/v2_shared_market.py": "12c45d7d4f733e7be249bf3aec29898bb8289037e72de1a75413c89da185b32e",
+        "v2_core/directional_outcomes.py": "1eee595d0cd21abf62232b71a7ecc590c78feab7df8c45972c4c4a84e2a78a06"
+      }
+    },
+    {
+      "release": "/opt/trade-engine-v2/releases/profitability-foundation-hub-20261026-v1",
+      "based_on": "/opt/trade-engine-v2/releases/admission-budget-hub-20261024-v1",
+      "source_sha256": {
+        "services/v2_price_features.py": "ab52c7b8da744ce8a956b8bf83e59462d5c7811e02a32a7cf71f456e450c3859",
+        "services/v2_s3_candles.py": "464346302acee7dd4ae8f1708cef335443b15aeebefa96185ce34fa32ce7ec29",
+        "services/v2_s0_regime.py": "aacf1e6de392c73788ce3cf5557b70356204d8bbdca6b3333ff846f7ffd1e6dc",
+        "v2_core/precision.py": "6e05f6cf9b6cade1be1ba6584575bc64a528ee0e3d59d393601c6d5fbfa9ac93",
+        "services/v2_shared_market.py": "12c45d7d4f733e7be249bf3aec29898bb8289037e72de1a75413c89da185b32e"
+      }
+    },
+    {
+      "release": "/opt/trade-engine-v2/releases/profitability-foundation-admin-20261026-v1",
+      "based_on": "/opt/trade-engine-v2/releases/symbol-exit-account-admin-compat-20261021-v1",
+      "source_sha256": {
+        "services/v2_trade_review.py": "dfa19f8151e220cf44dfbc670f532726c3e5a07d84a6a691a23ac7d17cfa3c6f",
+        "web/v2_strategy/app.js": "7779360ce2e46e39818d51c425ff986af158179335484453d953f036821009a5",
+        "v2_core/directional_outcomes.py": "9aca27bf2b0bfeab7f7b7f0575b8002cc497575492cdd28c65a134ca243fbf9b"
+      }
+    }
+  ],
+  "effective_changes": [
+    "Controller and hub can read/reconstruct versioned v3 features; normal producer remains s3-closed-1m-v2.",
+    "Review API and strategy UI explicitly label legacy T+60 as all-close-fill VWAP-relative; real stored settlement/profitability numbers are unchanged.",
+    "Strict read-only profit-capture/path audit and OFF/SHADOW trend tools are available in the controller release; no scheduled research job or new execution strategy is enabled."
+  ],
+  "unchanged_safety_contracts": {
+    "environment": "SANDBOX",
+    "account_binding_unchanged": true,
+    "real_money_enabled": false,
+    "execution_policy_unchanged": true,
+    "position_exit_contract": "binance-public-exit-v1",
+    "market_producer_contract": "s3-closed-1m-v2",
+    "new_trend_strategy_enabled": false,
+    "new_research_scheduler_enabled": false,
+    "hard_stop_rules_changed": false,
+    "account_reset": false,
+    "ledger_rewritten": false,
+    "artificial_test_orders_submitted": false
+  },
+  "graceful_stops": [
+    {
+      "forced": false,
+      "stopped": true,
+      "timestamp_us": 1793016076985199
+    },
+    {
+      "forced": false,
+      "stopped": true,
+      "timestamp_us": 1793016092554359
+    }
+  ],
+  "verification": {
+    "candidate_controller": {
+      "passed": 293,
+      "failed": 0,
+      "seconds": 49.19,
+      "log": "/tmp/v2-data-qa.7Y5Ahd/pytest.log",
+      "log_sha256": "f9a5663f57a4d885f08643c9462ac222c0d4345f2e23d904f458f51feded94d6"
+    },
+    "candidate_hub": {
+      "passed": 73,
+      "failed": 0,
+      "seconds": 12.9,
+      "log": "/tmp/v2-data-qa.NdKHcQ/pytest.log",
+      "log_sha256": "3e32c3a8a55c2e1920c26df8e5c01e1c44f35ca73c7ee22801e8a15c53bd8ad4"
+    },
+    "restart_and_http_probe_tools": {
+      "passed": 36,
+      "failed": 0
+    },
+    "notes": "Counts are per execution profile, not unique full-repository coverage; the previous 707-workspace test run is not added. Tests imported actual candidate release code. Disposable QA database directories were reclaimed after shutdown; diagnostics retained.",
+    "qa_collection_attempts": [
+      "Controller initial broad collection included a Web-console integration fixture absent from execution release; collection failed before tests. The final controller-specific 293-test profile passed.",
+      "Admin broad fixture imported trading s3 absent by design from the small Web release; collection failed. Replaced by real read-only repeatable-read before/after API comparison over12 rows (all original fields, summaries and comparisons unchanged), runtime imports, and actual authenticated post-restart HTTP checks."
+    ],
+    "runtime_python_imports": "PASSED_FOR_ALL_THREE_ACTUAL_VENVS",
+    "schema_compatibility": "Controller prior/candidate and account-admin policy reader matched. Market hub is a MarketPolicy consumer, not an account RuntimePolicy reader; no runtime_policy files replaced.",
+    "dashboard_loopback": {
+      "http_status": 200,
+      "error_present": false,
+      "elapsed_ms": 149
+    },
+    "public_unauthenticated_overview": {
+      "http_status": 401,
+      "interpretation": "Authentication challenge, not an availability test of the authenticated public path."
+    },
+    "account_admin_probe": {
+      "read_only": true,
+      "expect_new_basis": true,
+      "route": {
+        "http_status": 200,
+        "elapsed_ms": 18
+      },
+      "review": {
+        "http_status": 200,
+        "elapsed_ms": 89,
+        "rows": 12,
+        "known_basis_rows": 12,
+        "missing_basis_rows": 0,
+        "unknown_basis_rows": 0,
+        "has_basis_explanation": true
+      },
+      "asset": {
+        "http_status": 200,
+        "elapsed_ms": 1,
+        "new_basis_labels": true,
+        "old_basis_label": false
+      },
+      "unauthenticated": {
+        "http_status": 403,
+        "elapsed_ms": 1
+      },
+      "passed": true
+    },
+    "candidate_real_audit": "Read-only release CLI completed using active SANDBOX account,1 latest path, no trend cases; no account IDs or credentials emitted.",
+    "process_working_directories_verified": true,
+    "unexpected_python_error_log_count": 0,
+    "service_nrestarts": {
+      "controller": 0,
+      "market_hub": 0,
+      "account_admin": 0
+    }
+  },
+  "transients": [
+    "Hub initial catalog refresh encountered shared QUOTA_DENIED and retried under existing budget; recovered CURRENT without changing quotas.",
+    "Controller initial manage-only recovery and one natural exit transition produced2 ENTRY_BLOCKED cycles; subsequent observed cycles completed with entries enabled.",
+    "Three settlement passes returned WAITING_INCOME_LAG after the natural close. Exchange income arrived; episode became SETTLED with current-accounting-revision outcome. This did not require forced accounting or a service restart."
+  ],
+  "limits": [
+    "No natural OPEN fill occurred in this short post-restart observation window. Do not claim a fresh full entry-to-exit round trip or profitable strategy from this verification.",
+    "Corrected ATR v3 and true-hour exit EMA remain opt-in and disabled in execution pending prospective sizing/admission comparisons and per-position contract binding.",
+    "Trend model remains OFF by default and is a retrospective research tool only. Prior eligible residual example was weaker than the baseline before unknown funding; no profitability conclusion or new holding policy is justified.",
+    "Existing market-universe freshness/quotas remain unchanged; CURRENT hub is a cycle status and does not mean all listed contracts are fresh."
+  ],
+  "rollback": {
+    "controller": "Graceful stop; verify worker stopped; restore prior release symlink; start manage-only; request the same dynamic binding with a fresh monotonic epoch through ExecutionRoutes after new coverage checks. Never directly update route phase, reset ledgers, or switch accounts.",
+    "hub": "Stop only market-hub, restore its recorded prior release symlink, start and verify fresh CURRENT frames; never delete the archive/cache for rollback.",
+    "admin": "Restore its recorded prior release symlink and restart only account-admin; verify authenticated API and UI together.",
+    "prior_releases_retained": true
+  },
+  "tools": {
+    "restart": "scripts/v2_profitability_release_restart.py (one-shot fixed release; default dry-run; refuses re-execution after successful pointer switch)",
+    "read_only_probe": "scripts/v2_profitability_release_probe.py --expect-new-basis"
+  }
+}

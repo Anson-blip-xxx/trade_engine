@@ -1,0 +1,47 @@
+{
+  "environment": "SANDBOX",
+  "release": "/opt/trade-engine-v2/releases/execution-recovery-20261008-v1",
+  "previous_release": "/opt/trade-engine-v2/releases/storage-dedup-execution-controller-20261004-v1",
+  "deployment_type": "six-file overlay; unrelated workspace changes excluded",
+  "files": [
+    "v2_core/binance.py", "v2_core/runner.py",
+    "services/v2_execution_controller.py", "services/v2_execution_supervisor.py",
+    "services/v2_managed_testnet.py", "services/v2_directional_exit.py"
+  ],
+  "root_causes": [
+    "Synchronous HTTP 400 Binance -4131 MARKET_ORDER_REJECT was classified UNKNOWN",
+    "BLOCKED WORKER_START_FAILED had no same-binding manage-only retry",
+    "Rejected exit reused immutable request identity on a later decision"
+  ],
+  "safety": [
+    "Historical rejection requires persisted original synchronous reject and authenticated not-found query",
+    "Timeout, 5xx, duplicate client ID and bare not-found remain ambiguous",
+    "Restart retry uses bounded backoff, manage-only mode and fresh worker fencing token",
+    "Resume used normal desired-route request and controller double coverage preflight",
+    "No account policy reset, credential changes, forced entry or expired-signal replay"
+  ],
+  "qa": {
+    "targeted_tests_passed": 120,
+    "diagnostics": "/tmp/v2-data-qa.rlTb6D",
+    "additional_partial_retry_fill_test_passed": true,
+    "additional_diagnostics": "/tmp/v2-data-qa.5P4lOo",
+    "lint": "passed",
+    "full_repository_suite": "not run",
+    "fixture_note": "Candidate QA schema updated with already-deployed coverage_blobs table; no runtime DDL applied"
+  },
+  "runtime_evidence": {
+    "active_at": "2026-10-08T10:51:13+08:00",
+    "route_epoch": 36,
+    "original_unknown_order": "REJECTED by normal recovery",
+    "partial_closes_filled": 2,
+    "pipeline": "CYCLE_COMPLETE; entry_dispatch_enabled=true",
+    "sampled_ignored_signals": {
+      "REWARD_RISK_TOO_LOW": 4,
+      "entry_mode_unconfirmed": 7,
+      "overextended": 3,
+      "score_below_minimum": 2
+    },
+    "new_open_fill_after_deployment": "not observed at handoff",
+    "remaining_issue": "SIGNAL_CONSUMPTION_LAG still fluctuates for a small number of signals; not claimed fully resolved"
+  }
+}

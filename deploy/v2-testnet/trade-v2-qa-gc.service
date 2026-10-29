@@ -1,0 +1,21 @@
+[Unit]
+Description=Reclaim verified stopped V2 QA databases (never trading data)
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/bin/python3 /opt/trade-engine-v2/host-maintenance/scripts/v2_qa_gc.py --apply --min-age-hours 24 --limit 256 --diagnostic-days 30
+Environment=PYTHONDONTWRITEBYTECODE=1
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=600
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=no
+PrivateDevices=yes
+ReadWritePaths=/tmp
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077

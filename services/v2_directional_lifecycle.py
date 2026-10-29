@@ -7,10 +7,14 @@ No opening capability. Writes remain explicit opt-in and guarded below.
 
 import json
 from dataclasses import asdict
+from decimal import Decimal
 
 from services.v2_directional_protection import DirectionalStopRecovery
 from v2_core.account_coverage import AccountCoverageAudit
+from v2_core.evidence import canonical
+from v2_core.external_close_recovery import ExternalCloseRecovery
 from v2_core.protection_supervisor import ProtectionSupervisor
+from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
 
 
@@ -45,6 +49,9 @@ class DirectionalProtectionStage:
             excluded_position_symbols=excluded_position_symbols,
         )
         self.supervisor = ProtectionSupervisor(connect, request, scope=scope)
+        self.external_close = ExternalCloseRecovery(
+            connect, request, scope=scope, clock_ms=clock_ms
+        )
         self.audit = AccountCoverageAudit(
             connect,
             request,
@@ -53,23 +60,136 @@ class DirectionalProtectionStage:
             excluded_position_symbols=excluded_position_symbols,
         )
         self.store = BusinessState(connect)
+        self.request = request
         self.cursor = StateKey(
             **asdict(scope), namespace="directional-protection-stage-v1", key="cursor"
         )
 
+    def _cleanup_flat(self, state_id):
+        """Cancel one proven-owned flat parent; never replace a live hard stop."""
+        from v2_core.protection import ProtectionSpec, TestnetProtection
+        from v2_core.service import TradingData
+
+        if not self.allow_writes:
+            return {"status": "CLEANUP_WRITE_DISABLED"}
+        with session_advisory_lock(
+            self.connect, "testnet-protocol-account:" + self.scope.key
+        ) as acquired:
+            if not acquired:
+                return {"status": "BUSY"}
+            with self.connect() as conn:
+                row = conn.execute(
+                    "SELECT payload FROM v2_business_state WHERE state_id=%s AND NOT deleted AND scope @> %s::jsonb",
+                    (
+                        state_id,
+                        canonical(
+                            {**asdict(self.scope), "namespace": "testnet-protection-v1"}
+                        ),
+                    ),
+                ).fetchone()
+            if row is None:
+                raise ValueError("FLAT_PROTECTION_OWNERSHIP_REQUIRED")
+            spec = ProtectionSpec(**row[0]["spec"])
+            protection = TestnetProtection(self.store, self.request, scope=self.scope)
+            if protection.key(spec).identity != state_id:
+                raise ValueError("FLAT_PROTECTION_IDENTITY_REQUIRED")
+            trace = TradingData(self.connect).trace(spec.episode)
+            if any(trace["scope"].get(k) != v for k, v in asdict(self.scope).items()):
+                raise ValueError("FLAT_PROTECTION_SCOPE_REQUIRED")
+            orders = {o["order_id"]: o for o in trace["orders"]}
+            if not orders or any(
+                o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
+                for o in orders.values()
+            ):
+                raise ValueError("FLAT_PROTECTION_ORDERS_UNCONFIRMED")
+            opened = sum(
+                (
+                    Decimal(f["quantity"])
+                    for f in trace["fills"]
+                    if orders[f["order_id"]]["leg"] == "OPEN"
+                ),
+                Decimal(0),
+            )
+            closed = sum(
+                (
+                    Decimal(f["quantity"])
+                    for f in trace["fills"]
+                    if orders[f["order_id"]]["leg"] == "CLOSE"
+                ),
+                Decimal(0),
+            )
+            if opened <= 0 or opened != closed:
+                raise ValueError("FLAT_PROTECTION_LEDGER_REQUIRED")
+            opening = [o for o in orders.values() if o["leg"] == "OPEN"]
+            if len(opening) != 1 or (
+                spec.kind == "STOP_MARKET"
+                and self.stop.plan(opening[0]["order_id"]) != spec
+            ):
+                raise ValueError("FLAT_PROTECTION_ORIGINAL_PLAN_REQUIRED")
+            with self.connect() as conn:
+                pending = conn.execute(
+                    "SELECT 1 FROM v2_orders o JOIN v2_trade_intents i ON i.intent_id=o.episode_id "
+                    "WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s) AND i.payload->>'symbol'=%s "
+                    "AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED','PREPARED') LIMIT 1",
+                    (*asdict(self.scope).values(), spec.symbol),
+                ).fetchone()
+            if pending:
+                raise ValueError("FLAT_PROTECTION_TARGET_SUBMISSION_UNCONFIRMED")
+            ordinary = self.request("GET", "/fapi/v1/openOrders", {})
+            if not isinstance(ordinary, list) or any(
+                not isinstance(o, dict)
+                or not o.get("symbol")
+                or o["symbol"] == spec.symbol
+                for o in ordinary
+            ):
+                raise ValueError("FLAT_PROTECTION_VENUE_ORDERS")
+            # Same account lock serializes normal submissions; transport guard
+            # additionally fences account switches during the targeted DELETE.
+            result = protection.cancel_flat_once(spec, symbol_only=True)
+            return {
+                "status": "CLEANED"
+                if result["status"] in {"CANCELED", "EXPIRED"}
+                else "CLEANUP_PENDING",
+                "parent_status": result["status"],
+            }
+
     def run_once(self):
         # Separate orchestration lock: children acquire the venue/account lock.
-        with self.connect() as guard:
-            if not guard.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
-                ("directional-protection-stage:" + self.scope.key,),
-            ).fetchone()[0]:
+        with session_advisory_lock(
+            self.connect, "directional-protection-stage:" + self.scope.key
+        ) as acquired:
+            if not acquired:
                 return {"status": "BLOCKED", "reason": "BUSY"}
-            guard.commit()
             try:
                 recovery = self.supervisor.run_once(limit=self.limit)
             except Exception as exc:  # noqa: BLE001 - still attempt original stop recovery
                 recovery = {"status": "BLOCKED", "error_code": type(exc).__name__}
+            # Give registered native children first ownership of their fills.
+            # Failed parent queries must not prevent independent external-close
+            # recovery; after adoption revalidate the terminal parent evidence.
+            try:
+                external = self.external_close.run_once(limit=self.limit)
+                if any(
+                    r.get("status") == "RECONCILED" for r in external.get("results", [])
+                ):
+                    recovery = self.supervisor.run_once(limit=self.limit)
+            except Exception as exc:  # noqa: BLE001 - preserve the admission fence
+                external = {"status": "BLOCKED", "error_code": type(exc).__name__}
+            cleanup = {}
+            for state_id, result in recovery.get("results", {}).items():
+                if result.get("status") == "PROTECTION_WITHOUT_LEDGER_EXPOSURE":
+                    try:
+                        cleanup[state_id] = self._cleanup_flat(state_id)
+                        if cleanup[state_id]["status"] == "CLEANED":
+                            recovery["results"][state_id] = {
+                                "status": "TERMINAL_FLAT_LEDGER",
+                                "parent_status": cleanup[state_id]["parent_status"],
+                            }
+                    except Exception as exc:  # noqa: BLE001 - query-only retry on uncertain DELETE
+                        cleanup[state_id] = {
+                            "status": "BLOCKED",
+                            "error_code": type(exc).__name__,
+                        }
             cursor = self.store.read(self.cursor)
             after = json.loads(cursor.payload_json)["after"] if cursor else ""
             with self.connect() as conn:
@@ -121,11 +241,14 @@ class DirectionalProtectionStage:
             )
             return {
                 "status": "CLEAR"
-                if healthy_recovery
+                if external.get("status") == "CLEAR"
+                and healthy_recovery
                 and healthy_stops
                 and coverage.get("status") == "ACCOUNT_COVERAGE_CLEAR"
                 else "BLOCKED",
                 "recovery": recovery,
+                "external_closes": external,
+                "flat_cleanup": cleanup,
                 "stops": results,
                 "coverage": coverage,
                 "execution_authorized": False,

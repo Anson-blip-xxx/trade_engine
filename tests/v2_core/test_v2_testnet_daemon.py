@@ -136,7 +136,7 @@ def test_daemon_checkpoints_before_and_after_pipeline_cycle(
     monkeypatch.setattr(
         pipeline,
         "run_once",
-        lambda: (
+        lambda **_: (
             calls.append("pipeline") or {"status": "ENTRY_BLOCKED", "cycle_id": "cycle"}
         ),
     )
@@ -159,7 +159,7 @@ def test_checkpoint_failure_prevents_pipeline_launch(case, monkeypatch):
     monkeypatch.setattr(
         daemon, "_checkpoint", lambda _: (_ for _ in ()).throw(ConnectionError())
     )
-    monkeypatch.setattr(pipeline, "run_once", lambda: called.append(True))
+    monkeypatch.setattr(pipeline, "run_once", lambda **_: called.append(True))
     with pytest.raises(ConnectionError):
         daemon.run_once()
     assert called == []
@@ -181,7 +181,7 @@ def test_trade_notification_failure_never_changes_completed_pipeline(case, monke
     monkeypatch.setattr(
         pipeline,
         "run_once",
-        lambda: {"status": "CYCLE_COMPLETE", "cycle_id": "cycle"},
+        lambda **_: {"status": "CYCLE_COMPLETE", "cycle_id": "cycle"},
     )
     assert daemon.run_once() == {"status": "CYCLE_COMPLETE", "cycle_id": "cycle"}
     assert (

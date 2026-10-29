@@ -3,6 +3,7 @@
 import sys
 
 from v2_core.errors import SubmissionNotSent
+from v2_core.reduction_fence import revalidate_reduction_write
 from v2_core.transport import ExchangeTransportError
 
 
@@ -36,9 +37,15 @@ class GuardedSignedRequest:
             return "MANAGE"
         return "OPEN"
 
-    def __call__(self, method, path, params):
+    def __call__(self, method, path, params, *, admission_ticket=None):
         if method == "GET":
+            if admission_ticket is not None:
+                return self.request(
+                    method, path, params, admission_ticket=admission_ticket
+                )
             return self.request(method, path, params)
+        if admission_ticket is not None:
+            raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
         try:
             context = self.guard(operation=self.operation(method, path, params))
             context.__enter__()
@@ -49,6 +56,9 @@ class GuardedSignedRequest:
                 else "EXECUTION_FENCED"
             ) from None
         try:
+            revalidate_reduction_write(
+                self.account_id, self.environment, method, path, params
+            )
             return self.request(method, path, params)
         finally:
             # Never reinterpret a lost lock/commit AFTER I/O as a safe-to-retry write.

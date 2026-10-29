@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import asdict
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
@@ -12,15 +12,16 @@ from v2_core.directional import analysis_adjustment
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds, symbol
 from v2_core.ledger import amount
+from v2_core.precision import decimal_text, derived_amount, money_context
+
+# Existing immutable outcomes used the VWAP of *all* CLOSE fills, including
+# partial reductions. This is not a market mark at the instant the position
+# became flat. Keep historical evidence/numbers unchanged and name the basis.
+LEGACY_FOLLOWUP_BASIS = "ALL_CLOSE_FILL_VWAP_NOT_FINAL_FLAT_MARK"
 
 
 def exact(value):
-    with localcontext() as ctx:
-        ctx.prec = 100
-        rounded = value.quantize(
-            Decimal("0.000000000000000001"), rounding=ROUND_HALF_EVEN
-        )
-    return format(rounded.normalize(), "f")
+    return decimal_text(derived_amount(value, rounding=ROUND_HALF_EVEN))
 
 
 def settlement_amount(value):
@@ -96,8 +97,7 @@ class DirectionalOutcomeJournal:
                 raise ValueError("DIRECTIONAL_QUALITY_SCORE_INVALID")
             score = Decimal(plan["score"])
             net = settlement_amount(settlement["net_pnl"])
-            with localcontext() as ctx:
-                ctx.prec = 100
+            with money_context():
                 return_pct = net / opened * 100
                 close_price = closing / quantity
             evidence = {
@@ -109,12 +109,32 @@ class DirectionalOutcomeJournal:
                 "opening_notional": exact(opened),
                 "closing_quantity": exact(quantity),
             }
+            if snapshot.get("source") == "quant":
+                scoring = evaluation["source_scoring"]
+                evidence["quant"] = {
+                    "config_digest": scoring["config_digest"],
+                    "timeframe_minutes": scoring["timeframe_minutes"],
+                    "registry_version": scoring["strategy_version"],
+                }
             if conn.execute(
                 "SELECT 1 FROM v2_orders WHERE episode_id=%s AND request_evidence->>'origin'='APPROVED_TESTNET_MAINTENANCE' LIMIT 1",
                 (episode,),
             ).fetchone():
                 evidence["exit_origin"] = "USER_APPROVED_MAINTENANCE"
                 evidence["strategy_learning_eligible"] = False
+            safety_closes = conn.execute(
+                """SELECT request_evidence FROM v2_orders o WHERE episode_id=%s
+                AND leg='CLOSE' AND status IN ('FILLED','RECONCILED')
+                AND EXISTS(SELECT 1 FROM v2_fills f WHERE f.order_id=o.order_id)""",
+                (episode,),
+            ).fetchall()
+            if any(p.get("origin") == "BINANCE_EXTERNAL_CLOSE" and p.get("kind") == "LIQUIDATION"
+                   for (p,) in safety_closes):
+                evidence["exit_origin"] = "BINANCE_EXTERNAL_CLOSE"
+                evidence["exit_reason"] = "EXCHANGE_LIQUIDATION"
+            elif any(p.get("reason") == "UNCONFIRMED_PROTECTION" for (p,) in safety_closes):
+                evidence["exit_origin"] = "POSITION_SAFETY_RECOVERY"
+                evidence["exit_reason"] = "UNCONFIRMED_PROTECTION"
             values = (
                 episode,
                 *asdict(self.scope).values(),
@@ -169,6 +189,11 @@ class DirectionalOutcomeJournal:
             }
 
     def record_t60(self, episode, *, observed_at_ms, price, evidence):
+        """Legacy VWAP-relative follow-up, not return since final liquidation.
+
+        Do not rewrite stored evidence to relabel historical rows: immutable
+        idempotency compares it byte-for-byte. Readers attach the basis label.
+        """
         episode, observed = str(UUID(episode)), milliseconds(observed_at_ms)
         follow_price = amount(price, positive=True)
         if not isinstance(evidence, dict) or not evidence:
@@ -184,8 +209,7 @@ class DirectionalOutcomeJournal:
                 or not outcome[1] + 3600000 <= observed <= outcome[1] + 3900000
             ):
                 raise ValueError("T60_OBSERVATION_WINDOW")
-            with localcontext() as ctx:
-                ctx.prec = 100
+            with money_context():
                 change = (follow_price - outcome[2]) / outcome[2] * 100
                 value = change if outcome[0] == "s6" else -change
             frozen = json.loads(canonical(evidence))
@@ -227,6 +251,14 @@ class DirectionalHistory:
     def __call__(self, signal):
         now, target = milliseconds(self.clock()), symbol(signal["symbol"])
         event = signal["signal"]
+        quant = None
+        if event.startswith("QUANT_"):
+            features = signal["features"]
+            quant = {
+                "config_digest": features["quant_config_digest"],
+                "timeframe_minutes": features["quant_timeframe_minutes"],
+                "registry_version": features["quant_registry_version"],
+            }
         start = max(0, now - 14 * 86400000)
         with self.connect() as conn:
             rows = conn.execute(
@@ -236,6 +268,7 @@ class DirectionalHistory:
                 AND f.horizon_minutes=60 WHERE
                 (o.exchange,o.account_id,o.environment,o.product)=(%s,%s,%s,%s)
                 AND o.producer=%s AND o.symbol=%s AND o.event_type=%s
+                AND (%s::jsonb IS NULL OR o.evidence->'quant' @> %s::jsonb)
                 AND NOT EXISTS (SELECT 1 FROM v2_orders m WHERE m.episode_id=o.episode_id
                     AND m.request_evidence->>'origin'='APPROVED_TESTNET_MAINTENANCE')
                 AND o.closed_at_ms>=%s AND o.closed_at_ms<=%s
@@ -245,6 +278,8 @@ class DirectionalHistory:
                     self.producer,
                     target,
                     event,
+                    Jsonb(quant) if quant is not None else None,
+                    Jsonb(quant) if quant is not None else None,
                     start,
                     now,
                 ),
@@ -286,6 +321,8 @@ class DirectionalHistory:
             "t60_count": len(followed),
             "rollup_digest": digest(canonical({"stats": stats})),
         }
+        if quant is not None:
+            evidence["quant"] = quant
         return {
             "stats": stats,
             "evidence": evidence,

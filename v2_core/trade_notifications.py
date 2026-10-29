@@ -287,6 +287,13 @@ class TradeLifecycleNotifications:
         reasons = [row[0].get("reason") for row in order_rows if row[0].get("reason")]
         native = any(row[0].get("origin") == "BINANCE_ALGO_CHILD" for row in order_rows)
         if any(
+            row[0].get("origin") == "BINANCE_EXTERNAL_CLOSE"
+            and row[0].get("kind") == "LIQUIDATION" for row in order_rows
+        ):
+            reason = "EXCHANGE_LIQUIDATION（交易所强制平仓）"
+        elif "UNCONFIRMED_PROTECTION" in reasons:
+            reason = "UNCONFIRMED_PROTECTION（止损保护未确认，应急减仓）"
+        elif any(
             row[0].get("origin") == "APPROVED_TESTNET_MAINTENANCE" for row in order_rows
         ):
             reason = "USER_APPROVED_MAINTENANCE（授权维护平仓，非策略自动退出）"
@@ -305,6 +312,12 @@ class TradeLifecycleNotifications:
             risk_multiple = Decimal(report["net_pnl"]) / amount(
                 sizing["planned_loss"], positive=True
             )
+            insurance_clear = sum(
+                (amount(row["amount"]) for row in trace["cash"]
+                 if row["evidence"].get("income_type") == "INSURANCE_CLEAR"),
+                Decimal(0),
+            )
+            other_cash = amount(report["cash_adjustments"]) - insurance_clear
         return {
             **common,
             "entry_price": _exact(entry),
@@ -312,7 +325,8 @@ class TradeLifecycleNotifications:
             "opening_notional": _exact(notional),
             "gross_pnl": report["gross_pnl"],
             "fees": report["fees"],
-            "funding": report["cash_adjustments"],
+            "funding": _exact(other_cash),
+            **({"insurance_clear": _exact(insurance_clear)} if insurance_clear else {}),
             "net_pnl": outcome[0],
             "return_pct": outcome[1],
             "risk_multiple": _exact(risk_multiple),

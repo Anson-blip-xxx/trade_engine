@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily UTC+8 mover review with hourly idempotent retry
+
+[Timer]
+OnCalendar=*-*-* *:20:00 Asia/Shanghai
+RandomizedDelaySec=30
+Persistent=true
+Unit=trade-v2-daily-movers.service
+
+[Install]
+WantedBy=timers.target

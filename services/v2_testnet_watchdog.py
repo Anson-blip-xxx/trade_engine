@@ -22,7 +22,11 @@ from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds
 from v2_core.state import BusinessState, StateKey
-from v2_core.telegram import BUSINESS_HEALTH_MESSAGES, TelegramOperationalSink
+from v2_core.telegram import (
+    BUSINESS_HEALTH_MESSAGES,
+    TelegramOperationalSink,
+    health_notification_details,
+)
 
 
 @dataclass(frozen=True)
@@ -168,16 +172,18 @@ class DependencyAssessment:
 
 
 class WatchdogTelegramNotifier:
-    def __init__(self, sink, *, account_id, clock_ms):
+    def __init__(self, sink, *, account_id, clock_ms, details_for=None):
         if (
             not isinstance(sink, TelegramOperationalSink)
             or sink.environment != "SANDBOX"
             or not isinstance(account_id, str)
             or not account_id
             or not callable(clock_ms)
+            or (details_for is not None and not callable(details_for))
         ):
             raise ValueError("explicit watchdog notification ports required")
         self.sink, self.account_id, self.clock_ms = sink, account_id, clock_ms
+        self.details_for = details_for
 
     def __call__(self, event):
         if (
@@ -202,6 +208,28 @@ class WatchdogTelegramNotifier:
             "account_id": self.account_id,
             "observed_at_ms": observed,
         }
+        if (
+            self.details_for is not None
+            and event["status"] == "UNAVAILABLE"
+            and event["error_code"]
+            in {
+                "ORDER_PROGRESS_STALLED",
+                "POSITION_SAFETY_BLOCKED",
+                "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED",
+            }
+        ):
+            try:
+                details = health_notification_details(
+                    event["error_code"], self.details_for(event["error_code"])
+                )
+                if (
+                    details.get("status") == "CURRENT"
+                    and not 0 <= observed - details["observed_at_ms"] <= 120000
+                ):
+                    details = {"status": "STALE"}
+            except Exception:  # noqa: BLE001 - optional diagnostics must never suppress the base alert
+                details = {"status": "UNAVAILABLE"}
+            payload["details"] = details
         identity = "watchdog:" + digest(canonical(payload))
         kind = (
             "TRADING_HEALTH"
@@ -375,19 +403,20 @@ def main(environ=None):
         with connect() as conn:
             return conn.execute("SELECT 1").fetchone() == (1,)
 
+    business = TradingHealth(
+        connect,
+        account_id=config.account_id,
+        tv_enabled=(os.environ if environ is None else environ).get(
+            "V2_ENABLE_TV_SIGNALS"
+        )
+        == "true",
+    )
     assessment = DependencyAssessment(
         postgres=postgres_probe,
         redis=redis_ready,
         clickhouse=clickhouse_ready,
         heartbeat=heartbeat,
-        business=TradingHealth(
-            connect,
-            account_id=config.account_id,
-            tv_enabled=(os.environ if environ is None else environ).get(
-                "V2_ENABLE_TV_SIGNALS"
-            )
-            == "true",
-        ),
+        business=business,
     )
     sink = TelegramOperationalSink(
         token=secrets["TG_NOTIFY_TOKEN"],
@@ -401,6 +430,7 @@ def main(environ=None):
         sink,
         account_id=config.account_id,
         clock_ms=lambda: time.time_ns() // 1000000,
+        details_for=business.notification_details,
     )
     from v2_core.trade_notifications import TradeLifecycleNotifications
 

@@ -1,12 +1,37 @@
 """Prove account cash ownership from immutable venue fills, never symbol alone."""
 
 from dataclasses import asdict
-from decimal import Decimal, localcontext
+from decimal import Decimal
 
 from v2_core.ledger import amount
+from v2_core.precision import money_context
 
 
 def income_owner(conn, scope, row):
+    if row.get("income_type") == "INSURANCE_CLEAR":
+        # Only independently verified exchange-created forced closes qualify.
+        from contextlib import nullcontext
+
+        from v2_core.liquidation_cash import insurance_clear_candidate
+        from v2_core.service import TradingData
+
+        episodes = conn.execute(
+            """SELECT DISTINCT i.intent_id::text FROM v2_trade_intents i
+            JOIN v2_orders o ON o.episode_id=i.intent_id JOIN v2_fills f USING(order_id)
+            WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+            AND i.payload->>'symbol'=%s AND o.leg='CLOSE' AND o.status='FILLED'
+            AND o.request_evidence->>'origin'='BINANCE_EXTERNAL_CLOSE'
+            AND o.request_evidence->>'kind'='LIQUIDATION'
+            AND f.occurred_at_ms BETWEEN %s AND %s LIMIT 2""",
+            (*asdict(scope).values(), row["symbol"], row["occurred_at_ms"] - 999,
+             row["occurred_at_ms"] + 999),
+        ).fetchall()
+        if len(episodes) != 1:
+            raise ValueError("AMBIGUOUS_INSURANCE_CLEAR_OWNERSHIP")
+        episode = episodes[0][0]
+        trace = TradingData(lambda: nullcontext(conn)).trace(episode, connection=conn)
+        insurance_clear_candidate(trace, row)
+        return episode
     evidence = row.get("evidence", {})
     if (
         row.get("currency") != "USDT"
@@ -24,8 +49,7 @@ def income_owner(conn, scope, row):
         (*asdict(scope).values(), row["symbol"]),
     ).fetchall()
     owners = set()
-    with localcontext() as context:
-        context.prec = 100
+    with money_context():
         if row["income_type"] == "FUNDING_FEE":
             if evidence.get("trade_id") != "":
                 raise ValueError("AMBIGUOUS_FUNDING_OWNERSHIP")

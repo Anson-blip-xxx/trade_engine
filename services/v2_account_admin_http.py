@@ -9,7 +9,7 @@ import json
 import re
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from v2_core.account_switches import AccountSwitches
 from v2_core.credential_vault import VaultError
@@ -19,6 +19,12 @@ _EXECUTION = re.compile(r"^/api/accounts/execution/(SANDBOX|LIVE)$")
 _ACCOUNT = re.compile(
     r"^/api/accounts/([0-9a-f-]{36})/(overview|alias|verification|credentials)$"
 )
+_RECOVERY = re.compile(r"^/api/accounts/([0-9a-f-]{36})/risk-recovery$")
+_STRATEGY = re.compile(
+    r"^/api/accounts/([0-9a-f-]{36})/strategy/(policy|analytics|review|shadow|preview|apply)$"
+)
+_STRATEGY_ASSETS = Path(__file__).resolve().parents[1] / "web/v2_strategy"
+_WORKSPACE_ASSETS = Path(__file__).resolve().parents[1] / "web/v2_workspace"
 
 
 def handler_for(
@@ -29,6 +35,8 @@ def handler_for(
     enable_switch_requests=False,
     verification=None,
     execution_routes=None,
+    strategy_console=None,
+    risk_recovery=None,
 ):
     parsed = urlsplit(origin)
     if (
@@ -80,6 +88,47 @@ def handler_for(
                 return self._send(403, {"error": "FORBIDDEN"})
             path = urlsplit(self.path).path
             try:
+                recovery = _RECOVERY.fullmatch(path)
+                if recovery and risk_recovery is not None:
+                    return self._send(200, risk_recovery.inspect(recovery[1]))
+                if path in {"/accounts/workspace.css", "/accounts/workspace.js"}:
+                    name = "app.css" if path.endswith(".css") else "app.js"
+                    mime = (
+                        "text/css; charset=utf-8"
+                        if name.endswith(".css")
+                        else "text/javascript; charset=utf-8"
+                    )
+                    return self._send(
+                        200, (_WORKSPACE_ASSETS / name).read_bytes(), mime
+                    )
+                strategy = _STRATEGY.fullmatch(path)
+                if strategy and strategy_console is not None:
+                    if strategy[2] == "policy":
+                        return self._send(200, strategy_console.inspect(strategy[1]))
+                    if strategy[2] in {"analytics", "review", "shadow"}:
+                        query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+                        if set(query) - {"days"} or len(query.get("days", ["14"])) != 1:
+                            raise ValueError("ANALYSIS_WINDOW_INVALID")
+                        return self._send(
+                            200,
+                            getattr(strategy_console, strategy[2])(
+                                strategy[1], days=int(query.get("days", ["14"])[0])
+                            ),
+                        )
+                if strategy_console is not None and path in {
+                    "/accounts/strategy",
+                    "/accounts/strategy/",
+                    "/accounts/strategy/app.js",
+                    "/accounts/strategy/app.css",
+                }:
+                    name = path.rsplit("/", 1)[-1]
+                    name = name if name in {"app.js", "app.css"} else "index.html"
+                    mime = {
+                        "index.html": "text/html; charset=utf-8",
+                        "app.js": "text/javascript; charset=utf-8",
+                        "app.css": "text/css; charset=utf-8",
+                    }[name]
+                    return self._send(200, (_STRATEGY_ASSETS / name).read_bytes(), mime)
                 route = _EXECUTION.fullmatch(path)
                 if route and execution_routes is not None:
                     return self._send(
@@ -97,6 +146,10 @@ def handler_for(
                     "/accounts/": ("index.html", "text/html; charset=utf-8"),
                     "/accounts/app.js": ("app.js", "text/javascript; charset=utf-8"),
                     "/accounts/app.css": ("app.css", "text/css; charset=utf-8"),
+                    "/accounts/risk-recovery.js": (
+                        "risk-recovery.js",
+                        "text/javascript; charset=utf-8",
+                    ),
                 }
                 if path in assets:
                     name, mime = assets[path]
@@ -109,10 +162,12 @@ def handler_for(
 
         def do_POST(self):
             self.close_connection = True
+            strategy = _STRATEGY.fullmatch(urlsplit(self.path).path)
             if (
                 not self._authorized()
                 or self.headers.get("Origin") != origin
-                or self.headers.get("X-V2-Action") != "account-management"
+                or self.headers.get("X-V2-Action")
+                != ("strategy-management" if strategy else "account-management")
             ):
                 return self._send(403, {"error": "FORBIDDEN"})
             if self.headers.get(
@@ -126,6 +181,33 @@ def handler_for(
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise TypeError()
+                recovery = _RECOVERY.fullmatch(urlsplit(self.path).path)
+                if recovery and risk_recovery is not None:
+                    if set(body) != {"request_id", "proof", "expires_at_ms", "reason"}:
+                        raise ValueError("RECOVERY_REQUEST_INVALID")
+                    return self._send(200, risk_recovery.apply(recovery[1], **body))
+                if strategy and strategy_console is not None:
+                    if strategy[2] == "preview" and set(body) == {
+                        "expected_version",
+                        "changes",
+                        "restore_version",
+                    }:
+                        return self._send(
+                            200, strategy_console.preview(strategy[1], **body)
+                        )
+                    if strategy[2] == "apply" and set(body) == {
+                        "expected_version",
+                        "changes",
+                        "restore_version",
+                        "preview_digest",
+                        "preview_expires_at_ms",
+                        "reason",
+                        "request_id",
+                    }:
+                        return self._send(
+                            200, strategy_console.apply(strategy[1], **body)
+                        )
+                    return self._send(400, {"error": "INVALID_STRATEGY_ACTION"})
                 path = urlsplit(self.path).path
                 route = _EXECUTION.fullmatch(path)
                 if (
@@ -187,7 +269,29 @@ def handler_for(
                     )
                     return self._send(202, result)
                 return self._send(400, {"error": "INVALID_ACCOUNT_ACTION"})
-            except (ValueError, TypeError, VaultError):
+            except (ValueError, TypeError, VaultError) as exc:
+                from services.v2_risk_recovery_console import ERRORS
+
+                if _RECOVERY.fullmatch(urlsplit(self.path).path) and str(exc) in ERRORS:
+                    return self._send(409, {"error": str(exc)})
+                # Only constant, documented strategy errors may be reflected.
+                safe = {
+                    "POLICY_VERSION_CONFLICT",
+                    "POLICY_PREVIEW_MISMATCH",
+                    "POLICY_PREVIEW_EXPIRED",
+                    "POLICY_REQUEST_CONFLICT",
+                    "POLICY_REASON_REQUIRED",
+                    "POLICY_FIELD_NOT_EDITABLE",
+                    "POLICY_NO_CHANGE",
+                    "POLICY_SANDBOX_ONLY",
+                    "POLICY_RESERVE_30_PERCENT_REQUIRED",
+                    "POLICY_SINGLE_MARGIN_EXCEEDS_POOL",
+                    "POLICY_SINGLE_RISK_EXCEEDS_PORTFOLIO",
+                    "POLICY_RESTORE_VERSION_INVALID",
+                    "POLICY_REQUIRES_PROVISIONED_CAPITAL_RISK",
+                }
+                if strategy and str(exc) in safe:
+                    return self._send(409, {"error": str(exc)})
                 return self._send(409, {"error": "ACCOUNT_ACTION_REJECTED"})
             except Exception:  # noqa: BLE001 - never reflect body or exception text
                 return self._send(503, {"error": "ACCOUNT_SERVICE_UNAVAILABLE"})

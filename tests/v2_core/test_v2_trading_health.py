@@ -290,6 +290,43 @@ def test_business_probe_failures_are_not_healthy():
     assert assess() == frozenset({"BUSINESS_HEALTH_UNAVAILABLE"})
 
 
+def test_background_maintenance_fault_is_visible_not_position_blockage(database):
+    now = [1000000]
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now[0])
+    key = StateKey(
+        **asdict(health.scope), namespace="trading-pipeline-cycle-v1", key="maintenance"
+    )
+    store = BusinessState(database)
+    payload = {
+        "cycle_id": "maintenance",
+        "started_at_ms": now[0],
+        "finished_at_ms": now[0],
+        "status": "CYCLE_COMPLETE",
+        "phases": {
+            "signal_maintenance": {
+                "s6:s3": {"status": "UNAVAILABLE", "failure_type": "QueryCanceled"}
+            }
+        },
+    }
+    store.change(key, expected_version=0, request_key="1", payload=payload, reason="QA")
+    assert health() == frozenset()
+    now[0] += 121000
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now[0])
+    assert health() == frozenset({"SIGNAL_MAINTENANCE_DEGRADED"})
+    report = json.loads(store.read(health.key).payload_json)
+    assert report["findings"]["SIGNAL_MAINTENANCE_DEGRADED"]["consumers"] == ["s6:s3"]
+    payload["phases"]["signal_maintenance"]["s6:s3"] = {"status": "CURRENT"}
+    store.change(key, expected_version=1, request_key="2", payload=payload, reason="QA")
+    assert health() == frozenset()
+
+
+def test_maintenance_alert_template_is_specific_and_not_a_trading_permit():
+    from v2_core.telegram import BUSINESS_HEALTH_MESSAGES
+
+    message = BUSINESS_HEALTH_MESSAGES["SIGNAL_MAINTENANCE_DEGRADED"]
+    assert "不等于开仓链路堵塞" in message and "过期信号仍禁止追单" in message
+
+
 def test_watchdog_persists_delivery_and_does_not_claim_recovery_without_evidence(
     database,
 ):

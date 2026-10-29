@@ -1,10 +1,36 @@
 """Fresh credential-free Binance observations for directional exit decisions."""
 
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from v2_core.directional import number
 from v2_core.ingress import milliseconds, symbol
 from v2_core.ledger import amount
+from v2_core.precision import decimal_text, derived_amount, money_context
+
+LEGACY_EXIT_INDICATORS = "binance-public-exit-v1"
+EMA_EXIT_INDICATORS = "binance-public-exit-v2"
+
+
+def closed_hour_ema(closes, period):
+    """SMA seed followed by EMA updates, oldest closed hours first.
+
+    This is deliberately separate from the legacy arithmetic-mean contract.
+    A different seed/history is a different feature, not a silent replay fix.
+    """
+    if (
+        type(period) is not int
+        or period not in (9, 20)
+        or not isinstance(closes, (list, tuple))
+        or len(closes) != 60
+    ):
+        raise ValueError("EXIT_EMA_WARMUP_REQUIRED")
+    values = [amount(str(value), positive=True) for value in closes]
+    with money_context():
+        result = sum(values[:period], Decimal(0)) / period
+        alpha = Decimal(2) / (period + 1)
+        for value in values[period:]:
+            result += alpha * (value - result)
+        return result
 
 
 class BinanceDirectionalExitMarket:
@@ -16,6 +42,7 @@ class BinanceDirectionalExitMarket:
         clock_ms,
         exit_fee_rate,
         max_skew_ms=5000,
+        indicator_version=LEGACY_EXIT_INDICATORS,
     ):
         if (
             environment != "SANDBOX"
@@ -24,6 +51,7 @@ class BinanceDirectionalExitMarket:
             or not callable(clock_ms)
             or type(max_skew_ms) is not int
             or not 1 <= max_skew_ms <= 10000
+            or indicator_version not in (LEGACY_EXIT_INDICATORS, EMA_EXIT_INDICATORS)
         ):
             raise ValueError("explicit bounded Testnet exit market required")
         self.transport, self.environment, self.clock = (
@@ -33,19 +61,11 @@ class BinanceDirectionalExitMarket:
         )
         self.fee = number(exit_fee_rate, minimum=0, maximum=Decimal(".01"))
         self.max_skew = max_skew_ms
+        self.indicator_version = indicator_version
 
     @staticmethod
     def _exact(value):
-        with localcontext() as ctx:
-            ctx.prec = 100
-            bounded = (
-                value.quantize(Decimal("1e-18"), rounding=ROUND_HALF_EVEN)
-                if value.as_tuple().exponent < -18
-                else value
-            )
-        encoded = format(bounded.normalize(), "f")
-        amount(encoded)
-        return encoded
+        return decimal_text(derived_amount(value, rounding=ROUND_HALF_EVEN))
 
     def _candles(self, target, *, interval, count, end, width):
         start = end - count * width
@@ -104,19 +124,22 @@ class BinanceDirectionalExitMarket:
             raise ValueError("stale or future exit premium observation")
         close_15m = server // 900000 * 900000
         close_1h = server // 3600000 * 3600000
-        if close_15m < 3600000 or close_1h < 72000000:
+        hour_count = 60 if self.indicator_version == EMA_EXIT_INDICATORS else 20
+        if close_15m < 3600000 or close_1h < hour_count * 3600000:
             raise ValueError("insufficient exit market history")
         closes_15m = self._candles(
             target, interval="15m", count=4, end=close_15m, width=900000
         )
         closes_1h = self._candles(
-            target, interval="1h", count=20, end=close_1h, width=3600000
+            target, interval="1h", count=hour_count, end=close_1h, width=3600000
         )
-        with localcontext() as ctx:
-            ctx.prec = 100
-            ema9 = sum(closes_1h[-9:], Decimal(0)) / 9
-            ema20 = sum(closes_1h, Decimal(0)) / 20
-        return {
+        with money_context():
+            if self.indicator_version == EMA_EXIT_INDICATORS:
+                ema9, ema20 = (closed_hour_ema(closes_1h, p) for p in (9, 20))
+            else:
+                ema9 = sum(closes_1h[-9:], Decimal(0)) / 9
+                ema20 = sum(closes_1h, Decimal(0)) / 20
+        result = {
             "symbol": target,
             "environment": self.environment,
             "observed_at_ms": observed,
@@ -126,8 +149,17 @@ class BinanceDirectionalExitMarket:
             "ema20_1h": self._exact(ema20),
             "momentum_closes_15m": [self._exact(value) for value in closes_15m],
             "exit_fee_rate": self._exact(self.fee),
-            "source": "binance-public-exit-v1",
+            "source": self.indicator_version,
             "exchange_server_time_ms": server,
             "closed_15m_at_ms": close_15m,
             "closed_1h_at_ms": close_1h,
         }
+        if self.indicator_version == EMA_EXIT_INDICATORS:
+            result["indicator_contract"] = {
+                "interval": "1h",
+                "closed_bars": 60,
+                "average": "EMA_SMA_SEED",
+                "seed_history": "FIXED_60_CLOSED_HOURS",
+                "periods": [9, 20],
+            }
+        return result

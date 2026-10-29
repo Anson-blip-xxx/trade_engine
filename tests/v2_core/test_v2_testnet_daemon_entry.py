@@ -53,6 +53,7 @@ def test_process_config_is_explicit_public_and_never_accepts_environment_secrets
         "external_position_exclusions": [],
         "exit_fee_rate": "0.0004",
         "enable_tv_signals": False,
+        "enable_quant_signals": False,
         "tv_admission_start_ms": None,
         "notifications": True,
     }
@@ -180,7 +181,10 @@ def test_mark_reference_binds_symbol_tick_and_freshness():
 
 
 @pytest.mark.parametrize("managed", [False, True])
-def test_full_process_factory_wires_real_components_without_io(database, managed):
+@pytest.mark.parametrize("quant", [False, True])
+def test_full_process_factory_wires_real_components_without_io(
+    database, managed, quant
+):
     redis = pytest.importorskip("redis")
     cache = redis.Redis(
         unix_socket_path=os.environ["V2_REDIS_TEST_SOCKET"], decode_responses=True
@@ -189,7 +193,12 @@ def test_full_process_factory_wires_real_components_without_io(database, managed
     public_http = MarketHTTP()
     telegram = TelegramConnection()
     config = TestnetProcessConfig.from_mapping(
-        settings(V2_ENABLE_TV_SIGNALS="true", V2_TV_ADMISSION_START_MS="1790245000000")
+        settings(
+            V2_ENABLE_TV_SIGNALS="true",
+            V2_TV_ADMISSION_START_MS="1790245000000",
+            V2_SHARED_MARKET="true" if quant else "false",
+            V2_ENABLE_QUANT_SIGNALS="true" if quant else "false",
+        )
     )
     process = create_testnet_process(
         config,
@@ -217,24 +226,80 @@ def test_full_process_factory_wires_real_components_without_io(database, managed
     pipeline = process.daemon.pipeline
     assert isinstance(process.runtime.execution.submit, GuardedOpeningSubmit)
     assert isinstance(pipeline.followups, DirectionalFollowupStage)
-    assert isinstance(pipeline.regime, ArchivedS0Stage)
+    if not quant:
+        assert isinstance(pipeline.regime, ArchivedS0Stage)
     assert [
         (item.worker.scope.producer, item.worker.source) for item in pipeline.schedulers
-    ] == [("s6", "s3"), ("s8", "s3"), ("s6", "tv_bridge"), ("s8", "tv_bridge")]
+    ] == [("s6", "s3"), ("s8", "s3"), ("s6", "tv_bridge"), ("s8", "tv_bridge")] + (
+        [("s6", "quant"), ("s8", "quant")] if quant else []
+    )
+    from services.v2_directional_context import DirectionalContext
+    from services.v2_entry_research_context import EntryResearchContext
+    from services.v2_entry_structure import EntryStructureContext
+    from services.v2_jev_entry_context import JevEntryContext
+    from services.v2_jev_reference import JevReference
+    from services.v2_liquidity_context import LiquidityContext
+    from services.v2_opening_quarantine import OpeningQuarantineContext
+    from services.v2_quant_research import QuantEvidenceContext
+    from services.v2_reentry_gate import StructuralReentryContext
+    from services.v2_shared_market_context import DynamicMarketContext
+
+    entry_filters = []
     for scheduler in pipeline.schedulers:
-        account = scheduler.context_provider.account
+        # JEV now assesses only a qualifying OPEN after admission/risk. It must
+        # not run as an eager context wrapper for every incoming signal.
+        entry_filter = scheduler.worker.entry_filter
+        assert isinstance(entry_filter, JevEntryContext)
+        assert isinstance(entry_filter.reference, JevReference)
+        assert entry_filter.scope == process.runtime.scope
+        assert entry_filter.policy is None  # dynamic, scoped persisted policy
+        entry_filters.append(entry_filter)
+        provider = scheduler.context_provider
+        assert isinstance(provider, OpeningQuarantineContext)
+        assert provider.scope == process.runtime.scope
+        provider = provider.delegate
+        assert isinstance(provider, LiquidityContext)
+        assert provider.source == scheduler.worker.source
+        assert provider.strategy == scheduler.worker.scope.producer.upper()
+        assert provider.depth.transport._connection is public_http
+        assert provider.depth.transport.budget.environment == "LIVE"
+        provider = provider.delegate
+        if scheduler.worker.source in {"s3", "tv_bridge"}:
+            assert isinstance(provider, EntryResearchContext)
+            assert provider.source == scheduler.worker.source
+            provider = provider.delegate
+        # Quant skips layered directional history, never the trade-cycle gate.
+        assert isinstance(provider, EntryStructureContext)
+        assert provider.scope == process.runtime.scope
+        assert provider.strategy == scheduler.worker.scope.producer.upper()
+        provider = provider.delegate
+        assert isinstance(provider, StructuralReentryContext)
+        assert provider.scope == process.runtime.scope
+        provider = provider.delegate
+        if scheduler.worker.source == "quant":
+            assert isinstance(provider, QuantEvidenceContext)
+            assert provider.environment == "SANDBOX"
+            provider = provider.delegate
+        if quant:
+            assert isinstance(provider, DynamicMarketContext)
+            assert provider.source == scheduler.worker.source
+            provider = provider.delegate
+        assert isinstance(provider, DirectionalContext)
+        account = provider.account
         assert account.public.environment == "SANDBOX"
         assert account.sentiment.environment == "LIVE"
         from v2_core.guarded_transport import GuardedSignedRequest
 
         assert isinstance(account.request, GuardedSignedRequest) is managed
+    assert all(item is entry_filters[0] for item in entry_filters)
     assert pipeline.enable_entries is False
     assert pipeline.protection.allow_writes is False
     assert pipeline.exits.allow_writes is False
-    with pytest.raises(ValueError, match="MISSING_CONTEXT"):
-        pipeline.schedulers[0].context_provider(
-            {"symbol": "BTCUSDT", "signal": "TREND_UP", "features": {}}
-        )
+    if not quant:
+        with pytest.raises(ValueError, match="MISSING_CONTEXT"):
+            pipeline.schedulers[0].context_provider(
+                {"symbol": "BTCUSDT", "signal": "TREND_UP", "features": {}}
+            )
     assert public_http.calls == [] and telegram.calls == []
     cache.close()
 

@@ -77,7 +77,7 @@ def stage(database, venue, **options):
     )
 
 
-def opening(database, strategy="S6", filled=True, symbol="BTCUSDT"):
+def opening(database, strategy="S6", filled=True, symbol="BTCUSDT", *, fills=None):
     _, runtime, signal, context = scenario(database, strategy)
     if symbol != "BTCUSDT":
         with database() as conn:
@@ -98,16 +98,17 @@ def opening(database, strategy="S6", filled=True, symbol="BTCUSDT"):
         runtime.data.orders.transition(
             order, expected_version=1, status="SUBMITTING", evidence={}
         )
-        runtime.data.ledger.record_fill(
-            order_id=order,
-            exchange_fill_id="1",
-            quantity="1.25",
-            price="100",
-            fee="0.05",
-            fee_currency="USDT",
-            occurred_at_ms=3,
-            evidence={"source": "explicit-QA-fill"},
-        )
+        for index, (quantity, price) in enumerate(fills or [("1.25", "100")], 1):
+            runtime.data.ledger.record_fill(
+                order_id=order,
+                exchange_fill_id=str(index),
+                quantity=quantity,
+                price=price,
+                fee="0.05",
+                fee_currency="USDT",
+                occurred_at_ms=3,
+                evidence={"source": "explicit-QA-fill"},
+            )
         runtime.data.orders.transition(
             order,
             expected_version=2,

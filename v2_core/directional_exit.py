@@ -6,10 +6,11 @@ Hard-stop execution remains the registered native STOP_MARKET parent's job.
 """
 
 from dataclasses import asdict, dataclass
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from v2_core.directional import number
 from v2_core.ledger import amount
+from v2_core.precision import decimal_text, derived_amount, money_context
 from v2_core.runtime_policy import resolve
 
 _PARAMETERS = {
@@ -75,16 +76,7 @@ class ExitDecision:
 
 
 def _exact(value):
-    with localcontext() as ctx:
-        ctx.prec = 100
-        bounded = (
-            value.quantize(Decimal("1e-18"), rounding=ROUND_HALF_EVEN)
-            if value.as_tuple().exponent < -18
-            else value
-        )
-    encoded = format(bounded.normalize(), "f")
-    amount(encoded)
-    return encoded
+    return decimal_text(derived_amount(value, rounding=ROUND_HALF_EVEN))
 
 
 def evaluate_directional_exit(facts, *, policy=None):
@@ -118,8 +110,7 @@ def evaluate_directional_exit(facts, *, policy=None):
         facts.side == "SELL" and stop <= entry
     ):
         raise ValueError("stop must remain on the loss side")
-    with localcontext() as ctx:
-        ctx.prec = 100
+    with money_context():
         direction = Decimal(1) if facts.side == "BUY" else Decimal(-1)
         change = (mark - entry) * direction
         return_pct = change / entry * 100

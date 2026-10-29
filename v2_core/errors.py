@@ -12,6 +12,11 @@ class SubmissionNotSent(ValueError):
             "VENUE_READINESS_BLOCKED",
             "EXECUTION_FENCED",
             "EXECUTION_GUARD_PERMISSION_DENIED",
+            "DIRECTIONAL_SUBMISSION_PRICE_INVALID",
+            "DIRECTIONAL_SUBMISSION_STOP_INVALID",
+            "DIRECTIONAL_SUBMISSION_PRICE_MOVED",
+            "REENTRY_SUBMISSION_BLOCKED",
+            "REDUCE_ONLY_REVALIDATION_FAILED",
         }:
             raise ValueError("unsupported no-submission evidence")
         super().__init__(

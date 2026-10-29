@@ -1,0 +1,39 @@
+{
+  "study_id": "exit-forward-20261009-v1",
+  "version": "same-entry-exhaustion-v1",
+  "start_ms": 1791511200000,
+  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+  "timeframe_minutes": 5,
+  "window_minutes": 360,
+  "archive_lag_minutes": 5,
+  "gap_wait_minutes": 1440,
+  "retention_days": 90,
+  "policy": {
+    "initial_equity": "1000", "risk_fraction": "0.005", "pool_fraction": "0.70",
+    "max_margin_fraction": "0.05", "leverage": 2, "fee_rate": "0.0005",
+    "slippage_fraction": "0.0005", "quantity_step": "0.001", "price_tick": "0.00000001",
+    "minimum_quantity": "0.001", "maximum_quantity": "1000000000",
+    "minimum_notional": "5", "maximum_notional": "1000000000",
+    "max_hold_bars": 24, "max_chase_atr": "1"
+  },
+  "exit_policy": {
+    "volume_bars": 20, "min_relative_volume": "1.5", "min_rejection_wick": "0.45",
+    "max_directional_close": "0.45", "min_profit_r": "0.5", "tight_atr": "1",
+    "partial_fraction": "0.5"
+  },
+  "range_policy": {
+    "range_bars": 20, "atr_bars": 14, "volume_bars": 20, "max_width_atr": "6",
+    "max_efficiency": "0.35", "breakout_buffer_atr": "0.10", "max_extension_atr": "1.5",
+    "min_relative_volume": "1.5", "min_close_strength": "0.65"
+  },
+  "parameters": {
+    "period": 14, "channel_period": 20, "band_period": 20, "ema_fast": 12,
+    "ema_slow": 26, "volume_period": 20, "bb_multiplier": "2", "kc_multiplier": "1.5",
+    "stop_atr": "2", "trail_atr": "3", "supertrend_atr": "3", "min_rvol": "1.2",
+    "adx_trend": "20", "chop_range": "61.8", "max_stop_fraction": "0.08",
+    "max_atr_fraction": "0.06", "vwap_z": "2", "base_score": 50,
+    "rvol_score_weight": "10", "max_rvol_score": "30", "trend_regime_required": false,
+    "target_r_multiple": "2"
+  },
+  "execution_authorized": false
+}
