@@ -3,12 +3,16 @@
 price_features preserves original v2 EMA/ATR semantics for exact replay.
 price_features_v3 explicitly opts into latest-range ATR on rolling 1m input.
 price_features_v4 also publishes the latest close's position in that window.
+price_features_v5 requires warmed EMA history and an explicit prior ATR block.
 None of these functions aggregate real hourly or daily bars.
 """
 
 from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation, localcontext
 
 from v2_core.precision import decimal_text, derived_amount
+
+EMA_WARMUP_MIN_BARS = 120
+ATR_EXPANSION_CONTRACT = "LATEST_14_VS_PRECEDING_14_TR_1M"
 
 
 def price_features(bars):
@@ -150,5 +154,70 @@ def price_features_v4(bars):
         position = (close - low) / (high - low) * 100 if high != low else Decimal(50)
         result["close_pos"] = decimal_text(
             derived_amount(position, rounding=ROUND_HALF_EVEN)
+        )
+    return result
+
+
+def price_features_v5(history, *, window_bars, closed_at):
+    """Corrected rolling-minute indicators with an exact causal history contract.
+
+    Supply exactly max(window_bars, 120) contiguous closed 1m bars, oldest first.
+    EMA20/60 seed with the first 20/60 closes' SMA and recursively consume every
+    remaining close; even EMA60 has at least 60 post-seed updates. No last-close
+    substitute is permitted. High/low/close position use only the final window.
+
+    ATR averages the latest 14 true ranges; the reference averages the preceding
+    nonoverlapping 14. Both percentage values divide by the same current close.
+    The preceding close for the earliest reference TR is also supplied. A zero
+    reference is valid flat evidence, but cannot establish ATR expansion.
+    """
+    if (
+        type(window_bars) is not int
+        or window_bars not in (15, 60, 240, 1440)
+        or not isinstance(history, (list, tuple))
+        or len(history) != max(window_bars, EMA_WARMUP_MIN_BARS)
+    ):
+        raise ValueError("MARKET_INDICATOR_EMA_WARMUP_REQUIRED")
+    if (
+        type(closed_at) is not int
+        or not 0 < closed_at <= 2**53 - 1
+        or closed_at % 60000
+    ):
+        raise ValueError("MARKET_INDICATOR_CLOSED_BOUNDARY")
+    # V4 supplies strict contiguous-minute/OHLC validation and the same precise
+    # EMA and latest-14 ATR arithmetic. Its history-wide range is replaced below.
+    result = price_features_v4(history)
+    if history[-1]["t"] + 60000 != closed_at:
+        raise ValueError("MARKET_INDICATOR_CLOSED_BOUNDARY")
+    with localcontext(Context(prec=50, rounding=ROUND_HALF_EVEN)):
+
+        def encoded(value):
+            quantized = derived_amount(value, rounding=ROUND_HALF_EVEN)
+            if value != 0 and quantized == 0:
+                raise ValueError("MARKET_INDICATOR_BELOW_PRECISION")
+            return decimal_text(quantized)
+
+        window = history[-window_bars:]
+        high = max(Decimal(bar["h"]) for bar in window)
+        low = min(Decimal(bar["l"]) for bar in window)
+        close = Decimal(window[-1]["c"])
+        reference = (
+            sum(
+                max(
+                    Decimal(history[i]["h"]) - Decimal(history[i]["l"]),
+                    abs(Decimal(history[i]["h"]) - Decimal(history[i - 1]["c"])),
+                    abs(Decimal(history[i]["l"]) - Decimal(history[i - 1]["c"])),
+                )
+                for i in range(len(history) - 28, len(history) - 14)
+            )
+            / 14
+        )
+        position = (close - low) / (high - low) * 100 if high != low else Decimal(50)
+        result.update(
+            high=encoded(high),
+            low=encoded(low),
+            close_pos=encoded(position),
+            atr_reference=encoded(reference),
+            atr_reference_pct=encoded(reference / close * 100),
         )
     return result

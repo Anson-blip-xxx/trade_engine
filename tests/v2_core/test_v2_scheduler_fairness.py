@@ -3,11 +3,11 @@
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_trading_pipeline import TradingPipeline
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision
 
@@ -280,6 +280,10 @@ def test_empty_pass_resets_failure_diagnostics(database):
     scheduler.last_run_diagnostics = {"failures": [{"error_code": "OLD"}]}
     assert scheduler.run_once() == {}
     assert scheduler.last_run_diagnostics == {
+        "queue_source": {
+            "mode": "READY",
+            "reason": "VALIDATED_TRANSACTIONAL_PROJECTION",
+        },
         "failures": [],
         "stage": "COMPLETE",
         "stop_reason": "NO_DUE_TASK",

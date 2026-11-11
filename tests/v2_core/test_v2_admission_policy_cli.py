@@ -1,10 +1,10 @@
 """Quota allocation is isolated from old policy readers and trading controls."""
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import shared as shared_fixture
 
 from services.v2_admission_budget_policy import main
+from tests.support.v2_admission import database as database_fixture
 from v2_core.shared_market import MarketPolicy
 from v2_core.state import BusinessState, StateKey
 

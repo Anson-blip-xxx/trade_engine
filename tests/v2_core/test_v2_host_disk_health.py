@@ -3,9 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_host_disk_health import GIB, measure, monitor_once
+from tests.support.v2_admission import database as database_fixture
 from v2_core.shared_market import MarketPolicy
 from v2_core.telegram import TelegramOperationalSink
 
@@ -146,6 +146,11 @@ def test_unknown_state_never_announces_recovery(monitor, monkeypatch):
         ("RETENTION_TIMER_DISABLED", "计时器"),
         ("RETENTION_JOB_FAILED", "执行失败"),
         ("RETENTION_JOB_STALE", "长时间没有完成"),
+        ("QUEUE_STORAGE_UNAVAILABLE", "不会把未知当恢复"),
+        ("QUEUE_READY_PROJECTION_UNAVAILABLE", "原领取路径"),
+        ("QUEUE_READY_INDEX_PRESSURE", "索引"),
+        ("QUEUE_VACUUM_PRESSURE", "死元组"),
+        ("QUEUE_PROJECTION_MISMATCH", "不一致"),
     ],
 )
 def test_host_notification_contains_capacity_without_extra_payload_or_group(
@@ -228,3 +233,52 @@ def test_retention_failure_and_recovery_use_persisted_dm_dedup(database, monitor
     failures.clear()
     assert run()["active"] == []
     assert [p["status"] for p in state["calls"]] == ["UNAVAILABLE", "RECOVERED"]
+
+
+def test_queue_telemetry_failure_preserves_alarms_and_disk_checks(database, monitor):
+    state, _ = monitor
+    storage = {"status": "PRESSURE", "active": ["QUEUE_READY_INDEX_PRESSURE"]}
+    previous_seen = []
+
+    def assess(_connect, *, now_ms, previous):
+        assert now_ms == 100000
+        previous_seen.append(previous)
+        if storage is None:
+            raise RuntimeError("private exception must not leak")
+        return dict(storage)
+
+    def sink(_event, _scope, _kind, payload):
+        state["calls"].append(payload)
+        return True
+
+    def run():
+        return monitor_once(
+            database,
+            sink,
+            disk_usage=lambda _: SimpleNamespace(
+                free=state["free"] * GIB, total=118 * GIB
+            ),
+            clock_ms=lambda: 100000,
+            queue_storage_assess=assess,
+        )
+
+    first = run()
+    assert first["active"] == ["HOST_DISK_LOW", "QUEUE_READY_INDEX_PRESSURE"]
+    run()
+    assert len(state["calls"]) == 2  # stable alarms survive separate monitor instances
+    assert previous_seen[0] is None and previous_seen[1] == storage
+    storage = None
+    unknown = run()
+    assert unknown["active"] == [
+        "HOST_DISK_LOW",
+        "QUEUE_READY_INDEX_PRESSURE",
+        "QUEUE_STORAGE_UNAVAILABLE",
+    ]
+    assert "private exception" not in json.dumps(unknown)
+    assert all(p["status"] == "UNAVAILABLE" for p in state["calls"])
+    state["free"] = 20
+    storage = {"status": "HEALTHY", "active": []}
+    assert run()["active"] == []
+    assert len([p for p in state["calls"] if p["status"] == "RECOVERED"]) == 3
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_trade_intents").fetchone()[0] == 0

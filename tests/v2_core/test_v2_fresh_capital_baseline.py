@@ -12,9 +12,9 @@ import pytest
 from psycopg import errors, sql
 from test_v2_capital_journal import database, post
 from test_v2_capital_journal import setup as capital_setup
-from test_v2_intent_admission import evidence, intent
 
 from services import v2_managed_testnet as managed
+from tests.support.v2_admission import evidence, intent
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical
 from v2_core.income import IncomeJournal, IncomeScope

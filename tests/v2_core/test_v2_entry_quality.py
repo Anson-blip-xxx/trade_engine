@@ -12,7 +12,6 @@ from test_v2_directional_admission import formal
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_replay import SCOPE, scenario
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 from test_v2_reentry import bar, history
 
 from services.v2_reentry_gate import (
@@ -22,6 +21,7 @@ from services.v2_reentry_gate import (
     structure_policy,
     validate,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.capital_model import portfolio_budget, rehearsal_profile
 from v2_core.directional import evaluate_market, size_candidate
 from v2_core.entry_price import validate_entry_price
@@ -135,8 +135,8 @@ def test_budget_snapshot_and_final_guard_use_same_original_reservations(
             # Query now carries both frozen original risk and the actual fixed
             # stop. Neither may be discarded when residual risk is computed.
             return [
-                ("100", "0.048", original[0], "1", "95.2", "LONG"),
-                ("200", "0.048", original[1], "2", "95.2", "LONG"),
+                ("100", "0.048", original[0], "1", "95.2", "LONG", None, None),
+                ("200", "0.048", original[1], "2", "95.2", "LONG", None, None),
             ]
 
     conn = Conn()

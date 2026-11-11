@@ -11,6 +11,7 @@ from test_v2_jev_entry_context import POLICY, SCOPE, binding, refresh
 from test_v2_jev_entry_context import case as context_case_fixture
 from test_v2_jev_public_context_v2 import features
 
+from services import v2_jev_transport as transport
 from services.v2_jev_coordinator import JevCoordinator
 from services.v2_jev_entry_context import JevEntryContext
 from services.v2_jev_reference import PUBLIC_SCOPE
@@ -25,14 +26,16 @@ context_case = context_case_fixture
         ("typed_creation", 6),
         ("ordinary_value", 1),
         ("named_lookalike", 1),
-        ("missing_error_type", 1),
+        ("missing_error_type", 7),
         ("typed_during_query", 1),
         ("invalid_200", 4),
     ],
 )
 def test_child_config_classification_is_typed_and_only_at_creation(
-    monkeypatch, kind, expected
+    monkeypatch, capsys, kind, expected
 ):
+    calls = []
+
     class ConfigurationError(ValueError):
         pass
 
@@ -44,11 +47,13 @@ def test_child_config_classification_is_typed_and_only_at_creation(
             return None
 
         def system_one(self, **kwargs):
+            calls.append("system_one")
             if kind == "typed_during_query":
                 raise ConfigurationError("SECRET_DO_NOT_EXPORT")
             return SimpleNamespace(model_dump=lambda **kw: {"SECRET": "invalid"})
 
     def create_client(**kwargs):
+        calls.append("create_client")
         if kind == "typed_creation":
             raise ConfigurationError("SECRET_DO_NOT_EXPORT")
         if kind in {"ordinary_value", "missing_error_type"}:
@@ -74,17 +79,34 @@ def test_child_config_classification_is_typed_and_only_at_creation(
     )
     monkeypatch.setitem(sys.modules, "jev_shared", shared)
     monkeypatch.setitem(sys.modules, "typesafe_sdk", sdk)
-    monkeypatch.setattr(subject, "version", lambda _: subject.SDK_VERSION)
-    monkeypatch.setattr(subject.logging, "disable", lambda _: None)
+    monkeypatch.setattr(transport, "version", lambda _: transport.SDK_VERSION)
+    monkeypatch.setattr(transport.logging, "disable", lambda _: None)
     prepared = subject.prepare_request(features(), now_ms=1200, max_age_ms=60000)
     payload = json.dumps({"request": prepared["request"], "timeout_ms": 1000}).encode()
     output = io.BytesIO()
     monkeypatch.setattr(
-        subject.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
+        transport.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
     )
-    monkeypatch.setattr(subject.sys, "stdout", SimpleNamespace(buffer=output))
-    assert subject._sdk_once() == expected
-    assert output.getvalue() == b""
+    monkeypatch.setattr(transport.sys, "stdout", SimpleNamespace(buffer=output))
+    assert transport._sdk_once() == expected
+    if kind == "missing_error_type":
+        # An unavailable required local SDK type now fails during dependency
+        # validation, before client creation or a potentially billable request.
+        assert calls == []
+        assert json.loads(output.getvalue()) == {
+            "schema": "jev-local-startup-failure-v1",
+            "stage": "SDK_IMPORT",
+            "provider_request_started": False,
+        }
+    else:
+        assert output.getvalue() == b""
+        assert calls == (
+            ["create_client", "system_one"]
+            if kind in {"typed_during_query", "invalid_200"}
+            else ["create_client"]
+        )
+    assert b"SECRET" not in output.getvalue()
+    assert "SECRET" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("late", [False, True])
@@ -109,7 +131,7 @@ def test_exit_six_survives_durable_coordinator_and_falls_back_only_when_opted_in
         if late:
             case.db.now += timeout_ms
         # Exercise the real disposable-process protocol, without SDK/network.
-        return subject._bounded_process(
+        return transport._bounded_process(
             [sys.executable, "-I", "-c", "import sys;sys.exit(6)"], b"{}", 1000
         )
 

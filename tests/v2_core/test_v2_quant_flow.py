@@ -14,7 +14,6 @@ import pytest
 from test_v2_directional import history, inputs, sizing
 from test_v2_directional_exit_stage import observation
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 from test_v2_quant_indicators import minutes
 from test_v2_quant_research import Archive, snapshot
 from test_v2_venue_readiness import Venue as ReadyVenue
@@ -25,6 +24,7 @@ from services.v2_directional_exit import DirectionalExitStage
 from services.v2_directional_lifecycle import DirectionalProtectionStage
 from services.v2_directional_settlement import DirectionalSettlementStage
 from services.v2_quant_research import QuantEvidenceContext, QuantPolicy, QuantResearch
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountPolicy, RiskReference
 from v2_core.binance import BinanceFutures
 from v2_core.evidence import canonical

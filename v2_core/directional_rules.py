@@ -2,6 +2,8 @@
 
 from v2_core.runtime_policy import resolve
 
+_WINDOW_FLOW = object()
+
 
 class DirectionalRules:
     def __init__(self, policy=None):
@@ -10,11 +12,17 @@ class DirectionalRules:
     def f(self, name):
         return float(self.values[name])
 
+    @property
+    def confirmation_v2(self):
+        return self.values["entry.confirmation_version"] == 2
+
     def entry_mode(self, price, ema, rsi, flow, side):
+        flow_available = flow is not None or not self.confirmation_v2
         if side == "LONG":
             if (
                 price < ema
                 and rsi <= self.f("entry.reversal_rsi_long")
+                and flow_available
                 and (flow is None or flow >= self.f("entry.flow_long"))
             ):
                 return "LEFT_REVERSAL"
@@ -24,6 +32,7 @@ class DirectionalRules:
             if (
                 price > ema
                 and rsi >= self.f("entry.reversal_rsi_short")
+                and flow_available
                 and (flow is None or flow <= self.f("entry.flow_short"))
             ):
                 return "LEFT_REVERSAL"
@@ -31,13 +40,20 @@ class DirectionalRules:
                 return "RIGHT_MOMENTUM"
         return "UNCONFIRMED"
 
-    def takeover_ready(self, price, windows):
+    def takeover_ready(self, price, windows, *, flow=_WINDOW_FLOW):
         w15, w4, w24 = windows["15m"], windows["4h"], windows["24h"]
         if price <= w24["ema20"] or w24["ema20"] <= w24["ema60"] or w4["chg"] <= 0:
             return False
-        if w15["taker_buy_ratio"] is not None and w15["taker_buy_ratio"] < self.f(
-            "entry.flow_long"
-        ):
+        # Old evidence used window flow here. V2 uses the same resolved event
+        # flow as reversal/scoring, including an authoritative zero value.
+        confirmed_flow = (
+            flow
+            if self.confirmation_v2 and flow is not _WINDOW_FLOW
+            else w15["taker_buy_ratio"]
+        )
+        if self.confirmation_v2 and confirmed_flow is None:
+            return False
+        if confirmed_flow is not None and confirmed_flow < self.f("entry.flow_long"):
             return False
         return abs(price - w15["ema20"]) <= max(
             w15["atr"] * self.f("entry.takeover_pullback_atr"),

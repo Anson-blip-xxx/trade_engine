@@ -714,7 +714,13 @@ class BinanceDirectionalAccountContext:
                     )
                 ),
             },
-            "expected_move_pct": expected_move(signal),
+            # The structural profile derives a target from server-side closed
+            # bars. Absence of a legacy realized-return proxy is not a missing
+            # forecast and must not cause an account-context retry loop.
+            "expected_move_pct": None
+            if profile.values["entry.trend_structure_enabled"]
+            and not signal["signal"].startswith("QUANT_")
+            else expected_move(signal),
             "funding_rate": funding,
             "leverage_venue": leverage_venue,
         }

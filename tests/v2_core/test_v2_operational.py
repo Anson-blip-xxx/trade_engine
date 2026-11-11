@@ -3,16 +3,16 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import (
-    closed_candle_batch,
-    durable_source,
-)
-from test_v2_intent_admission import (
-    database as database_fixture,
-)
 
 from services.v2_market_pipeline import MarketSupervisor
 from services.v2_s3_source import SourceQuarantined
+from tests.support.v2_admission import (
+    closed_candle_batch,
+    durable_source,
+)
+from tests.support.v2_admission import (
+    database as database_fixture,
+)
 from v2_core.operational import MarketAlerts
 
 database = database_fixture

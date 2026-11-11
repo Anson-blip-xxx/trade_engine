@@ -7,7 +7,6 @@ explicit isolated PostgreSQL fixture and the no-submit pipeline fixture.
 from contextlib import contextmanager
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_signal_context_isolation import (
     assert_no_signal_business,
     tv_schedulers,
@@ -16,6 +15,7 @@ from test_v2_signal_context_isolation import (
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_trading_pipeline import failed
+from tests.support.v2_admission import database as database_fixture
 from v2_core.ingress import IntakeRejected
 from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import CANDIDATE_CONTEXT_WAITS, candidate_wait_reason

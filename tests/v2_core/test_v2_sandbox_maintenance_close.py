@@ -5,10 +5,10 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from scripts import v2_sandbox_maintenance_close as cli
 from services.v2_testnet_cleanup import SCOPE
+from tests.support.v2_admission import database as database_fixture
 from v2_core.protection import ProtectionSpec, TestnetProtection
 from v2_core.state import BusinessState
 from v2_core.transport import ExchangeTransportError

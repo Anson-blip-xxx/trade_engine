@@ -16,6 +16,25 @@ from services.v2_strategy_analytics import statistics
 from v2_core.directional_outcomes import LEGACY_FOLLOWUP_BASIS
 
 
+def recorded_exit_reason(reason, origin, kind):
+    """Attribute only the selected filled close's frozen request evidence.
+
+    External adoption proves a close, not its trigger. Never infer a stop,
+    manual action or liquidation from missing reason or from later state.
+    """
+    if reason:
+        return reason
+    if origin == "BINANCE_ALGO_CHILD":
+        return "VENUE_PROTECTION_CHILD"
+    if origin == "BINANCE_EXTERNAL_CLOSE":
+        return (
+            "EXCHANGE_LIQUIDATION"
+            if kind == "LIQUIDATION"
+            else "RECONCILED_EXTERNAL_CLOSE"
+        )
+    return None
+
+
 def comparisons(trades, *, cooldowns=(5, 10, 20), takeover_scores=(60, 80)):
     """Evaluate each observed candidate against its original historical context.
 
@@ -191,6 +210,7 @@ def _build_review(records, *, start_ms, now_ms, truncated):
             "最终清仓后的市场收益需独立带时间戳的行情锚点和完整路径；没有这些证据时保持未知。15/30 分钟及完整 MFE/MAE 不补值。",
             "未接入行情路径的替代止盈回放，不生成假设成交或收益。",
             "账面净收益已包含结算费用；展示费用不能再次扣除。样本截断不代表全量业绩。",
+            "退出归因仅取有成交平仓订单的冻结证据；RECONCILED_EXTERNAL_CLOSE 仅确认已对账外部平仓，不证明人工、止损或其他触发原因。",
         ],
     }
 
@@ -226,7 +246,7 @@ def trade_review(conn, scope, *, days=14, now_ms=None, limit=500):
       CASE WHEN f.oq=f.cq AND f.terminal THEN f.known_ms END,
       f.oq::text,f.cq::text,f.onot::text,f.cnot::text,f.fees::text,
       CASE WHEN f.oq=f.cq AND f.terminal THEN s.evidence->>'net_pnl' END,
-      cl.request_evidence->>'reason',cl.request_evidence->>'origin',
+      cl.request_evidence->>'reason',cl.request_evidence->>'origin',cl.request_evidence->>'kind',
       follow.post_close_return_pct::text,follow.observed_at_ms,
       EXISTS(SELECT 1 FROM v2_orders m WHERE m.episode_id=i.intent_id AND m.request_evidence->>'origin'='APPROVED_TESTNET_MAINTENANCE')
     FROM candidates i JOIN v2_decision_evidence e USING(evidence_ref)
@@ -243,9 +263,11 @@ def trade_review(conn, scope, *, days=14, now_ms=None, limit=500):
       AND z.created_at<=to_timestamp(%s/1000.0) AND z.occurred_at_ms<=%s) f ON f.oq>0
     LEFT JOIN LATERAL (SELECT evidence FROM v2_settlements WHERE episode_id=i.intent_id AND currency='USDT'
       AND settled_at<=to_timestamp(%s/1000.0) ORDER BY revision DESC LIMIT 1) s ON true
-    LEFT JOIN LATERAL (SELECT request_evidence FROM v2_orders o WHERE o.episode_id=i.intent_id AND o.leg='CLOSE'
-      AND o.updated_at<=to_timestamp(%s/1000.0) AND EXISTS(SELECT 1 FROM v2_fills z WHERE z.order_id=o.order_id AND z.created_at<=to_timestamp(%s/1000.0) AND z.occurred_at_ms<=%s)
-      ORDER BY updated_at DESC,order_id DESC LIMIT 1) cl ON true
+    LEFT JOIN LATERAL (SELECT o.request_evidence FROM v2_orders o JOIN v2_fills z USING(order_id)
+      WHERE o.episode_id=i.intent_id AND o.leg='CLOSE'
+      AND o.updated_at<=to_timestamp(%s/1000.0)
+      AND z.created_at<=to_timestamp(%s/1000.0) AND z.occurred_at_ms<=%s
+      ORDER BY z.occurred_at_ms DESC,z.fill_key DESC LIMIT 1) cl ON true
     LEFT JOIN v2_directional_followups follow ON follow.episode_id=i.intent_id AND follow.horizon_minutes=60
       AND follow.observed_at_ms<=%s AND follow.recorded_at<=to_timestamp(%s/1000.0)
     ORDER BY i.created_at DESC,i.intent_id""",
@@ -291,6 +313,7 @@ def trade_review(conn, scope, *, days=14, now_ms=None, limit=500):
             net,
             reason,
             origin,
+            kind,
             follow,
             follow_ms,
             maintenance,
@@ -320,10 +343,7 @@ def trade_review(conn, scope, *, days=14, now_ms=None, limit=500):
                 "fees_usdt": fees,
                 "net_pnl": net,
                 "maintenance": maintenance,
-                "exit_reason": reason
-                or (
-                    "VENUE_PROTECTION_CHILD" if origin == "BINANCE_ALGO_CHILD" else None
-                ),
+                "exit_reason": recorded_exit_reason(reason, origin, kind),
                 "followup_60_return_pct": follow,
                 "followup_60_observed_ms": follow_ms,
                 "followup_15_return_pct": None,

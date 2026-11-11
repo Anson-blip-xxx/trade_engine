@@ -4,12 +4,12 @@ from copy import deepcopy
 import pytest
 from test_v2_directional import history as historical_stats
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_account_context import (
     BinanceDirectionalAccountContext,
     expected_move,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountPolicy, AccountRisk
 from v2_core.drawdown import DrawdownState
 
@@ -298,6 +298,21 @@ def test_expected_move_uses_original_signal_fact(kind, value):
     assert expected_move(signal(kind)) == value
     with pytest.raises(ValueError, match="EVIDENCE_MISSING"):
         expected_move({**signal(kind), "features": {}})
+
+
+def test_structure_profile_does_not_require_legacy_realized_move(database):
+    from v2_core.runtime_policy import PolicyStore
+
+    provider, _, _, _, _ = build(database)
+    store = PolicyStore(database, SCOPE)
+    current = store.read()
+    store.patch(
+        {"entry.trend_structure_enabled": True},
+        expected_version=current.version,
+        reason="QA explicit structural profile",
+    )
+    result = provider({**signal(), "features": {}})
+    assert result["expected_move_pct"] is None
 
 
 @pytest.mark.parametrize(

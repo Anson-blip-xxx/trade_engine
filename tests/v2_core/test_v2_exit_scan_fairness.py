@@ -13,9 +13,9 @@ from uuid import uuid4
 import pytest
 from test_v2_directional_lifecycle import SCOPE, opening
 from test_v2_directional_replay import worker
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_exit import DirectionalExitStage
+from tests.support.v2_admission import database as database_fixture
 from v2_core.runtime_policy import PolicyStore
 from v2_core.session_lock import session_advisory_lock
 from v2_core.state import StateWrite

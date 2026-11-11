@@ -48,12 +48,61 @@ def number(value, *, minimum=None, maximum=None):
 
 
 def below_minimum_strength(strategy, kind, strength, *, policy=None):
-    """The existing signal-only gate, shared by prefilter and full evaluator."""
+    """Versioned signal-only gate, shared by prefilter and full evaluator."""
+    rules = DirectionalRules(policy)
+    if rules.values["entry.trend_structure_enabled"] and not kind.startswith("QUANT_"):
+        # Raw realized-amplitude strength is not a trend-quality estimate. The
+        # alternate profile MUST still verify its own server-side structure.
+        number(strength, minimum=0, maximum=100)
+        return False
     return (
         strategy == "S8"
-        and kind in {"TREND_DOWN", "VIOLENT_BEARISH", "PULSE_DOWN"}
+        and (
+            supports_event(strategy, kind)
+            if rules.confirmation_v2
+            else kind in {"TREND_DOWN", "VIOLENT_BEARISH", "PULSE_DOWN"}
+        )
         and float(number(strength, minimum=0, maximum=100))
-        < DirectionalRules(policy).f("entry.short_min_strength")
+        < rules.f("entry.short_min_strength")
+    )
+
+
+def _confirmed_indicator_evidence(evidence):
+    """Require the explicit warm rolling-1m contract, never infer from price.
+
+    The source verifies continuity and closed bars; the context verifies its
+    observation deadline. Here every declared warmup must agree with the actual
+    per-window input counts. Legacy EMA fallbacks cannot attest this contract.
+    """
+    if (
+        not isinstance(evidence, dict)
+        or evidence.get("window_version") not in {"s3-closed-1m-v5", "s3-closed-1m-v6"}
+        or type(evidence.get("bar_count")) is not int
+        or evidence["bar_count"] != 1440
+    ):
+        return False
+    contract = evidence.get("indicator_contract")
+    if not isinstance(contract, dict) or any(
+        contract.get(name) != value
+        for name, value in {
+            "input_interval": "1m",
+            "window_semantics": "ROLLING_1M_LOOKBACK",
+            "ema_period_unit": "1m_bar",
+            "ema_periods": [20, 60],
+            "ema_seed": "FIRST_PERIOD_SMA",
+            "ema_insufficient_history": "REJECT",
+        }.items()
+    ):
+        return False
+    minimum = contract.get("ema_warmup_min_bars")
+    counts = contract.get("ema_input_bars")
+    if type(minimum) is not int or minimum != 120 or not isinstance(counts, dict):
+        return False
+    return all(
+        type(counts.get(window)) is int
+        and counts[window] == max(lookback, minimum)
+        and counts[window] <= evidence["bar_count"]
+        for window, lookback in {"15m": 15, "1h": 60, "4h": 240, "24h": 1440}.items()
     )
 
 
@@ -74,10 +123,19 @@ class DirectionalPlan:
 
 
 def evaluate_market(
-    strategy, event, market, *, price, regime, short_ratio, age_ms, policy=None,
+    strategy,
+    event,
+    market,
+    *,
+    price,
+    regime,
+    short_ratio,
+    age_ms,
+    policy=None,
     score_bonus=0,
+    indicator_evidence=None,
 ):
-    """Evaluate validated decimal-string inputs using frozen legacy pure rules.
+    """Evaluate validated inputs with explicitly versioned confirmation rules.
 
     Missing indicators are errors, not zero/neutral defaults. Optional flow and
     short ratio must be explicitly None if unavailable. Time is event age, not
@@ -86,6 +144,8 @@ def evaluate_market(
     rules = DirectionalRules(policy)
     if type(score_bonus) is not int or not 0 <= score_bonus <= 5:
         raise ValueError("invalid bounded confirmation bonus")
+    if rules.values["entry.trend_structure_enabled"]:
+        raise ValueError("VERIFIED_TREND_STRUCTURE_PROFILE_REQUIRED")
     if strategy not in {"S6", "S8"}:
         raise ValueError("unsupported directional strategy")
     if not isinstance(regime, str) or not regime or regime != regime.strip():
@@ -147,10 +207,15 @@ def evaluate_market(
     if any(windows[w]["atr"] == 0 for w in ("15m", "1h")):
         return reject("zero_volatility")
 
-    if strategy == "S6" and not long_signal_allows_open(kind, {"regime": regime}):
+    regime_kind = "VIOLENT_BULLISH" if rules.confirmation_v2 else kind
+    if strategy == "S6" and not long_signal_allows_open(
+        regime_kind, {"regime": regime}
+    ):
         return reject("regime_conflict")
     if below_minimum_strength(strategy, kind, event["strength"], policy=policy):
         return reject("strength_below_minimum")
+    if rules.confirmation_v2 and not _confirmed_indicator_evidence(indicator_evidence):
+        return reject("indicator_evidence_unconfirmed")
     if (
         kind == "PUMP_DOWN"
         and px > windows["4h"]["ema20"]
@@ -170,7 +235,9 @@ def evaluate_market(
         or event["breakout_confirmed"]
     )
     if takeover:
-        if not rules.takeover_ready(px, windows):
+        if rules.confirmation_v2 and flow is None:
+            return reject("takeover_flow_unconfirmed")
+        if not rules.takeover_ready(px, windows, flow=flow):
             return reject("takeover_not_ready")
         mode = "S6B_TREND_TAKEOVER"
     elif mode == "UNCONFIRMED":
@@ -194,9 +261,7 @@ def evaluate_market(
     )
     score = min(100, baseline_score + score_bonus)
     if score < rules.values["entry.min_score"]:
-        return DirectionalPlan(
-            "score_below_minimum", strategy, kind, side, score=score
-        )
+        return DirectionalPlan("score_below_minimum", strategy, kind, side, score=score)
     base_stop = rules.f(
         "stop.takeover"
         if takeover
@@ -373,7 +438,9 @@ def size_candidate(
         )
         fraction = max(
             Decimal(settings["sizing.min_allocation"]),
-            Decimal(allocation_score) / 100 * Decimal(settings["sizing.max_allocation"]),
+            Decimal(allocation_score)
+            / 100
+            * Decimal(settings["sizing.max_allocation"]),
         )
         # Keep division rational until venue-step flooring, including repeating
         # decimal boundaries such as margin / 3 followed by leverage * 3.

@@ -3,8 +3,8 @@ from decimal import Decimal
 
 import pytest
 from test_v2_directional import inputs, sizing
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.adaptive_leverage import choose, safe_margin, venue_facts
 from v2_core.capital_model import rehearsal_profile
 from v2_core.directional import evaluate_market, size_candidate

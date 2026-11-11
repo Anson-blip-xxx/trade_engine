@@ -103,16 +103,23 @@ SETTLED 需要明确的交易所平仓、订单终态、成交完整、资金完
 
 推荐从仓库根目录运行 `bash scripts/qa_v2_data_core.sh`，由脚本新建只监听 Unix
 socket 的一次性 PG/Redis 并在退出时停止；不使用已有服务 DSN。
-运行 `bash scripts/qa_v2_data_core.sh -q` 执行全仓测试。临时诊断目录保留，
+运行 `bash scripts/qa_v2_data_core.sh -q` 执行完整 **V2 测试目录**，不是全仓旧测试。
+2026-11-01 起入口固定 `--confcutdir=tests/v2_core`，避免加载旧仓凭据夹具；
+默认或仅提供选项时都显式选择 V2 目录。可传入该目录内的文件/node ID、
+`-k/-m`、`--maxfail`、`--collect-only` 等常用选项；拒绝越界路径、配置/插件覆盖及
+`--noconftest`。从其他目录调用脚本也按仓库根解析测试路径。临时诊断目录保留，
 无自动清理生产路径；要求 PostgreSQL 16、Redis、ClickHouse 和 Python 测试依赖。
 可用 `V2_QA_PYTHON=/path/to/venv/bin/python3` 明确选择测试解释器。
 
-默认 `PM_NO_WS=1 pytest -q` 不运行显式启用的数据库集成测试。
-在专门创建的一次性 PostgreSQL 实例中，用独立 Unix socket DSN 设置
-`V2_CORE_TEST_DSN` 和 `V2_CORE_TEST_ISOLATED=YES`；Redis 使用
-`V2_REDIS_TEST_SOCKET`。然后运行 `pytest -q tests/v2_core` 或全仓回归。
-每项 PG 测试创建随机 schema 并在 finally 清理，只允许一次性实例 DSN。
-允许的 socket 路径仅 `/tmp/v2-data-qa.*` 或本任务早期 `/tmp/codex-v2-data-qa.*`。
+不需要数据库的快速检查用 `python -m pytest --confcutdir=tests/v2_core tests/v2_core/...`；
+没有显式隔离 DSN 的集成项会跳过，**不能把这些跳过计为通过**。
+数据库回归优先使用上述脚本，自动提供 `V2_CORE_TEST_DSN`、
+`V2_CORE_TEST_ISOLATED=YES`、`V2_REDIS_TEST_SOCKET`，清除继承的 pytest 配置和
+`PGHOSTADDR/PGSERVICE/PGSERVICEFILE`。每项 PG 测试创建随机 schema 并在 finally 清理。
+公共 fixture 位于 `tests/support/v2_admission.py`；连接前必须是单一、未发生符号链接
+跳转的 `/tmp/v2-data-qa.<字母数字>/socket`（或早期 `codex-v2-data-qa` 前缀），
+拒绝多 host、hostaddr、service 和对应环境覆盖；创建 schema 前核对
+`cluster_name=v2_isolated_qa`。不要导入其他测试文件来获取该公共 fixture。
 测试进程禁止 Python TCP/UDP 外连；这不是操作系统级 sandbox，C 扩展和子进程
 仍需隔离环境与专用 DSN，不能把生产凭据放进 QA。
 

@@ -10,31 +10,37 @@ model opinion or a specific billing cause; error bodies are never interpreted.
 """
 
 import json
-import logging
 import math
-import os
 import re
-import selectors
-import subprocess
-import sys
 import time
 from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 from hashlib import sha256
-from importlib.metadata import version
-from pathlib import Path
 from uuid import UUID
 
+from v2_core.symbols import is_supported_symbol
+
 MODEL = "jev-1.13.0"
-SDK_VERSION = "0.7.5"
 PROMPT_VERSION = "market-hypotheses-v2"
 SCHEMA = "jev-market-advisory-v1"
 MAX_REQUEST_BYTES = 4096
 MAX_RESPONSE_BYTES = 4096
 RESERVE_TOKENS = 8192
-SHARED_PYTHON = "/home/ubuntu/shared/jev/.venv/bin/python"
 _BASE_FIELDS = {"symbol", "observed_at_ms", "timeframe", "direction"}
+STRUCTURE_INDICATOR_VERSION = "s3-closed-1m-v6"
+STRUCTURE_INDICATOR_CONTRACT = "utc-closed-15m-atr14-ema20-flow-volume-v1"
+_INDICATOR_FIELDS = {
+    "indicator_contract",
+    "indicator_version",
+    "indicator_closed_at_ms",
+}
+_INDICATOR_WIDTH_MS = 900000
+_STRUCTURE_INSTRUCTIONS = (
+    " V6 units: price is the latest closed 1m price and returns are rolling 1m lookbacks at observed_at_ms."
+    " ATR14, close/EMA20 gap, taker flow and relative volume use true UTC-closed 15m bars at indicator_closed_at_ms;"
+    " volume compares with the prior 20 bars. RSI15m and EMA1h are unknown. Never treat these clocks as identical."
+)
 _OBSERVATION_TIMES = {
     "spread_observed_at_ms": "spread_bps",
     "funding_observed_at_ms": "funding_rate",
@@ -103,9 +109,12 @@ def _features(features):
         type(features) is not dict
         or not _BASE_FIELDS <= features.keys()
         or not features.keys()
-        <= _BASE_FIELDS | _NUMBERS.keys() | _OBSERVATION_TIMES.keys()
+        <= _BASE_FIELDS
+        | _NUMBERS.keys()
+        | _OBSERVATION_TIMES.keys()
+        | _INDICATOR_FIELDS
         or not isinstance(features["symbol"], str)
-        or not re.fullmatch(r"[A-Z0-9]{1,20}USDT", features["symbol"])
+        or not is_supported_symbol(features["symbol"], quote_assets=("USDT",))
         or features["timeframe"] not in {"15m", "1h", "4h"}
         or features["direction"] not in {"LONG", "SHORT"}
     ):
@@ -122,6 +131,28 @@ def _features(features):
             if cleaned[field] is None:
                 raise ValueError("JEV_OBSERVATION_VALUE_REQUIRED")
         cleaned[stamp] = value
+    if _INDICATOR_FIELDS & features.keys():
+        if (
+            not _INDICATOR_FIELDS <= features.keys()
+            or features["indicator_contract"] != STRUCTURE_INDICATOR_CONTRACT
+            or features["indicator_version"] != STRUCTURE_INDICATOR_VERSION
+            or features["timeframe"] != "15m"
+            or features["observed_at_ms"] % 60000
+        ):
+            raise ValueError("JEV_INDICATOR_CONTRACT_INVALID")
+        closed = _integer(features["indicator_closed_at_ms"], 0, 2**53 - 1)
+        if (
+            closed
+            != features["observed_at_ms"] // _INDICATOR_WIDTH_MS * _INDICATOR_WIDTH_MS
+        ):
+            raise ValueError("JEV_INDICATOR_TIME_INVALID")
+        if cleaned["rsi_15m"] is not None or cleaned["ema_gap_1h_pct"] is not None:
+            raise ValueError("JEV_INDICATOR_UNAVAILABLE_FIELD")
+        if any(
+            cleaned[field] is None for field in ("price", "atr_pct", "ema_gap_15m_pct")
+        ):
+            raise ValueError("JEV_INDICATOR_VALUES_REQUIRED")
+        cleaned.update({key: features[key] for key in sorted(_INDICATOR_FIELDS)})
     if sum(cleaned[key] is not None for key in _NUMBERS) < 3:
         raise ValueError("JEV_INSUFFICIENT_PUBLIC_FEATURES")
     return cleaned
@@ -133,6 +164,9 @@ def _request(features):
         "state": _features(features),
         "questions": deepcopy(_QUESTIONS),
     }
+    if "indicator_contract" in result["state"]:
+        for question in result["questions"].values():
+            question["instructions"] += _STRUCTURE_INSTRUCTIONS
     if len(_json(result).encode()) > MAX_REQUEST_BYTES:
         raise ValueError("JEV_REQUEST_TOO_LARGE")
     return result
@@ -150,6 +184,14 @@ def prepare_request(features, *, now_ms, max_age_ms):
         stamp = request["state"][field]
         if stamp is not None and not 0 <= now_ms - stamp < max_age_ms:
             raise ValueError("JEV_SUPPLEMENTAL_SNAPSHOT_EXPIRED")
+    # Closed 15m indicators retain their original bar clock. They are not a
+    # supplemental tick and must not inherit the tick's 60-second age limit.
+    indicator_closed = request["state"].get("indicator_closed_at_ms")
+    if (
+        indicator_closed is not None
+        and not 0 <= now_ms - indicator_closed < _INDICATOR_WIDTH_MS + max_age_ms
+    ):
+        raise ValueError("JEV_INDICATOR_SNAPSHOT_EXPIRED")
     return {
         "request_key": sha256(
             _json({"prompt_version": PROMPT_VERSION, "request": request}).encode()
@@ -237,6 +279,10 @@ class JevProviderRequestRejected(ConnectionError):
 
 class JevConfigurationUnavailable(ValueError):
     """Typed shared-client creation failure; not provider balance or an opinion."""
+
+
+class JevLocalStartupUnavailable(ValueError):
+    """Verified local adapter startup failure before a provider request exists."""
 
 
 class JevResponseInvalid(ValueError):
@@ -423,6 +469,9 @@ class JevAdvisory:
             reason = "PROVIDER_REQUEST_REJECTED"
         except JevConfigurationUnavailable:
             reason = "MODEL_CONFIGURATION_UNAVAILABLE"
+        except JevLocalStartupUnavailable:
+            reason = "MODEL_LOCAL_STARTUP_UNAVAILABLE"
+            charged = 0
         except JevResponseInvalid:
             reason = "MODEL_RESPONSE_INVALID"
         except Exception:  # noqa: BLE001 - SDK errors may contain secrets and bodies
@@ -439,6 +488,7 @@ class JevAdvisory:
             "TOKEN_RESERVATION_EXCEEDED",
             "PROVIDER_REQUEST_REJECTED",
             "MODEL_CONFIGURATION_UNAVAILABLE",
+            "MODEL_LOCAL_STARTUP_UNAVAILABLE",
         }:
             # A response that already exists is not provider unavailability:
             # even a late negative model opinion must never enable baseline.
@@ -470,185 +520,3 @@ class JevAdvisory:
         except Exception:  # noqa: BLE001 - publication failure is never an execution veto
             return _result("FALLBACK", "PUBLICATION_UNAVAILABLE", prepared)
         return result
-
-
-def _bounded_process(argv, payload, timeout_ms):
-    """Bound output and wall time; kill only the child created by this call."""
-    _integer(timeout_ms, 1, 2000)
-    if type(payload) is not bytes or len(payload) > MAX_REQUEST_BYTES + 512:
-        raise ValueError("JEV_REQUEST_TOO_LARGE")
-    deadline = time.monotonic() + timeout_ms / 1000
-    # Reserve a small part of the total budget for SIGKILL/reaping; do not add
-    # a fresh timeout after an exhausted model call.
-    work_deadline = deadline - min(0.1, timeout_ms / 2000)
-    # No exchange/TG/credential directory, loader injection, proxy, Python path
-    # or service environment follows this child. Shared config has a fixed
-    # absolute path, so HOME is unnecessary. Only the shared API-key override
-    # is supported; the model is always passed explicitly and cannot drift.
-    environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
-    if os.environ.get("TYPESAFE_API_KEY"):
-        environment["TYPESAFE_API_KEY"] = os.environ["TYPESAFE_API_KEY"]
-    process = subprocess.Popen(
-        argv,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        env=environment,
-    )
-    try:
-        os.set_blocking(process.stdin.fileno(), False)
-        os.set_blocking(process.stdout.fileno(), False)
-        output = bytearray()
-        sent, finished = 0, False
-        with selectors.DefaultSelector() as selector:
-            selector.register(process.stdout, selectors.EVENT_READ)
-            selector.register(process.stdin, selectors.EVENT_WRITE)
-            while not finished:
-                remaining = work_deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError()
-                events = selector.select(remaining)
-                if not events:
-                    raise TimeoutError()
-                for ready, _ in events:
-                    if ready.fileobj is process.stdin:
-                        try:
-                            sent += os.write(process.stdin.fileno(), payload[sent:])
-                        except BrokenPipeError:
-                            raise ValueError("JEV_SDK_UNAVAILABLE") from None
-                        if sent == len(payload):
-                            selector.unregister(process.stdin)
-                            process.stdin.close()
-                    else:
-                        chunk = os.read(
-                            process.stdout.fileno(),
-                            MAX_RESPONSE_BYTES + 1 - len(output),
-                        )
-                        if not chunk:
-                            finished = True
-                            break
-                        output.extend(chunk)
-                        if len(output) > MAX_RESPONSE_BYTES:
-                            raise ValueError("JEV_RESPONSE_TOO_LARGE")
-        process.wait(timeout=max(0.001, work_deadline - time.monotonic()))
-        if process.returncode == 2:
-            raise JevProviderUnavailable()
-        if process.returncode == 3:
-            raise TimeoutError()
-        if process.returncode == 4:
-            raise JevResponseInvalid()
-        if process.returncode == 5:
-            raise JevProviderRequestRejected()
-        if process.returncode == 6:
-            raise JevConfigurationUnavailable()
-        if process.returncode != 0:
-            raise ValueError("JEV_SDK_UNAVAILABLE")
-        return bytes(output)
-    except subprocess.TimeoutExpired:
-        raise TimeoutError() from None
-    finally:
-        if process.poll() is None:
-            process.kill()
-        try:
-            process.wait(timeout=min(0.1, max(0.001, deadline - time.monotonic())))
-        except subprocess.TimeoutExpired:
-            # Never block a trading host indefinitely even during OS trouble.
-            # Popen retains/reaps its own child later; no process-group kill.
-            pass
-        process.stdout.close()
-        if not process.stdin.closed:
-            process.stdin.close()
-
-
-class SharedJevQuery:
-    """Official pinned shared SDK in a disposable process, not a public gateway."""
-
-    def __call__(self, request, *, timeout_ms):
-        _integer(timeout_ms, 1, 2000)
-        if request != _request(request.get("state")):
-            raise ValueError("JEV_REQUEST_CONTRACT_CHANGED")
-        payload = _json({"request": request, "timeout_ms": timeout_ms}).encode()
-        raw = _bounded_process(
-            [SHARED_PYTHON, "-I", str(Path(__file__).resolve()), "--sdk-once"],
-            payload,
-            timeout_ms,
-        )
-        try:
-            return parse_response(json.loads(raw))
-        except (ValueError, TypeError, KeyError):
-            raise JevResponseInvalid() from None
-
-
-def _sdk_once():
-    """Child-only entry: configuration is consumed solely by the shared client."""
-    try:
-        raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 513)
-        if len(raw) > MAX_REQUEST_BYTES + 512:
-            raise ValueError("JEV_REQUEST_TOO_LARGE")
-        envelope = json.loads(raw)
-        if type(envelope) is not dict or set(envelope) != {"request", "timeout_ms"}:
-            raise ValueError("JEV_REQUEST_INVALID")
-        timeout_ms = _integer(envelope["timeout_ms"], 1, 2000)
-        request = envelope["request"]
-        if (
-            request != _request(request.get("state"))
-            or version("typesafe-sdk") != SDK_VERSION
-        ):
-            raise ValueError("JEV_PINNED_SDK_REQUIRED")
-        from jev_shared import create_client
-        from typesafe_sdk import RetryPolicy
-
-        logging.disable(logging.CRITICAL)
-        try:
-            client = create_client(model=MODEL)
-        except Exception as exc:
-            from jev_shared import ConfigurationError
-
-            if isinstance(exc, ConfigurationError):
-                # Missing/invalid local credentials or client configuration,
-                # never a response or provider balance inference. No text read.
-                return 6
-            raise
-        with client:
-            response = client.system_one(
-                **request,
-                timeout=timeout_ms / 1000,
-                retry=RetryPolicy(max_retries=0, timeout=timeout_ms / 1000),
-            )
-        try:
-            encoded = _json(parse_response(response.model_dump(mode="json"))).encode()
-        except (ValueError, TypeError, KeyError):
-            return 4
-        if len(encoded) > MAX_RESPONSE_BYTES:
-            raise ValueError("JEV_RESPONSE_TOO_LARGE")
-        sys.stdout.buffer.write(encoded)
-        return 0
-    except Exception as exc:  # noqa: BLE001 - child boundary exports no raw failures
-        # No SDK messages, bodies, config, headers or traceback may escape.
-        try:
-            from typesafe_sdk import (
-                TypeSafeAPIConnectionError,
-                TypeSafeAPIError,
-                TypeSafeAPIResponseValidationError,
-                TypeSafeAPITimeoutError,
-            )
-
-            if isinstance(exc, TypeSafeAPITimeoutError):
-                return 3
-            if isinstance(exc, TypeSafeAPIResponseValidationError):
-                return 4
-            if isinstance(exc, TypeSafeAPIError):
-                # SDK's structured HTTP status only: never infer token balance
-                # from a body/message or treat an invalid 200 as availability.
-                status = getattr(exc, "status", None)
-                return 5 if type(status) is int and 400 <= status <= 599 else 1
-            if isinstance(exc, TypeSafeAPIConnectionError):
-                return 2
-        except (ImportError, AttributeError):
-            pass
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(_sdk_once() if sys.argv[1:] == ["--sdk-once"] else 2)

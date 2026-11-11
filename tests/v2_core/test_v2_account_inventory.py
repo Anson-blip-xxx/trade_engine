@@ -5,10 +5,10 @@ from contextlib import contextmanager
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_testnet_inventory import config_fields, credentials
 from services.v2_testnet_market import pilot_config
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_inventory import (
     AccountInventory,
     InventoryProjector,

@@ -30,6 +30,7 @@ import json
 import time
 from contextlib import nullcontext
 from dataclasses import asdict, replace
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from services.v2_jev_coordinator import (
@@ -47,6 +48,7 @@ from v2_core.evidence import canonical, digest
 from v2_core.jev_advisory import (
     RESERVE_TOKENS,
     AdvisoryPolicy,
+    _cached,
     _integer,
     prepare_request,
 )
@@ -277,6 +279,240 @@ class JevEntryContext:
             burst_tokens=control.token_pacing_burst_tokens,
         )
 
+    def terminal_veto(self, *, conn, signal_id, signal, config, consumer):
+        """PG-only negative result, inside the worker's lease/decision transaction.
+
+        This never reconstructs an OPEN candidate or reuses account facts. Only
+        a completed, still-valid model veto against an unchanged fixed binding
+        can end work early. Approval, fallback, legacy bindings and uncertainty
+        return None and retain the ordinary fresh-account path.
+        """
+        try:
+            signal_id = str(UUID(signal_id))
+            parts = json.loads(consumer)
+            _require(
+                type(parts) is list
+                and len(parts) == 5
+                and parts[:4] == list(asdict(self.scope).values())
+                and parts[4] in {"s6", "s8"}
+                and config["strategy"] == parts[4].upper()
+                and config["source"] in {"s3", "tv_bridge", "quant"}
+                and config["account_scope"] == asdict(self.scope)
+                and config["mode"] == "TESTNET_ADMISSION_ONLY"
+            )
+            key, profile_key = (
+                self.binding_key(consumer, signal_id),
+                policy_key(self.scope),
+            )
+            runtime_key = StateKey(
+                **asdict(self.scope), namespace="runtime-policy-v1", key="active"
+            )
+            # A policy update must not race this negative decision. The caller
+            # owns the transaction; these locks last through evidence/receipt.
+            locked = conn.execute(
+                "SELECT state_id FROM v2_business_state WHERE state_id=ANY(%s::uuid[]) "
+                "ORDER BY state_id FOR SHARE",
+                (
+                    [
+                        key.identity,
+                        profile_key.identity,
+                        CONTROL_KEY.identity,
+                        runtime_key.identity,
+                    ],
+                ),
+            ).fetchall()
+            locked = {str(row[0]) for row in locked}
+            _require({key.identity, CONTROL_KEY.identity} <= locked)
+            store = BusinessState(lambda: nullcontext(conn))
+            runtime_policy = store.read(runtime_key)
+            if runtime_policy is not None:
+                from v2_core.runtime_policy import resolve
+
+                _require(not runtime_policy.deleted and runtime_key.identity in locked)
+                values = resolve(json.loads(runtime_policy.payload_json)["values"])
+                _require(
+                    config.get("policy_version") == runtime_policy.version
+                    and config.get("policy_digest") == digest(canonical(values))
+                    and config.get("policy") == values
+                )
+            else:
+                _require(
+                    self.policy is not None
+                    and "policy_version" not in config
+                    and "policy_digest" not in config
+                )
+            bound = store.read(key)
+            _require(bound is not None and not bound.deleted and bound.version == 1)
+            binding = json.loads(bound.payload_json)
+            profile, control_row = store.read(profile_key), store.read(CONTROL_KEY)
+            _require(control_row is not None and not control_row.deleted)
+            control = AdvisoryPolicy(**json.loads(control_row.payload_json))
+            if self.policy is None:
+                _require(
+                    profile is not None
+                    and not profile.deleted
+                    and profile_key.identity in locked
+                )
+                policy = JevEntryGatePolicy(**json.loads(profile.payload_json))
+                policy_source, policy_version = "ACCOUNT_PG", profile.version
+            else:
+                policy = self.policy
+                policy_source, policy_version = "EXPLICIT_OVERRIDE", None
+            _require(policy.enabled and control.enabled)
+            identity = {
+                "consumer": consumer,
+                "signal_id": signal_id,
+                "signal_digest": digest(canonical(signal)),
+                "config_digest": digest(canonical(config)),
+                "symbol": signal["symbol"],
+                "direction": "LONG" if parts[4] == "s6" else "SHORT",
+                "gate_policy": asdict(policy),
+                "gate_policy_source": policy_source,
+                "gate_policy_version": policy_version,
+                "model_policy": asdict(control),
+                "model_control_version": control_row.version,
+            }
+            _require(
+                type(binding) is dict
+                and set(binding)
+                == {
+                    "schema",
+                    *identity,
+                    "public_features",
+                    "request_key",
+                    "started_at_ms",
+                    "deadline_ms",
+                }
+                and binding["schema"] == _SCHEMA
+                and all(binding.get(k) == v for k, v in identity.items())
+                and policy.max_wait_ms >= self.interval_seconds * 2000
+                and policy.cache_ttl_ms >= policy.max_wait_ms
+                and control.cache_ttl_ms >= policy.max_wait_ms
+            )
+            effective = replace(
+                policy,
+                max_age_ms=min(policy.max_age_ms, control.max_age_ms),
+                cache_ttl_ms=min(
+                    policy.cache_ttl_ms, control.cache_ttl_ms, control.max_age_ms
+                ),
+            )
+            now = conn.execute(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint"
+            ).fetchone()[0]
+            for value in (
+                now,
+                binding["started_at_ms"],
+                binding["deadline_ms"],
+                signal["observed_at"],
+                signal["expires_at_ms"],
+            ):
+                _integer(value, 0, 2**53 - 1)
+            _require(
+                signal["observed_at"]
+                <= binding["started_at_ms"]
+                <= now
+                < binding["deadline_ms"]
+                <= signal["expires_at_ms"]
+                and binding["deadline_ms"]
+                <= binding["started_at_ms"] + effective.max_wait_ms
+            )
+            prepared = prepare_request(
+                binding["public_features"],
+                now_ms=binding["started_at_ms"],
+                max_age_ms=effective.max_age_ms,
+            )
+            _require(
+                prepared["request_key"] == binding["request_key"]
+                and prepared["request"]["state"]["symbol"] == signal["symbol"]
+                and prepared["request"]["state"]["direction"] == identity["direction"]
+                and binding["deadline_ms"] <= prepared["valid_until_ms"]
+            )
+            request_key = StateKey(
+                **asdict(PUBLIC_SCOPE),
+                namespace=REQUEST_NAMESPACE,
+                key=prepared["request_key"],
+            )
+            request_lock = conn.execute(
+                "SELECT state_id FROM v2_business_state WHERE state_id=%s FOR SHARE",
+                (request_key.identity,),
+            ).fetchone()
+            _require(
+                request_lock is not None
+                and str(request_lock[0]) == request_key.identity
+            )
+            record = self._read(store, request_key)
+            _require(
+                type(record) is dict
+                and record.get("schema") == "jev-pg-coordinator-v1"
+                and record.get("status") == "COMPLETED"
+                and record.get("request") == prepared["request"]
+                and record.get("reserved_input_tokens") == RESERVE_TOKENS
+            )
+            _require(str(UUID(record["claim_id"])) == record["claim_id"])
+            _integer(record["claimed_at_ms"], prepared["observed_at_ms"], now)
+            _integer(
+                record["deadline_ms"],
+                record["claimed_at_ms"] + 1,
+                min(record["claimed_at_ms"] + 2000, prepared["valid_until_ms"]),
+            )
+            _integer(record["completed_at_ms"], record["claimed_at_ms"], now)
+            checked = _cached(record["result"], prepared, now, effective.cache_ttl_ms)
+            _require(
+                record["claimed_at_ms"]
+                <= checked["produced_at_ms"]
+                <= record["completed_at_ms"]
+                and checked["produced_at_ms"] < record["deadline_ms"]
+            )
+            scores = checked["hypotheses"]
+            reason = (
+                "JEV_TREND_UNSUPPORTED"
+                if Decimal(scores["trend_supported"])
+                < Decimal(effective.min_trend_support)
+                else "JEV_CHASE_RISK_HIGH"
+                if Decimal(scores["chase_risk"]) > Decimal(effective.max_chase_risk)
+                else None
+            )
+            if reason is None:
+                return None
+            evidence = {
+                "schema": "jev-entry-gate-v1",
+                "status": "VETO",
+                "reason": reason,
+                "policy": asdict(effective),
+                "request_key": prepared["request_key"],
+                "model": checked["model"],
+                "prompt_version": checked["prompt_version"],
+                "hypotheses": scores,
+                "model_expires_at_ms": checked["expires_at_ms"],
+                "valid_until_ms": None,
+                "fallback_cause": None,
+                "timing": {
+                    "started_at_ms": binding["started_at_ms"],
+                    "deadline_ms": binding["deadline_ms"],
+                    "checked_at_ms": now,
+                    "signal_expires_at_ms": signal["expires_at_ms"],
+                },
+                "binding_state_id": key.identity,
+                "binding_version": bound.version,
+                "gate_policy_source": policy_source,
+                "gate_policy_version": policy_version,
+                "model_control_version": control_row.version,
+                "fresh_account_recheck": "NOT_RUN_TERMINAL_VETO",
+                "public_snapshot_policy": "FIXED_MODEL_SNAPSHOT_NEGATIVE_ONLY",
+                "threshold_semantics": "EXPERIMENTAL_UNCALIBRATED_FILTER",
+                "probability_semantics": "NOT_TRADE_WIN_RATE",
+                "liquidity_use": "NOT_USED",
+                "decision_effect": "TERMINAL_REJECTION_ONLY",
+                "admission_authorized": False,
+                "execution_authorized": False,
+                "risk_override": False,
+            }
+            return GateAssessment(
+                "VETO", reason, StrategyDecision("IGNORED", reason), canonical(evidence)
+            )
+        except Exception:  # noqa: BLE001 - optional negative shortcut, never approval
+            return None
+
     def assess(self, decision, *, signal_id, signal, context, config, consumer):
         """No model submission until a fixed binding has committed successfully."""
         if not isinstance(decision, StrategyDecision):
@@ -427,7 +663,13 @@ class JevEntryContext:
                     "gate_policy_source": policy_source,
                     "gate_policy_version": policy_version,
                 }
-                control_payload = self._read(store, CONTROL_KEY)
+                control_row = store.read(CONTROL_KEY)
+                _require(control_row is None or not control_row.deleted)
+                control_payload = (
+                    json.loads(control_row.payload_json)
+                    if control_row is not None
+                    else None
+                )
                 control = (
                     AdvisoryPolicy(**control_payload)
                     if control_payload is not None
@@ -447,6 +689,15 @@ class JevEntryContext:
                     ),
                 )
                 identity["model_policy"] = asdict(control)
+                # Legacy bindings keep their original identity/normal path.
+                # Only newly version-bound controls support the negative-only
+                # shortcut, including detection of change-away-and-back.
+                if bound is None or "model_control_version" in json.loads(
+                    bound.payload_json
+                ):
+                    identity["model_control_version"] = (
+                        control_row.version if control_row is not None else 0
+                    )
                 if bound is None:
                     try:
                         prepared = prepare_request(
@@ -454,6 +705,42 @@ class JevEntryContext:
                         )
                     except ValueError as exc:
                         if str(exc) == "JEV_MARKET_SNAPSHOT_EXPIRED":
+                            observed = features.get("observed_at_ms")
+                            if (
+                                type(observed) is int
+                                and 0 <= observed <= now - effective_policy.max_age_ms
+                            ):
+                                # The signal can still be valid while its S3
+                                # source has aged beyond the model contract.
+                                # Do not irreversibly reject it before the
+                                # shared producer can publish a newer bar.
+                                # No binding/request/budget is created here.
+                                # A later attempt MUST collect full fresh
+                                # context and rerun admission; neither the
+                                # source clock nor the signal TTL is changed.
+                                return GateAssessment(
+                                    "PENDING",
+                                    "JEV_MARKET_REFRESH_PENDING",
+                                    None,
+                                    canonical(
+                                        {
+                                            "schema": _SCHEMA,
+                                            "status": "PENDING",
+                                            "reason": "JEV_MARKET_REFRESH_PENDING",
+                                            "execution_authorized": False,
+                                            "risk_override": False,
+                                            "admission_authorized": False,
+                                            "timing": {
+                                                "market_observed_at_ms": observed,
+                                                "checked_at_ms": now,
+                                                "market_max_age_ms": effective_policy.max_age_ms,
+                                                "signal_expires_at_ms": signal[
+                                                    "expires_at_ms"
+                                                ],
+                                            },
+                                        }
+                                    ),
+                                )
                             return _skip(decision, "JEV_MARKET_SNAPSHOT_EXPIRED")
                         raise
                     # The original ACCOUNT context expires quickly, but every

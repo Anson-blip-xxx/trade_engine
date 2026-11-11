@@ -202,6 +202,38 @@ def current_health(connect, scope, account, settings, *, now_ms=None):
     return result
 
 
+def _decision_cost(settings, scoring, entry_mode):
+    """Retain an immutable trend decision's cost floor across policy changes.
+
+    The plan mode also identifies the profile, so deleting or corrupting its
+    scoring proof cannot silently turn a structural decision into a legacy one.
+    Legacy/quant decisions keep their existing runtime-cost semantics.
+    """
+    current = Decimal(settings["sizing.cost_buffer_fraction"])
+    profile = "causal-trend-entry-v1"
+    structural = entry_mode in {"TREND_BREAKOUT", "TREND_PULLBACK_RESUME"} or (
+        isinstance(scoring, dict)
+        and (scoring.get("profile") == profile or scoring.get("version") == profile)
+    )
+    if not structural:
+        return current
+    try:
+        if (
+            not isinstance(scoring, dict)
+            or scoring.get("profile") != profile
+            or scoring.get("version") != profile
+        ):
+            raise ValueError
+        frozen = amount(scoring["cost_buffer_fraction"], positive=True)
+        # The effective cost may exceed the trend floor, up to the existing
+        # sizing-policy maximum. Never trust an unbounded stored numeric fact.
+        if not Decimal("0.0001") <= frozen <= Decimal("0.1"):
+            raise ValueError
+    except (ValueError, TypeError, KeyError, ArithmeticError):
+        raise ValueError("CAPITAL_TREND_COST_UNVERIFIED") from None
+    return max(current, frozen)
+
+
 def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
     """Advisory residual; admission must re-read it under the account lock.
 
@@ -218,14 +250,15 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
             or not 0 <= factor <= 1
         ):
             raise ValueError("INVALID_CAPITAL_RISK_BUDGET")
-        cost = Decimal(settings["sizing.cost_buffer_fraction"])
         rows = conn.execute(
             """SELECT r.notional::text,
               e.snapshot->'features'->'evaluation'->'market_plan'->>'stop_fraction',
               r.reference->'capital'->>'proposed_stop_risk',
               i.payload->>'quantity',
               e.snapshot->'features'->'evaluation'->'sizing'->>'stop_price',
-              e.snapshot->'features'->'evaluation'->'market_plan'->>'side'
+              e.snapshot->'features'->'evaluation'->'market_plan'->>'side',
+              e.snapshot->'features'->'evaluation'->'source_scoring',
+              e.snapshot->'features'->'evaluation'->'market_plan'->>'entry_mode'
             FROM v2_risk_reservations r
             LEFT JOIN v2_trade_intents i ON i.intent_id=r.episode_id
             LEFT JOIN v2_decision_evidence e USING(evidence_ref)
@@ -234,7 +267,8 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
             (scope.key, exclude_episode, exclude_episode),
         ).fetchall()
         held = Decimal(0)
-        for notional, stop, original, quantity, stop_price, side in rows:
+        for notional, stop, original, quantity, stop_price, side, scoring, mode in rows:
+            cost = _decision_cost(settings, scoring, mode)
             risk = amount(notional, positive=True) * (
                 amount(stop, positive=True) + cost
             )
@@ -254,7 +288,7 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
                         stop_price=stop_price,
                         side=side,
                         stop_fraction=stop,
-                        cost_fraction=settings["sizing.cost_buffer_fraction"],
+                        cost_fraction=str(cost),
                     ),
                 )
             held += risk
@@ -282,7 +316,8 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
             """SELECT e.snapshot->'features'->'evaluation'->'market_plan',
                 e.snapshot->'features'->'evaluation'->'leverage_decision',i.payload->>'symbol',
                 e.snapshot->'features'->'evaluation'->'sizing_budget',
-                e.snapshot->'features'->'evaluation'->'sizing',i.payload->>'quantity'
+                e.snapshot->'features'->'evaluation'->'sizing',i.payload->>'quantity',
+                e.snapshot->'features'->'evaluation'->'source_scoring'
             FROM v2_trade_intents i JOIN v2_decision_evidence e USING(evidence_ref)
             WHERE i.intent_id=%s AND (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)""",
             (episode, *asdict(scope).values()),
@@ -291,8 +326,10 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
             raise ValueError("CAPITAL_STOP_PLAN_UNVERIFIED")
         leverage_proof = plan[1]
         symbol = plan[2]
-        sizing_proof, sizing, quantity = plan[3:]
+        sizing_proof, sizing, quantity, scoring = plan[3:]
         plan = plan[0]
+        cost = _decision_cost(settings, scoring, plan.get("entry_mode"))
+        effective_settings = {**settings, "sizing.cost_buffer_fraction": str(cost)}
         if settings["leverage.adaptive_enabled"] or leverage > 5:
             from v2_core.adaptive_leverage import BOOST_CHECKS, safe_margin
 
@@ -325,7 +362,7 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
                     amount(plan["stop_fraction"], positive=True),
                     notional,
                     leverage_proof.get("venue"),
-                    settings,
+                    effective_settings,
                 )
             ):
                 raise ValueError("CAPITAL_LEVERAGE_SAFETY_UNVERIFIED")
@@ -339,7 +376,6 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
         if settings["entry.force_isolated"] and plan.get("margin_mode") != "ISOLATED":
             raise ValueError("CAPITAL_ISOLATED_MARGIN_REQUIRED")
         stop = amount(plan["stop_fraction"], positive=True)
-        cost = Decimal(settings["sizing.cost_buffer_fraction"])
         proposed = notional * (stop + cost)
         if sizing_proof is not None:
             from v2_core.sizing_budget import fixed_stop_risk, price_envelope
@@ -361,7 +397,7 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
                 side=plan["side"],
                 stop_price=sizing["stop_price"],
                 stop_fraction=plan["stop_fraction"],
-                cost_fraction=settings["sizing.cost_buffer_fraction"],
+                cost_fraction=str(cost),
             )
             if not envelope["stop_valid_through_envelope"]:
                 raise ValueError("CAPITAL_SIZING_BUDGET_UNVERIFIED")
@@ -376,7 +412,7 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
                     stop_price=sizing["stop_price"],
                     side=plan["side"],
                     stop_fraction=plan["stop_fraction"],
-                    cost_fraction=settings["sizing.cost_buffer_fraction"],
+                    cost_fraction=str(cost),
                 ),
             )
         if (

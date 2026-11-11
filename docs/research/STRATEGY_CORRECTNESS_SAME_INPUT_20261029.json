@@ -1,0 +1,1887 @@
+{
+  "baseline_policy_version": 9,
+  "cases": [
+    {
+      "alternate_orders_or_pnl": null,
+      "closed_at_ms": 1793197080000,
+      "execution_authorized": false,
+      "features": {
+        "s3-closed-1m-v2": {
+          "15m": {
+            "atr": "0.000133571428571429",
+            "atr_pct": "1.222062475493399556",
+            "atr_reference_pct": null,
+            "close": "0.01093",
+            "close_pos": null,
+            "ema20": "0.01093",
+            "ema60": "0.01093"
+          },
+          "1h": {
+            "atr": "0.000064285714285714",
+            "atr_pct": "0.588158410665272513",
+            "atr_reference_pct": null,
+            "close": "0.01093",
+            "close_pos": null,
+            "ema20": "0.010974468100933653",
+            "ema60": "0.011411333333333333"
+          },
+          "24h": {
+            "atr": "0.000024285714285714",
+            "atr_pct": "0.222193177362436283",
+            "atr_reference_pct": null,
+            "close": "0.01093",
+            "close_pos": null,
+            "ema20": "0.010975571500493909",
+            "ema60": "0.011347767236335815"
+          },
+          "4h": {
+            "atr": "0.000108571428571429",
+            "atr_pct": "0.993334204679126912",
+            "atr_reference_pct": null,
+            "close": "0.01093",
+            "close_pos": null,
+            "ema20": "0.010975571500486424",
+            "ema60": "0.011347791539485813"
+          }
+        },
+        "s3-closed-1m-v5": {
+          "15m": {
+            "atr": "0.000133571428571429",
+            "atr_pct": "1.222062475493399556",
+            "atr_reference_pct": "1.03907985884198144",
+            "close": "0.01093",
+            "close_pos": "59.322033898305084746",
+            "ema20": "0.010975571869593109",
+            "ema60": "0.011313352807860945"
+          },
+          "1h": {
+            "atr": "0.000133571428571429",
+            "atr_pct": "1.222062475493399556",
+            "atr_reference_pct": "1.03907985884198144",
+            "close": "0.01093",
+            "close_pos": "27.044025157232704403",
+            "ema20": "0.010975571869593109",
+            "ema60": "0.011313352807860945"
+          },
+          "24h": {
+            "atr": "0.000133571428571429",
+            "atr_pct": "1.222062475493399556",
+            "atr_reference_pct": "1.03907985884198144",
+            "close": "0.01093",
+            "close_pos": "44.572368421052631579",
+            "ema20": "0.010975571500493909",
+            "ema60": "0.011347767236335815"
+          },
+          "4h": {
+            "atr": "0.000133571428571429",
+            "atr_pct": "1.222062475493399556",
+            "atr_reference_pct": "1.03907985884198144",
+            "close": "0.01093",
+            "close_pos": "11.315789473684210526",
+            "ema20": "0.010975571500486424",
+            "ema60": "0.011347791539485813"
+          }
+        }
+      },
+      "full_account_or_jev_admission": "NOT_RUN",
+      "generated_events": {
+        "s3-closed-1m-v2": [
+          {
+            "strength": 99,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          },
+          {
+            "strength": 36,
+            "type": "ATR_EXPAND"
+          }
+        ],
+        "s3-closed-1m-v5": [
+          {
+            "strength": 99,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          }
+        ]
+      },
+      "historical_availability_at_entry": "NOT_VERIFIED",
+      "input_digest": "ad2eec08d253f2232e88052695b94a9f014bd2d9b35867b33dd8b594794a64b1",
+      "opened_ms": 1793197112975,
+      "policy_digest": "ff8f9c6ffd48d68f81cef4970f7dba7c92550c4937d72270a1a7fe27eb968aa4",
+      "probes": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 91,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 91,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 91,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 91,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 93,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        }
+      ],
+      "profitability_validated": false,
+      "regime_scenario": "neutral",
+      "risk_off_probe_summary": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        }
+      ],
+      "stateful_breakout_history": "NOT_REPLAYED_EMPTY_PRIOR_STATE",
+      "status": "COMPARED",
+      "symbol": "BLESSUSDT",
+      "version": "strategy-correctness-review-v1"
+    },
+    {
+      "alternate_orders_or_pnl": null,
+      "closed_at_ms": 1793196660000,
+      "execution_authorized": false,
+      "features": {
+        "s3-closed-1m-v2": {
+          "15m": {
+            "atr": "0.000074214285714286",
+            "atr_pct": "1.025909396105691378",
+            "atr_reference_pct": null,
+            "close": "0.007234",
+            "close_pos": null,
+            "ema20": "0.007234",
+            "ema60": "0.007234"
+          },
+          "1h": {
+            "atr": "0.000046571428571429",
+            "atr_pct": "0.643785299577392472",
+            "atr_reference_pct": null,
+            "close": "0.007234",
+            "close_pos": null,
+            "ema20": "0.007263245407189858",
+            "ema60": "0.007665516666666667"
+          },
+          "24h": {
+            "atr": "0.000021928571428571",
+            "atr_pct": "0.303132035230459339",
+            "atr_reference_pct": null,
+            "close": "0.007234",
+            "close_pos": null,
+            "ema20": "0.007263468504775049",
+            "ema60": "0.00751842528176759"
+          },
+          "4h": {
+            "atr": "0.000043571428571429",
+            "atr_pct": "0.602314467396026699",
+            "atr_reference_pct": null,
+            "close": "0.007234",
+            "close_pos": null,
+            "ema20": "0.007263468504789147",
+            "ema60": "0.007518487385312864"
+          }
+        },
+        "s3-closed-1m-v5": {
+          "15m": {
+            "atr": "0.000074214285714286",
+            "atr_pct": "1.025909396105691378",
+            "atr_reference_pct": "0.940992930210513843",
+            "close": "0.007234",
+            "close_pos": "77.678571428571428571",
+            "ema20": "0.007263468438827443",
+            "ema60": "0.007514908804285988"
+          },
+          "1h": {
+            "atr": "0.000074214285714286",
+            "atr_pct": "1.025909396105691378",
+            "atr_reference_pct": "0.940992930210513843",
+            "close": "0.007234",
+            "close_pos": "22.212765957446808511",
+            "ema20": "0.007263468438827443",
+            "ema60": "0.007514908804285988"
+          },
+          "24h": {
+            "atr": "0.000074214285714286",
+            "atr_pct": "1.025909396105691378",
+            "atr_reference_pct": "0.940992930210513843",
+            "close": "0.007234",
+            "close_pos": "17.478260869565217391",
+            "ema20": "0.007263468504775049",
+            "ema60": "0.00751842528176759"
+          },
+          "4h": {
+            "atr": "0.000074214285714286",
+            "atr_pct": "1.025909396105691378",
+            "atr_reference_pct": "0.940992930210513843",
+            "close": "0.007234",
+            "close_pos": "22.212765957446808511",
+            "ema20": "0.007263468504789147",
+            "ema60": "0.007518487385312864"
+          }
+        }
+      },
+      "full_account_or_jev_admission": "NOT_RUN",
+      "generated_events": {
+        "s3-closed-1m-v2": [
+          {
+            "strength": 48,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          }
+        ],
+        "s3-closed-1m-v5": [
+          {
+            "strength": 48,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          }
+        ]
+      },
+      "historical_availability_at_entry": "NOT_VERIFIED",
+      "input_digest": "c52d701995aa87cc19180c2e36500c39cf6102286213b9d60b9230f5cd6327ac",
+      "opened_ms": 1793196677867,
+      "policy_digest": "ff8f9c6ffd48d68f81cef4970f7dba7c92550c4937d72270a1a7fe27eb968aa4",
+      "probes": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 48,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 48,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": null,
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": null,
+                "margin_mode": null,
+                "reason": "strength_below_minimum",
+                "score": null,
+                "side": "SHORT",
+                "stop_fraction": null,
+                "strategy": "S8",
+                "system_tag": null
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        }
+      ],
+      "profitability_validated": false,
+      "regime_scenario": "neutral",
+      "risk_off_probe_summary": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "strength_below_minimum",
+            "INDICATORS_AND_CONFIRMATION": "strength_below_minimum",
+            "INDICATORS_ONLY": "strength_below_minimum"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "strength_below_minimum",
+            "INDICATORS_AND_CONFIRMATION": "strength_below_minimum",
+            "INDICATORS_ONLY": "strength_below_minimum"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        }
+      ],
+      "stateful_breakout_history": "NOT_REPLAYED_EMPTY_PRIOR_STATE",
+      "status": "COMPARED",
+      "symbol": "JCTUSDT",
+      "version": "strategy-correctness-review-v1"
+    },
+    {
+      "alternate_orders_or_pnl": null,
+      "closed_at_ms": 1793194680000,
+      "execution_authorized": false,
+      "features": {
+        "s3-closed-1m-v2": {
+          "15m": {
+            "atr": "0.001078571428571429",
+            "atr_pct": "0.443127127597135814",
+            "atr_reference_pct": null,
+            "close": "0.2434",
+            "close_pos": null,
+            "ema20": "0.2434",
+            "ema60": "0.2434"
+          },
+          "1h": {
+            "atr": "0.001764285714285714",
+            "atr_pct": "0.724850334546308252",
+            "atr_reference_pct": null,
+            "close": "0.2434",
+            "close_pos": null,
+            "ema20": "0.241825986785103489",
+            "ema60": "0.237253333333333333"
+          },
+          "24h": {
+            "atr": "0.000378571428571429",
+            "atr_pct": "0.155534687169855617",
+            "atr_reference_pct": null,
+            "close": "0.2434",
+            "close_pos": null,
+            "ema20": "0.241824422518012402",
+            "ema60": "0.236692017680831714"
+          },
+          "4h": {
+            "atr": "0.000335714285714286",
+            "atr_pct": "0.137926986735532339",
+            "atr_reference_pct": null,
+            "close": "0.2434",
+            "close_pos": null,
+            "ema20": "0.24182442251804442",
+            "ema60": "0.236690939802880799"
+          }
+        },
+        "s3-closed-1m-v5": {
+          "15m": {
+            "atr": "0.001078571428571429",
+            "atr_pct": "0.443127127597135814",
+            "atr_reference_pct": "0.633877215635637986",
+            "close": "0.2434",
+            "close_pos": "92.537313432835820896",
+            "ema20": "0.24182445983398798",
+            "ema60": "0.236808325875321013"
+          },
+          "1h": {
+            "atr": "0.001078571428571429",
+            "atr_pct": "0.443127127597135814",
+            "atr_reference_pct": "0.633877215635637986",
+            "close": "0.2434",
+            "close_pos": "67.058823529411764706",
+            "ema20": "0.24182445983398798",
+            "ema60": "0.236808325875321013"
+          },
+          "24h": {
+            "atr": "0.001078571428571429",
+            "atr_pct": "0.443127127597135814",
+            "atr_reference_pct": "0.633877215635637986",
+            "close": "0.2434",
+            "close_pos": "88.48920863309352518",
+            "ema20": "0.241824422518012402",
+            "ema60": "0.236692017680831714"
+          },
+          "4h": {
+            "atr": "0.001078571428571429",
+            "atr_pct": "0.443127127597135814",
+            "atr_reference_pct": "0.633877215635637986",
+            "close": "0.2434",
+            "close_pos": "83.601756954612005857",
+            "ema20": "0.24182442251804442",
+            "ema60": "0.236690939802880799"
+          }
+        }
+      },
+      "full_account_or_jev_admission": "NOT_RUN",
+      "generated_events": {
+        "s3-closed-1m-v2": [
+          {
+            "strength": 84,
+            "type": "VIOLENT_BULLISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_UP"
+          }
+        ],
+        "s3-closed-1m-v5": [
+          {
+            "strength": 84,
+            "type": "VIOLENT_BULLISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_UP"
+          }
+        ]
+      },
+      "historical_availability_at_entry": "NOT_VERIFIED",
+      "input_digest": "2630cf7a64855d5858b59fd300cee02fd3fb87c31705f697e035373a0d808bd3",
+      "opened_ms": 1793194715707,
+      "policy_digest": "ff8f9c6ffd48d68f81cef4970f7dba7c92550c4937d72270a1a7fe27eb968aa4",
+      "probes": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BULLISH",
+          "strategy": "S6",
+          "strength": 84,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 85,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 83,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 83,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_UP",
+          "strategy": "S6",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BULLISH",
+          "strategy": "S6",
+          "strength": 84,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 85,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 83,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "S6B_TREND_TAKEOVER",
+                "event_type": "VIOLENT_BULLISH",
+                "leverage": 2,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 83,
+                "side": "LONG",
+                "stop_fraction": "0.1",
+                "strategy": "S6",
+                "system_tag": "S6B"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_UP",
+          "strategy": "S6",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_UP",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "LONG",
+                "stop_fraction": "0.08",
+                "strategy": "S6",
+                "system_tag": "S6A"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        }
+      ],
+      "profitability_validated": false,
+      "regime_scenario": "neutral",
+      "risk_off_probe_summary": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BULLISH",
+          "variants": {
+            "BASELINE": "regime_conflict",
+            "INDICATORS_AND_CONFIRMATION": "regime_conflict",
+            "INDICATORS_ONLY": "regime_conflict"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_UP",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "regime_conflict",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BULLISH",
+          "variants": {
+            "BASELINE": "regime_conflict",
+            "INDICATORS_AND_CONFIRMATION": "regime_conflict",
+            "INDICATORS_ONLY": "regime_conflict"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_UP",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "regime_conflict",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        }
+      ],
+      "stateful_breakout_history": "NOT_REPLAYED_EMPTY_PRIOR_STATE",
+      "status": "COMPARED",
+      "symbol": "INITUSDT",
+      "version": "strategy-correctness-review-v1"
+    },
+    {
+      "alternate_orders_or_pnl": null,
+      "closed_at_ms": 1793194680000,
+      "execution_authorized": false,
+      "features": {
+        "s3-closed-1m-v2": {
+          "15m": {
+            "atr": "0.000062857142857143",
+            "atr_pct": "0.525122329633607829",
+            "atr_reference_pct": null,
+            "close": "0.01197",
+            "close_pos": null,
+            "ema20": "0.01197",
+            "ema60": "0.01197"
+          },
+          "1h": {
+            "atr": "0.000128571428571429",
+            "atr_pct": "1.074113856068743287",
+            "atr_reference_pct": null,
+            "close": "0.01197",
+            "close_pos": null,
+            "ema20": "0.012039654893817991",
+            "ema60": "0.012230166666666667"
+          },
+          "24h": {
+            "atr": "0.000009285714285714",
+            "atr_pct": "0.077574889604964793",
+            "atr_reference_pct": null,
+            "close": "0.01197",
+            "close_pos": null,
+            "ema20": "0.012040945024476985",
+            "ema60": "0.012221968209430533"
+          },
+          "4h": {
+            "atr": "0.000081428571428571",
+            "atr_pct": "0.680272108843537415",
+            "atr_reference_pct": null,
+            "close": "0.01197",
+            "close_pos": null,
+            "ema20": "0.012040945024468748",
+            "ema60": "0.01222180988150536"
+          }
+        },
+        "s3-closed-1m-v5": {
+          "15m": {
+            "atr": "0.000062857142857143",
+            "atr_pct": "0.525122329633607829",
+            "atr_reference_pct": "1.002506265664160401",
+            "close": "0.01197",
+            "close_pos": "60.869565217391304348",
+            "ema20": "0.012040952133251078",
+            "ema60": "0.012271569083325472"
+          },
+          "1h": {
+            "atr": "0.000062857142857143",
+            "atr_pct": "0.525122329633607829",
+            "atr_reference_pct": "1.002506265664160401",
+            "close": "0.01197",
+            "close_pos": "34.188034188034188034",
+            "ema20": "0.012040952133251078",
+            "ema60": "0.012271569083325472"
+          },
+          "24h": {
+            "atr": "0.000062857142857143",
+            "atr_pct": "0.525122329633607829",
+            "atr_reference_pct": "1.002506265664160401",
+            "close": "0.01197",
+            "close_pos": "61.803278688524590164",
+            "ema20": "0.012040945024476985",
+            "ema60": "0.012221968209430533"
+          },
+          "4h": {
+            "atr": "0.000062857142857143",
+            "atr_pct": "0.525122329633607829",
+            "atr_reference_pct": "1.002506265664160401",
+            "close": "0.01197",
+            "close_pos": "24.350649350649350649",
+            "ema20": "0.012040945024468748",
+            "ema60": "0.01222180988150536"
+          }
+        }
+      },
+      "full_account_or_jev_admission": "NOT_RUN",
+      "generated_events": {
+        "s3-closed-1m-v2": [
+          {
+            "strength": 77,
+            "type": "VIOLENT_BEARISH"
+          }
+        ],
+        "s3-closed-1m-v5": [
+          {
+            "strength": 77,
+            "type": "VIOLENT_BEARISH"
+          }
+        ]
+      },
+      "historical_availability_at_entry": "NOT_VERIFIED",
+      "input_digest": "b1acdca6aae039abd7f53ab311f8ccca8f0508aa98400a73ebe537b8c0f9b68d",
+      "opened_ms": 1793194695395,
+      "policy_digest": "ff8f9c6ffd48d68f81cef4970f7dba7c92550c4937d72270a1a7fe27eb968aa4",
+      "probes": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 77,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 80,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 77,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 77,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 77,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 80,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 77,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 77,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        }
+      ],
+      "profitability_validated": false,
+      "regime_scenario": "neutral",
+      "risk_off_probe_summary": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        }
+      ],
+      "stateful_breakout_history": "NOT_REPLAYED_EMPTY_PRIOR_STATE",
+      "status": "COMPARED",
+      "symbol": "BLESSUSDT",
+      "version": "strategy-correctness-review-v1"
+    },
+    {
+      "alternate_orders_or_pnl": null,
+      "closed_at_ms": 1793185680000,
+      "execution_authorized": false,
+      "features": {
+        "s3-closed-1m-v2": {
+          "15m": {
+            "atr": "0.000057142857142857",
+            "atr_pct": "0.510204081632653061",
+            "atr_reference_pct": null,
+            "close": "0.0112",
+            "close_pos": null,
+            "ema20": "0.0112",
+            "ema60": "0.0112"
+          },
+          "1h": {
+            "atr": "0.000141428571428571",
+            "atr_pct": "1.262755102040816327",
+            "atr_reference_pct": null,
+            "close": "0.0112",
+            "close_pos": null,
+            "ema20": "0.011222800078357072",
+            "ema60": "0.011408833333333333"
+          },
+          "24h": {
+            "atr": "0.000009285714285714",
+            "atr_pct": "0.082908163265306122",
+            "atr_reference_pct": null,
+            "close": "0.0112",
+            "close_pos": null,
+            "ema20": "0.011223405881267857",
+            "ema60": "0.011399062837494545"
+          },
+          "4h": {
+            "atr": "0.000185",
+            "atr_pct": "1.651785714285714286",
+            "atr_reference_pct": null,
+            "close": "0.0112",
+            "close_pos": null,
+            "ema20": "0.011223405881271716",
+            "ema60": "0.011399033089119748"
+          }
+        },
+        "s3-closed-1m-v5": {
+          "15m": {
+            "atr": "0.000057142857142857",
+            "atr_pct": "0.510204081632653061",
+            "atr_reference_pct": "0.440051020408163265",
+            "close": "0.0112",
+            "close_pos": "53.333333333333333333",
+            "ema20": "0.011223405292938582",
+            "ema60": "0.011391637571715434"
+          },
+          "1h": {
+            "atr": "0.000057142857142857",
+            "atr_pct": "0.510204081632653061",
+            "atr_reference_pct": "0.440051020408163265",
+            "close": "0.0112",
+            "close_pos": "15.094339622641509434",
+            "ema20": "0.011223405292938582",
+            "ema60": "0.011391637571715434"
+          },
+          "24h": {
+            "atr": "0.000057142857142857",
+            "atr_pct": "0.510204081632653061",
+            "atr_reference_pct": "0.440051020408163265",
+            "close": "0.0112",
+            "close_pos": "51.07296137339055794",
+            "ema20": "0.011223405881267857",
+            "ema60": "0.011399062837494545"
+          },
+          "4h": {
+            "atr": "0.000057142857142857",
+            "atr_pct": "0.510204081632653061",
+            "atr_reference_pct": "0.440051020408163265",
+            "close": "0.0112",
+            "close_pos": "4.469273743016759777",
+            "ema20": "0.011223405881271716",
+            "ema60": "0.011399033089119748"
+          }
+        }
+      },
+      "full_account_or_jev_admission": "NOT_RUN",
+      "generated_events": {
+        "s3-closed-1m-v2": [
+          {
+            "strength": 95,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          }
+        ],
+        "s3-closed-1m-v5": [
+          {
+            "strength": 95,
+            "type": "VIOLENT_BEARISH"
+          },
+          {
+            "strength": 99,
+            "type": "TREND_DOWN"
+          }
+        ]
+      },
+      "historical_availability_at_entry": "NOT_VERIFIED",
+      "input_digest": "087780ba72cbeb29cc60453b3d790cf044e8380bd5a110698bdc0cd87cab8384",
+      "opened_ms": 1793185720807,
+      "policy_digest": "ff8f9c6ffd48d68f81cef4970f7dba7c92550c4937d72270a1a7fe27eb968aa4",
+      "probes": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 95,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 99,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "strategy": "S8",
+          "strength": 95,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 99,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "VIOLENT_BEARISH",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 98,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "strategy": "S8",
+          "strength": 99,
+          "variants": {
+            "BASELINE": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v2",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_AND_CONFIRMATION": {
+              "confirmation_version": 2,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            },
+            "INDICATORS_ONLY": {
+              "confirmation_version": 1,
+              "event_present_in_version": true,
+              "feature_version": "s3-closed-1m-v5",
+              "plan": {
+                "entry_mode": "RIGHT_MOMENTUM",
+                "event_type": "TREND_DOWN",
+                "leverage": 3,
+                "margin_mode": "ISOLATED",
+                "reason": "CANDIDATE",
+                "score": 100,
+                "side": "SHORT",
+                "stop_fraction": "0.08",
+                "strategy": "S8",
+                "system_tag": "S8"
+              },
+              "reward_estimate_kind": "REALIZED_MOVE_PROXY_NOT_FORECAST"
+            }
+          }
+        }
+      ],
+      "profitability_validated": false,
+      "regime_scenario": "neutral",
+      "risk_off_probe_summary": [
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v2",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "VIOLENT_BEARISH",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        },
+        {
+          "event_origin": "s3-closed-1m-v5",
+          "signal": "TREND_DOWN",
+          "variants": {
+            "BASELINE": "CANDIDATE",
+            "INDICATORS_AND_CONFIRMATION": "CANDIDATE",
+            "INDICATORS_ONLY": "CANDIDATE"
+          }
+        }
+      ],
+      "stateful_breakout_history": "NOT_REPLAYED_EMPTY_PRIOR_STATE",
+      "status": "COMPARED",
+      "symbol": "XANUSDT",
+      "version": "strategy-correctness-review-v1"
+    }
+  ],
+  "database_writes": false,
+  "execution_authorized": false,
+  "policy_semantics": "CURRENT_POLICY_SCENARIO_NOT_HISTORICAL_POLICY_REPLAY",
+  "profitability_validated": false,
+  "regime_semantics": "NEUTRAL_AND_RISK_OFF_SCENARIOS_NOT_RECONSTRUCTED_HISTORICAL_REGIME",
+  "selection": "LATEST_FIVE_ACTUAL_ENTRIES_BEFORE_20261029_095411_UTC8_NOT_PNL_SELECTED",
+  "services_restarted": false,
+  "version": "strategy-correctness-same-input-20261029"
+}

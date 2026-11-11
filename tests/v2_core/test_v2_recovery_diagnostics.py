@@ -5,8 +5,8 @@ from dataclasses import replace
 
 import pytest
 from test_v2_account_risk import SCOPE, configured, prepare, runner
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.recovery_diagnostics import NAMESPACE, query_proof, record, summaries
 from v2_core.runner import ExchangeObservation
 from v2_core.transport import ExchangeTransportError

@@ -10,7 +10,9 @@
 // - Changing inputs does not change an existing alert; recreate that alert.
 
 //@version=6
-indicator("Trade Engine V2 Universal Candidate v1", overlay = true)
+indicator("Trade Engine V2 Universal Candidate v2", overlay = true)
+
+string producerVersion = "tv-causal-15m-v2"
 
 string webhookSecret = input.string("REPLACE_WITH_V2_WEBHOOK_SECRET", "V2 webhook secret")
 int ttlMs = input.int(90000, "Signal TTL (milliseconds)", minval = 15000, maxval = 300000, step = 5000)
@@ -19,6 +21,8 @@ bool enableShort = input.bool(true, "Enable short candidates")
 int fastLength = input.int(20, "Fast EMA", minval = 2, maxval = 200)
 int slowLength = input.int(60, "Slow EMA", minval = 3, maxval = 400)
 int volumeLength = input.int(20, "Volume baseline", minval = 5, maxval = 200)
+int breakoutLength = input.int(20, "Prior bars for trend breakout", minval = 2, maxval = 96)
+float minTrendVolumeRatio = input.float(1.0, "Minimum trend volume ratio", minval = 1.0, maxval = 10.0, step = 0.1)
 float minVolumeRatio = input.float(1.5, "Minimum volume ratio", minval = 1.0, maxval = 10.0, step = 0.1)
 float minAdx = input.float(20.0, "Minimum ADX", minval = 5.0, maxval = 60.0, step = 0.5)
 float pulse15m = input.float(5.0, "Pulse threshold 15m (%)", minval = 0.5, maxval = 30.0, step = 0.1)
@@ -29,72 +33,118 @@ float violent1h = input.float(15.0, "Violent range threshold 1h (%)", minval = 2
 
 if timeframe.in_seconds() != 15 * 60
     runtime.error("Trade Engine V2 Universal Candidate must run on a 15-minute chart")
+if not chart.is_standard or syminfo.prefix != "BINANCE" or not str.endswith(syminfo.ticker, ".P")
+    runtime.error("Use a standard BINANCE perpetual chart")
+if fastLength >= slowLength
+    runtime.error("Fast EMA length must be smaller than slow EMA length")
+// Printable ASCII keeps user input JSON-safe after escaping quotes/backslashes.
+// The deployed ingress secret is entered in Inputs, never embedded in this file.
+if str.length(webhookSecret) < 32 or str.length(webhookSecret) > 512 or str.match(webhookSecret, "^[ -~]+$") != webhookSecret
+    runtime.error("Enter the ingress-only secret as 32-512 printable ASCII characters")
 
 float emaFast = ta.ema(close, fastLength)
 float emaSlow = ta.ema(close, slowLength)
 [diPlus, diMinus, adx] = ta.dmi(14, 14)
-float volumeAverage = ta.sma(volume, volumeLength)
+// All baselines and breakout levels exclude the candidate bar.
+float volumeAverage = ta.sma(volume[1], volumeLength)
 float volumeRatio = volumeAverage > 0 ? volume / volumeAverage : 0.0
+float priorHigh = ta.highest(high[1], breakoutLength)
+float priorLow = ta.lowest(low[1], breakoutLength)
 float chg15m = close[1] > 0 ? (close / close[1] - 1.0) * 100.0 : 0.0
 float chg1h = close[4] > 0 ? (close / close[4] - 1.0) * 100.0 : 0.0
 float low1h = ta.lowest(low, 4)
 float vol1h = low1h > 0 ? (ta.highest(high, 4) / low1h - 1.0) * 100.0 : 0.0
 float closePosition = high > low ? (close - low) / (high - low) : 0.5
 
-bool ready = bar_index >= math.max(slowLength, volumeLength) + 4 and barstate.isconfirmed
+bool contiguousHour = time_close - time == 900000 and time_close - time_close[4] == 3600000
+bool validValues = close > 0 and close < 1000000000000 and volumeAverage > 0 and chg15m >= -100 and chg15m <= 10000 and chg1h >= -100 and chg1h <= 10000 and vol1h >= 0 and vol1h <= 10000
+bool ready = bar_index >= math.max(slowLength, math.max(volumeLength, breakoutLength)) + 4 and barstate.isconfirmed and contiguousHour and validValues
 bool liquidMove = volumeRatio >= minVolumeRatio
-bool trendLong = emaFast > emaSlow and adx >= minAdx and diPlus > diMinus
-bool trendShort = emaFast < emaSlow and adx >= minAdx and diMinus > diPlus
-bool pulseLong = liquidMove and (chg15m >= pulse15m or chg1h >= pulse1h) and closePosition >= 0.65
-bool pulseShort = liquidMove and (chg15m <= -pulse15m or chg1h <= -pulse1h) and closePosition <= 0.35
-bool pumpLong = volumeRatio >= 2.0 and (chg15m >= pump15m or chg1h >= pump1h) and closePosition >= 0.70
-bool pumpShort = volumeRatio >= 2.0 and (chg15m <= -pump15m or chg1h <= -pump1h) and closePosition <= 0.30
-bool violentLong = vol1h >= violent1h and close > (ta.highest(high, 4) + ta.lowest(low, 4)) / 2.0
-bool violentShort = vol1h >= violent1h and not violentLong
+bool trendVolume = volumeRatio >= minTrendVolumeRatio
+// A rebound candle cannot become a short solely because the preceding hour fell.
+bool movingLong = chg15m > 0 and close > open
+bool movingShort = chg15m < 0 and close < open
+bool trendLong = emaFast > emaSlow and emaFast > emaFast[3] and emaSlow > emaSlow[3] and adx >= minAdx and diPlus > diMinus
+bool trendShort = emaFast < emaSlow and emaFast < emaFast[3] and emaSlow < emaSlow[3] and adx >= minAdx and diMinus > diPlus
+bool pulseLong = movingLong and liquidMove and (chg15m >= pulse15m or chg1h >= pulse1h) and closePosition >= 0.65
+bool pulseShort = movingShort and liquidMove and (chg15m <= -pulse15m or chg1h <= -pulse1h) and closePosition <= 0.35
+bool pumpLong = movingLong and volumeRatio >= 2.0 and (chg15m >= pump15m or chg1h >= pump1h) and closePosition >= 0.70
+bool pumpShort = movingShort and volumeRatio >= 2.0 and (chg15m <= -pump15m or chg1h <= -pump1h) and closePosition <= 0.30
+float rangeMid1h = (ta.highest(high, 4) + low1h) / 2.0
+bool violentLong = movingLong and chg1h > 0 and liquidMove and vol1h >= violent1h and close > rangeMid1h and closePosition >= 0.65
+bool violentShort = movingShort and chg1h < 0 and liquidMove and vol1h >= violent1h and close < rangeMid1h and closePosition <= 0.35
+
+// A continuing trend can produce a fresh structural candidate. Merely remaining
+// below/above an EMA is not a setup. Retests use only the preceding three bars;
+// a resume must follow an opposite candle and break its high/low. No timed lockout.
+bool priorLongRetest = low[1] <= emaFast[1] or low[2] <= emaFast[2] or low[3] <= emaFast[3]
+bool priorShortRetest = high[1] >= emaFast[1] or high[2] >= emaFast[2] or high[3] >= emaFast[3]
+bool breakoutLong = trendLong and movingLong and trendVolume and close > priorHigh and closePosition >= 0.60
+bool breakoutShort = trendShort and movingShort and trendVolume and close < priorLow and closePosition <= 0.40
+bool resumeLong = trendLong and movingLong and trendVolume and priorLongRetest and close[1] < open[1] and close[1] >= emaSlow[1] and close > emaFast and close > high[1] and closePosition >= 0.60
+bool resumeShort = trendShort and movingShort and trendVolume and priorShortRetest and close[1] > open[1] and close[1] <= emaSlow[1] and close < emaFast and close < low[1] and closePosition <= 0.40
+bool transitionLong = trendLong and not trendLong[1] and movingLong and trendVolume and closePosition >= 0.60
+bool transitionShort = trendShort and not trendShort[1] and movingShort and trendVolume and closePosition <= 0.40
 
 // A bar emits at most one candidate. High-conviction fast moves have priority.
 string candidate = ""
+string setup = ""
 if ready
     if enableLong and pumpLong
         candidate := "PUMP_LONG"
+        setup := "PUMP"
     else if enableShort and pumpShort
         candidate := "PUMP_SHORT"
+        setup := "PUMP"
     else if enableLong and violentLong
         candidate := "VIOLENT_LONG"
+        setup := "VIOLENT"
     else if enableShort and violentShort
         candidate := "VIOLENT_SHORT"
+        setup := "VIOLENT"
     else if enableLong and pulseLong
         candidate := "PULSE_UP_LONG"
+        setup := "PULSE"
     else if enableShort and pulseShort
         candidate := "PULSE_DOWN_SHORT"
-    else if enableLong and trendLong and not trendLong[1]
+        setup := "PULSE"
+    else if enableLong and (breakoutLong or resumeLong or transitionLong)
         candidate := "TREND_UP_LONG"
-    else if enableShort and trendShort and not trendShort[1]
+        setup := breakoutLong ? "TREND_BREAKOUT" : resumeLong ? "TREND_PULLBACK_RESUME" : "TREND_TRANSITION"
+    else if enableShort and (breakoutShort or resumeShort or transitionShort)
         candidate := "TREND_DOWN_SHORT"
+        setup := breakoutShort ? "TREND_BREAKOUT" : resumeShort ? "TREND_PULLBACK_RESUME" : "TREND_TRANSITION"
 
-int rawStrength = int(math.round(math.abs(chg15m) * 8.0 + math.abs(chg1h) * 4.0 + math.max(0.0, volumeRatio - 1.0) * 10.0))
-int strength = math.max(20, math.min(99, rawStrength))
+// A bounded evidence score, not a probability of profit. Opposing returns add 0.
+float direction = str.contains(candidate, "SHORT") ? -1.0 : 1.0
+float directionalStrength = math.max(0.0, direction * chg15m) * 8.0 + math.max(0.0, direction * chg1h) * 4.0 + math.max(0.0, volumeRatio - 1.0) * 10.0
+int strength = int(math.round(math.max(20.0, math.min(99.0, directionalStrength))))
 
-decimal(float value) => str.tostring(value, "#.########")
+decimal(float value) => str.tostring(value, "0.##################")
+jsonEscape(string value) => str.replace_all(str.replace_all(value, "\\", "\\\\"), "\"", "\\\"")
 
-message(string signal) =>
+message(string signal, string candidateSetup) =>
     string standardTicker = ticker.standard(syminfo.tickerid)
     string eventId = "tv:" + standardTicker + ":15:" + str.tostring(time_close) + ":" + signal
     "{" +
-      "\"secret\":\"" + webhookSecret + "\"," +
-      "\"event_id\":\"" + eventId + "\"," +
+      "\"secret\":\"" + jsonEscape(webhookSecret) + "\"," +
+      "\"event_id\":\"" + jsonEscape(eventId) + "\"," +
       "\"observed_at\":" + str.tostring(time_close) + "," +
       "\"expires_at_ms\":" + str.tostring(time_close + ttlMs) + "," +
-      "\"symbol\":\"" + standardTicker + "\"," +
+      "\"symbol\":\"" + jsonEscape(standardTicker) + "\"," +
       "\"signal\":\"" + signal + "\"," +
       "\"price\":\"" + decimal(close) + "\"," +
       "\"strength\":" + str.tostring(strength) + "," +
       "\"chg_15m\":\"" + decimal(chg15m) + "\"," +
       "\"chg_1h\":\"" + decimal(chg1h) + "\"," +
-      "\"vol_1h\":\"" + decimal(vol1h) + "\"}"
+      "\"vol_1h\":\"" + decimal(vol1h) + "\"," +
+      "\"producer\":{\"version\":\"" + producerVersion + "\"," +
+      "\"setup\":\"" + candidateSetup + "\",\"timeframe\":\"15\"," +
+      "\"bar_open_ms\":" + str.tostring(time) + "," +
+      "\"bar_close_ms\":" + str.tostring(time_close) + "}}"
 
 if str.length(candidate) > 0
-    alert(message(candidate), alert.freq_once_per_bar_close)
+    alert(message(candidate, setup), alert.freq_once_per_bar_close)
 
 plot(emaFast, "EMA fast", color = color.orange)
 plot(emaSlow, "EMA slow", color = color.blue)

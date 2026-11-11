@@ -8,11 +8,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_health import opening
 
 from services import v2_managed_health as managed
 from services.v2_testnet_watchdog import HealthWatchdog, WatchdogDeliveryState
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.state import BusinessState, StateKey
 from v2_core.telegram import TelegramOperationalSink

@@ -2,10 +2,10 @@ from dataclasses import replace
 
 import pytest
 from test_v2_account_coverage import Account
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent
 from test_v2_protection_child import SCOPE
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent
 from v2_core.protection import ProtectionSpec
 from v2_core.protection_install import GuardedStopInstaller
 from v2_core.service import TradingData

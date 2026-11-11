@@ -6,9 +6,9 @@ from threading import Barrier, Lock
 
 import pytest
 from test_v2_directional_account_context import build, signal
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_account_context import _PublicSentimentCache, _short_ratio
+from tests.support.v2_admission import database as database_fixture
 
 database = database_fixture
 NOW = 1_800_000_000_000

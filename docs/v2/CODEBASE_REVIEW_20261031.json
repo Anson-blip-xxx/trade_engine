@@ -1,0 +1,667 @@
+{
+  "version": "v2-codebase-review-20261031-v1",
+  "reviewed_at": "2026-10-31",
+  "timezone": "Asia/Shanghai",
+  "workspace": "/home/ubuntu/.opencode/trade/trading_engine-v2",
+  "baseline": {
+    "branch": "codex/p10-d3a-pg-journal-foundation",
+    "head": "ab82570",
+    "tracked_dirty_files": 31,
+    "untracked_files": 79,
+    "unrelated_changes_preserved": true
+  },
+  "scope": "Source structure, live entrypoints, static dependencies, deployment references, test boundaries and conservative retirement. Not a trading performance or complete runtime health certification.",
+  "source_inventory_before_cleanup": {
+    "method": "Git-visible Python AST only, no repository imports or execution. All V2 source modules used as conservative roots, not exact live reachability. String-based loaders, scripts, config, tests and external callers require separate review. Unreachable does not mean deletable.",
+    "python_files": 1009,
+    "non_test_python_files": 440,
+    "groups": {
+      "(root)": {
+        "python_files": 2,
+        "lines": 119
+      },
+      "decision": {
+        "python_files": 2,
+        "lines": 193
+      },
+      "execution": {
+        "python_files": 17,
+        "lines": 825
+      },
+      "journal": {
+        "python_files": 6,
+        "lines": 1042
+      },
+      "monitoring": {
+        "python_files": 1,
+        "lines": 303
+      },
+      "operation_journal": {
+        "python_files": 9,
+        "lines": 2071
+      },
+      "operator_decision": {
+        "python_files": 3,
+        "lines": 1030
+      },
+      "position_config": {
+        "python_files": 2,
+        "lines": 123
+      },
+      "position_identity": {
+        "python_files": 13,
+        "lines": 4023
+      },
+      "position_ledger": {
+        "python_files": 2,
+        "lines": 347
+      },
+      "position_lifecycle": {
+        "python_files": 3,
+        "lines": 477
+      },
+      "position_market": {
+        "python_files": 3,
+        "lines": 93
+      },
+      "position_monitoring": {
+        "python_files": 3,
+        "lines": 652
+      },
+      "position_protection": {
+        "python_files": 22,
+        "lines": 3606
+      },
+      "position_reconcile": {
+        "python_files": 3,
+        "lines": 471
+      },
+      "position_runtime": {
+        "python_files": 2,
+        "lines": 91
+      },
+      "position_state": {
+        "python_files": 7,
+        "lines": 1052
+      },
+      "replay": {
+        "python_files": 4,
+        "lines": 293
+      },
+      "risk": {
+        "python_files": 3,
+        "lines": 247
+      },
+      "s0": {
+        "python_files": 4,
+        "lines": 304
+      },
+      "s3": {
+        "python_files": 5,
+        "lines": 578
+      },
+      "scripts": {
+        "python_files": 23,
+        "lines": 6174
+      },
+      "services": {
+        "python_files": 147,
+        "lines": 38969
+      },
+      "shared": {
+        "python_files": 18,
+        "lines": 5819
+      },
+      "signals": {
+        "python_files": 6,
+        "lines": 408
+      },
+      "strategies": {
+        "python_files": 7,
+        "lines": 2736
+      },
+      "tests": {
+        "python_files": 569,
+        "lines": 129670
+      },
+      "v2_core": {
+        "python_files": 123,
+        "lines": 31815
+      }
+    },
+    "largest_source_functions": [
+      {
+        "path": "services/v2_trading_pipeline.py",
+        "name": "run_once",
+        "line": 186,
+        "lines": 592
+      },
+      {
+        "path": "shared/s6_auto_trader.py",
+        "name": "open_position",
+        "line": 1184,
+        "lines": 511
+      },
+      {
+        "path": "services/v2_testnet_daemon_entry.py",
+        "name": "create_testnet_process",
+        "line": 407,
+        "lines": 418
+      },
+      {
+        "path": "services/v2_directional_account_context.py",
+        "name": "__call__",
+        "line": 325,
+        "lines": 402
+      },
+      {
+        "path": "services/v2_trading_health.py",
+        "name": "__call__",
+        "line": 447,
+        "lines": 383
+      },
+      {
+        "path": "v2_core/scheduling.py",
+        "name": "run_once",
+        "line": 417,
+        "lines": 372
+      },
+      {
+        "path": "v2_core/strategy.py",
+        "name": "consume",
+        "line": 271,
+        "lines": 366
+      },
+      {
+        "path": "v2_core/quant_replay.py",
+        "name": "replay",
+        "line": 75,
+        "lines": 361
+      },
+      {
+        "path": "v2_core/long_trend.py",
+        "name": "_replay",
+        "line": 175,
+        "lines": 335
+      },
+      {
+        "path": "services/v2_testnet_roundtrip.py",
+        "name": "execute",
+        "line": 195,
+        "lines": 327
+      },
+      {
+        "path": "services/v2_jev_entry_context.py",
+        "name": "assess",
+        "line": 280,
+        "lines": 316
+      },
+      {
+        "path": "shared/s6_auto_trader.py",
+        "name": "monitor_positions",
+        "line": 1905,
+        "lines": 289
+      },
+      {
+        "path": "services/v2_daily_mover_evidence.py",
+        "name": "load_daily_mover_evidence",
+        "line": 556,
+        "lines": 282
+      },
+      {
+        "path": "v2_core/trend_runner.py",
+        "name": "_run",
+        "line": 286,
+        "lines": 271
+      },
+      {
+        "path": "services/v2_account_admin_http.py",
+        "name": "handler_for",
+        "line": 30,
+        "lines": 270
+      }
+    ],
+    "syntax_errors": [],
+    "core_to_services_edges": [
+      {
+        "source": "v2_core/entry_controls.py",
+        "targets": [
+          "services.v2_entry_structure"
+        ]
+      }
+    ],
+    "legacy_dependencies_of_all_v2_roots": [
+      {
+        "module": "decision",
+        "path": "decision/__init__.py"
+      },
+      {
+        "module": "decision.core",
+        "path": "decision/core.py"
+      },
+      {
+        "module": "s0",
+        "path": "s0/__init__.py"
+      },
+      {
+        "module": "s0.core",
+        "path": "s0/core.py"
+      },
+      {
+        "module": "s3",
+        "path": "s3/__init__.py"
+      },
+      {
+        "module": "s3.core",
+        "path": "s3/core.py"
+      },
+      {
+        "module": "s3.detector",
+        "path": "s3/detector.py"
+      }
+    ],
+    "dynamic_import_calls": [
+      {
+        "path": "shared/binance_api.py",
+        "line": 56
+      },
+      {
+        "path": "shared/position_manager.py",
+        "line": 195
+      },
+      {
+        "path": "shared/s6_auto_trader.py",
+        "line": 466
+      },
+      {
+        "path": "shared/s6_auto_trader.py",
+        "line": 10
+      }
+    ],
+    "test_v2_cross_module_imports": 634,
+    "test_v2_common_imports": [
+      [
+        "test_v2_intent_admission",
+        177
+      ],
+      [
+        "test_v2_directional_replay",
+        64
+      ],
+      [
+        "test_v2_directional_cash",
+        27
+      ],
+      [
+        "test_v2_protection_child",
+        25
+      ],
+      [
+        "test_v2_directional_settlement",
+        21
+      ],
+      [
+        "test_v2_directional",
+        20
+      ],
+      [
+        "test_v2_credential_console",
+        17
+      ],
+      [
+        "test_v2_trading_pipeline",
+        17
+      ]
+    ],
+    "exact_duplicate_nonempty_sources": [
+      [
+        "indicators.py",
+        "services/s0/indicators.py"
+      ],
+      [
+        "services/s0/s0_reader.py",
+        "services/s7/s0_reader.py"
+      ]
+    ]
+  },
+  "runtime": {
+    "directory_prefix": "/opt/trade-engine-v2/",
+    "service_roots": [
+      {
+        "unit": "trade-v2-execution-controller.service",
+        "entry": "services.v2_execution_supervisor",
+        "release": "releases/causal-trend-controller-20261030-v2"
+      },
+      {
+        "unit": "trade-v2-market-hub.service",
+        "entry": "services.v2_market_hub_entry",
+        "release": "releases/causal-trend-hub-20261030-v2"
+      },
+      {
+        "unit": "trade-v2-account-admin.service",
+        "entry": "services.v2_account_admin_entry",
+        "release": "releases/causal-trend-admin-20261030-v1"
+      },
+      {
+        "unit": "trade-v2-dashboard.service",
+        "entry": "services.v2_dashboard",
+        "release": "releases/dashboard-recovery-20261008-v1"
+      },
+      {
+        "unit": "trade-v2-tradingview-ingress.service",
+        "entry": "services.v2_tradingview_server",
+        "release": "releases/causal-trend-ingress-20261030-v1"
+      },
+      {
+        "unit": "trade-v2-reentry-observer.service",
+        "entry": "services.v2_reentry_observer_entry",
+        "release": "releases/storage-dedup-reentry-observer-20261004-v1"
+      },
+      {
+        "unit": "trade-v2-daily-movers.service",
+        "entry": "services.v2_daily_mover_entry",
+        "release": "releases/daily-mover-evaluation-20261028-v1"
+      },
+      {
+        "unit": "trade-v2-positioning-research.service",
+        "entry": "services.v2_positioning_entry",
+        "release": "releases/positioning-research-20261031-v2"
+      },
+      {
+        "unit": "trade-v2-trend-campaign-research.service",
+        "entry": "services.v2_trend_campaign_entry",
+        "release": "releases/positioning-research-20261031-v2"
+      },
+      {
+        "unit": "trade-v2-onchain-research.service",
+        "entry": "services.v2_onchain_entry",
+        "release": "releases/onchain-research-20261031-v2"
+      },
+      {
+        "unit": "trade-v2-exit-research.service",
+        "entry": "services.v2_exit_sampler",
+        "release": "research/exit-forward-20261009-v1"
+      },
+      {
+        "unit": "trade-v2-actual-exit-research.service",
+        "entry": "services.v2_actual_exit_research",
+        "release": "research/actual-exit-20261010-v1"
+      }
+    ],
+    "maintenance_release": "releases/retention-20261004-v1",
+    "release_directories": 144,
+    "virtualenv_directories": 4,
+    "enabled_waiting_timers": 10,
+    "infrastructure_pinned_old_paths": [
+      "releases/da0b0f7fbd7c48cb39bd01948925559d96cd21a4/deploy/v2-testnet/redis.conf",
+      "releases/1ecb6da989e0dbf7a63632c89bcea301287688da/deploy/v2-testnet/clickhouse.xml"
+    ],
+    "comparison_method": "Read-only conservative AST closure of each deployed Python entry; includes conditional and lazy imports, not proof all nodes execute. Source content differences are not necessarily bugs or incompatible versions.",
+    "workspace_differences": [
+      {
+        "service": "controller",
+        "modules_in_static_closure": 145,
+        "content_differences": 21
+      },
+      {
+        "service": "market-hub",
+        "modules_in_static_closure": 61,
+        "content_differences": 16
+      },
+      {
+        "service": "account-admin",
+        "modules_in_static_closure": 56,
+        "content_differences": 15
+      },
+      {
+        "service": "dashboard",
+        "modules_in_static_closure": 26,
+        "content_differences": 13
+      },
+      {
+        "service": "reentry-observer",
+        "modules_in_static_closure": 65,
+        "content_differences": 27
+      },
+      {
+        "service": "daily-movers",
+        "modules_in_static_closure": 160,
+        "content_differences": 39
+      },
+      {
+        "service": "positioning",
+        "modules_in_static_closure": 11,
+        "content_differences": 0
+      },
+      {
+        "service": "onchain",
+        "modules_in_static_closure": 6,
+        "content_differences": 0
+      }
+    ],
+    "main_services_not_restarted": {
+      "execution_controller_pid": 1666755,
+      "market_hub_pid": 1705614
+    },
+    "live_release_files_modified": false,
+    "unit_configurations_modified": false,
+    "databases_modified": false
+  },
+  "lifecycle": {
+    "removed_v2_copies": [
+      {
+        "path": "services/s0/market_state_report.py",
+        "reason": "Unreferenced V1 broadcast script; hardcoded Telegram credential and unguarded import-time query/send.",
+        "credential_value_recorded": false,
+        "credential_revocation_done": false
+      },
+      {
+        "path": "scripts/daily_push.sh",
+        "reason": "Unreferenced script operates old working tree, stages all changes and pushes origin main."
+      }
+    ],
+    "retirement_evidence": {
+      "tracked_and_unmodified_before_cleanup": true,
+      "filename_references_in_repository_before_cleanup": 0,
+      "direct_filename_references_in_733_cron_and_systemd_files": 0,
+      "exact_script_arguments_in_running_processes": 0,
+      "caveat": "Filename and AST checks cannot prove absence of every external/manual caller. Retirement applies only to these V2 copies.",
+      "recoverable_from_git_commit": "ab82570",
+      "legacy_tree_untouched": true
+    },
+    "do_not_delete": [
+      {
+        "paths": [
+          "s0/core.py",
+          "s3/core.py",
+          "s3/detector.py",
+          "decision/core.py"
+        ],
+        "reason": "Reused by current V2 algorithm modules; retain package initializers as well."
+      },
+      {
+        "paths": [
+          "services/v2_testnet_daemon_entry.py",
+          "services/v2_testnet_watchdog.py"
+        ],
+        "reason": "Managed execution and health modules still import them even though standalone units are disabled."
+      },
+      {
+        "paths": [
+          "db/migrations/",
+          "deploy/v2-testnet/",
+          "docs/research/"
+        ],
+        "reason": "Do not bulk-remove migration history, release evidence, replay methods, recovery or rollback artifacts."
+      },
+      {
+        "paths": [
+          "services/v2_reentry_prepare_entry.py"
+        ],
+        "reason": "Explicitly optional, tested feature; not installed is not equivalent to dead code."
+      }
+    ],
+    "legacy_clusters_for_future_isolation": [
+      {
+        "description": "Old strategies/shared I/O, services/s0 and s7, old TV/sentiment, root indicators",
+        "files_before_cleanup": 37,
+        "lines_before_cleanup": 11116
+      },
+      {
+        "description": "Old execution, position_*, operation_journal, journal, signals, replay, risk, operator_decision",
+        "files_before_cleanup": 108,
+        "lines_before_cleanup": 16851
+      },
+      {
+        "description": "Old init, fill reconcile, reporting, sandbox and daily push tools",
+        "files_before_cleanup": 5,
+        "lines_before_cleanup": 545
+      }
+    ],
+    "cluster_caveat": "Not reached by the conservative V2 static import roots, but legacy tests, bare imports, sys.path injection, recovery and hardcoded paths prevent automatic mass deletion.",
+    "retained_legacy_safety_tests": "tests/v2_core/test_v2_no_file_fallback.py"
+  },
+  "findings": [
+    {
+      "id": "CB-01",
+      "priority": "HIGH",
+      "topic": "Stale default documentation",
+      "evidence": [
+        "README.md",
+        "SYSTEM_TOPOLOGY.md"
+      ],
+      "action": "Add current entry index and explicit historical status; preserve historical content.",
+      "status": "FIXED_DOCUMENTATION"
+    },
+    {
+      "id": "CB-02",
+      "priority": "HIGH",
+      "topic": "Existing architecture test failure",
+      "evidence": [
+        "tests/v2_core/test_v2_core_boundary.py:20",
+        "v2_core/entry_controls.py:254",
+        "v2_core/jev_advisory.py:26",
+        "v2_core/jev_advisory.py:622"
+      ],
+      "action": "Move SDK/subprocess transport to adapter layer, retain pure JEV protocol; invert prior_close repository dependency.",
+      "status": "OPEN",
+      "nuance": "Pathlib locates an isolated SDK script; it is not evidence of local-file business-state storage."
+    },
+    {
+      "id": "CB-03",
+      "priority": "HIGH",
+      "topic": "Tests serve as shared libraries",
+      "evidence": [
+        "tests/v2_core/test_v2_intent_admission.py:56",
+        "tests/v2_core/conftest.py:1",
+        "tests/conftest.py:167",
+        "scripts/qa_v2_data_core.sh:81"
+      ],
+      "action": "Migrate fixtures/builders/fakes to tests/support; standardize isolated V2 invocation without relaxing network or database guards.",
+      "status": "PLANNED"
+    },
+    {
+      "id": "CB-04",
+      "priority": "HIGH",
+      "topic": "Runtime source combinations lack one manifest",
+      "evidence": [
+        "scripts/v2_trend_release_restart.py:88",
+        "scripts/v2_settlement_precision_release_restart.py:29",
+        "scripts/v2_profitability_release_restart.py:16"
+      ],
+      "action": "Immutable per-service ReleaseSpec and compatibility/hash manifest; test real candidate packages, not just workspace.",
+      "status": "PLANNED"
+    },
+    {
+      "id": "CB-05",
+      "priority": "MEDIUM",
+      "topic": "Large orchestration functions",
+      "evidence": [
+        "services/v2_trading_pipeline.py:186",
+        "services/v2_testnet_daemon_entry.py:407",
+        "services/v2_directional_account_context.py:325"
+      ],
+      "action": "Extract explicit phases with characterization tests preserving call order, locks, budgets, idempotency, protection and settlement.",
+      "status": "PLANNED"
+    },
+    {
+      "id": "CB-06",
+      "priority": "MEDIUM",
+      "topic": "Research imports execution assembly through notification helper",
+      "evidence": [
+        "services/v2_daily_mover_notify.py:8",
+        "services/v2_managed_health.py:16"
+      ],
+      "action": "Extract narrow protected notification adapter; keep process/failure boundaries separate.",
+      "status": "PLANNED"
+    },
+    {
+      "id": "CB-07",
+      "priority": "HIGH",
+      "topic": "Credential persists in historical Git and old tree",
+      "evidence": [
+        "services/s0/market_state_report.py:8 (removed V2 copy)"
+      ],
+      "action": "Treat credential as potentially exposed; separately revoke/rotate and review historical access. No token validation, outbound message or configuration change in this task.",
+      "status": "NEEDS_SEPARATE_CREDENTIAL_ROTATION"
+    }
+  ],
+  "roadmap_document": "docs/v2/V2_UPGRADE_MASTER_PLAN.md",
+  "proposed_phases": [
+    "M0 audit and conservative retirement",
+    "M1 test support and core/adapter boundary repair",
+    "M2 release protocol, version manifests and narrow build packages",
+    "M3 phase-preserving trading orchestration refactor",
+    "M4 cohort-based legacy code and test isolation/retirement",
+    "M5 reference-aware release/config lifecycle cleanup"
+  ],
+  "tests": {
+    "baseline_architecture": {
+      "passed": 6,
+      "failed": 1,
+      "scope": "test_v2_core_boundary.py; existing failure, unchanged by this maintenance"
+    },
+    "collection_before_cleanup": {
+      "count": 8634,
+      "seconds": "4.07",
+      "errors": 0
+    },
+    "collection_after_cleanup": {
+      "count": 8636,
+      "seconds": "2.74",
+      "errors": 0,
+      "executed_test_bodies": false
+    },
+    "isolated_related_regression": {
+      "passed": 172,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": "56.93",
+      "scope": [
+        "Retired entrypoint absence and no-file-fallback contracts",
+        "Trading pipeline, managed guard wiring, managed health and resume",
+        "S0 regime, S3 candles and S3 lifecycle"
+      ],
+      "qa_diagnostics": "/tmp/v2-data-qa.z0s3DV",
+      "qa_database_stopped_and_removed": true,
+      "network": "V2 audit hook rejects external TCP; only explicitly isolated temporary Unix-socket QA databases",
+      "note": "The separate five-test retirement/no-file-fallback run also passed; those tests are already included in these 172, not additional coverage."
+    },
+    "architecture_recheck_after_cleanup": {
+      "passed": 6,
+      "failed": 1,
+      "seconds": "0.31",
+      "classification": "Pre-existing and unchanged; M1 remains blocked from being called complete until real boundaries are repaired."
+    },
+    "post_cleanup_checks": "New retirement test lint, JSON validation and git diff whitespace checks passed. Collection is not execution; this is not full trading acceptance."
+  },
+  "invariants": [
+    "No strategy threshold, leverage, capital ratio or fail-open/closed policy change.",
+    "No order or position operation.",
+    "No production or SANDBOX service restart.",
+    "No irreversible deletion, release-directory GC, database migration removal or Git history rewrite.",
+    "No automatic deletion based on static reachability alone.",
+    "Do not introduce research dependencies into the trading loop."
+  ],
+  "status": "M0_COMPLETE_M1_TO_M5_PLANNED"
+}

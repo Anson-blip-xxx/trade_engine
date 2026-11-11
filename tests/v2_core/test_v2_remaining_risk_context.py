@@ -7,9 +7,9 @@ from decimal import Decimal
 
 import pytest
 from test_v2_directional_account_context import SCOPE, build, signal
-from test_v2_intent_admission import database as database_fixture
 from test_v2_remaining_risk_sizing import plan, proposed, settings
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.capital_model import portfolio_budget, rehearsal_profile
 from v2_core.directional import size_candidate
 from v2_core.entry_controls import configure

@@ -205,13 +205,14 @@ def test_duplicate_universe_identity_excluded_even_if_summary_good():
     assert result["exclusions"][0]["reason"] == "DUPLICATE_UNIVERSE_SYMBOL"
 
 
-def test_unicode_public_contract_must_rank_even_when_engine_symbol_unsupported():
-    symbols = ("币安人生USDT", "BTCUSDT")
+@pytest.mark.parametrize("target,supported", [("币安人生USDT", True), ("éUSDT", False)])
+def test_public_contract_ranking_preserves_engine_symbol_support(target, supported):
+    symbols = (target, "BTCUSDT")
     result = rank(
         universe(*symbols), [summary(symbols[0], closing="200"), summary(symbols[1])]
     )
-    assert result["winners"][0]["symbol"] == "币安人生USDT"
-    assert result["winners"][0]["engine_symbol_supported"] is False
+    assert result["winners"][0]["symbol"] == target
+    assert result["winners"][0]["engine_symbol_supported"] is supported
     assert result["winners"][1]["engine_symbol_supported"] is True
     assert len(result["eligible_summaries"]) == 2
 

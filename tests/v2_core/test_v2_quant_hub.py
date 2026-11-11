@@ -1,13 +1,13 @@
 import json
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import CH, Cache, Public
 from test_v2_shared_market import shared as shared_fixture
 
 from services.v2_quant_research import QuantPolicy, QuantResearch
 from services.v2_shared_market import IncrementalArchive, SharedMarketHub
 from services.v2_trading_health import TradingHealth
+from tests.support.v2_admission import database as database_fixture
 
 database = database_fixture
 shared = shared_fixture

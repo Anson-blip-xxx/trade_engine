@@ -9,13 +9,16 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
+import services.v2_daily_account_review as account_review_module
 import services.v2_daily_mover_job as job_module
+import services.v2_daily_mover_replay as replay_module
+from services.v2_daily_mover_coverage import unavailable_snapshot
 from services.v2_daily_mover_job import DailyMoverJob
 from services.v2_daily_mover_market import MoverMarketError
 from services.v2_daily_mover_report import seal_report
 from services.v2_daily_mover_store import DailyMoverStore
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.daily_movers import DAY, MINUTE, previous_day_window, summarize_day
 from v2_core.evidence import canonical, digest
@@ -239,7 +242,80 @@ def evidence_loader(conn, scope, *, start_ms, end_ms, symbols, as_of_ms, **_):
     }
 
 
-def job(*, scopes=(SCOPE,), notifier=None, evidence=evidence_loader):
+def account_day_loader(conn, scope, *, start_ms, end_ms, as_of_ms, report=None):
+    """Healthy zero-population fixture; never run real SQL against FakeStore."""
+    assert conn.reading
+    assert any("REPEATABLE READ, READ ONLY" in sql for sql, _ in conn.statements)
+    assert report["scope_key"] == digest(canonical(asdict(scope)))
+    result = account_review_module._empty(scope, start_ms, end_ms, as_of_ms)
+    result.update(
+        status="AVAILABLE",
+        reason=None,
+        totals=account_review_module._summary([]),
+        by_side={side: account_review_module._summary([]) for side in ("BUY", "SELL")},
+    )
+    result["coverage"].update(
+        query_complete=True,
+        retryable=False,
+        candidate_count=0,
+        full_closed_settlement_population_proven=True,
+    )
+    return account_review_module._seal(result)
+
+
+def frozen_replay_loader(conn, scope, report, *, as_of_ms):
+    """Healthy empty replay fixture: absent selected samples are not a DB fault."""
+    assert conn.reading
+    assert any("REPEATABLE READ, READ ONLY" in sql for sql, _ in conn.statements)
+    assert report["scope_key"] == digest(canonical(asdict(scope)))
+    result = replay_module._envelope(report, as_of_ms)
+    result.update(status="AVAILABLE", reason="NO_SELECTED_SAMPLES", retryable=False)
+    result["coverage"].update(query_complete=True, retryable=False)
+    return replay_module._seal(result)
+
+
+def setup_study_loader(conn, scope, *, report, as_of_ms, prior=None):
+    from services.v2_setup_shadow_study import _envelope, _finish
+
+    assert conn.reading
+    result = _envelope(
+        scope, report["window"]["start_ms"], report["window"]["end_ms"], as_of_ms
+    )
+    result["selection"] = {
+        "selected_at_ms": as_of_ms,
+        "rows": [],
+        "hours": [],
+        "excluded_reasons": {},
+    }
+    result["input_digest"] = digest(canonical(result["selection"]))
+    result["coverage"].update(query_complete=True, retryable=False)
+    return _finish(result)
+
+
+def observed_catalog(conn, *, environment, symbols, as_of_ms):
+    assert conn.reading
+    return {
+        **unavailable_snapshot(
+            environment=environment, symbols=symbols, as_of_ms=as_of_ms
+        ),
+        "status": "OBSERVED",
+        "reason": "CATALOG_OBSERVED",
+        "observed_at_ms": as_of_ms,
+        "rows": [
+            {"symbol": s, "present": True, "status": "TRADING", "supported": True}
+            for s in symbols
+        ],
+    }
+
+
+def job(
+    *,
+    scopes=(SCOPE,),
+    notifier=None,
+    evidence=evidence_loader,
+    account_day=account_day_loader,
+    frozen_replay=frozen_replay_loader,
+):
     store = FakeStore(scopes=scopes)
     market = FakeMarket(store)
     return (
@@ -248,6 +324,9 @@ def job(*, scopes=(SCOPE,), notifier=None, evidence=evidence_loader):
             market,
             clock_ms=lambda: NOW,
             evidence_loader=evidence,
+            account_day_loader=account_day,
+            frozen_replay_loader=frozen_replay,
+            setup_study_loader=setup_study_loader,
             notifier=notifier,
         ),
         store,
@@ -325,6 +404,43 @@ def test_complete_day_restart_does_not_repeat_public_requests_or_reports():
     assert market.requests == count
     assert len(store.saved_reports) == 1
     assert result["accounts"][0]["status"] == "EXISTING"
+
+
+@pytest.mark.parametrize("receipt", [123, None])
+def test_policy_compatibility_upgrade_revisits_scheduled_day_once_without_second_dm(
+    monkeypatch,
+    receipt,
+):
+    messages = []
+    worker, store, market = job(
+        notifier=lambda message: messages.append(message) or receipt
+    )
+    components = dict(job_module.REVIEW_COMPONENTS)
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            job_module,
+            "REVIEW_COMPONENTS",
+            {
+                key: value
+                for key, value in components.items()
+                if key != "frozen_policy_compatibility"
+            },
+        )
+        worker.run()
+    original = deepcopy(store.saved_reports[0])
+    count = market.requests
+    result = worker.run()
+    assert len(result) == 1
+    assert result[0]["date"] == WINDOW["date"]
+    assert result[0]["accounts"] == [
+        {"status": "CREATED", "delivery": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN"}
+    ]
+    assert len(store.saved_reports) == 2
+    assert store.saved_reports[0] == original
+    assert store.saved_reports[1]["review_components"] == components
+    assert len(messages) == 1 and market.requests == count
+    assert worker.run()[0]["accounts"][0]["status"] == "EXISTING"
+    assert len(store.saved_reports) == 2 and len(messages) == 1
 
 
 def test_completed_market_without_account_report_repairs_missing_report():
@@ -461,7 +577,25 @@ def test_future_manual_day_rejected_before_collection():
 
 
 def test_initial_evidence_is_refreshed_once_at_maturity_not_every_timer_tick():
+    from services.v2_daily_mover_coverage import unavailable_snapshot
+
     worker, store, market = job()
+
+    # This test isolates settlement maturity; optional catalog recovery has its
+    # own bounded retry contract and must not be simulated as a permanent error.
+    def healthy_catalog(conn, **kwargs):
+        return {
+            **unavailable_snapshot(**kwargs),
+            "status": "OBSERVED",
+            "reason": "CATALOG_OBSERVED",
+            "observed_at_ms": kwargs["as_of_ms"],
+            "rows": [
+                {"symbol": s, "present": True, "status": "TRADING", "supported": True}
+                for s in kwargs["symbols"]
+            ],
+        }
+
+    worker.catalog_loader = healthy_catalog
     clock = {"ms": WINDOW["end_ms"] + 3_600_000}
     worker.clock = lambda: clock["ms"]
     worker.run_day(WINDOW)
@@ -506,6 +640,9 @@ def test_explicit_evidence_refresh_creates_revision_without_second_daily_dm_or_m
         market,
         clock_ms=lambda: NOW + 1,
         evidence_loader=evidence_loader,
+        account_day_loader=account_day_loader,
+        frozen_replay_loader=frozen_replay_loader,
+        setup_study_loader=setup_study_loader,
         notifier=notifier,
         force_evidence_refresh=True,
     )
@@ -639,6 +776,225 @@ def test_optional_archive_enrichment_runs_after_read_transaction_closed(monkeypa
         store.saved_reports[0]["actual_same_environment_paths"]["source"]
         == "BINANCE_USDM_SANDBOX"
     )
+
+
+def test_new_reviews_receive_exact_account_window_and_cutoff_without_market_reads():
+    other = replace(SCOPE, account_id="qa-mover-other", environment="LIVE")
+    calls = []
+
+    def account(conn, scope, **kwargs):
+        report = kwargs["report"]
+        assert kwargs["start_ms"] == WINDOW["start_ms"]
+        assert kwargs["end_ms"] == WINDOW["end_ms"]
+        assert kwargs["as_of_ms"] == report["as_of_ms"] == NOW
+        assert report["account_environment"] == scope.environment
+        assert report["account_evidence"]["account_scope"] == asdict(scope)
+        calls.append(("account", scope))
+        return account_day_loader(conn, scope, **kwargs)
+
+    def replay(conn, scope, report, *, as_of_ms):
+        assert report["window"] == WINDOW
+        assert report["account_evidence"]["as_of_ms"] == as_of_ms == NOW
+        assert report["account_environment"] == scope.environment
+        calls.append(("replay", scope))
+        return frozen_replay_loader(conn, scope, report, as_of_ms=as_of_ms)
+
+    worker, store, market = job(
+        scopes=(SCOPE, other), account_day=account, frozen_replay=replay
+    )
+    result = worker.run_day(WINDOW)
+    assert calls == [
+        (name, scope) for scope in (SCOPE, other) for name in ("account", "replay")
+    ]
+    assert len(result["accounts"]) == len(store.saved_reports) == 2
+    assert market.requests == 5
+    assert result["orders_submitted"] is False
+    for report in store.saved_reports:
+        assert report["account_day_review"]["status"] == "AVAILABLE"
+        assert report["frozen_replay_review"]["status"] == "AVAILABLE"
+        assert report == seal_report(report)
+
+
+@pytest.mark.parametrize("failed_key", ["account_day_review", "frozen_replay_review"])
+def test_new_review_failure_is_independent_and_never_leaks_details(failed_key, capsys):
+    messages = []
+    other = replace(SCOPE, account_id="qa-mover-other")
+
+    def account(conn, scope, **kwargs):
+        if scope == SCOPE and failed_key == "account_day_review":
+            raise RuntimeError("SECRET_RESEARCH_DB_PASSWORD")
+        return account_day_loader(conn, scope, **kwargs)
+
+    def replay(conn, scope, report, *, as_of_ms):
+        if scope == SCOPE and failed_key == "frozen_replay_review":
+            raise RuntimeError("SECRET_RESEARCH_DB_PASSWORD")
+        return frozen_replay_loader(conn, scope, report, as_of_ms=as_of_ms)
+
+    worker, store, _ = job(
+        scopes=(SCOPE, other),
+        notifier=lambda message: messages.append(message) or 123,
+        account_day=account,
+        frozen_replay=replay,
+    )
+    worker.catalog_loader = observed_catalog
+    result = worker.run_day(WINDOW)
+    failed, healthy = store.saved_reports
+    assert len(messages) == len(result["accounts"]) == 2
+    assert failed[failed_key]["status"] == "UNKNOWN"
+    assert failed[failed_key]["coverage"]["retryable"] is True
+    remaining = ({"account_day_review", "frozen_replay_review"} - {failed_key}).pop()
+    assert failed[remaining]["status"] == "AVAILABLE"
+    assert healthy[failed_key]["status"] == healthy[remaining]["status"] == "AVAILABLE"
+    assert failed["evidence_snapshot"]["status"] == "READ_COMPLETED"
+    assert failed["optional_review_snapshot"]["retry_after_ms"] == NOW + 3_600_000
+    assert healthy["optional_review_snapshot"]["retry_after_ms"] is None
+    assert "SECRET_RESEARCH" not in str([result, store.saved_reports, messages])
+    assert "SECRET_RESEARCH" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("review_key", ["account_day_review", "frozen_replay_review"])
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("scope_key", "a" * 64),
+        ("account_environment", "LIVE"),
+        ("as_of_ms", NOW - 1),
+        ("window_start_ms", WINDOW["start_ms"] - DAY),
+        ("window_end_ms", WINDOW["end_ms"] - DAY),
+    ],
+)
+def test_bound_review_with_valid_digest_cannot_cross_scope_window_or_cutoff(
+    review_key, field, replacement
+):
+    def mutated(loader, module):
+        def call(conn, scope, **kwargs):
+            review = loader(conn, scope, **kwargs)
+            review.pop("content_digest")
+            review[field] = replacement
+            return module._seal(review)
+
+        return call
+
+    worker, store, _ = job()
+    worker.catalog_loader = observed_catalog
+    if review_key == "account_day_review":
+        worker.account_day_loader = mutated(account_day_loader, account_review_module)
+    else:
+        worker.frozen_replay_loader = mutated(frozen_replay_loader, replay_module)
+    result = worker.run_day(WINDOW)
+    assert result["accounts"][0]["status"] == "CREATED"
+    review = store.saved_reports[-1][review_key]
+    assert review["status"] == "UNKNOWN"
+    assert review["reason"] == "REVIEW_READ_UNAVAILABLE"
+    assert review["coverage"]["retryable"] is True
+
+
+def test_frozen_replay_cannot_use_later_source_evidence_cutoff():
+    def replay(conn, scope, report, *, as_of_ms):
+        review = frozen_replay_loader(conn, scope, report, as_of_ms=as_of_ms)
+        review.pop("content_digest")
+        review["evidence_as_of_ms"] += 1
+        return replay_module._seal(review)
+
+    worker, store, _ = job(frozen_replay=replay)
+    worker.run_day(WINDOW)
+    assert store.saved_reports[-1]["frozen_replay_review"]["status"] == "UNKNOWN"
+
+
+def test_empty_ranking_still_loads_account_day_without_signal_evidence():
+    calls = []
+
+    def forbidden_evidence(*_, **__):
+        pytest.fail("No symbol-scoped evidence read is valid for an empty ranking")
+
+    def account(conn, scope, **kwargs):
+        assert kwargs["report"]["rows"] == []
+        assert kwargs["report"]["account_evidence"] is None
+        calls.append(scope)
+        return account_day_loader(conn, scope, **kwargs)
+
+    worker, store, market = job(evidence=forbidden_evidence, account_day=account)
+    market.items = []
+    result = worker.run_day(WINDOW)
+    assert result["winners"] == result["losers"] == 0
+    assert calls == [SCOPE]
+    review = store.saved_reports[-1]["account_day_review"]
+    assert review["status"] == "AVAILABLE"
+    assert review["coverage"]["query_complete"] is True
+    assert review["totals"]["settled_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "failed_loader", ["account_day_loader", "frozen_replay_loader"]
+)
+def test_new_optional_reader_retries_are_bounded_without_repeated_daily_dm(
+    failed_loader,
+):
+    calls, messages = [], []
+
+    def failure(*_, **__):
+        calls.append(1)
+        raise RuntimeError("SECRET_OPTIONAL_FAILURE")
+
+    worker, store, market = job(
+        notifier=lambda message: messages.append(message) or 123
+    )
+    worker.catalog_loader = observed_catalog
+    setattr(worker, failed_loader, failure)
+    clock = {"ms": max(NOW, WINDOW["end_ms"] + 6 * 3_600_000)}
+    worker.clock = lambda: clock["ms"]
+    first = worker.run_day(WINDOW)
+    request_count = market.requests
+    assert first["accounts"][0]["status"] == "CREATED"
+    for attempt in (1, 2, 3):
+        snapshot = store.saved_reports[-1]["optional_review_snapshot"]
+        assert snapshot["attempts"] == attempt
+        if attempt < 3:
+            retry_at = snapshot["retry_after_ms"]
+            assert retry_at == clock["ms"] + 3_600_000
+            clock["ms"] = retry_at - 1
+            assert worker.run_day(WINDOW)["accounts"][0]["status"] == "EXISTING"
+            assert len(calls) == attempt
+            clock["ms"] = retry_at
+            assert worker.run_day(WINDOW)["accounts"][0]["status"] == "CREATED"
+        else:
+            assert snapshot["retry_after_ms"] is None
+    clock["ms"] += 2 * 3_600_000
+    assert worker.run_day(WINDOW)["accounts"][0]["status"] == "EXISTING"
+    assert len(calls) == len(store.saved_reports) == 3
+    assert len(messages) == 1 and market.requests == request_count
+
+
+def test_digest_render_failure_remains_unclaimed_and_can_recover(monkeypatch, capsys):
+    messages, claims = [], []
+    worker, store, _ = job(notifier=lambda message: messages.append(message) or 123)
+    worker.catalog_loader = observed_catalog
+    original_formatter = job_module.format_digest
+    original_claim = store.claim_delivery
+
+    def claim(identity):
+        claims.append(identity)
+        return original_claim(identity)
+
+    def fail_render(*_, **__):
+        raise ValueError("SECRET_RENDER_INPUT_MUST_NOT_LEAK")
+
+    store.claim_delivery = claim
+    monkeypatch.setattr(job_module, "format_digest", fail_render)
+    first = worker.run_day(WINDOW)
+    assert first["accounts"][0]["delivery"] == "FORMAT_UNAVAILABLE_PENDING"
+    assert not claims and not messages
+    assert list(store.deliveries.values()) == ["PENDING"]
+    assert "SECRET_RENDER" not in str(first)
+    assert "SECRET_RENDER" not in capsys.readouterr().out
+
+    monkeypatch.setattr(job_module, "format_digest", original_formatter)
+    recovered = worker.run_day(WINDOW)
+    assert recovered["accounts"][0] == {"status": "EXISTING", "delivery": "SENT"}
+    assert len(messages) == len(claims) == 1
+    assert list(store.deliveries.values()) == ["SENT"]
+    worker.run_day(WINDOW)
+    assert len(messages) == 1
 
 
 @pytest.fixture

@@ -3,8 +3,10 @@
 from services.v2_risk_reference import SOURCE, ReferenceUnavailable, bound
 from services.v2_s3_candles import (
     BREAKOUT_VERSION,
+    CORRECTED_VERSION,
     PRICE_VERSION,
     ROLLING_VERSION,
+    STRUCTURE_VERSION,
     VERSION,
     build_frame,
 )
@@ -12,6 +14,7 @@ from services.v2_s3_source import frame_digest
 from v2_core.account_risk import RiskProvenance, RiskReference
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import symbol
+from v2_core.symbols import shared_frame_id
 
 
 class SharedRiskReference:
@@ -66,11 +69,13 @@ class SharedRiskReference:
             "s3-shared-v2": PRICE_VERSION,
             "s3-shared-v3": ROLLING_VERSION,
             "s3-shared-v4": BREAKOUT_VERSION,
+            "s3-shared-v5": CORRECTED_VERSION,
+            "s3-shared-v6": STRUCTURE_VERSION,
         }
         version = versions.get(frame_id.split(":", 1)[0])
         if (
             version is None
-            or frame_id != f"{frame_id.split(':', 1)[0]}:{target}:{observed}"
+            or frame_id != shared_frame_id(frame_id.split(":", 1)[0], target, observed)
         ):
             raise ReferenceUnavailable("REFERENCE_FEATURE_VERSION_UNSUPPORTED")
         frame = build_frame(

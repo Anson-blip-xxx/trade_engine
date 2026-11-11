@@ -4,9 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import shared as shared_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.shared_market import (
     AdmissionBudget,
     AdmissionBudgetPolicy,
@@ -250,22 +250,87 @@ def test_ticket_lifecycle_fails_closed_without_new_charge(budget, monkeypatch, f
     assert ledger(connect) == before
 
 
-@pytest.mark.parametrize("offset", [0, -1, 60_001, 58_501])
-def test_invalid_deadline_or_insufficient_minute_tail_does_not_debit(budget, offset):
+@pytest.mark.parametrize("offset", [0, -1, 60_001])
+def test_invalid_original_deadline_does_not_debit(budget, offset):
     connect, clock, bucket = budget
     with pytest.raises(ValueError, match=UNAVAILABLE):
         reserve(bucket, clock, deadline_ms=clock[0] + offset)
     assert ledger(connect)[1:] == (0, 0)
 
 
-def test_exact_minute_margin_is_accepted_but_one_millisecond_less_is_not(budget):
+def test_context_deadline_is_only_shortened_to_exact_minute_margin(budget):
     connect, clock, bucket = budget
     end = (clock[0] // 60000 + 1) * 60000
-    reserve(bucket, clock, deadline_ms=end - 500)
-    before = ledger(connect)
+    exact = reserve(bucket, clock, deadline_ms=end - 500)
+    clipped = reserve(bucket, clock, deadline_ms=end - 499)
+    assert exact.deadline_ms == clipped.deadline_ms == end - 500
+    assert ledger(connect)[1:] == (54, 54)
+
+
+@pytest.mark.parametrize("second_ms", [44_499, 45_216, 45_968, 55_000, 58_000])
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_late_minute_context_uses_remaining_window_without_more_weight(
+    budget, second_ms, adaptive
+):
+    connect, clock, bucket = budget
+    start = clock[0] // 60000 * 60000
+    clock[0] = start + second_ms
+    ticket = reserve(bucket, clock, adaptive=adaptive)
+    assert ticket.deadline_ms == min(clock[0] + 15000, start + 59500)
+    assert ticket.created_ms == clock[0]
+    consume_all(bucket, ticket, adaptive)
+    cost = 30 if adaptive else 27
+    assert ledger(connect)[1:] == (cost, cost)
+    assert not any(ticket.remaining.values())
+
+
+def test_jev_fast_result_can_buy_fresh_context_after_second_45(budget):
+    connect, clock, bucket = budget
+    start = clock[0] // 60000 * 60000
+    clock[0] = start + 44_000
+    initial = reserve(bucket, clock, adaptive=True)
+    consume_all(bucket, initial, True)
+    # Actual incident: a fast model wakes the scheduler around second 46.
+    # It must buy a NEW read group, not reuse initial balances or its ticket.
+    clock[0] = start + 45_968
+    fresh = reserve(bucket, clock, adaptive=True)
+    assert fresh is not initial and fresh.deadline_ms == start + 59_500
+    consume_all(bucket, fresh, True)
+    assert ledger(connect)[1:] == (60, 60)
+    with pytest.raises(ValueError, match=INVALID):
+        take(bucket, initial)
+
+
+@pytest.mark.parametrize("second_ms", [59_500, 59_501, 59_999])
+def test_no_new_context_ticket_inside_final_safety_margin(budget, second_ms):
+    connect, clock, bucket = budget
+    clock[0] = clock[0] // 60000 * 60000 + second_ms
     with pytest.raises(ValueError, match=UNAVAILABLE):
-        reserve(bucket, clock, deadline_ms=end - 499)
+        reserve(bucket, clock)
+    assert ledger(connect)[1:] == (0, 0)
+
+
+@pytest.mark.parametrize("advance_ms", [59_500, 60_000])
+def test_shortened_ticket_cannot_spend_at_deadline_or_across_minutes(
+    budget, advance_ms
+):
+    connect, clock, bucket = budget
+    start = clock[0] // 60000 * 60000
+    clock[0] = start + 46_000
+    ticket = reserve(bucket, clock)
+    before = ledger(connect)
+    clock[0] = start + advance_ms
+    with pytest.raises(ValueError, match=UNAVAILABLE):
+        take(bucket, ticket)
     assert ledger(connect) == before
+
+
+def test_ordinary_host_reservation_does_not_silently_clip_deadlines(budget):
+    connect, clock, bucket = budget
+    start = clock[0] // 60000 * 60000
+    clock[0] = start + 46_000
+    assert bucket._reserve(27, deadline_ms=clock[0] + 15000) is None
+    assert ledger(connect)[1:] == (0, 0)
 
 
 def test_host_penalty_blocks_reserved_gets_and_preserves_original_charge(budget):

@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-10",
+  "timezone": "Asia/Shanghai",
+  "stage": "PROSPECTIVE_EXIT_EVIDENCE_CAPTURE",
+  "status": "RESEARCH_READER_PUBLISHED_EXECUTION_CANDIDATE_ACCEPTED_AWAITING_FLAT_GATE",
+  "purpose": "Record what was actually available at the original stagnation-exit decision, without changing trading decisions or manufacturing missing evidence.",
+  "implemented": {
+    "market_capture": "Retain existing raw closed 1h rows beside the original observer result. Do not increase request counts, history length or change existing indicators.",
+    "receipt_time": "Use the existing post-observer decision clock as an available-by timestamp, not as the exchange event or historical first-receipt time.",
+    "native_protection": "Project only already validated signed-query terms, explicitly opt-in. Record local query start/end in optional exit evidence, never in the protection state journal.",
+    "capture_adapter": "Bounded pure function with scope, episode, side, environment, time and frozen-baseline validation. Components retain independent unknown statuses.",
+    "persistence": "Only LOW_YIELD_STAGNATION appends a <=65536-byte research wrapper and content digest to an already required exit-state write. No additional database or venue request is introduced.",
+    "idempotency": "Research digest affects observation archive identity only. Existing order keys, quantity, action and dispatch checks remain unchanged.",
+    "fail_soft": "Malformed OHLCV, missing proof, clock failure, adapter exception or oversized output cannot replace the actual exit decision. Expected capture failure preserves the independently valid parent baseline in research.",
+    "source_guard": "Unknown market providers cannot have their hourly input relabeled as validated Binance SANDBOX data. Explicit source mismatches remain unknown."
+  },
+  "unchanged": [
+    "Actual directional exit formula and parameter values",
+    "Original 20-hour legacy candle request and indicator definition",
+    "Opening filters, margin budgets and leverage",
+    "Native stop placement and cancel semantics",
+    "Actual close-order identities and quantities",
+    "LIVE execution and account/credential bindings",
+    "Default protection query and installer return shape"
+  ],
+  "explicit_limits": [
+    "Current legacy provider supplies 20 closed hours; the existing shadow hypothesis requires 24. The missing four hours are not invented or fetched by the trading process.",
+    "An existing close-all stop confirms its mode and terms, not a fixed verified venue position quantity. No ledger or requested quantity is mislabeled as venue-confirmed protection coverage.",
+    "No live continuation authority or profit improvement is established. Complete synthetic proof can qualify the shadow contract, but current production evidence may remain partial.",
+    "Historical missing timestamps remain unknown. Later preflight queries are not backdated into the first decision.",
+    "The available-by clock is conservative and does not measure venue publication or network latency.",
+    "The research reader is published independently; the execution-side producer passed exact-package acceptance but still requires the flat-only release protocol before real capture can start."
+  ],
+  "qa": {
+    "workspace_selected_suites": {
+      "passed": 497,
+      "log": "/tmp/v2-data-qa.G6RYzx/pytest.log",
+      "note": "Initial integration run; subsequent protection opt-in/source-guard refinements are covered by final exact-candidate tests, not claimed by this older run."
+    },
+    "exact_research_reader": {
+      "passed": 101,
+      "log": "/tmp/v2-data-qa.1TUaL6/pytest.log",
+      "qa_directory": "/tmp/v2-prospective-research-qa.vaTGC1"
+    },
+    "exact_execution_candidate": {
+      "status": "PASSED",
+      "passed": 398,
+      "log": "/tmp/v2-data-qa.3vHVLK/pytest.log",
+      "qa_directory": "/tmp/v2-exit-prospective-qa.BPl6SW"
+    },
+    "cross_package_and_adapter_pure_regression": {
+      "passed": 157,
+      "skipped": 0
+    },
+    "counting_note": "Runs overlap; counts are not additive unique coverage. Selected related suites use fake venue/model ports and disposable PostgreSQL/Redis, not live orders or whole-repository acceptance.",
+    "resolved_acceptance_findings": [
+      "Protection research fields initially changed all query return shapes. Corrected to explicit opt-in so unrelated installation/journal paths retain original shapes.",
+      "Optional producer core failure initially invalidated the parent research baseline. Corrected to preserve original frozen facts while refusing failed optional proof.",
+      "Execution-candidate tests imported a research-only driver through a fixture. Decoupled synthetic fixtures and moved cross-package assertions into a separate test suite instead of adding research dependencies to execution.",
+      "Exact release manifest rejected two generated lint cache files. Moved only those generated files to a recoverable temporary holding directory; no source changes or business data removal."
+    ]
+  },
+  "synthetic_cost_check": {
+    "iterations": 100,
+    "twenty_bar_capture_bytes": 11879,
+    "adapter_median_ms": 2.244,
+    "adapter_p95_ms": 2.873,
+    "scope": "Already acquired synthetic input, adapter only; not end-to-end or live-trading latency."
+  },
+  "research_deployment": {
+    "link": "/opt/trade-engine-v2/trend-campaign-research",
+    "previous_target": "/opt/trade-engine-v2/releases/stagnation-shadow-research-20261110-v1",
+    "target": "/opt/trade-engine-v2/releases/prospective-exit-research-20261110-v1",
+    "changed_source_files": {
+      "services/v2_stagnation_research_evidence.py": "96c3c622436d17acfe0158b4aec07f8cacf9e3ad7af14b6b31214e799d8e41c6"
+    },
+    "migration": "db/migrations/20261110_stagnation_prospective_projection.sql",
+    "migration_changes_business_rows": false,
+    "worker_result": "COMPLETE",
+    "worker_exit_status": 0,
+    "worker_errors": [],
+    "worker_outcomes": {"PENDING": 4, "NOT_APPLICABLE": 1},
+    "worker_timer_active": true,
+    "permissions_verified": {
+      "projection_select": true,
+      "projection_insert": false,
+      "base_state_history_select": false,
+      "base_business_state_select": false
+    }
+  },
+  "execution_candidate": {
+    "prior_target": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+    "target": "/opt/trade-engine-v2/releases/exit-evidence-controller-20261110-v1",
+    "release_script": "scripts/v2_exit_evidence_release_20261110.py",
+    "includes_previously_accepted_lease_timeout_fix": true,
+    "includes_unreleased_quant_or_excursion_changes": false,
+    "changed_source_files": {
+      "services/v2_directional_exit.py": "68011b84258ccefc288d187db50f237a9adbbec62c23ee19a364018ea97a0e2e",
+      "services/v2_directional_exit_market.py": "bfb058d572a1d87a15f101deb62058dfb25fad48bec489f7485609bd7482a5b9",
+      "services/v2_exit_research_snapshot.py": "f819606d4e6073fe0393aa37d91494540800f45eab166acb399554c770edc7bd",
+      "v2_core/protection.py": "5e133ef7f08a9814fa5f1b784ddb85967e9b6919637a2128f0b495867a8d0216",
+      "v2_core/scheduling.py": "d3273142872f728e0cffb0665fd71916ef2b45bc715bf89e6916f8821854294f"
+    },
+    "latest_dry_run": "FLAT_RELEASE_BLOCKED",
+    "block_code": "LOCAL_RELEASE_WORK_PENDING",
+    "final_local_active_sandbox_symbols": ["B2USDT"],
+    "final_check_venue_flatness": "NOT_CLAIMED_LOCAL_PRECHECK_BLOCKED_FIRST",
+    "producer_published": false,
+    "management_stop_attempted": false,
+    "forced_close_attempted": false,
+    "unchanged_execution_main_pid": 4046145
+  }
+}

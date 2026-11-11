@@ -11,9 +11,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services import v2_jev_coordinator as subject
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical
 from v2_core.jev_advisory import (
@@ -200,8 +200,13 @@ def test_all_ports_set_local_short_limits_before_read_or_lock(memory):
     assert store.lookup(request_key=request["request_key"], now_ms=memory.now) is None
     memory.now += 100
     assert store.complete(**completion(request, granted, now=memory.now))
-    assert len(memory.transactions) == 3
-    for statements in memory.transactions:
+    # Three public operations own bounded outer transactions. The fourth is
+    # complete's optional diagnostic savepoint and inherits those SET LOCALs;
+    # it must not open a fourth connection or weaken the outer limits.
+    assert memory.connections == 3
+    assert len(memory.transactions) == 4
+    assert memory.transactions[-1] == []
+    for statements in memory.transactions[:3]:
         assert statements[:2] == [
             "SET LOCAL lock_timeout='50ms'",
             "SET LOCAL statement_timeout='100ms'",

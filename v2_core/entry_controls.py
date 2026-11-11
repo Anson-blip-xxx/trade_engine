@@ -251,7 +251,7 @@ def validate_submission(conn, scope, order_id, *, now_ms=None):
     # model call, sleep or new state write belongs in this final fence.
     from time import time_ns
 
-    from services.v2_entry_structure import prior_close
+    from v2_core.entry_history import prior_close
     from v2_core.entry_opportunities import validate
 
     now_ms = time_ns() // 1_000_000 if now_ms is None else now_ms

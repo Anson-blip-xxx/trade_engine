@@ -5,8 +5,8 @@ from contextlib import contextmanager
 from dataclasses import replace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.drawdown import (
     RECOVERY_DELAY_MS,

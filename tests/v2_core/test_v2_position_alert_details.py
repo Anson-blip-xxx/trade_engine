@@ -6,9 +6,6 @@ from dataclasses import asdict, replace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence as admission_evidence
-from test_v2_intent_admission import intent
 from test_v2_testnet_watchdog import Stop
 
 from services.v2_testnet_watchdog import HealthWatchdog, WatchdogTelegramNotifier
@@ -17,6 +14,9 @@ from services.v2_trading_health import (
     pipeline_position_details,
     rejected_residual_closes,
 )
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence as admission_evidence
+from tests.support.v2_admission import intent
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import EvidenceStore
 from v2_core.intents import IntentStore

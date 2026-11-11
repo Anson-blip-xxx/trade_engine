@@ -8,7 +8,6 @@ import psycopg
 import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
-from test_v2_intent_admission import database as database_fixture
 from test_v2_web_verification_quota import (
     HOST,
     PATH,
@@ -22,6 +21,7 @@ from test_v2_web_verification_quota import (
     quota as quota_fixture,
 )
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.shared_market import AdmissionBudget, AdmissionBudgetPolicy, HostBudget
 from v2_core.state import BusinessState, StateKey
 from v2_core.web_verification_quota import WebVerificationPermit

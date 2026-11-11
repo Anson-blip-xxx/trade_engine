@@ -11,10 +11,10 @@ import psycopg
 import pytest
 from psycopg import sql
 from test_v2_credential_console import case, database, setup
-from test_v2_intent_admission import intent
 
 from services.v2_account_admin_http import handler_for
 from services.v2_risk_recovery_console import RiskRecoveryConsole
+from tests.support.v2_admission import intent
 from v2_core.account_risk import AccountScope
 from v2_core.capital_model import anchor, health, rehearsal_profile
 from v2_core.intents import IntentStore

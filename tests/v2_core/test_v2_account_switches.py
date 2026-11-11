@@ -7,8 +7,8 @@ import psycopg
 import pytest
 from test_v2_capital_journal import setup as journal_setup
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_draining import AccountDraining
 from v2_core.account_switches import AccountSwitches
 

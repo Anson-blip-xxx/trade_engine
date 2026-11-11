@@ -4,9 +4,9 @@ from dataclasses import asdict
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_testnet_cleanup import SCOPE, Cleanup, make_plan, state_key
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState
 
 database = database_fixture

@@ -1,0 +1,104 @@
+{
+  "release": "causal-trend-entry-tv-20261030",
+  "environment": "SANDBOX",
+  "base_commit": "ab825702a639dbbe6ebf308bb5c7e8499e6978fa",
+  "packages": {
+    "controller": {
+      "release": "/opt/trade-engine-v2/releases/causal-trend-controller-20261030-v2",
+      "source_overlay_sha256": {
+        "s3/detector.py": "77707647c293f06bc8e49cdb369559e5f60eecb36a05537055befacf387370b6",
+        "services/v2_trend_entry.py": "f38adfd639024b68619cd6dc3fcd976885ada2cee6f38e4933fa92ccffcba6c7",
+        "services/v2_directional_replay.py": "29dc6a33d1b12434c2b6987b911aff1f14c7c1eded6825fc0b6a8a6e82529453",
+        "services/v2_directional_account_context.py": "03144f5ef46da63b4840961d9aa3db53d021bd70b7a1a9b9d351a6cdbb1f1cb9",
+        "services/v2_jev_reference.py": "35ee761d63b83a896cea0cd877e28c1f333206d6ee5afd3a4ef830018dff8651",
+        "services/v2_s3_candles.py": "36c77f6867d8f8064df0ee51770d38738564b6cf17842ba9985755c1ce65d094",
+        "services/v2_price_features.py": "8bc7daf6c7ba9037d40ef495dd233415512472a82974bf37c21c0eb9ee615919",
+        "services/v2_market_hub_entry.py": "e79d704214c021857b83e384f5cfe9bf4e51ebdf9797dd692c2306091ce06c8d",
+        "services/v2_shared_market.py": "826734142d8575156622dfaced88205408e23422ae1c5d08bbea6864b3aa8461",
+        "services/v2_shared_risk_reference.py": "444513862ba3136e916fb13e746a80ed603a42fd9ecd092cbfb3fb3ebbd646c2",
+        "services/v2_risk_reference.py": "d51a1029cf02db600bc65269a4c99b6f67ae56901c2adbbb0ea01ed3fdfaf3eb",
+        "services/v2_s0_regime.py": "b48aa3ef398c387fa4e7d5c0bc51c19a8319218ae97889ccb93dc2db047b3fe2",
+        "v2_core/trend_structure.py": "40c2006ba4f9a73764732818b5a857b271d793b5ccb7d161f6fdc61e43e1c36c",
+        "v2_core/trend_opportunities.py": "387e68660684880de0116cceca15c4e9712375f4836e4ae20d56eb83a53d257d",
+        "v2_core/directional.py": "a4f48d4d90bd971679bf8aa7fbc00151b01edfebad626db6cad7056d7a74bf4a",
+        "v2_core/directional_rules.py": "c4129cb24c59a8dc35925107b43ade9072e388e842d1588d1078ef7310a249f7",
+        "v2_core/runtime_policy.py": "d180dd0ddee3caf20c086b53d46c6f0b62922943e1ec570dcb44cf589827484a",
+        "v2_core/strategy.py": "270fe3b480e2b12fbfd40e62a3ff07f55f12ffe53ed472c1b340efe7460e39ad",
+        "v2_core/webhook.py": "964b8d092cda8ae0efc32925efa6d5cce4ee7ed94c7e56ad53fa06df1efec8b3",
+        "v2_core/jev_advisory.py": "1676d822ab180585668e9decb4c34ce2c8d076be871419be9a0e244b2f94d8b5",
+        "v2_core/capital_model.py": "7913dd641f19b6962cb63ac8aeb724ef1b3a3802026a3fcef97e18de44aa083b",
+        "v2_core/quant_registry.py": "7efbefc8558bc8dcbf024425194bdf11a312b00c96a87a3987764bc8c45552cc",
+        "v2_core/quant_indicators.py": "4575667b065cc9b7f5a535f4e9827b249d39fa2ad2d5c9257e6277b7bdbd2865",
+        "services/v2_quant_research.py": "0c9dc05d73aa6b098714ce4a2c3f1257954d44a6151928a12f994b4ebf4ab3e4",
+        "services/v2_quant_admission.py": "407d81fdf86cd18ea1578cd4401702fc3ed72e7208aa4df76e49979c7488c126",
+        "services/v2_quant_exit.py": "3f939da54183c39a51d17ca294a92df136a8c7c0a3a4d18013281159407c45d4",
+        "v2_core/liquidity.py": "3fae4a7330dca260a4a5e278168d09ad03282b32d8bc93be5319bc859a09466c",
+        "v2_core/liquidity_controls.py": "9de80fa654a945ba05a9f811d8922f39636e8de6e522af578dfc1fa68c476af9"
+      },
+      "source_match": true,
+      "all_runtime_python_files": 209,
+      "all_runtime_python_digest": "0c5b22e0832027542edf95b02c0aa794199f22df47bab0cecc9bf4d9144a8a5d"
+    },
+    "hub": {
+      "release": "/opt/trade-engine-v2/releases/causal-trend-hub-20261030-v2",
+      "source_overlay_sha256": {
+        "s3/detector.py": "77707647c293f06bc8e49cdb369559e5f60eecb36a05537055befacf387370b6",
+        "services/v2_trend_entry.py": "f38adfd639024b68619cd6dc3fcd976885ada2cee6f38e4933fa92ccffcba6c7",
+        "services/v2_directional_replay.py": "29dc6a33d1b12434c2b6987b911aff1f14c7c1eded6825fc0b6a8a6e82529453",
+        "services/v2_directional_account_context.py": "03144f5ef46da63b4840961d9aa3db53d021bd70b7a1a9b9d351a6cdbb1f1cb9",
+        "services/v2_jev_reference.py": "35ee761d63b83a896cea0cd877e28c1f333206d6ee5afd3a4ef830018dff8651",
+        "services/v2_s3_candles.py": "36c77f6867d8f8064df0ee51770d38738564b6cf17842ba9985755c1ce65d094",
+        "services/v2_price_features.py": "8bc7daf6c7ba9037d40ef495dd233415512472a82974bf37c21c0eb9ee615919",
+        "services/v2_market_hub_entry.py": "e79d704214c021857b83e384f5cfe9bf4e51ebdf9797dd692c2306091ce06c8d",
+        "services/v2_shared_market.py": "826734142d8575156622dfaced88205408e23422ae1c5d08bbea6864b3aa8461",
+        "services/v2_shared_risk_reference.py": "444513862ba3136e916fb13e746a80ed603a42fd9ecd092cbfb3fb3ebbd646c2",
+        "services/v2_risk_reference.py": "d51a1029cf02db600bc65269a4c99b6f67ae56901c2adbbb0ea01ed3fdfaf3eb",
+        "services/v2_s0_regime.py": "b48aa3ef398c387fa4e7d5c0bc51c19a8319218ae97889ccb93dc2db047b3fe2",
+        "v2_core/trend_structure.py": "40c2006ba4f9a73764732818b5a857b271d793b5ccb7d161f6fdc61e43e1c36c",
+        "v2_core/trend_opportunities.py": "387e68660684880de0116cceca15c4e9712375f4836e4ae20d56eb83a53d257d",
+        "v2_core/directional.py": "a4f48d4d90bd971679bf8aa7fbc00151b01edfebad626db6cad7056d7a74bf4a",
+        "v2_core/directional_rules.py": "c4129cb24c59a8dc35925107b43ade9072e388e842d1588d1078ef7310a249f7",
+        "v2_core/runtime_policy.py": "d180dd0ddee3caf20c086b53d46c6f0b62922943e1ec570dcb44cf589827484a",
+        "v2_core/strategy.py": "270fe3b480e2b12fbfd40e62a3ff07f55f12ffe53ed472c1b340efe7460e39ad",
+        "v2_core/webhook.py": "964b8d092cda8ae0efc32925efa6d5cce4ee7ed94c7e56ad53fa06df1efec8b3",
+        "v2_core/jev_advisory.py": "1676d822ab180585668e9decb4c34ce2c8d076be871419be9a0e244b2f94d8b5",
+        "v2_core/capital_model.py": "7913dd641f19b6962cb63ac8aeb724ef1b3a3802026a3fcef97e18de44aa083b",
+        "v2_core/quant_registry.py": "7efbefc8558bc8dcbf024425194bdf11a312b00c96a87a3987764bc8c45552cc",
+        "v2_core/quant_indicators.py": "4575667b065cc9b7f5a535f4e9827b249d39fa2ad2d5c9257e6277b7bdbd2865",
+        "services/v2_quant_research.py": "0c9dc05d73aa6b098714ce4a2c3f1257954d44a6151928a12f994b4ebf4ab3e4",
+        "services/v2_quant_admission.py": "407d81fdf86cd18ea1578cd4401702fc3ed72e7208aa4df76e49979c7488c126",
+        "services/v2_quant_exit.py": "3f939da54183c39a51d17ca294a92df136a8c7c0a3a4d18013281159407c45d4",
+        "v2_core/liquidity.py": "3fae4a7330dca260a4a5e278168d09ad03282b32d8bc93be5319bc859a09466c",
+        "v2_core/liquidity_controls.py": "9de80fa654a945ba05a9f811d8922f39636e8de6e522af578dfc1fa68c476af9",
+        "v2_core/drawdown_observation.py": "0bcc9e46e525c1ccd9a7897590d10b5b44af17c863168a60058fd383ddc9b60d",
+        "v2_core/sizing_budget.py": "777c0f47be4a6da3b2ee2b95eebb8f04378a13fec128909e7841772b3ee4e9d8"
+      },
+      "source_match": true,
+      "all_runtime_python_files": 166,
+      "all_runtime_python_digest": "a1705d2c8c08357378605dd48e86dbef5eaad45126a4d53847d2bd4eec3a0946"
+    },
+    "admin": {
+      "release": "/opt/trade-engine-v2/releases/causal-trend-admin-20261030-v1",
+      "source_overlay_sha256": {
+        "v2_core/runtime_policy.py": "d180dd0ddee3caf20c086b53d46c6f0b62922943e1ec570dcb44cf589827484a"
+      },
+      "source_match": true,
+      "all_runtime_python_files": 164,
+      "all_runtime_python_digest": "f6e9e5627595518e41d0f62a6b01687d688ffa8b9645e055310f43d1f90a30ed"
+    },
+    "ingress": {
+      "release": "/opt/trade-engine-v2/releases/causal-trend-ingress-20261030-v1",
+      "source_overlay_sha256": {
+        "v2_core/webhook.py": "964b8d092cda8ae0efc32925efa6d5cce4ee7ed94c7e56ad53fa06df1efec8b3"
+      },
+      "source_match": true,
+      "all_runtime_python_files": 102,
+      "all_runtime_python_digest": "378f2801d02b39ba700b9ed8579c8fc583a1e3d3b44e7eb5c9bf73b639665ae1"
+    }
+  },
+  "preserved_settlement_hotfix": {
+    "services/v2_directional_cash.py": "3abd960b9d1e323fa621b0ecfaf10d08c8730b57c49c05de8320d545c78162c7",
+    "v2_core/settlement_precision.py": "759f1386c521fe808b4b0a190fb3c515284a76574d17143ffa0083692c747c8b"
+  },
+  "note": "Runtime packages clone the prior deployed release, then overlay these matching source files. Hashes do not imply full profitability or exchange fill validation. Failed initial controller-v1 is not the active release."
+}

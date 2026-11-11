@@ -11,7 +11,6 @@ from dataclasses import asdict
 import pytest
 from test_v2_directional import history, inputs, sizing
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database
 from test_v2_layered_history import row as history_row
 from test_v2_layered_history import seed as seed_history
 from test_v2_venue_readiness import Venue
@@ -20,6 +19,7 @@ from services.v2_directional_admission import create_directional_admission_worke
 from services.v2_directional_replay import create_directional_replay_worker, market_plan
 from services.v2_entry_research_context import EntryResearchContext
 from services.v2_entry_structure import EntryStructureContext
+from tests.support.v2_admission import database
 from v2_core.capital_model import rehearsal_profile
 from v2_core.entry_controls import configure
 from v2_core.evidence import canonical

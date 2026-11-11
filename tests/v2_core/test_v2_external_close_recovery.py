@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_protection_child import setup as setup_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.binance import BinanceFutures
 from v2_core.errors import SubmissionNotSent

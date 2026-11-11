@@ -8,12 +8,12 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import (
+
+from tests.support.v2_admission import (
     database,
     scheduler_signal,
     strategy_worker,
 )
-
 from v2_core.ingress import IntakeRejected
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision, StrategyWorker

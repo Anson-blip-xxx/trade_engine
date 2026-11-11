@@ -5,8 +5,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 from test_v2_capital_journal import setup as journal_setup
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance_income import BinanceIncomeImporter
 from v2_core.capital_income import CapitalIncomeProjection
 from v2_core.income import IncomeJournal, IncomeScope

@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 from test_v2_directional_account_context import build, signal
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import (
+from test_v2_trading_pipeline import case as pipeline_case
+
+from tests.support.v2_admission import (
     database as database_fixture,
 )
-from test_v2_intent_admission import (
+from tests.support.v2_admission import (
     scheduler_signal,
     strategy_worker,
 )
-from test_v2_trading_pipeline import case as pipeline_case
-
 from v2_core.runtime_policy import PolicyStore, resolve
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision

@@ -53,3 +53,23 @@ def test_data_core_has_no_file_storage_or_legacy_runtime_imports():
                     "rename",
                     "replace_file",
                 }, source
+
+
+def test_jev_protocol_does_not_import_process_or_sdk_transport():
+    source = Path(__file__).resolve().parents[2] / "v2_core/jev_advisory.py"
+    forbidden = {
+        "os",
+        "sys",
+        "subprocess",
+        "selectors",
+        "pathlib",
+        "importlib",
+        "services",
+        "jev_shared",
+        "typesafe_sdk",
+    }
+    for node in ast.walk(ast.parse(source.read_text())):
+        if isinstance(node, ast.Import):
+            assert not {alias.name.split(".")[0] for alias in node.names} & forbidden
+        elif isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] not in forbidden

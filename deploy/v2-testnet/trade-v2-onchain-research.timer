@@ -1,0 +1,11 @@
+[Unit]
+Description=Optional on-chain research for current positions every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:02/5:10 Asia/Shanghai
+RandomizedDelaySec=15
+Persistent=true
+Unit=trade-v2-onchain-research.service
+
+[Install]
+WantedBy=timers.target

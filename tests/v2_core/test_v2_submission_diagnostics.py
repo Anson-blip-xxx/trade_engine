@@ -1,8 +1,8 @@
 import pytest
 from test_v2_account_risk import configured, prepare, runner
 from test_v2_binance import adapter, order
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.transport import ExchangeTransportError
 
 database = database_fixture

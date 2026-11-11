@@ -9,12 +9,12 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_jev_coordinator import MemoryDatabase, MemoryState
 
 from services import v2_jev_coordinator as coordination
 from services import v2_jev_entry_context as subject
 from services.v2_jev_reference import CONTROL_KEY, PUBLIC_SCOPE
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical
 from v2_core.jev_advisory import (
@@ -477,11 +477,64 @@ def test_fresh_account_does_not_hide_expired_public_model_input(case, age_ms):
     )
     assert case.args["context"]["assembled_at"] == case.db.now
     result = case.service.assess(**case.args)
-    assert_skip(result, "JEV_MARKET_SNAPSHOT_EXPIRED")
+    assert result.status == "PENDING" and result.decision is None
+    assert result.reason == "JEV_MARKET_REFRESH_PENDING"
+    timing = json.loads(result.evidence_json)["timing"]
+    assert timing == {
+        "market_observed_at_ms": case.db.now - age_ms,
+        "checked_at_ms": case.db.now,
+        "market_max_age_ms": 60000,
+        "signal_expires_at_ms": case.args["signal"]["expires_at_ms"],
+    }
     assert not case.queued
     key = case.service.binding_key(case.args["consumer"], case.args["signal_id"])
     assert key.identity not in case.db.rows
     assert case.args["context"]["sources"]["s3"]["observed_at"] == case.db.now - age_ms
+
+
+def test_unbound_old_source_must_really_refresh_before_model_work(case):
+    original = case.args["context"]["sources"]["s3"]
+    case.args["context"]["sources"]["s3"] = market_envelope(
+        "s3", "SANDBOX", "BTCUSDT", case.db.now - 66000, original["features"]
+    )
+    signal_before = deepcopy(case.args["signal"])
+    assert case.service.assess(**case.args).reason == "JEV_MARKET_REFRESH_PENDING"
+    case.db.now += 1000
+    refresh(case.args, case.db.now)
+    assert case.service.assess(**case.args).reason == "JEV_MARKET_REFRESH_PENDING"
+    assert not case.queued
+    # The regular context provider has now obtained an actual new source
+    # observation. The original signal, not a fabricated renewed one, remains.
+    case.db.now += 1000
+    refresh(case.args, case.db.now, new_market=True)
+    assert case.service.assess(**case.args).reason == "JEV_RESULT_PENDING"
+    assert len(case.queued) == 1
+    assert binding(case)[2]["public_features"]["observed_at_ms"] == case.db.now
+    assert case.args["signal"] == signal_before
+    assert binding(case)[2]["deadline_ms"] <= signal_before["expires_at_ms"]
+
+
+def test_waiting_for_new_public_source_cannot_outlive_original_signal(case):
+    original = case.args["context"]["sources"]["s3"]
+    case.args["context"]["sources"]["s3"] = market_envelope(
+        "s3", "SANDBOX", "BTCUSDT", case.db.now - 66000, original["features"]
+    )
+    assert case.service.assess(**case.args).reason == "JEV_MARKET_REFRESH_PENDING"
+    case.db.now = case.args["signal"]["expires_at_ms"]
+    refresh(case.args, case.db.now, new_market=True)
+    assert_skip(case.service.assess(**case.args), "JEV_CANDIDATE_BINDING_INVALID")
+    assert not case.queued
+    key = case.service.binding_key(case.args["consumer"], case.args["signal_id"])
+    assert key.identity not in case.db.rows
+
+
+def test_future_public_source_is_not_misclassified_as_refresh_wait(case):
+    original = case.args["context"]["sources"]["s3"]
+    case.args["context"]["sources"]["s3"] = market_envelope(
+        "s3", "SANDBOX", "BTCUSDT", case.db.now + 1, original["features"]
+    )
+    assert_skip(case.service.assess(**case.args), "JEV_MARKET_SNAPSHOT_EXPIRED")
+    assert not case.queued
 
 
 def test_queue_error_is_single_signal_skip_with_binding_preserved(case):

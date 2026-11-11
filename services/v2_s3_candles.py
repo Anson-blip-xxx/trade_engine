@@ -17,6 +17,8 @@ VERSION = "s3-closed-1m-v1"
 PRICE_VERSION = "s3-closed-1m-v2"
 ROLLING_VERSION = "s3-closed-1m-v3"
 BREAKOUT_VERSION = "s3-closed-1m-v4"
+CORRECTED_VERSION = "s3-closed-1m-v5"
+STRUCTURE_VERSION = "s3-closed-1m-v6"
 
 
 def amount(value, *, positive):
@@ -46,6 +48,8 @@ def build_frame(batch, *, environment, feature_version=VERSION):
         PRICE_VERSION,
         ROLLING_VERSION,
         BREAKOUT_VERSION,
+        CORRECTED_VERSION,
+        STRUCTURE_VERSION,
     }:
         raise ValueError("MARKET_FEATURE_VERSION_UNSUPPORTED")
     if environment not in ("SANDBOX", "LIVE"):
@@ -135,6 +139,20 @@ def build_frame(batch, *, environment, feature_version=VERSION):
                         BREAKOUT_VERSION: price_features_v4,
                     }[feature_version](list(reversed(normalized[:count])))
                 )
+            elif feature_version in {CORRECTED_VERSION, STRUCTURE_VERSION}:
+                from services.v2_price_features import (
+                    EMA_WARMUP_MIN_BARS,
+                    price_features_v5,
+                )
+
+                computed[name].update(
+                    price_features_v5(
+                        list(reversed(normalized[: max(count, EMA_WARMUP_MIN_BARS)])),
+                        window_bars=count,
+                        closed_at=observed,
+                    )
+                )
+
             if Decimal(computed[name]["close"]) <= 0:
                 raise ValueError("price below indicator output precision")
         computed["input_evidence"] = {
@@ -164,6 +182,44 @@ def build_frame(batch, *, environment, feature_version=VERSION):
                     close_pos_range=[0, 100],
                     close_pos_flat_window=50,
                 )
+        elif feature_version in {CORRECTED_VERSION, STRUCTURE_VERSION}:
+            from services.v2_price_features import (
+                ATR_EXPANSION_CONTRACT,
+                EMA_WARMUP_MIN_BARS,
+            )
+
+            computed["input_evidence"]["indicator_contract"] = {
+                "input_interval": "1m",
+                "window_semantics": "ROLLING_1M_LOOKBACK",
+                "lookback_bars": dict(WINDOWS),
+                "ema_period_unit": "1m_bar",
+                "ema_periods": [20, 60],
+                "ema_seed": "FIRST_PERIOD_SMA",
+                "ema_warmup_min_bars": EMA_WARMUP_MIN_BARS,
+                "ema_input_bars": {
+                    name: max(count, EMA_WARMUP_MIN_BARS) for name, count in WINDOWS
+                },
+                "ema_history_selection": "LATEST_EMA_INPUT_BARS_ENDING_AT_CLOSED_AT",
+                "ema_insufficient_history": "REJECT",
+                "atr_method": "LATEST_14_TRUE_RANGES_ARITHMETIC_MEAN",
+                "atr_reference_method": "PRECEDING_NONOVERLAPPING_14_TRUE_RANGES_ARITHMETIC_MEAN",
+                "atr_period_unit": "1m_bar",
+                "atr_pct_denominator": "LATEST_CLOSE_FOR_CURRENT_AND_REFERENCE",
+                "atr_expansion_contract": ATR_EXPANSION_CONTRACT,
+                "atr_reference_zero": "NO_EXPANSION",
+                "close_pos_method": "LATEST_CLOSE_WITHIN_ROLLING_WINDOW_HIGH_LOW_PERCENT",
+                "close_pos_range": [0, 100],
+                "close_pos_flat_window": 50,
+            }
+        if feature_version == STRUCTURE_VERSION:
+            from v2_core.trend_structure import build_trend_structure
+
+            computed["trend_structure"] = build_trend_structure(
+                list(reversed(normalized)),
+                symbol=target,
+                environment=environment,
+                closed_at_ms=observed,
+            )
         windows[target] = computed
         # These are rolling minute windows, NOT exchange 4h/15m candles. Match
         # the existing detector's raw input convention without mislabelling it.

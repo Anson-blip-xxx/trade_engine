@@ -4,11 +4,11 @@ from dataclasses import asdict
 from decimal import Decimal
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_testnet_roundtrip import Venue, install
 
 from services import v2_testnet_roundtrip as rt
 from services.v2_testnet_settlement import proof_from_facts, settle_protocol
+from tests.support.v2_admission import database as database_fixture
 from v2_core.ledger import Ledger
 from v2_core.service import TradingData
 from v2_core.state import BusinessState, StateKey

@@ -5,9 +5,9 @@ from dataclasses import asdict, replace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import evidence, intent
 from test_v2_runtime_policy import SCOPE, database
 
+from tests.support.v2_admission import evidence, intent
 from v2_core.capital_model import rehearsal_profile
 from v2_core.entry_controls import read as read_entry_controls
 from v2_core.evidence import DecisionEvidence, canonical, digest

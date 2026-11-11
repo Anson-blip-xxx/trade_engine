@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import pytest
 from psycopg.types.json import Jsonb
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_daily_mover_evidence import (
     DAY_MS,
@@ -16,6 +15,7 @@ from services.v2_daily_mover_evidence import (
     load_daily_mover_evidence,
     summarize_symbol_evidence,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import DecisionEvidence, canonical
 from v2_core.strategy import StrategyScope
@@ -30,6 +30,7 @@ def record(**changes):
     return {
         "signal_id": "signal1",
         "source": "tv_bridge",
+        "event": "TREND_UP",
         "observed_ms": START + 1,
         "action": "IGNORED",
         "reason": "strength_below_minimum",
@@ -109,7 +110,10 @@ def test_opposing_consumer_rejection_does_not_dominate_entry_direction():
         ]
     )
     assert result["by_strategy"]["s6"]["stage_counts"] == {"ENTRY_CANDIDATE": 1}
-    assert result["by_strategy"]["s8"]["stage_counts"] == {"NO_ENTRY_CANDIDATE": 1}
+    assert result["by_strategy"]["s8"]["stage_counts"] == {}
+    assert result["by_strategy"]["s8"]["non_candidate_counts"] == {
+        "OPPOSITE_DIRECTION_EVENT": 1
+    }
 
 
 def test_empty_is_not_proof_of_missing_strategy_and_examples_are_bounded():
@@ -165,6 +169,7 @@ def add_signal(
     observed=None,
     received=None,
     environment="SANDBOX",
+    event="TREND_UP",
 ):
     observed = START + 1000 if observed is None else observed
     received = observed if received is None else received
@@ -173,7 +178,7 @@ def add_signal(
         "observed_at": observed,
         "expires_at_ms": observed + 300000,
         "symbol": symbol,
-        "signal": "TREND_UP",
+        "signal": event,
         "features": {"strength": 99},
     }
     conn.execute(
@@ -196,13 +201,15 @@ def add_decision(
     at=None,
     producer="s6",
     receipt=True,
+    config=None,
+    context=None,
 ):
     signal_id, snapshot = signal
     at = snapshot["observed_at"] + 100 if at is None else at
     identity = str(uuid4())
     proof = DecisionEvidence(
         "qa-mover-v1",
-        "{}",
+        canonical(config or {}),
         canonical(
             {
                 "signal_id": signal_id,
@@ -211,7 +218,11 @@ def add_decision(
                 "source": "tv_bridge",
                 "symbol": snapshot["symbol"],
                 "rationale": reason,
-                "features": {"evaluation": fields or {}},
+                "features": {
+                    "signal": snapshot["features"],
+                    "evaluation": fields or {},
+                    "context": context or {},
+                },
                 "result": {"action": action},
             }
         ),
@@ -394,7 +405,7 @@ def test_pg_empty_unicode_and_readonly_contract(database):
             conn, SCOPE, start_ms=START, end_ms=END, symbols=["BTCUSDT"]
         )
     result = read(database, symbols=["BTCUSDT", "币安人生USDT"])
-    assert result["symbols"]["币安人生USDT"]["engine_symbol_supported"] is False
+    assert result["symbols"]["币安人生USDT"]["engine_symbol_supported"] is True
     assert result["symbols"]["BTCUSDT"]["signal_count"] == 0
     assert result["symbols"]["BTCUSDT"]["trades"] == []
 
@@ -532,6 +543,132 @@ def test_pg_truncated_single_window_is_not_hidden_by_empty_other_windows(databas
         result["coverage"]["signal_time_windows"][3]["sources"]["s3"]["status"]
         == "TRUNCATED"
     )
+
+
+def test_pg_uniform_sampling_covers_the_whole_six_hour_window(database):
+    with database() as conn:
+        for n in range(85):
+            add_signal(conn, source="s3", observed=START + n * 240000)
+    result = read(database)["symbols"]["BTCUSDT"]
+    selected = sorted({r["observed_ms"] for r in result["evidence"]})
+    assert result["signal_count"] == 21
+    assert selected == [START + ((i * 84 + 19) // 20) * 240000 for i in range(21)]
+    assert result["coverage"]["signal_sample_basis"] == (
+        "SOURCE_FAIR_FOUR_UTC8_WINDOWS_UNIFORM_RANK"
+    )
+    assert (
+        result["coverage"]["signal_time_windows"][0]["sources"]["s3"][
+            "sentinel_observed"
+        ]
+        is True
+    )
+
+
+def test_pg_directional_counts_exclude_opposite_and_non_entry_events(database):
+    with database() as conn:
+        for event in ("TREND_UP", "TREND_DOWN", "HIGH_VOL", "UNKNOWN_EVENT"):
+            add_decision(conn, add_signal(conn, event=event))
+    result = read(database)["symbols"]["BTCUSDT"]["by_strategy"]["s6"]
+    assert result["candidate_count"] == 1
+    assert sum(result["stage_counts"].values()) == 1
+    assert result["non_candidate_counts"] == {
+        "OPPOSITE_DIRECTION_EVENT": 1,
+        "NON_ENTRY_EVENT": 1,
+        "UNKNOWN_EVENT": 1,
+    }
+
+
+def test_pg_frozen_numeric_projection_preserves_source_and_excludes_private_fields(
+    database,
+):
+    with database() as conn:
+        add_decision(
+            conn,
+            add_signal(conn),
+            reason="TREND_VOLUME_UNCONFIRMED",
+            config={
+                "policy": {
+                    "entry.min_score": 70,
+                    "trend.min_volume_ratio": "1.25",
+                    "entry.max_adverse_funding": "0.001",
+                    "private_note": "private-policy",
+                },
+                "private_note": "private-config",
+            },
+            fields={
+                "market_plan": {"reason": "TREND_VOLUME_UNCONFIRMED", "score": 60},
+                "source_scoring": {
+                    "min_score": 64,
+                    "structure": {
+                        "values": {
+                            "volume_ratio": "0.8",
+                            "taker_buy_ratio": "0.48",
+                            "private": "private-values",
+                        }
+                    },
+                },
+                "jev_entry_gate": {
+                    "hypotheses": {"chase_risk": "0.8"},
+                    "policy": {"max_chase_risk": "0.7"},
+                    "timing": {
+                        "started_at_ms": START,
+                        "deadline_ms": START + 5000,
+                        "checked_at_ms": START + 5001,
+                        "signal_expires_at_ms": START + 5000,
+                    },
+                    "prompt": "private-prompt",
+                },
+                "sizing_explanation": {
+                    "price_high": "102",
+                    "price_low": "98",
+                    "stop_valid_through_envelope": False,
+                },
+            },
+            context={
+                "directional": {
+                    "price": "100",
+                    "funding_rate": "-0.002",
+                    "market": {
+                        "input_evidence": {
+                            "environment": "LIVE",
+                            "source": "BINANCE_FUTURES",
+                            "private_note": "private-market",
+                        }
+                    },
+                }
+            },
+        )
+    result = read(database)["symbols"]["BTCUSDT"]
+    sample = result["by_strategy"]["s6"]["rejection_details"][0]["reason_samples"][0]
+    assert sample["operands"]["volume_ratio"] == "0.8"
+    assert sample["operands"]["funding_rate"] == "-0.002"
+    assert sample["thresholds"]["entry.max_adverse_funding"] == "0.001"
+    assert sample["operands"]["jev.chase_risk"] == "0.8"
+    assert sample["operands"]["jev.deadline_ms"] == START + 5000
+    assert sample["operands"]["jev.checked_at_ms"] == START + 5001
+    assert sample["operands"]["sizing.price_high"] == "102"
+    assert sample["operands"]["sizing.stop_valid_through_envelope"] is False
+    assert sample["thresholds"]["trend.min_volume_ratio"] == "1.25"
+    assert sample["thresholds"]["entry.min_score"] == 64
+    assert sample["thresholds"]["jev.max_chase_risk"] == "0.7"
+    assert sample["market_sources"]["market_environment"] == "LIVE"
+    assert "private-" not in json.dumps(result)
+
+
+def test_pg_late_expiry_receipt_does_not_claim_maintenance_origin(database):
+    consumer = StrategyScope(**asdict(SCOPE), producer="s6").consumer
+    with database() as conn:
+        identity, _ = add_signal(conn)
+        conn.execute(
+            "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason,completed_at) "
+            "VALUES(%s,%s,'EXPIRED','signal expired before scheduling',to_timestamp(%s/1000.0))",
+            (consumer, identity, END + 3600000),
+        )
+    result = read(database, as_of_ms=END + 3600000)["symbols"]["BTCUSDT"][
+        "by_strategy"
+    ]["s6"]
+    assert result["lifecycle_counts"] == {"EXPIRED_WITHOUT_DECISION_ORIGIN_UNKNOWN": 1}
+    assert result["rejection_details"] == []
 
 
 def test_pg_complete_trade_and_carry_in_use_current_validated_labels(database):

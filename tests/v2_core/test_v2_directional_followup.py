@@ -5,9 +5,9 @@ from market_fakes import Budget, MarketHTTP
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_outcomes import outcome as outcome_fixture
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_followup import DirectionalFollowupStage
+from tests.support.v2_admission import database as database_fixture
 from v2_core.public_market import BinancePublicMarket
 
 outcome = outcome_fixture

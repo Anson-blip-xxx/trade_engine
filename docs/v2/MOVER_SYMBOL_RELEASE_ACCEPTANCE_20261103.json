@@ -1,0 +1,148 @@
+{
+  "recorded_at": "2026-11-03T10:38:02+08:00",
+  "status": "DEPLOYED_SANDBOX_RUNTIME_CHECKS_PASSED",
+  "supersedes_release_status": "MOVER_SYMBOL_RELEASE_STATUS_20261102.json",
+  "environment": "SANDBOX",
+  "scope": [
+    "Source-fair daily mover directional attribution and concrete rejection evidence",
+    "Research-only volume-gate sensitivity; no automatic policy tuning",
+    "Exact Unicode contract identities across market hub, TradingView ingress, execution, protection and research"
+  ],
+  "flat_gate": {
+    "pre_stop_observed_at_ms": 1793673326053,
+    "post_stop_observed_at_ms": 1793673328583,
+    "both_checks": {
+      "positions_before": 0,
+      "positions_after": 0,
+      "account_positions": 0,
+      "ordinary_orders": 0,
+      "conditional_orders": 0,
+      "nonterminal_orders": 0,
+      "unsettled_episodes": 0,
+      "unstarted_intents": 0
+    },
+    "graceful_stop_proven": true,
+    "forced_stop": false,
+    "executor_cgroups_verified_empty": true,
+    "atomic_exchange_database_snapshot": false
+  },
+  "activation": {
+    "same_account_and_credential_binding": true,
+    "prior_epoch": 16,
+    "active_epoch": 17,
+    "manage_only_recovery_verified_before_resume": true,
+    "companion_services_verified_before_resume": true,
+    "route_phase": "ACTIVE",
+    "route_blockers": [],
+    "pending_route_request": false,
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "coverage_age_ms_at_final_check": 5715,
+    "manual_exchange_writes": 0,
+    "forced_closes": 0,
+    "protection_cancellations": 0,
+    "valid_webhooks_replayed": 0,
+    "policy_or_strategy_thresholds_changed": false,
+    "live_trading_enabled": false
+  },
+  "active_releases": {
+    "controller": {
+      "directory": "/opt/trade-engine-v2/releases/mover-symbol-controller-20261102-v1",
+      "pid": 1724432,
+      "files": 1535,
+      "tree_digest": "1401208e5fd33b37e7725f805f03644b13ef18fca7e50e1f24d242b19f6ff92b"
+    },
+    "hub": {
+      "directory": "/opt/trade-engine-v2/releases/mover-symbol-hub-20261102-v1",
+      "pid": 1724401,
+      "files": 1041,
+      "tree_digest": "ef5b4594406ac2553760bbdfcb5eeb3dcd2fc1d77d79d063bea86609bfd6bd66"
+    },
+    "ingress": {
+      "directory": "/opt/trade-engine-v2/releases/mover-symbol-ingress-20261102-v1",
+      "pid": 1724402,
+      "files": 746,
+      "tree_digest": "10d28e5f403911fe73e72d069ac9c8843afcf38e3f6bfc1f538a22228f4fdfc0"
+    },
+    "movers": {
+      "directory": "/opt/trade-engine-v2/releases/mover-attribution-20261102-v1",
+      "files": 1546,
+      "tree_digest": "849c9e93c0e1951ee35f20c3091588fe8839709d3dcf82dc767f386ddb152cc9",
+      "timer_enabled": true,
+      "timer_active_waiting": true,
+      "next_scheduled_run_at_check": "2026-11-03T11:20:24+08:00"
+    },
+    "tree_digest_method": "SHA256 of concatenated sorted relative UTF8 path, NUL, raw SHA256(file bytes), for each file",
+    "all_packages_match_previously_tested_stage": true,
+    "all_entries_owned_by_root_without_group_or_other_write": true,
+    "core_service_automatic_restarts_at_check": 0
+  },
+  "validation": {
+    "previous_actual_controller_candidate_tests_passed": 654,
+    "previous_research_candidate_pure_tests_passed": 121,
+    "release_protocol_tests_repeated_today_passed": 96,
+    "release_protocol_test_failures": 0,
+    "previous_controller_start_guard_mock_scenarios": 19,
+    "previous_least_privilege_readonly_research_canary": {
+      "symbols": 20,
+      "query_errors": 0,
+      "role": "tradev2movers"
+    },
+    "post_release_source_checks": [
+      {
+        "observed_at_ms": 1793673377686,
+        "benchmark_cutoff_ms": 1793673360000,
+        "source_canary_ready": true,
+        "pg_cache_converged": true,
+        "btc_reference_verified": true,
+        "s0_ready": true
+      },
+      {
+        "observed_at_ms": 1793673476660,
+        "benchmark_cutoff_ms": 1793673420000,
+        "source_canary_ready": true,
+        "pg_cache_converged": true,
+        "btc_reference_verified": true,
+        "s0_ready": true,
+        "listed_contracts": 528,
+        "lightweight_coverage": 528,
+        "full_feature_fresh_90s": 176,
+        "full_feature_pending_refresh": 352
+      }
+    ],
+    "unicode_symbol": {
+      "symbol": "牛来USDT",
+      "catalog_supported": true,
+      "head_status": "CURRENT",
+      "head_reason": "OK",
+      "exact_utf8_sha256_frame_identity_verified": true
+    },
+    "webhook": {
+      "loopback_get_status": 405,
+      "loopback_error": "METHOD_NOT_ALLOWED",
+      "public_direct_get_status": 403,
+      "public_get_matches_existing_nginx_post_only_rule": true,
+      "nginx_changed": false,
+      "actual_new_tradingview_post_observed_in_acceptance": false
+    },
+    "business_health": {
+      "age_ms_at_final_check": 11450,
+      "active_alerts": [],
+      "finding_codes": [],
+      "over_threshold_valid_actionable_lag": {
+        "s6:s3": 0,
+        "s8:s3": 0,
+        "s6:tv_bridge": 0,
+        "s8:tv_bridge": 0
+      }
+    },
+    "bounded_journal_feature_version_errors": 0
+  },
+  "limitations": [
+    "This verifies deployment, current runtime recovery and bounded health checks, not profitability or a new observed full trade cycle.",
+    "No synthetic authenticated TradingView POST or manual test order was used.",
+    "528 lightweight-covered contracts does not mean all full indicator contexts are fresh within 90 seconds; measured coverage is recorded above.",
+    "Daily mover timer uses the new package; historical completed reports were not overwritten or force-refreshed, and no manual report was broadcast.",
+    "Normal autonomous SANDBOX trading resumed after checks and may create positions after the verified empty deployment window.",
+    "Do not roll back to an ASCII-only manager or ingress after a Unicode position may exist."
+  ]
+}

@@ -1,0 +1,268 @@
+{
+  "change_set": "causal-trend-entry-tv-20261030",
+  "status": "OPERATOR_AUTHORIZED_SANDBOX_CANARY_ACTIVE",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "live_enabled": false,
+  "authorization": "User explicitly requested deployment and will recreate TradingView alerts.",
+  "base_commit": "ab825702a639dbbe6ebf308bb5c7e8499e6978fa",
+  "manifest": "trend-entry-tv-manifest-20261030.json",
+  "candidate_research_evidence": "trend-entry-tv-acceptance-20261030.json",
+  "profitability_validated": false,
+  "full_exchange_end_to_end_completed": false,
+  "publication": {
+    "policy_activated_at": "2026-10-30T20:56:58.794+08:00",
+    "route_active_at": "2026-10-30T20:57:22.283+08:00",
+    "policy_version_before": 9,
+    "policy_version_after": 10,
+    "changed_resolved_policy_keys": [
+      "entry.trend_structure_enabled"
+    ],
+    "trend_structure_enabled": true,
+    "capital_pool_fraction": "0.70",
+    "sizing_pool_fraction": "0.70",
+    "trend_max_leverage": 2,
+    "feature_version": "s3-closed-1m-v6",
+    "entry_profile": "causal-trend-entry-v1",
+    "quant_mode": "OFF",
+    "route_epoch_before": 12,
+    "route_epoch_after": 13,
+    "route_phase": "ACTIVE",
+    "same_account_binding": true,
+    "database_privileges_changed": false,
+    "ledger_reset": false,
+    "signal_history_deleted": false,
+    "valid_test_signal_injected": false,
+    "forced_exchange_order": false,
+    "note": "Natural trading is authorized after resume. No order was forced to manufacture release evidence."
+  },
+  "services": {
+    "execution_controller": {
+      "release": "causal-trend-controller-20261030-v2",
+      "pid": 1666755,
+      "active": true,
+      "enabled": true,
+      "automatic_restarts": 0
+    },
+    "market_hub": {
+      "release": "causal-trend-hub-20261030-v2",
+      "pid": 1705614,
+      "active": true,
+      "enabled": true,
+      "automatic_restarts": 0
+    },
+    "account_admin": {
+      "release": "causal-trend-admin-20261030-v1",
+      "pid": 1645997,
+      "active": true,
+      "enabled": true,
+      "automatic_restarts": 0
+    },
+    "tradingview_ingress": {
+      "release": "causal-trend-ingress-20261030-v1",
+      "pid": 1645980,
+      "active": true,
+      "enabled": true,
+      "automatic_restarts": 0
+    },
+    "dashboard": {
+      "restarted": false,
+      "active": true,
+      "enabled": true
+    },
+    "host_failed_units": "Pre-existing firmware/desktop utilities and old one-shot sandbox cleanup units remain failed; they were not reset or represented as healthy."
+  },
+  "preactivation": {
+    "route": "DRAINING",
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "nonzero_ledger_positions": 0,
+    "nonfinal_orders": 0,
+    "unknown_executing_partially_filled_intents": 0,
+    "active_episodes": 0
+  },
+  "release_incidents": [
+    {
+      "code": "INITIAL_PACKAGE_MISSING_DEFERRED_DEPENDENCY",
+      "candidate": "causal-trend-controller-20261030-v1",
+      "missing_module": "v2_core.quant_registry",
+      "effect": "Worker startup failed; route remained blocked, no new entries. Account was flat.",
+      "resolution": "Immutable controller-v2 with complete local dependency closure, four actual S6/S8 scheduler constructions against no-I/O ports, then actual worker recovery and fresh account coverage."
+    },
+    {
+      "code": "POLICY_ROLE_SEPARATION",
+      "effect": "First tradev2accounts attempt lacked business-state write privilege; second ubuntu attempt lacked account-registry read privilege. Both transactions rolled back.",
+      "resolution": "Existing local postgres administrative session invoked validated PolicyStore.patch inside bounded transaction with route lock, exact expected policy/epoch and fresh coverage; no grants or direct policy SQL update."
+    }
+  ],
+  "verification": {
+    "prior_candidate_qa_rounds": [
+      1140,
+      694,
+      527
+    ],
+    "counts_overlap_not_unique_total": true,
+    "additional_dependency_qa": {
+      "modules": 11,
+      "passed": 412,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 85.91,
+      "log": "/tmp/v2-data-qa.70NGIW/pytest.log",
+      "isolated_database_removed": true
+    },
+    "release_helper_tests": {
+      "passed": 61,
+      "failed": 0,
+      "seconds": 0.96
+    },
+    "controller_package_probe": {
+      "modules_inspected": 145,
+      "missing_local_modules": [],
+      "scheduler_constructions": 4,
+      "event_profiles": [
+        "S6",
+        "S8"
+      ],
+      "source_profiles": 2,
+      "exchange_calls": 0,
+      "database_calls": 0,
+      "passed": true,
+      "dynamic_imports_completely_verified": false
+    },
+    "hub_package_probe": {
+      "modules_inspected": 61,
+      "missing_local_modules": [],
+      "passed": true
+    },
+    "source_overlay_hashes_match_runtime": true,
+    "settlement_entry_witness_hotfix_preserved": true,
+    "admin_policy": {
+      "http_status": 200,
+      "version": 10,
+      "enabled": true,
+      "elapsed_ms": 29
+    },
+    "admin_review": {
+      "http_status": 200,
+      "rows": 11,
+      "corrected_basis_rows": 11,
+      "unauthenticated_http_status": 403,
+      "passed": true
+    },
+    "dashboard": {
+      "public_unauthenticated_http_status": 401,
+      "local_backend_http_status": 200,
+      "local_elapsed_ms": 162,
+      "no_error_in_json": true
+    },
+    "tv_probe": {
+      "passed": true,
+      "checks": 6,
+      "authenticated_invalid_producer_http_status": 400,
+      "unauthenticated_http_status": 401,
+      "public_health_http_status": 200,
+      "no_valid_signal_submitted": true
+    },
+    "tv_genuine_receipts_after_2057_checked_at": "2026-10-30T20:58:00+08:00",
+    "tv_genuine_receipts_after_2057": 0,
+    "pine_editor_compiled": false,
+    "new_live_tv_alert_delivery_verified": false
+  },
+  "source_observations": {
+    "cross_minute_and_closed_15m_checks_performed": true,
+    "last_ready_observation": {
+      "at_ms": 1793365217760,
+      "ready": true,
+      "cache_converged": true,
+      "s0_ready": true,
+      "btc_reference": "VERIFIED"
+    },
+    "last_observation": {
+      "at_ms": 1793365306491,
+      "ready": false,
+      "reason": "REDUSDT context age 106491ms exceeded 90000ms freshness; selected cache readiness fails closed, not a version mismatch.",
+      "head_versions": [
+        {
+          "count": 524,
+          "frame_prefix": "s3-shared-v6",
+          "fresh_90s": 128,
+          "oldest_age_ms": 406491,
+          "status": "CURRENT"
+        }
+      ],
+      "s0_ready": true,
+      "btc_reference": "VERIFIED",
+      "hub_cycle_ms": {
+        "max": 5537,
+        "median": 4344.5,
+        "min": 3388,
+        "p95": 5249
+      }
+    },
+    "full_universe_90s_freshness_verified": false,
+    "note": "Bounded market quota still gives partial per-symbol candle freshness. No claim of complete lag resolution. Stale sources deny affected entries; no timestamps refreshed artificially, no quota increased."
+  },
+  "rollback": {
+    "requires_manage_only": true,
+    "keep_current_schema_compatible_controller_and_admin": true,
+    "disable_flag_via_policy_cas": true,
+    "optional_producer_fallback": "s3-closed-1m-v2 only while new entries paused; verify all fresh sources before resume",
+    "do_not_blindly_repoint_old_controller_or_admin": "PolicyStore persists full resolved keys; old schema rejects new keys even when trend flag false.",
+    "do_not_delete_orders_ledger_or_opportunity_claims": true,
+    "do_not_force_route_active": true
+  },
+  "remaining_acceptance": [
+    "User Pine Editor compilation and recreated alerts; verify genuine tv-causal-15m-v2 receipt.",
+    "Natural eligible candidate through admission/fill/protection/exit/settlement remains unverified; one real v6 JEV advisory completed.",
+    "Fast reversal model, genuine pullback samples and cost/exit-linked out-of-sample PnL remain unvalidated.",
+    "Whole-universe freshness/queue capacity remains a separate unresolved limitation; current code does not guarantee all-symbol sub-90s refresh."
+  ],
+  "runtime_audit": {
+    "as_of": "2026-10-30T21:02:13+08:00",
+    "scope": "ACTIVE_SANDBOX_ACCOUNT_ONLY",
+    "route_phase": "ACTIVE",
+    "route_epoch": 13,
+    "route_blockers": [],
+    "coverage_status": "ACCOUNT_COVERAGE_CLEAR",
+    "coverage_at": "2026-10-30T21:02:11+08:00",
+    "active_trading_health_alerts": [],
+    "unfinished_actionable_tasks": 2,
+    "oldest_actionable_task_age_ms": 12560,
+    "actionable_task_errors": 0,
+    "unfinished_other_direction_tasks": 306,
+    "oldest_other_direction_age_ms": 65270,
+    "other_direction_task_errors": 0,
+    "new_cohort": {
+      "from": "2026-10-30T20:57:22.283+08:00",
+      "through": "2026-10-30T21:01:38+08:00",
+      "signals": 700,
+      "actionable_receipts": 320,
+      "actionable_receipt_outcome": "IGNORED_BY_RULES",
+      "max_actionable_receipt_latency_ms": 27940,
+      "actionable_expired": 0,
+      "nonactionable_expired_receipts": 801,
+      "note": "Receipts and source signals are not one-to-one; nonactionable expiries are not missed entry opportunities."
+    },
+    "new_cohort_decisions_at_210054": {
+      "total": 265,
+      "policy_version_10": 265,
+      "causal_profile_and_v6": 263,
+      "other_quarantine_or_jev_guard_rejections": 2
+    },
+    "jev": {
+      "natural_request": true,
+      "status": "ADVISORY_READY",
+      "indicator_version": "s3-closed-1m-v6",
+      "indicator_contract": "utc-closed-15m-atr14-ema20-flow-volume-v1",
+      "agent_forced_model_call": false
+    },
+    "new_trade_intents": 0,
+    "old_policy_decisions": {
+      "count": 11,
+      "outcome": "IGNORED_STRENGTH_BELOW_MINIMUM",
+      "all_before_route_active": true,
+      "post_active_received_old_policy": 0
+    },
+    "policy_epoch_limit": "No general submit-time policy digest equality guard was established. This release relied on flat/clear preactivation state and absence of unresolved OPEN work, not an assumed global guard."
+  }
+}

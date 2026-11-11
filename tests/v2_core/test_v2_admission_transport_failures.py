@@ -5,11 +5,11 @@ import json
 import pytest
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import scenario
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import shared as shared_fixture
 from test_v2_transport import Connection
 
 from services.v2_testnet_daemon_entry import PrivateRatePermit
+from tests.support.v2_admission import database as database_fixture
 from v2_core.public_market import BinancePublicMarket, PublicMarketError
 from v2_core.scheduling import StrategyScheduler
 from v2_core.shared_market import AdmissionBudget, HostBudget

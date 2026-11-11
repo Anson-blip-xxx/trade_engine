@@ -108,6 +108,118 @@ def test_webhook_preserves_directional_evidence_as_decimal_strings():
     }
 
 
+def producer_alert(**changes):
+    return alert(
+        observed_at=900000,
+        expires_at_ms=900100,
+        producer={
+            "version": "tv-causal-15m-v2",
+            "setup": "TREND_BREAKOUT",
+            "timeframe": "15",
+            "bar_open_ms": 0,
+            "bar_close_ms": 900000,
+        },
+        **changes,
+    )
+
+
+@pytest.mark.parametrize(
+    "setup,signal",
+    [
+        ("TREND_TRANSITION", "TREND_UP_LONG"),
+        ("TREND_TRANSITION", "TREND_DOWN_SHORT"),
+        ("TREND_BREAKOUT", "TREND_UP_LONG"),
+        ("TREND_BREAKOUT", "TREND_DOWN_SHORT"),
+        ("TREND_PULLBACK_RESUME", "TREND_UP_LONG"),
+        ("TREND_PULLBACK_RESUME", "TREND_DOWN_SHORT"),
+        ("PULSE", "PULSE_UP_LONG"),
+        ("PULSE", "PULSE_DOWN_SHORT"),
+        ("PUMP", "PUMP_LONG"),
+        ("PUMP", "PUMP_SHORT"),
+        ("VIOLENT", "VIOLENT_LONG"),
+        ("VIOLENT", "VIOLENT_SHORT"),
+    ],
+)
+def test_webhook_preserves_bounded_producer_audit_evidence(setup, signal):
+    app, store = application(clock=lambda: 900020)
+    payload = producer_alert(signal=signal)
+    payload["producer"]["setup"] = setup
+    assert call(app, payload)[0] == 200
+    row = next(iter(store.rows.values()))["snapshot"]
+    assert row["features"]["tv_producer"] == payload["producer"]
+    assert "producer" not in row
+    assert SECRET not in repr(row)
+    # No setup is converted into an opening instruction or risk permission.
+    assert set(row["features"]) == {"tv_signal", "strength", "price", "tv_producer"}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"version": "unreviewed-v3"},
+        {"version": ["tv-causal-15m-v2"]},
+        {"setup": "EXECUTE_NOW"},
+        {"setup": []},
+        {"setup": "PULSE"},  # Must match the actual TREND event family.
+        {"timeframe": "60"},
+        {"timeframe": 15},
+        {"bar_open_ms": True},
+        {"bar_close_ms": "900000"},
+        {"bar_close_ms": 900001},
+        {"bar_open_ms": 1, "bar_close_ms": 900001},
+        {"bar_open_ms": 900000, "bar_close_ms": 1800000},
+        {"bar_open_ms": -900000},
+        {"bar_close_ms": 2**53},
+        {"secret": "never persist this field"},
+        {"approved": True},
+    ],
+)
+def test_webhook_rejects_unbounded_or_misaligned_producer_metadata(changes):
+    app, store = application(clock=lambda: 900020)
+    payload = producer_alert()
+    payload["producer"].update(changes)
+    assert call(app, payload)[0] == 400
+    assert not store.rows
+
+
+@pytest.mark.parametrize("metadata", [None, [], "tv-causal-15m-v2", {}])
+def test_webhook_rejects_partial_producer_metadata(metadata):
+    app, store = application(clock=lambda: 900020)
+    payload = producer_alert()
+    payload["producer"] = metadata
+    assert call(app, payload)[0] == 400
+    assert not store.rows
+
+
+def test_producer_metadata_is_immutable_and_does_not_renew_a_replay():
+    now = [900020]
+    app, store = application(clock=lambda: now[0])
+    payload = producer_alert()
+    assert call(app, payload)[0] == 200
+    now[0] = 901000
+    assert call(app, payload)[0] == 200
+    payload["producer"]["setup"] = "TREND_PULLBACK_RESUME"
+    assert call(app, payload)[0] == 409
+    assert len(store.rows) == 1
+
+
+def test_metadata_does_not_let_a_future_or_expired_bar_bypass_freshness():
+    payload = producer_alert()
+    for now in (899999, 900100):
+        app, store = application(clock=lambda now=now: now)
+        assert call(app, payload)[0] == 400
+        assert not store.rows
+
+
+def test_webhook_accepts_json_escaped_secret_without_persisting_it():
+    app, store = application(clock=lambda: 900020)
+    secret = 'qa-only-escaped-quote-"-and-backslash-\\-secret'
+    app = TradingViewWebhook(app.ingress, secret=secret)
+    payload = producer_alert(secret=secret)
+    assert call(app, payload)[0] == 200
+    assert secret not in repr(store.rows)
+
+
 @pytest.mark.parametrize(
     "changes",
     [

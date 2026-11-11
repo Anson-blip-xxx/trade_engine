@@ -1,0 +1,183 @@
+{
+  "version": "v2-m1-boundaries-acceptance-20261101-v1",
+  "reviewed_at": "2026-11-01",
+  "timezone": "Asia/Shanghai",
+  "workspace": "/home/ubuntu/.opencode/trade/trading_engine-v2",
+  "baseline": {
+    "branch": "codex/p10-d3a-pg-journal-foundation",
+    "head": "ab82570",
+    "preexisting_dirty_changes_preserved": true
+  },
+  "status": "M1 source refactor and scoped regression accepted; only the three-file JEV boundary subset deployed on 2026-11-01; remaining runtime changes not deployed",
+  "subset_release_record": "docs/v2/JEV_BOUNDARY_RELEASE_20261101.json",
+  "scope": [
+    "Remove entry submission core-to-services reverse dependency without changing history SQL or final-submit decisions.",
+    "Separate JEV pure contract/policy from bounded subprocess and SDK transport without changing trading fallback semantics.",
+    "Extract the highest-fan-in shared V2 admission fixture/builders; do not claim all cross-test coupling removed.",
+    "Constrain dedicated QA collection and harden temporary database identity checks."
+  ],
+  "equivalence": {
+    "prior_close_ast_and_sql_preserved": true,
+    "validate_submission_only_import_target_changed": true,
+    "jev_bounded_process_sdk_once_shared_query_ast_preserved": true,
+    "shared_helpers_moved": 23,
+    "unchanged_helper_asts": 22,
+    "deliberate_test_only_change": "database fixture: canonical single temporary Unix socket; reject hostaddr/service/env overrides; verify cluster_name before CREATE SCHEMA",
+    "original_test_functions": 148,
+    "original_test_function_asts_unchanged": 148,
+    "downstream_import_replacements": 177,
+    "downstream_test_files": 150,
+    "cross_test_imports_before": 634,
+    "cross_test_imports_after": 457,
+    "original_admission_test_file_sha256": "46d0d0cd787f74b58d4ced63ebca25fdd9b74b963e461629154799004c97b2a3"
+  },
+  "checks": {
+    "full_v2_directory_without_database": {
+      "passed": 6488,
+      "skipped": 2261,
+      "failed": 0,
+      "collected": 8749,
+      "seconds": 212.87,
+      "exit_code": 0,
+      "command": "env -u V2_CORE_TEST_DSN -u V2_CORE_TEST_ISOLATED -u V2_REDIS_TEST_SOCKET PYTEST_ADDOPTS= PYTEST_PLUGINS= nice -n 15 /opt/trade-engine-v2/venvs/py312-system-v1/bin/python -m pytest --confcutdir=tests/v2_core -q --maxfail=3 tests/v2_core",
+      "limitation": "Skipped integration tests are not passes. This is not a complete PostgreSQL-enabled full-suite run."
+    },
+    "scoped_isolated_integration": {
+      "passed": 1309,
+      "skipped": 0,
+      "failed": 0,
+      "seconds": 333.84,
+      "exit_code": 0,
+      "runner": "scripts/qa_v2_data_core.sh",
+      "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+      "selection": [
+        "test_v2_intent_admission.py",
+        "test_v2_jev*.py",
+        "test_v2_entry_history_boundary.py",
+        "test_v2_entry_controls.py",
+        "test_v2_entry_quality.py",
+        "test_v2_entry_upgrade_fullflow.py",
+        "test_v2_entry_structure.py",
+        "test_v2_entry_structure_core.py",
+        "test_v2_trade_cycle_fullflow.py",
+        "test_v2_trade_cycle.py",
+        "test_v2_trade_cycle_context.py",
+        "test_v2_reentry.py",
+        "test_v2_test_support.py",
+        "test_v2_qa_entry_contract.py",
+        "test_v2_core_boundary.py",
+        "test_v2_retired_entrypoints.py"
+      ],
+      "diagnostics": "/tmp/v2-data-qa.z5lV4q",
+      "temporary_database_removed_after_confirmed_shutdown": true,
+      "scope_examples": [
+        "concurrent signal and order idempotency",
+        "timeout query without duplicate submit",
+        "JEV pending -> fresh risk recheck -> execution -> protection/settlement/review using fake venue",
+        "slow final anchor query cannot hold submit lock or send order",
+        "backup/restore and disposable-cluster crash recovery",
+        "strict isolated QA entry and fixture boundaries"
+      ],
+      "limitation": "Overlaps offline suite; do not add counts. Real venue and real JEV provider are not exercised."
+    },
+    "interrupted_full_database_attempt": {
+      "passed_before_interrupt": 222,
+      "failed": 0,
+      "seconds": 151.49,
+      "exit_code": 2,
+      "diagnostics": "/tmp/v2-data-qa.PPK2l6",
+      "reason": "Stopped after correcting test-only SQL fake assertions; final acceptance uses complete offline directory plus targeted isolated integration, not an all-DB pass claim.",
+      "temporary_database_removed_after_confirmed_shutdown": true
+    },
+    "architecture": {
+      "passed": 8,
+      "ignored_forbidden_imports_added": 0
+    },
+    "qa_entry_contract": {
+      "passed": 46,
+      "real_business_services_started": 0
+    },
+    "shared_fixture_contract": {
+      "passed": 22
+    },
+    "jev_isolated_child": {
+      "real_child_invocations_with_fake_sdk": 6,
+      "uses_python_isolated_flag": true,
+      "real_shared_sdk_called": false,
+      "credentials_read": false,
+      "cases": [
+        "valid response",
+        "timeout",
+        "connection unavailable",
+        "HTTP rejection",
+        "invalid response",
+        "configuration unavailable"
+      ]
+    },
+    "package_dependency_review": {
+      "modules": 58,
+      "missing": 0,
+      "both_missing_new_module_simulations_rejected": true,
+      "candidate_release_built": false
+    },
+    "lint": {
+      "selected_changed_sources_and_test_modules": "passed",
+      "new_package_initializers": "passed with lint.pep8-naming.ignore-names=['trading_engine-v2']; checkout basename also triggers pre-existing N999 on v2_core/__init__.py; no repository lint rule changed",
+      "bash_syntax": "passed",
+      "git_diff_whitespace": "passed"
+    }
+  },
+  "runtime": {
+    "services_restarted": false,
+    "deployed": false,
+    "live_database_writes": false,
+    "exchange_orders": false,
+    "strategy_risk_leverage_thresholds_changed_by_this_refactor": false,
+    "controller": {
+      "unit": "trade-v2-execution-controller.service",
+      "pid_before": 1666755,
+      "pid_after": 1666755,
+      "active_state": "active",
+      "started_at": "2026-10-30T20:47:02+08:00",
+      "release": "/opt/trade-engine-v2/releases/causal-trend-controller-20261030-v2"
+    },
+    "market_hub": {
+      "unit": "trade-v2-market-hub.service",
+      "pid_before": 1705614,
+      "pid_after": 1705614,
+      "active_state": "active",
+      "started_at": "2026-10-30T20:55:06+08:00",
+      "release": "/opt/trade-engine-v2/releases/causal-trend-hub-20261030-v2"
+    }
+  },
+  "next_gate": {
+    "phase": "M2 explicit immutable release spec and version/config manifests",
+    "must_include": [
+      "v2_core/entry_history.py",
+      "services/v2_jev_transport.py",
+      "v2_core/jev_advisory.py"
+    ],
+    "before_deployment": [
+      "Build and inspect actual candidate package dependency closure",
+      "Preserve current account binding, drain/resume and epoch semantics",
+      "Validate running service version combination separately",
+      "Do not mix or overwrite pre-existing uncommitted strategy changes implicitly"
+    ],
+    "remaining_cross_test_imports": 457
+  },
+  "source_sha256": {
+    "v2_core/entry_history.py": "2eb287bf78d6d2cecc9991682702932aaea849a12b25814f35687b36e273d649",
+    "v2_core/entry_controls.py": "4231530f2e43fef963058065cc9bccfc79984916f840740ee529d9430a050743",
+    "v2_core/jev_advisory.py": "69a16ad5a97f4120202bb0e15691b54c0ca1b60f9b04a02af67d97ad618a6e34",
+    "services/v2_entry_structure.py": "3183a50a41ddd35d0dd5210e2f77219ebe27b74e8241b81184909f53352c80ca",
+    "services/v2_jev_transport.py": "e56a7ed8c3f3a79eb977af9f5ab73683589fa860e7a954b88a2ae01b2dba2ebd",
+    "services/v2_jev_reference.py": "171ac60e6d87e57a63929a713bc361f3497f9c88961373c91bbfaf86bf188ba0",
+    "scripts/qa_v2_data_core.sh": "a3319e9f13529d20f594e31a6930fe8d879b1867252e887fbd09b75810e099e1",
+    "tests/support/v2_admission.py": "1bad8fd427bc8df0e55adc46b0fe358bd1295ee360555f7ba02843c2564de00d",
+    "tests/v2_core/test_v2_test_support.py": "c91faab1abad0f83d263ac33e9a5c45a024069386114835420cde2639553d86c",
+    "tests/v2_core/test_v2_core_boundary.py": "e37cb8bb5910765199f724fd9cdc9fd28aaf9d06740a6e2001fb75c008f18544",
+    "tests/v2_core/test_v2_qa_entry_contract.py": "6420033d86d6609cb8017c6fe14495c907952ba853ee59d1e7f5351cfcaaab9b",
+    "tests/v2_core/test_v2_jev_transport.py": "ddb4b0f48055aac925c03d7c9e9fa863afb68f58b6536eb38faa2f2eba066834",
+    "tests/v2_core/test_v2_entry_history_boundary.py": "f7b082274a0e55b706d79740cfde3b27421697a05942aaca362b641236c5fa35"
+  }
+}

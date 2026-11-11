@@ -9,11 +9,11 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import shared as shared_fixture
 from test_v2_transport import Connection
 
 from services.v2_testnet_daemon_entry import PrivateRatePermit
+from tests.support.v2_admission import database as database_fixture
 from v2_core.shared_market import AdmissionBudget, HostBudget, MarketPolicy
 from v2_core.state import BusinessState, StateKey
 from v2_core.transport import BinanceSignedTransport, ExchangeTransportError

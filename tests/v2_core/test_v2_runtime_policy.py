@@ -4,8 +4,8 @@ from dataclasses import replace
 from decimal import Decimal
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.managed_portfolio import publish_capital_snapshot, reserve_capital
 from v2_core.runtime_policy import PolicyStore, resolve
@@ -54,6 +54,10 @@ def test_policy_cas_scope_and_snapshot(database):
             {"capital.enabled": True, "sizing.pool_fraction": "0.70"},
             expected_version=0,
             reason="QA",
+        )
+    with pytest.raises(ValueError, match="TESTNET_TREND_POLICY_ONLY"):
+        PolicyStore(database, replace(SCOPE, environment="LIVE")).patch(
+            {"entry.trend_structure_enabled": True}, expected_version=0, reason="QA"
         )
 
 

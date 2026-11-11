@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import pytest
 from test_v2_account_coverage import Account
-from test_v2_intent_admission import database as database_fixture
 from test_v2_protection_child import SCOPE
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState, StateKey
 from v2_core.venue_settings import TestnetSymbolSettings
 

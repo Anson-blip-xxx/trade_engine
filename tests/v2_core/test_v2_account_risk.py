@@ -7,9 +7,9 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent
 from v2_core.account_risk import (
     AccountPolicy,
     AccountRisk,

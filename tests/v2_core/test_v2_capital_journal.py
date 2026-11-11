@@ -6,8 +6,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_registry import AccountRegistry
 from v2_core.capital_journal import CapitalJournal
 

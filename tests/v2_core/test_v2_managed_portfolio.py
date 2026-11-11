@@ -1,10 +1,10 @@
 import pytest
 from test_v2_account_coverage import covered as covered_fixture
 from test_v2_account_coverage import inventory
-from test_v2_intent_admission import database as database_fixture
 from test_v2_protection_child import SCOPE
 from test_v2_protection_child import setup as setup_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.managed_portfolio import ManagedPortfolio
 
 database = database_fixture

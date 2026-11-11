@@ -5,11 +5,11 @@ from threading import Barrier, Event
 
 import pytest
 from test_v2_account_coverage import Account
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent
 from test_v2_protection_child import SCOPE
 from test_v2_transport import Connection, transport
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent
 from v2_core.opening_cancel import TestnetOpeningCancel
 from v2_core.opening_halt import halt_opening
 from v2_core.partial_open_protection import PartialOpenProtection

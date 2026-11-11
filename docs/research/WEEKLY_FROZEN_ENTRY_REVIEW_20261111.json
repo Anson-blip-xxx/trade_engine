@@ -1,0 +1,480 @@
+{
+  "schema": "weekly-frozen-entry-diagnostic-v1",
+  "window_ms": [
+    1793721600000,
+    1794326400000
+  ],
+  "as_of_ms": 1794365545921,
+  "settlement_count": 212,
+  "evidence_count": 212,
+  "source_truncated": false,
+  "quality_reconstruction": {
+    "READY": 212
+  },
+  "groups": {
+    "side/regime": [
+      {
+        "group": [
+          "BUY",
+          "bull_trend"
+        ],
+        "n": 44,
+        "wins": 17,
+        "net": "-1.39263758000000000000000000",
+        "pf": "0.9723861904565011336167242343"
+      },
+      {
+        "group": [
+          "BUY",
+          "range"
+        ],
+        "n": 38,
+        "wins": 15,
+        "net": "3.14439308000000000000000000",
+        "pf": "1.048745660219074355614314886"
+      },
+      {
+        "group": [
+          "BUY",
+          "weak_bull"
+        ],
+        "n": 11,
+        "wins": 3,
+        "net": "-17.61330602000000000000000000",
+        "pf": "0.2743128762067229589551287999"
+      },
+      {
+        "group": [
+          "SELL",
+          "bull_trend"
+        ],
+        "n": 23,
+        "wins": 13,
+        "net": "-4.34636608000000000000000000",
+        "pf": "0.7889804643333909252593218697"
+      },
+      {
+        "group": [
+          "SELL",
+          "range"
+        ],
+        "n": 25,
+        "wins": 12,
+        "net": "18.25129058000000000000000000",
+        "pf": "1.829110301438400474418528527"
+      },
+      {
+        "group": [
+          "SELL",
+          "risk-off"
+        ],
+        "n": 58,
+        "wins": 17,
+        "net": "-39.97730060000000000000000000",
+        "pf": "0.3669944179204796768094429291"
+      },
+      {
+        "group": [
+          "SELL",
+          "weak_bear"
+        ],
+        "n": 9,
+        "wins": 2,
+        "net": "-9.393216250000000000000000000",
+        "pf": "0.01743166743427897864652536313"
+      },
+      {
+        "group": [
+          "SELL",
+          "weak_bull"
+        ],
+        "n": 4,
+        "wins": 0,
+        "net": "-2.938636530000000000000000000",
+        "pf": "0E+27"
+      }
+    ],
+    "side/setup": [
+      {
+        "group": [
+          "BUY",
+          "BREAKOUT"
+        ],
+        "n": 87,
+        "wins": 34,
+        "net": "-11.2775230300000000000000000",
+        "pf": "0.9131036689324029989823988464"
+      },
+      {
+        "group": [
+          "BUY",
+          "PULLBACK_RESUME"
+        ],
+        "n": 6,
+        "wins": 1,
+        "net": "-4.584027490000000000000000000",
+        "pf": "0.5138180951278322433118727415"
+      },
+      {
+        "group": [
+          "SELL",
+          "BREAKOUT"
+        ],
+        "n": 112,
+        "wins": 42,
+        "net": "-32.22253867000000000000000000",
+        "pf": "0.7093766380600067964107093445"
+      },
+      {
+        "group": [
+          "SELL",
+          "PULLBACK_RESUME"
+        ],
+        "n": 7,
+        "wins": 2,
+        "net": "-6.181690210000000000000000000",
+        "pf": "0.1634431923471899673737727161"
+      }
+    ],
+    "quality_recorded": [
+      {
+        "group": [
+          "ENFORCE_BODY_INVALIDATION"
+        ],
+        "n": 45,
+        "wins": 17,
+        "net": "-9.31621629000000000000000000",
+        "pf": "0.8527585315379979607229778636"
+      },
+      {
+        "group": [
+          "NOT_RECORDED"
+        ],
+        "n": 167,
+        "wins": 62,
+        "net": "-44.9495631100000000000000000",
+        "pf": "0.7685417556874282573265958427"
+      }
+    ],
+    "reentry_mode": [
+      {
+        "group": [
+          "OFF"
+        ],
+        "n": 212,
+        "wins": 79,
+        "net": "-54.2657794000000000000000000",
+        "pf": "0.7892372517851096215507319944"
+      }
+    ],
+    "side/config": [
+      {
+        "group": [
+          "BUY",
+          "6276aae8ef08d071955d9b2217fcb07d830d5c11bc27f0675b7e96027d19965e"
+        ],
+        "n": 73,
+        "wins": 28,
+        "net": "-11.65072201000000000000000000",
+        "pf": "0.8834519705025782512269875558"
+      },
+      {
+        "group": [
+          "BUY",
+          "65e221bd5c1940b832f752f41f7f3b74fc912af79e50a1b02d0a41beb7aefb8e"
+        ],
+        "n": 2,
+        "wins": 1,
+        "net": "2.175203930000000000000000000",
+        "pf": "9.527677933802882720020122649"
+      },
+      {
+        "group": [
+          "BUY",
+          "807942de79ca0e656110e3a210ae862740491e3f0ed6df80e0ab42409c8bb9e5"
+        ],
+        "n": 1,
+        "wins": 1,
+        "net": "0.2364805000000000000000000000",
+        "pf": null
+      },
+      {
+        "group": [
+          "BUY",
+          "edd3c2fb70b7515e7fc3c8f93855f6c6ddd9530def77bf89204d658bdc68cadd"
+        ],
+        "n": 16,
+        "wins": 5,
+        "net": "-4.55464044000000000000000000",
+        "pf": "0.8766416960170231019621727219"
+      },
+      {
+        "group": [
+          "BUY",
+          "f104054a137cc80f10e66547ff99fdcec5e23f859ad3ac94406084a7791f092a"
+        ],
+        "n": 1,
+        "wins": 0,
+        "net": "-2.067872500000000000000000000",
+        "pf": "0E+27"
+      },
+      {
+        "group": [
+          "SELL",
+          "0ab2370d11a0f9c9c6d68dde71555ecf4d76b28e9eba554cf18195338a62afdd"
+        ],
+        "n": 27,
+        "wins": 11,
+        "net": "-6.93677978000000000000000000",
+        "pf": "0.7341676999460993625953032632"
+      },
+      {
+        "group": [
+          "SELL",
+          "87830514ff514a9584abdd9a0c723b12e6869fc6e6278bd5faffd1e6d0755f97"
+        ],
+        "n": 91,
+        "wins": 32,
+        "net": "-32.93051742000000000000000000",
+        "pf": "0.6427149397709088407517339787"
+      },
+      {
+        "group": [
+          "SELL",
+          "e802fd2afdc44524404adfddd9e2a6ad53f268e1742d56ea9ba96f1569ea36db"
+        ],
+        "n": 1,
+        "wins": 1,
+        "net": "1.463068320000000000000000000",
+        "pf": null
+      }
+    ]
+  },
+  "metrics_by_side_outcome": [
+    {
+      "side": "BUY",
+      "outcome": "WIN",
+      "n": 35,
+      "metrics": {
+        "body_retrace_fraction": {
+          "n": 35,
+          "median": "0"
+        },
+        "ema60_extension_atr": {
+          "n": 35,
+          "median": "4.449922557780527715"
+        },
+        "directional_change_4h_pct": {
+          "n": 35,
+          "median": "7.15"
+        },
+        "opposing_wick_fraction": {
+          "n": 35,
+          "median": "0.089622641509433962"
+        },
+        "breakout_acceptance_atr": {
+          "n": 35,
+          "median": "0.602807445603463283"
+        },
+        "volume_ratio": {
+          "n": 35,
+          "median": "1.735793668460494034"
+        },
+        "atr_pct": {
+          "n": 35,
+          "median": "1.589478812029730122"
+        },
+        "planned_net_reward_risk": {
+          "n": 35,
+          "median": "1.760073080170610989"
+        },
+        "directional_taker_share": {
+          "n": 35,
+          "median": "0.810285166535177234"
+        }
+      }
+    },
+    {
+      "side": "BUY",
+      "outcome": "LOSS",
+      "n": 58,
+      "metrics": {
+        "body_retrace_fraction": {
+          "n": 58,
+          "median": "0.001597444089456869"
+        },
+        "ema60_extension_atr": {
+          "n": 58,
+          "median": "4.219656603159810691"
+        },
+        "directional_change_4h_pct": {
+          "n": 58,
+          "median": "6.875"
+        },
+        "opposing_wick_fraction": {
+          "n": 58,
+          "median": "0.0824829931972789115"
+        },
+        "breakout_acceptance_atr": {
+          "n": 58,
+          "median": "0.4965305246192695715"
+        },
+        "volume_ratio": {
+          "n": 58,
+          "median": "1.7310566234009275035"
+        },
+        "atr_pct": {
+          "n": 58,
+          "median": "1.453710967112979619"
+        },
+        "planned_net_reward_risk": {
+          "n": 58,
+          "median": "1.774272835644825274"
+        },
+        "directional_taker_share": {
+          "n": 58,
+          "median": "0.8627800926914480455"
+        }
+      }
+    },
+    {
+      "side": "SELL",
+      "outcome": "WIN",
+      "n": 44,
+      "metrics": {
+        "body_retrace_fraction": {
+          "n": 44,
+          "median": "0.006648936170212766"
+        },
+        "ema60_extension_atr": {
+          "n": 44,
+          "median": "4.572407483898832302"
+        },
+        "directional_change_4h_pct": {
+          "n": 44,
+          "median": "4.75"
+        },
+        "opposing_wick_fraction": {
+          "n": 44,
+          "median": "0.137264486313544259"
+        },
+        "breakout_acceptance_atr": {
+          "n": 44,
+          "median": "0.5397064047621194765"
+        },
+        "volume_ratio": {
+          "n": 44,
+          "median": "2.1831751247703835495"
+        },
+        "atr_pct": {
+          "n": 44,
+          "median": "1.300755838677218676"
+        },
+        "planned_net_reward_risk": {
+          "n": 44,
+          "median": "1.7533770894559378025"
+        },
+        "directional_taker_share": {
+          "n": 44,
+          "median": "0.844812506646370693"
+        }
+      }
+    },
+    {
+      "side": "SELL",
+      "outcome": "LOSS",
+      "n": 75,
+      "metrics": {
+        "body_retrace_fraction": {
+          "n": 75,
+          "median": "0"
+        },
+        "ema60_extension_atr": {
+          "n": 75,
+          "median": "4.414078421183616856"
+        },
+        "directional_change_4h_pct": {
+          "n": 75,
+          "median": "5.16"
+        },
+        "opposing_wick_fraction": {
+          "n": 75,
+          "median": "0.085758039816232772"
+        },
+        "breakout_acceptance_atr": {
+          "n": 75,
+          "median": "0.402149597417562112"
+        },
+        "volume_ratio": {
+          "n": 75,
+          "median": "1.770136321614679534"
+        },
+        "atr_pct": {
+          "n": 75,
+          "median": "1.24688234729997799"
+        },
+        "planned_net_reward_risk": {
+          "n": 75,
+          "median": "1.749152287774187601"
+        },
+        "directional_taker_share": {
+          "n": 75,
+          "median": "0.904471834238231092"
+        }
+      }
+    }
+  ],
+  "interpretation": "DESCRIPTIVE_FROZEN_INPUTS_NOT_OUT_OF_SAMPLE_OR_CAUSAL_EFFECT",
+  "execution_authorized": false,
+  "timezone": "Asia/Shanghai",
+  "accounting_basis": "WHOLE_CURRENT_REVISION_COMPLETE_SETTLED_EPISODE_BY_LAST_ACTUAL_CLOSE",
+  "scope": "CURRENT_SANDBOX_ACCOUNT_IDENTITY_OMITTED",
+  "opened_in_window": 208,
+  "carry_in_closed_in_window": 4,
+  "query_safety": {
+    "transaction": "REPEATABLE_READ_READ_ONLY",
+    "statement_timeout_ms": 3000,
+    "lock_timeout_ms": 100,
+    "scope_filtered": true,
+    "extra_snapshot_query": "212_EXACT_INTENT_IDS",
+    "venue_requests": 0,
+    "model_calls": 0,
+    "business_writes": 0
+  },
+  "historical_evidence_limitations": [
+    "Reconstructed quality metrics use frozen entry-time inputs; only 45 episodes recorded the quality helper at decision time. Reconstruction does not prove historic code use.",
+    "Regime/side/setup groups are descriptive and confounded by date, symbol, configuration and selection; not independent causal evidence or out-of-sample validation.",
+    "All 212 entries had reentry.mode OFF; this is separate from the existing same-closed-bar opportunity claim and the full-body breakout invalidation guard.",
+    "Higher directional taker share or a larger extension is not shown to imply more profitable continuation. Do not select a new cutoff on these same outcomes.",
+    "Negative outcome groups are not a prospective symbol blacklist. Sandbox fills do not establish LIVE execution quality."
+  ],
+  "next_evidence_priorities": [
+    {
+      "hypothesis": "SHORT_CONTINUATION_BY_GLOBAL_REGIME",
+      "observed": "risk-off 58 trades net -39.97730060; range 25 trades net +18.25129058",
+      "required": "Separate by day/config/symbol; examine frozen pre-entry structure and subsequent price path; retain rejected and unavailable candidates, not only fills.",
+      "falsifier": "Separation disappears across later dates or cluster-aware comparisons; counterfactual filtered performance remains unverified.",
+      "action": "RESEARCH_ONLY_NO_REGIME_VETO"
+    },
+    {
+      "hypothesis": "SAME_DIRECTION_NEW_STRUCTURE_AFTER_PROFIT",
+      "observed": "Same-side re-entry within20m:6 trades net -4.5070; includes profitable AGT counterexample.",
+      "required": "Causal between-trade reset/confirmation evidence, not elapsed time or new bar alone.",
+      "action": "NO_FIXED_COOLDOWN_AND_NO_LIVE_GATE_ACTIVATION"
+    },
+    {
+      "hypothesis": "PROFIT_PROTECTION_BELOW_ACTIVATION",
+      "observed": "CYBER sampled favorable return2.5934%, AIOT1.5777%; both later negative.",
+      "required": "Verify frozen tag/policy and ordered exit observations; never turn sampled extrema into executable PnL.",
+      "action": "NO_UNVALIDATED_THRESHOLD_CHANGE",
+      "frozen_policy_verification": {
+        "system_tag": "S6A",
+        "peak_activation_pct": "3",
+        "cyber_policy_version": 10,
+        "aiot_policy_version": 11,
+        "entry_and_last_exit_policy_agree": true,
+        "interpretation": "OBSERVED_PEAK_BELOW_FROZEN_ACTIVATION_NOT_PROOF_OF_STATE_LOSS"
+      }
+    }
+  ]
+}

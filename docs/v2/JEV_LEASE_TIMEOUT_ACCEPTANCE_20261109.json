@@ -1,0 +1,167 @@
+{
+  "schema": "jev-lease-read-timeout-acceptance-v1",
+  "as_of": "2026-11-09T12:51:17+08:00",
+  "status": "QA_PASSED_SANDBOX_RELEASE_DEFERRED_NOT_FLAT",
+  "repository": "/home/ubuntu/.opencode/trade/trading_engine-v2",
+  "current_release": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+  "prepared_release": "/opt/trade-engine-v2/releases/jev-lease-controller-20261109-v1",
+  "online_fix_active": false,
+  "observed_fault": {
+    "environment": "SANDBOX",
+    "date": "2026-11-09",
+    "timezone": "Asia/Shanghai",
+    "example_symbol": "HOTUSDT",
+    "binding_started": "12:20:41.300",
+    "original_binding_deadline": "12:21:00.000",
+    "auxiliary_query_timeout": "12:20:41.432",
+    "model_ready": "12:20:42.158",
+    "late_gate_review": "12:21:11.861",
+    "disposition": "JEV_REVIEW_DEADLINE_EXPIRED",
+    "cause": "A QueryCanceled in the read-only same-cycle lease helper escaped as CONSUME/UNAVAILABLE, blocked the cycle and lost JEV continuation priority.",
+    "observed_same_helper_timeouts_through_1225": 31,
+    "causality_limit": "Dashboard query timeouts were also observed; no causal attribution to dashboard load or individual trade losses was established."
+  },
+  "implementation": {
+    "runtime_files_changed": [
+      "v2_core/scheduling.py"
+    ],
+    "runtime_file_sha256": "d3273142872f728e0cffb0665fd71916ef2b45bc715bf89e6916f8821854294f",
+    "phases": [
+      "BEFORE_WAIT",
+      "AFTER_WAIT",
+      "AFTER_CONTEXT"
+    ],
+    "isolated_read_transaction": true,
+    "caught_only_in_auxiliary_read": [
+      "psycopg.errors.QueryCanceled",
+      "psycopg.errors.LockNotAvailable"
+    ],
+    "statement_timeout_ms": 100,
+    "lock_timeout_ms": 50,
+    "conservative_result": "Original DEFERRED / JEV_RESULT_PENDING; no further consume while lease validity is unknown.",
+    "scheduling": "Existing token-guarded ACK persists the existing one-second continuation, with no same-run spin or new queue.",
+    "diagnostic_reason": "JEV_LEASE_CHECK_TIMEOUT",
+    "metric": "jev_lease_read_timeout_count",
+    "preserved": [
+      "immutable_model_binding",
+      "original_signal_expiry",
+      "original_model_deadline",
+      "fresh_risk_recheck",
+      "protection_and_exits_priority",
+      "unknown_lease_denies_consume"
+    ],
+    "additional_guard": "Recheck stop and recompute monotonic scheduler budget after the read completes.",
+    "exceptions_not_softened": [
+      "context_provider",
+      "model_wait",
+      "consume",
+      "claim",
+      "ACK"
+    ],
+    "release_isolation": "Prepared from the actual Nov8 immutable runtime; unrelated pre-existing working-tree changes excluded. Full manifests: 1196 files each, exactly one modified, none deleted.",
+    "independent_review": "PASSED",
+    "known_limit": "Connection establishment/setup latency is not governed by the helper's 100 ms SQL timeout. Other latency causes and production efficacy remain unverified."
+  },
+  "qa": {
+    "artifact": "/tmp/v2-jev-lease-qa.IxAwkN",
+    "existing_related_suites": {
+      "suites": 39,
+      "passed": 1053,
+      "seconds": 545.45,
+      "log_directory": "/tmp/v2-data-qa.RdwVJm"
+    },
+    "new_fault_regression": {
+      "passed": 26,
+      "seconds": 20.07,
+      "log_directory": "/tmp/v2-data-qa.dzDckM",
+      "test_file": "tests/v2_core/test_v2_jev_lease_timeout.py",
+      "test_sha256": "f032a288feb0769cdbccaf234678b2a0536924b3b57ebf8aeac1858af090a779"
+    },
+    "total_passed": 1079,
+    "failed_final": 0,
+    "skipped_final": 0,
+    "first_new_test_run": {
+      "passed": 24,
+      "failed": 1,
+      "seconds": 19.1,
+      "log_directory": "/tmp/v2-data-qa.DAD0BI",
+      "cause": "Fixture advanced beyond signal expiry but expected IGNORED rather than the correct EXPIRED. Split into independent signal-expiry and JEV-deadline cases, asserting exact receipts; no production code changed for this correction."
+    },
+    "boundaries": [
+      "real_disposable_PG_statement_timeout",
+      "real_disposable_PG_lock_timeout",
+      "all_three_lease_check_phases",
+      "fresh_risk_can_veto_retry",
+      "one_actual_model_call_for_same_binding",
+      "no_new_order_when_lease_unknown",
+      "original_deadlines_not_extended",
+      "other_stage_errors_remain_UNAVAILABLE",
+      "drain_priority",
+      "post_read_scheduler_budget",
+      "TV_deferred_S3_prepared_in_complete_pipeline"
+    ],
+    "isolation": "Serialized disposable Unix-socket PG/Redis; external Python network guard; fake venue/model; QA databases removed by verified cleanup.",
+    "static_checks": [
+      "ruff_check",
+      "ruff_format_check",
+      "git_diff_check"
+    ],
+    "scope_limit": "Selected relevant suites, not the entire repository; no real exchange order or model call was initiated by QA. Not proof of profitable trading."
+  },
+  "release": {
+    "script": "scripts/v2_jev_lease_release_20261109.py",
+    "mode_executed": "DRY_RUN_ONLY",
+    "last_gate_result": "LOCAL_RELEASE_WORK_PENDING",
+    "stage": "PRECHECK",
+    "local_observation": {
+      "at": "2026-11-09T12:51:17+08:00",
+      "unsettled_episodes": 3,
+      "symbols": [
+        "ACTUSDT",
+        "KOMAUSDT",
+        "ONEUSDT"
+      ],
+      "venue_flat_proven": false
+    },
+    "dry_gate_repeated_at": "2026-11-09T12:48:16+08:00",
+    "controller_pid_unchanged": 4046145,
+    "controller_restart_count": 0,
+    "service_stopped": false,
+    "release_link_changed": false,
+    "forced_close": false,
+    "account_or_environment_switched": false,
+    "strategy_or_risk_policy_changed": false,
+    "next_required_condition": "Fresh local and GET-only venue flat proof, followed by the existing stopped-executor second flat gate before switching release."
+  },
+  "baseline_observation": {
+    "note": "Still the OLD deployed release; reuse of a diagnostic named postrelease does not mean this fix was deployed.",
+    "start": "2026-11-09T12:35:58.630+08:00",
+    "end": "2026-11-09T12:45:58.630+08:00",
+    "route_phase": "ACTIVE",
+    "route_epoch": 21,
+    "cycles_read": 20,
+    "cycle_complete": 17,
+    "entry_blocked": 3,
+    "coverage_clear_snapshots": 37,
+    "health_state": "RECOVERY_PENDING",
+    "active_alerts": [
+      "SIGNAL_CONSUMPTION_LAG"
+    ],
+    "candidate_references": 623,
+    "candidate_detail_cap": 300,
+    "completeness": "Cycle window complete, candidate detail capped; not an exhaustive signal census.",
+    "inference": "Do not claim current trading is wholly healthy or the online latency defect is fixed."
+  },
+  "research": {
+    "artifact": "docs/v2/JCT_REENTRY_FROZEN_REVIEW_20261109.json",
+    "fixed_close_day_window": "2026-11-04 through 2026-11-08 UTC+8",
+    "verified_settlements": 176,
+    "net_usdt": "-45.07146237",
+    "optional_reentry_gate_off": 176,
+    "proven_same_side_prior_trades": 79,
+    "proven_same_side_prior_net_usdt": "-29.07753699",
+    "conclusions": "Same-bar deduplication does not establish a new wave after a previous trade. Investigate causal reset/confirmation prospectively. Winners are more extended on median, so JCT does not justify a generic extension veto or fixed cooldown.",
+    "parameter_change": false,
+    "profitability_improvement_proven": false
+  }
+}

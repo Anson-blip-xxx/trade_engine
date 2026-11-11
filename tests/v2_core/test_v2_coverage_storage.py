@@ -4,9 +4,9 @@ from dataclasses import replace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_coverage_storage import compact_legacy_batch
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.coverage_evidence import pack_coverage, unpack_coverage
 from v2_core.state import BusinessState, StateKey

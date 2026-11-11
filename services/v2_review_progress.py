@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical
+from v2_core.symbols import is_supported_symbol
 
 VERSION = "review-progress-v1"
 VARIANTS = ("partial", "tighten")
@@ -176,7 +177,7 @@ def build_progress(
             raise ValueError("REVIEW_PROGRESS_SCOPE_MISMATCH")
         if (
             not isinstance(record.get("symbol"), str)
-            or re.fullmatch(r"[A-Z0-9]{1,32}(USDT|USDC)", record["symbol"]) is None
+            or not is_supported_symbol(record["symbol"])
         ):
             raise ValueError("REVIEW_PROGRESS_SYMBOL_INVALID")
         identity = (record.get("study_id"), record.get("intent_id"))

@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-01",
+  "timezone": "Asia/Shanghai",
+  "status": "deployed; scoped post-release acceptance passed",
+  "authorization": "Publish the latest validated version only if there are no positions",
+  "scope": "SANDBOX execution controller only; same account and binding; no trade/risk policy change",
+  "package": {
+    "prior": "/opt/trade-engine-v2/releases/signal-history-controller-20261101-v2",
+    "candidate": "/opt/trade-engine-v2/releases/jev-boundary-controller-20261101-v1",
+    "live_link": "/opt/trade-engine-v2/execution-controller",
+    "base_commit": "ab82570",
+    "source_note": "Selective reviewed working-tree package, not an assertion that the entire dirty checkout was published",
+    "sha256": {
+      "services/v2_jev_reference.py": "171ac60e6d87e57a63929a713bc361f3497f9c88961373c91bbfaf86bf188ba0",
+      "services/v2_jev_transport.py": "e56a7ed8c3f3a79eb977af9f5ab73683589fa860e7a954b88a2ae01b2dba2ebd",
+      "v2_core/jev_advisory.py": "69a16ad5a97f4120202bb0e15691b54c0ca1b60f9b04a02af67d97ad618a6e34"
+    },
+    "other_files_unchanged": true,
+    "deleted_files": [],
+    "owner": "root:root; group/other writes removed before release",
+    "dependency_closure": {"modules": 147, "missing": 0, "invalid": 0, "dynamic_imports_completely_verified": false},
+    "construction_smoke": {"scheduler_constructions": 4, "database_calls": 0, "exchange_calls": 0},
+    "scope_boundary": "Only JEV pure-policy/SDK-transport separation from M1; not the entire M1/TRADE_CYCLE working-tree delta",
+    "excluded": [
+      "TRADE_CYCLE, entry_history and associated unpublished strategy/entry-control changes",
+      "pre-existing ReentryArchive lifecycle changes in managed_testnet",
+      "pre-existing ENTRY_STRUCTURE_CONTEXT_EXPIRED scheduling mapping",
+      "activation of onchain/positioning/quant/trend research as execution rules"
+    ],
+    "preserved": "All four signal-history hotfix files remain byte-identical to the prior release"
+  },
+  "qa": {
+    "candidate_jev_and_signal_maintenance": {"passed": 679, "failed": 0, "skipped": 0, "seconds": 84.17, "diagnostics": "/tmp/v2-data-qa.k25zGA", "isolated_database_removed": true},
+    "candidate_history_and_cycle_diagnostics": {"passed": 59, "failed": 0, "skipped": 0, "seconds": 22.96, "diagnostics": "/tmp/v2-data-qa.SuY23S", "isolated_database_removed": true},
+    "release_safety_unit_tests": {"passed": 96, "failed": 0, "skipped": 0, "seconds": 0.71},
+    "release_safety_with_real_isolated_pg": {"passed": 105, "failed": 0, "skipped": 0, "seconds": 11.41, "diagnostics": "/tmp/v2-data-qa.oZfxxl", "isolated_database_removed": true, "timing": "Additional release-tool regression completed during post-release observation; includes the 96 unit tests, do not sum these two totals"},
+    "jev_child": "Fake pinned SDK with real -I subprocess; success and typed failure/configuration paths exercised without calling the real paid model",
+    "shared_sdk_installed_version": "0.7.5",
+    "independent_review": "No package or flat-only release blocker found",
+    "harness_correction": "An initial selection named a nonexistent history test glob and was rejected before QA; a later candidate run tried to collect new workspace-only release helper tests and failed import. Corrected by separating runtime candidate tests from deployment-tool tests. Neither failed invocation modified the live service; disposable QA database was removed.",
+    "claims_limit": "Scoped tests only, not a full repository/database suite, not a profitability claim"
+  },
+  "flat_gate": {
+    "implementation": ["scripts/v2_flat_release_gate.py", "scripts/v2_flat_controller_release.py"],
+    "checks": [
+      "Unretired same SANDBOX registry, binding, epoch and no pending route request",
+      "Read-only repeatable-read PostgreSQL snapshots bracket actual signed GET inventory",
+      "Both positionRisk snapshots and account.positions have zero exposure",
+      "No ordinary or conditional orders, no excluded symbols",
+      "No nonterminal local orders, unsettled episodes or unstarted nonterminal intents",
+      "Recheck after graceful worker exit; all executor cgroups empty before switching"
+    ],
+    "mutation_boundary": "No venue POST/DELETE, forced close, cancellation, credentials switch or ledger reset; GET rate-limit accounting is not zero database writes",
+    "credential_handling": "Read-only signed transport constructed before stop; decrypted credentials retained only in memory across systemd credential unmount",
+    "pre_stop": {"observed_at_ms": 1793499426808, "epoch": 15, "phase": "ACTIVE", "all_venue_counts": 0, "all_local_counts": 0},
+    "after_stop": {"observed_at_ms": 1793499428406, "epoch": 15, "phase": "DRAINING", "all_venue_counts": 0, "all_local_counts": 0},
+    "limitations": "Sequential venue and PostgreSQL observations are not a global atomic snapshot; local execution processes were stopped for the final check"
+  },
+  "deployment": {
+    "active_observed_at": "2026-11-01T10:17:31+08:00",
+    "prior_epoch": 15,
+    "active_epoch": 16,
+    "controller_pid": 3032120,
+    "graceful_worker_stop": {"forced": false, "stopped": true},
+    "fresh_manage_only_coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "same_binding_resume": true,
+    "policy_version": 10,
+    "effective_policy_unchanged": true,
+    "other_service_pids_unchanged": {"market_hub": 1705614, "dashboard": 3264125, "account_admin": 1645997, "tradingview_ingress": 1645980},
+    "forced_test_order": false,
+    "rollback_performed": false
+  },
+  "live_acceptance": {
+    "since": "2026-11-01T10:17:32+08:00",
+    "observed_at": "2026-11-01T10:19:32.008024+08:00",
+    "route": {"epoch": 16, "phase": "ACTIVE", "blockers": []},
+    "completed_cycles": 7,
+    "cycle_statuses": {"CYCLE_COMPLETE": 7},
+    "protection_statuses": {"CLEAR": 7},
+    "exit_statuses": {"CLEAR": 7},
+    "maintenance_failed_reports": 0,
+    "health_samples": 8,
+    "lag_statuses": {"CLEAR": 8},
+    "active_health_codes": {},
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "latest_cycle_entry_dispatch_enabled": true,
+    "latest_maintenance_statuses": {"s6": "CURRENT", "s8": "CURRENT", "s6:tv": "CURRENT", "s8:tv": "CURRENT"},
+    "controller_restarts": 0,
+    "startup_note": "Manage-only startup emitted ENTRY_BLOCKED as expected before same-binding ACTIVE. Acceptance window starts after ACTIVE, not before.",
+    "trading_profitability_verified": false
+  },
+  "known_limits": [
+    "Historical background sweeps continue; no claim that all historical records are caught up",
+    "Pre-existing admission read-budget candidate waits were observed before release; not changed by this JEV boundary-only release",
+    "Health diagnostic historical aggregates remain a separate measured performance opportunity",
+    "No fresh-order acceptance or model profitability claim from a restart alone"
+  ]
+}

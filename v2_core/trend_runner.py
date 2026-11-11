@@ -614,3 +614,305 @@ def _public_state(state, *, funding_complete):
         if not funding_complete:
             result["modeled_net_with_reported_funding"] = None
     return result
+
+
+@dataclass(frozen=True)
+class StagnationShadowPolicy:
+    """Research-only bounds, not new defaults for the executing exit policy."""
+
+    mode: str = "OFF"
+    max_extension_minutes: int = 60
+    max_total_hold_minutes: int = 240
+    max_observation_age_ms: int = 10000
+    max_snapshot_gap_ms: int = 120000
+    fast_period: int = 8
+    slow_period: int = 24
+    structure_period: int = 6
+
+    def __post_init__(self):
+        if self.mode not in {"OFF", "SHADOW"}:
+            raise ValueError("STAGNATION_SHADOW_NO_LIVE_AUTHORITY")
+        for name, lower, upper in (
+            ("max_extension_minutes", 1, 240),
+            ("max_total_hold_minutes", 1, 1440),
+            ("max_observation_age_ms", 1, 30000),
+            ("max_snapshot_gap_ms", 1000, 300000),
+            ("fast_period", 2, 71),
+            ("slow_period", 3, 72),
+            ("structure_period", 1, 72),
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or not lower <= value <= upper:
+                raise ValueError("STAGNATION_SHADOW_POLICY_BOUNDS")
+        if self.fast_period >= self.slow_period:
+            raise ValueError("STAGNATION_SHADOW_PERIOD_ORDER")
+
+
+def stagnation_shadow(payload, *, policy=None):
+    """Qualify a bounded extension from the first supplied frozen stagnation row.
+
+    This is an eligibility trace, NOT a fill/PnL simulation or an exit instruction.
+    Each snapshot must have a complete frozen baseline policy, actual ExitFacts,
+    the saved baseline decision, timely observation/protection and closed hourly
+    bars. Missing proof cannot be repaired by retrospective historical downloads.
+    The deadline never moves when another LOW_YIELD_STAGNATION row arrives.
+    The collector must separately establish whether the first supplied row was
+    the first historical stagnation event; this pure function cannot prove it.
+    """
+    policy = StagnationShadowPolicy() if policy is None else policy
+    if not isinstance(policy, StagnationShadowPolicy):
+        raise TypeError("STAGNATION_SHADOW_POLICY_TYPE")
+    result = {
+        "version": "stagnation-continuation-shadow-v1",
+        "status": "OFF" if policy.mode == "OFF" else "UNAVAILABLE",
+        "policy": asdict(policy),
+        "policy_digest": digest(canonical(asdict(policy))),
+        "execution_authorized": False,
+        "promotion_authorized": False,
+        "profitability_valid": False,
+        "actual_pnl": False,
+        "baseline_code_identity_proven": False,
+        "first_historical_stagnation_proven": False,
+        "baseline_reproduced_count": 0,
+        "continuation_eligibility": "UNKNOWN",
+        "comparison_scope": "frozen-input current-code qualification; no counterfactual fills or PnL",
+        "trace": [],
+    }
+    if policy.mode == "OFF":
+        return result
+    if not isinstance(payload, dict) or set(payload) != {"opened_at_ms", "snapshots"}:
+        raise ValueError("STAGNATION_SHADOW_FIELDS")
+    opened = _time(payload["opened_at_ms"])
+    snapshots = payload["snapshots"]
+    if not isinstance(snapshots, list) or not 1 <= len(snapshots) <= 256:
+        raise ValueError("STAGNATION_SHADOW_SNAPSHOT_BOUND")
+    try:
+        return _stagnation_trace(payload, opened, snapshots, policy, result)
+    except _Unavailable as exc:
+        result.update(status="UNAVAILABLE", reason=str(exc))
+        if result["trace"]:
+            result["trace"][-1].setdefault("reason", str(exc))
+        return result
+
+
+def _stagnation_snapshot(raw, opened, policy):
+    from v2_core.directional_exit import ExitFacts, evaluate_directional_exit
+    from v2_core.runtime_policy import SCHEMA, resolve
+
+    if not isinstance(raw, dict) or set(raw) != {
+        "at_ms",
+        "facts",
+        "baseline",
+        "baseline_policy",
+        "observation",
+        "native_protection",
+        "hourly_history",
+    }:
+        raise ValueError("STAGNATION_SHADOW_SNAPSHOT_FIELDS")
+    at = _time(raw["at_ms"])
+    values = raw["baseline_policy"]
+    # Never fill today's defaults into a historical policy snapshot.
+    if not isinstance(values, dict) or set(values) != set(SCHEMA):
+        raise _Unavailable("FROZEN_BASELINE_POLICY_INCOMPLETE")
+    values = resolve(values)
+    encoded = raw["facts"]
+    if not isinstance(encoded, dict) or set(encoded) != set(
+        ExitFacts.__dataclass_fields__
+    ):
+        raise ValueError("STAGNATION_SHADOW_FACTS_FIELDS")
+    closes = encoded["momentum_closes_15m"]
+    if not isinstance(closes, list) or len(closes) != 4:
+        raise ValueError("STAGNATION_SHADOW_MOMENTUM_FIELDS")
+    if any(type(v) is not str or len(v) > 128 for v in closes):
+        raise ValueError("STAGNATION_SHADOW_DECIMAL_BOUND")
+    for name, value in encoded.items():
+        if name not in {"momentum_closes_15m", "partial_done", "held_ms"} and (
+            type(value) is not str or len(value) > 128
+        ):
+            raise ValueError("STAGNATION_SHADOW_SCALAR_BOUND")
+    facts = ExitFacts(**{**encoded, "momentum_closes_15m": tuple(closes)})
+    decision = evaluate_directional_exit(facts, policy=values)
+    if raw["baseline"] != decision.evidence():
+        raise _Unavailable("FROZEN_BASELINE_REPLAY_MISMATCH")
+    if at < opened or facts.held_ms != at - opened:
+        raise _Unavailable("ORIGINAL_HOLDING_CLOCK_MISMATCH")
+    return at, facts, decision, values
+
+
+def _stagnation_evidence(raw, at, facts, policy):
+    observation = raw["observation"]
+    if not isinstance(observation, dict) or set(observation) != {
+        "observed_at_ms",
+        "available_at_ms",
+        "closed_15m_at_ms",
+        "closed_1h_at_ms",
+        "environment",
+        "market_source",
+    }:
+        raise _Unavailable("FROZEN_OBSERVATION_PROOF_MISSING")
+    if (observation["environment"], observation["market_source"]) != (
+        "SANDBOX",
+        "BINANCE_USDM_SANDBOX",
+    ):
+        raise _Unavailable("EXECUTION_MARKET_SOURCE_MISMATCH")
+    if observation["observed_at_ms"] is None or observation["available_at_ms"] is None:
+        raise _Unavailable("OBSERVATION_AVAILABILITY_NOT_PROVEN")
+    observed, available = map(
+        _time, (observation["observed_at_ms"], observation["available_at_ms"])
+    )
+    if (
+        not observed <= available <= at
+        or at - observed >= policy.max_observation_age_ms
+    ):
+        raise _Unavailable("EXIT_OBSERVATION_NOT_TIMELY")
+    for width, field in ((900000, "closed_15m_at_ms"), (HOUR, "closed_1h_at_ms")):
+        closed = _time(observation[field])
+        if closed != observed // width * width:
+            raise _Unavailable("CLOSED_EXIT_CANDLES_STALE_OR_FUTURE")
+    native = raw["native_protection"]
+    if not isinstance(native, dict) or set(native) != {
+        "status",
+        "price",
+        "protected_quantity",
+        "observed_at_ms",
+        "available_at_ms",
+    }:
+        raise _Unavailable("FROZEN_NATIVE_PROTECTION_MISSING")
+    if native["observed_at_ms"] is None or native["available_at_ms"] is None:
+        raise _Unavailable("NATIVE_PROTECTION_AVAILABILITY_NOT_PROVEN")
+    seen, known = map(_time, (native["observed_at_ms"], native["available_at_ms"]))
+    if (
+        native["status"] != "NEW"
+        or not seen <= known <= at
+        or at - seen >= policy.max_observation_age_ms
+        or _money(native["price"]) != _money(facts.stop_price)
+        or _money(native["protected_quantity"]) < _money(facts.remaining_quantity)
+    ):
+        raise _Unavailable("NATIVE_PROTECTION_NOT_CURRENT_AND_COVERED")
+    if not isinstance(raw["hourly_history"], list) or len(raw["hourly_history"]) > 72:
+        raise ValueError("STAGNATION_SHADOW_HISTORY_BOUND")
+    history = _bars(raw["hourly_history"], boundary=at, timely=True)
+    if (
+        len(history) < max(policy.slow_period, policy.structure_period)
+        or history[-1][0].t + HOUR != observation["closed_1h_at_ms"]
+    ):
+        raise _Unavailable("HOURLY_TREND_WARMUP_OR_STALE")
+    # Same causal 8/24 first-close-seeded EMA hypothesis as residual runner;
+    # intentionally NOT a claim that legacy exit EMA9/20 has this seed/contract.
+    prices = [b.c for b, _ in history]
+    fast = smoothed(prices, policy.fast_period)[-1]
+    slow = smoothed(prices, policy.slow_period)[-1]
+    sign = Decimal(1) if facts.side == "BUY" else Decimal(-1)
+    closes = [decimal(c) for c in facts.momentum_closes_15m]
+    mark = _money(facts.mark_price)
+    aligned = (
+        sign * (fast - slow) > 0
+        and sign * (prices[-1] - fast) > 0
+        and sign * (mark - fast) > 0
+    )
+    recent = [b for b, _ in history[-policy.structure_period :]]
+    boundary = (
+        min(b.l for b in recent) if facts.side == "BUY" else max(b.h for b in recent)
+    )
+    structure_intact = sign * (mark - boundary) > 0
+    momentum = (
+        sign * (closes[-1] - closes[-2]) >= 0
+        and sign * (closes[-1] - sum(closes[:3], Decimal(0)) / 3) > 0
+    )
+    return aligned and momentum and structure_intact, {
+        "fast_ema": encode(fast),
+        "slow_ema": encode(slow),
+        "hourly_aligned": aligned,
+        "closed_hour_structure_boundary": encode(boundary),
+        "closed_hour_structure_intact": structure_intact,
+        "closed_15m_momentum_intact": momentum,
+        "protection_proof_scope": "caller-supplied frozen query; no venue verification",
+    }
+
+
+def _stagnation_trace(payload, opened, snapshots, policy, result):
+    from v2_core.directional_exit import evaluate_directional_exit
+    from v2_core.runtime_policy import SCHEMA
+
+    previous, deadline, anchor_identity = None, None, None
+    for raw in snapshots:
+        at, facts, baseline, values = _stagnation_snapshot(raw, opened, policy)
+        result["baseline_reproduced_count"] += 1
+        identity = (
+            facts.system_tag,
+            facts.side,
+            facts.entry_price,
+            facts.stop_price,
+            facts.remaining_quantity,
+            facts.planned_loss,
+            facts.partial_done,
+            digest(canonical(values)),
+        )
+        if previous is not None and at <= previous:
+            raise _Unavailable("SNAPSHOT_ORDER_INVALID")
+        if previous is None:
+            if (baseline.action, baseline.reason) != ("CLOSE", "LOW_YIELD_STAGNATION"):
+                result.update(status="NOT_APPLICABLE", reason="NOT_STAGNATION_EXIT")
+                result["continuation_eligibility"] = "NOT_APPLICABLE"
+                return result
+            deadline = min(
+                at + policy.max_extension_minutes * 60000,
+                opened + policy.max_total_hold_minutes * 60000,
+            )
+            anchor_identity = identity
+            result.update(anchor_at_ms=at, extension_deadline_ms=deadline)
+        elif identity != anchor_identity:
+            raise _Unavailable("POSITION_OR_BASELINE_POLICY_CHANGED")
+        step = {
+            "at_ms": at,
+            "baseline_action": baseline.action,
+            "baseline_reason": baseline.reason,
+            "continuation_eligible": False,
+            "baseline_reproduced": True,
+            "baseline_policy_digest": digest(canonical(values)),
+            "frozen_facts_digest": digest(canonical(raw["facts"])),
+        }
+        result["trace"].append(step)
+        if baseline.reason != "LOW_YIELD_STAGNATION" and baseline.action != "WAIT":
+            step["reason"] = "PRESERVE_BASELINE_PROTECTION_OR_EXIT"
+        elif at >= deadline:
+            step["reason"] = "FIXED_EXTENSION_DEADLINE"
+        elif previous is not None and at - previous > policy.max_snapshot_gap_ms:
+            raise _Unavailable("SNAPSHOT_COVERAGE_GAP")
+        else:
+            # LOW_YIELD_STAGNATION precedes peak/reversal/time exits in the
+            # baseline. Removing that single gate must not hide a later exit.
+            remainder = evaluate_directional_exit(
+                facts,
+                policy={
+                    **values,
+                    "exit.stagnation_minutes": SCHEMA["exit.stagnation_minutes"][2],
+                },
+            )
+            if remainder.action != "WAIT":
+                step.update(
+                    reason="PRESERVE_OTHER_BASELINE_EXIT",
+                    protected_baseline_reason=remainder.reason,
+                )
+                result.update(status="NO_CONTINUATION", reason=step["reason"])
+                result["continuation_eligibility"] = "NOT_ELIGIBLE"
+                return result
+            intact, evidence = _stagnation_evidence(raw, at, facts, policy)
+            step["evidence"] = evidence
+            step["continuation_eligible"] = intact
+            step["reason"] = (
+                "TREND_CONTINUATION_CANDIDATE" if intact else "TREND_NOT_INTACT"
+            )
+        previous = at
+        if not step["continuation_eligible"]:
+            result.update(status="NO_CONTINUATION", reason=step["reason"])
+            result["continuation_eligibility"] = "NOT_ELIGIBLE"
+            return result
+    # Prefix-only observations do not establish what would happen later.
+    result.update(
+        status="SHADOW_ELIGIBLE_PREFIX",
+        reason="FORWARD_OUTCOME_NOT_PROVEN",
+        input_digest=digest(canonical(payload)),
+        continuation_eligibility="ELIGIBLE_OBSERVED_PREFIX_ONLY",
+    )
+    return result

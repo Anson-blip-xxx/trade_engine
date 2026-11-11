@@ -1,0 +1,175 @@
+{
+  "schema": "frozen-reentry-descriptive-review-v1",
+  "status": "READ_ONLY_REVIEW_COMPLETE_NO_POLICY_CHANGE",
+  "as_of": "2026-11-09T12:26:48+08:00",
+  "environment": "SANDBOX",
+  "scope": "CURRENT_ACTIVE_ACCOUNT_IDENTITY_OMITTED",
+  "accounting": {
+    "basis": "WHOLE_VERIFIED_EPISODE_ASSIGNED_TO_LAST_ACTUAL_CLOSE_DAY",
+    "recorded_costs_included": true,
+    "account_equity_return": false,
+    "unrealized_pnl_included": false,
+    "live_price_and_testnet_execution_mixed": false
+  },
+  "cohort": {
+    "close_start_inclusive": "2026-11-04T00:00:00+08:00",
+    "close_end_exclusive": "2026-11-09T00:00:00+08:00",
+    "entry_history_days_including_prior_context": 8,
+    "query_limit": 250,
+    "loaded_review_records": 226,
+    "truncated": false,
+    "independent_close_fill_candidates": 176,
+    "close_candidates_missing_from_bounded_review": 0,
+    "verified_settled_trades": 176,
+    "net_usdt": "-45.07146237",
+    "wins": 66,
+    "losses": 110,
+    "by_day": {
+      "2026-11-04": {"trades": 51, "net_usdt": "-14.31353779", "wins": 20, "losses": 31},
+      "2026-11-05": {"trades": 21, "net_usdt": "-12.06193658", "wins": 6, "losses": 15},
+      "2026-11-06": {"trades": 76, "net_usdt": "-16.16027014", "wins": 28, "losses": 48},
+      "2026-11-07": {"trades": 20, "net_usdt": "-1.54664447", "wins": 9, "losses": 11},
+      "2026-11-08": {"trades": 8, "net_usdt": "-0.98907339", "wins": 3, "losses": 5}
+    }
+  },
+  "query_safety": {
+    "transaction": "REPEATABLE_READ_READ_ONLY",
+    "statement_timeout_ms": 3000,
+    "lock_timeout_ms": 100,
+    "frozen_evidence_reads": "SCOPED_EXACT_INTENT_IDS_WITH_BOUNDED_CREATION_WINDOW",
+    "independent_population_check": "SCOPED_CLOSE_FILL_TIME_WINDOW_DISTINCT_EPISODES_LIMIT_251_SENTINEL",
+    "raw_account_ids_or_secrets_persisted": false,
+    "venue_requests": 0,
+    "business_writes": 0
+  },
+  "frozen_coverage": {
+    "evidence": 176,
+    "causal_trend_structure": 176,
+    "entry_controls": 176,
+    "entry_quality_observation_recorded_at_decision": 9,
+    "entry_quality_not_recorded_at_decision": 167,
+    "reconstructed_metric_inputs_available": 176,
+    "reentry_mode": {"OFF": 176, "SHADOW": 0, "ENFORCE": 0, "UNKNOWN": 0},
+    "strategy_profile": {"causal-trend-entry-v1": 176},
+    "entry_quality_groups": {
+      "NOT_RECORDED": {"trades": 167, "net_usdt": "-44.94956311", "wins": 62, "losses": 105},
+      "ENFORCE_BODY_INVALIDATION": {"trades": 9, "net_usdt": "-0.12189926", "wins": 4, "losses": 5}
+    },
+    "interpretation": "Before/after groups differ in time, market and selection; these totals do not estimate the body guard's causal effect. OFF refers to the optional previous-trade structure gate, not the separate active same-bar opportunity claim."
+  },
+  "proven_previous_trade_association": {
+    "basis": "Same scoped symbol; previous episode's actual close and recorded close-known time both precede current decision; association bounded by loaded history.",
+    "SAME_SIDE_PRIOR": {"trades": 79, "net_usdt": "-29.07753699", "wins": 31, "losses": 48},
+    "OPPOSITE_SIDE_PRIOR": {"trades": 33, "net_usdt": "-0.86329266", "wins": 14, "losses": 19},
+    "NO_PROVEN_PRIOR_IN_BOUNDED_HISTORY": {"trades": 64, "net_usdt": "-15.13063272", "wins": 21, "losses": 43},
+    "interpretation": "Associations are neither independent opportunities nor counterfactual strategy returns. No proven previous trade does not mean first-ever trade. No claim that a structural reset did or did not occur between trades."
+  },
+  "descriptive_metrics_reconstructed_from_frozen_inputs": {
+    "basis": "Frozen current directional price and closed 15m structure; sign-adjusted for BUY/SELL. This is retrospective arithmetic on entry-time evidence, not proof that these exact metrics were recorded or used at the time.",
+    "precision": "Displayed medians rounded to six decimal places; no bin or cutoff selected.",
+    "sample_counts": {"all": 176, "wins": 66, "losses": 110},
+    "medians": {
+      "confirming_body_retrace_fraction": {"all": "0.000000", "wins": "0.000000", "losses": "0.001597"},
+      "ema60_extension_atr": {"all": "4.341019", "wins": "4.502043", "losses": "4.275072"},
+      "relative_volume": {"all": "1.849866", "wins": "2.107848", "losses": "1.763237"},
+      "directional_4h_return_pct": {"all": "5.675000", "wins": "6.250000", "losses": "5.575000"},
+      "directional_taker_share": {"all": "0.859913", "wins": "0.819735", "losses": "0.882207"}
+    },
+    "counter_evidence": [
+      "Winners have larger median EMA60 extension and larger prior directional 4h return than losers. The JCT losing pair does not justify a generic extension or prior-return veto.",
+      "Losers have larger median directional taker share; stronger observed one-sided taker flow alone does not establish more profitable continuation.",
+      "Winning and losing trades both exhibit partial body retracement. Cohort maximum retracement is about 0.643 and occurs among winners, not only losers.",
+      "Volume medians differ descriptively, but traded-candidate selection, symbol clustering, market timing and multiple comparisons prevent claiming an independent predictive effect."
+    ]
+  },
+  "jct_pair": {
+    "symbol": "JCTUSDT",
+    "side": "BUY",
+    "date": "2026-11-08",
+    "timezone": "Asia/Shanghai",
+    "first": {
+      "actual_open": "15:16:35",
+      "actual_close": "15:29:54",
+      "closed_structure_bar": "15:15:00",
+      "net_usdt": "7.26622736",
+      "exit_reason": "PEAK_DRAWDOWN",
+      "relative_volume": "2.150948250966633462",
+      "directional_4h_return_pct": "15.15",
+      "confirming_body_retrace_fraction": "0",
+      "ema60_extension_atr": "3.493347703937728388",
+      "breakout_acceptance_atr": "0.980082631705099249",
+      "taker_buy_ratio": "0.697838532203336113",
+      "jev_result": "MODEL_APPROVED",
+      "jev_trend_supported": "0.60",
+      "jev_chase_risk": "0.66"
+    },
+    "second": {
+      "actual_open": "16:49:21",
+      "actual_close": "17:02:06",
+      "closed_structure_bar": "16:45:00",
+      "net_usdt": "-6.22558617",
+      "exit_reason": "EMERGENCY_LOSS",
+      "relative_volume": "1.220354407893319392",
+      "directional_4h_return_pct": "37.32",
+      "confirming_body_retrace_fraction": "0.263829787234042553",
+      "ema60_extension_atr": "4.772744816159278882",
+      "breakout_acceptance_atr": "0.72929773379637204",
+      "taker_buy_ratio": "0.812108056929428906",
+      "jev_result": "MODEL_APPROVED",
+      "jev_trend_supported": "0.61",
+      "jev_chase_risk": "0.67"
+    },
+    "pair_net_usdt": "1.04064119",
+    "gap_after_previous_close_minutes_approx": "79.45",
+    "shared_frozen_controls": {
+      "reentry.mode": "OFF",
+      "history.mode": "OFF",
+      "entry_quality.mode": "ENFORCE_BODY_INVALIDATION",
+      "entry_quality.reason": "BODY_NOT_ERASED"
+    },
+    "interpretation": [
+      "The second entry consumes a different closed 15m bar. It is not the same-bar duplicate that the opportunity claim is designed to reject.",
+      "The current body guard rejects full body invalidation, not a 26.38 percent partial retracement. Both candidates correctly passed its present contract.",
+      "First entry was farther from its breakout anchor in ATR units than the losing second entry. Blindly reducing the existing breakout chase-distance limit could reject the winner first.",
+      "Second entry has stronger observed taker buying, which is counter-evidence to a simple exhaustion explanation.",
+      "Both JEV results were real and timely; their uncalibrated hypothesis scores are not win probabilities or proof of model benefit."
+    ]
+  },
+  "code_contracts_verified": [
+    {"path": "v2_core/trend_opportunities.py", "runtime": "jev-freshness-controller-20261108-v1", "finding": "Opportunity identity includes symbol, side, profile and last closed 15m bar; it does not prove reset since a previous closed trade."},
+    {"path": "services/v2_entry_structure.py", "runtime": "jev-freshness-controller-20261108-v1", "finding": "reentry.mode OFF returns without querying or applying previous-trade structural checks."},
+    {"path": "v2_core/trend_entry_quality.py", "runtime": "jev-freshness-controller-20261108-v1", "finding": "Only fully erased confirming body is actionable; partial retracement and prior returns are explicitly observation-only."},
+    {"path": "services/v2_jev_reference.py", "runtime": "jev-freshness-controller-20261108-v1", "finding": "Public model features include measured ATR, EMA20 gap, relative volume, taker flow, returns and eligible funding/spread; not breakout anchor, body-retention observations, EMA60 extension or previous-trade structural-reset state."}
+  ],
+  "missing_evidence": [
+    "Complete causal between-trade path and structural-reset labels were not reconstructed in this bounded review.",
+    "The current unprivileged read-only role could not read v2_reentry_observations; no role expansion or broad scan was performed.",
+    "Frozen entry facts and realized outcomes do not supply a counterfactual path after altered entries, exits, risk sizing or model thresholds.",
+    "There is no matched or randomized JEV comparison for this pair or this cohort.",
+    "Testnet measurements and fills do not prove equivalent LIVE liquidity, slippage or market impact."
+  ],
+  "next_hypotheses": [
+    {
+      "name": "SAME_DIRECTION_NEW_BAR_VERSUS_NEW_STRUCTURE",
+      "question": "After a closed trade, does renewed consolidation or pullback/resume confirmation distinguish a genuinely new opportunity from another extension of the same move?",
+      "evaluation": "Freeze explicit causal reset/confirmation definitions before evaluating a later, unused time window. Retain all eligible candidates, unavailable evidence and baseline outcomes; evaluate under one fixed rule version.",
+      "falsifier": "No reliable incremental separation after accounting for direction, symbols, opportunity clustering, selection and market timing, or unacceptable rejection of profitable sustained trends.",
+      "action_now": "RESEARCH_ONLY_NO_FIXED_COOLDOWN"
+    },
+    {
+      "name": "PUBLIC_STRUCTURAL_CONTEXT_FOR_JEV",
+      "question": "Do already-measured public candle retention and breakout acceptance features improve JEV discrimination beyond the existing feature whitelist?",
+      "evaluation": "Version and validate public-only schema, retain missingness and clocks, compare baseline versus enriched context prospectively without exposing balances, account identifiers or private trade history. Do not infer performance from pass rate.",
+      "falsifier": "No reproducible incremental value on a held-out window after cost and availability differences, or additional latency degrading the entry pipeline.",
+      "action_now": "DESIGN_HYPOTHESIS_NOT_DEPLOYED"
+    }
+  ],
+  "decisions": {
+    "strategy_parameters_changed": false,
+    "reentry_mode_changed": false,
+    "stop_or_leverage_changed": false,
+    "jev_threshold_changed": false,
+    "trading_service_restarted_by_this_review": false,
+    "profitability_improvement_proven": false
+  }
+}

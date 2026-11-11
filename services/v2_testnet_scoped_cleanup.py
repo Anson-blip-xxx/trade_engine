@@ -6,7 +6,6 @@ workers. No automatic retry of any external write after its durable CAS.
 """
 
 import json
-import re
 import time
 from dataclasses import asdict
 from uuid import UUID, uuid5
@@ -14,6 +13,7 @@ from uuid import UUID, uuid5
 from services.v2_testnet_cleanup import Cleanup
 from v2_core.ledger import amount
 from v2_core.state import BusinessState, StateKey
+from v2_core.symbols import is_supported_symbol
 
 
 class ScopedCleanup(Cleanup):
@@ -40,7 +40,7 @@ class ScopedCleanup(Cleanup):
             scope.environment,
         ):
             raise ValueError("ACCOUNT_BINDING_MISMATCH")
-        if not re.fullmatch(r"[A-Z0-9_]{1,40}", symbol):
+        if not is_supported_symbol(symbol):
             raise ValueError("INVALID_SYMBOL")
         if any(type(x) is not int or x <= 0 for x in approved_algos):
             raise ValueError("INVALID_APPROVED_ALGOS")

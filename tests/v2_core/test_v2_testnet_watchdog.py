@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 from psycopg.types.json import Jsonb
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_testnet_watchdog import (
     DaemonHeartbeat,
@@ -17,6 +16,7 @@ from services.v2_testnet_watchdog import (
     WatchdogTelegramNotifier,
     watchdog_credentials,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.state import StateKey
 from v2_core.telegram import TelegramOperationalSink

@@ -8,11 +8,11 @@ from threading import Barrier
 
 import pytest
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 from test_v2_reentry import bar
 
 from services.v2_reentry_archive import ReadLimits, ReentryArchive
 from services.v2_reentry_checkpoints import ReentryCheckpoints
+from tests.support.v2_admission import database as database_fixture
 from v2_core.quant_indicators import Bar
 from v2_core.reentry import ReentryPolicy, assess_reentry
 from v2_core.reentry_checkpoint import advance, assess, seed, verify

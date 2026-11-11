@@ -1,0 +1,104 @@
+{
+  "status": "RELEASED_AND_RECOVERY_VERIFIED",
+  "verified_at": "2026-11-05T08:41:28+08:00",
+  "environment": "SANDBOX",
+  "incident": {
+    "symbol": "ICNTUSDT",
+    "first_precision_failure_at": "2026-11-04T18:02:10.285+08:00",
+    "blocking_code": "UNEXPLAINED_FILL_PNL_PRECISION",
+    "cause": "Native stop close was adopted through external-close reconciliation. Settlement did not read its original immutable stop-creation entry-price evidence.",
+    "theoretical_gross_pnl": "-0.28830000",
+    "venue_gross_pnl": "-0.28829999",
+    "exact_proven_correction": "0.00000001"
+  },
+  "change": {
+    "runtime_files": [
+      "v2_core/native_entry_precision.py",
+      "v2_core/settlement_precision.py",
+      "services/v2_directional_cash.py"
+    ],
+    "sources": ["BINANCE_EXTERNAL_CLOSE", "BINANCE_ALGO_CHILD"],
+    "proof": "Exact stop creation v1, creation protocol reason, current immutable creation equality, original adopted-order owner, deterministic parent client identity, per-fill venue order and symbol, pre-close entry-price observation and exact per-fill truncation.",
+    "unchanged": [
+      "No cash epsilon or financial reconciliation tolerance increase",
+      "No original fill or income overwrite",
+      "No risk, strategy, account, leverage or position-size setting changes",
+      "Wallet reconciliation and reserved-risk release remain mandatory",
+      "No manual order or forced test trade",
+      "Unknown manual/liquidation close evidence cannot use this witness"
+    ]
+  },
+  "qa": {
+    "isolated_regression": {"passed": 485, "failed": 0, "duration_seconds": 257.37},
+    "candidate_native_regression": {
+      "passed": 99,
+      "pg_tests_deselected": 10,
+      "all_loaded_services_and_core_from_candidate": true,
+      "note": "The 10 PG witness tests are covered by the isolated regression run. Counts are not additive unique test counts."
+    },
+    "coverage": [
+      "Long/short and decimal contexts 6/28/100",
+      "Normal native child fills without nested native binding",
+      "Externally adopted close with stale parent NEW status",
+      "Multiple fills with independently proven truncation",
+      "Account, symbol, order, ownership, timestamps, creation and history corruption",
+      "Additional unexplained cash quantum must reject",
+      "Existing wallet mismatch, rollback and settlement idempotence regressions"
+    ],
+    "actual_read_only_replay": {
+      "before": "UNEXPLAINED_FILL_PNL_PRECISION",
+      "after": "CASH_MATCHED",
+      "transaction_read_only": true,
+      "cash_match_alone_authorizes_settlement": false,
+      "other_income_rows_independently_owned": 15
+    },
+    "ruff_and_scoped_diff_check": "PASS"
+  },
+  "deployment": {
+    "prior": "/opt/trade-engine-v2/releases/mover-symbol-controller-20261102-v1",
+    "current": "/opt/trade-engine-v2/releases/native-close-precision-controller-20261105-v1",
+    "unit": "trade-v2-execution-controller.service",
+    "active_at": "2026-11-05T08:38:40+08:00",
+    "forced_stop": false,
+    "same_binding": true,
+    "manage_only_coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "route_phase": "ACTIVE",
+    "controller_pid": 3944882,
+    "market_hub_pid_unchanged": 1724401,
+    "tradingview_ingress_pid_unchanged": 1724402,
+    "sha256": {
+      "v2_core/native_entry_precision.py": "0395509cb74b95094f6ec6f7dca722ce4e85bb8050bdb3422094e20dc9b22aba",
+      "v2_core/settlement_precision.py": "6bb442453e2cc3e1b89ae7f841a335a83d1959910980efdf12fdf9508edccd53",
+      "services/v2_directional_cash.py": "3663c452c30b1c5bc90f682d0c8dabb7e7d30daa8594c515081adb51200b32f8"
+    }
+  },
+  "runtime_acceptance": {
+    "incident_episode_status": "SETTLED",
+    "incident_settlements": 1,
+    "incident_precision_adjustments": 1,
+    "incident_verified_net_pnl": "-0.36493503",
+    "latest_five_cycles": "CYCLE_COMPLETE",
+    "latest_five_settlement_stages": "CLEAR",
+    "latest_five_entry_dispatch_enabled": true,
+    "latest_five_maintenance_component_failures": false,
+    "signal_lag_status": "CLEAR",
+    "active_health_alerts": [],
+    "valid_signal_lag": {"s6:s3": 0, "s8:s3": 0, "s6:tv_bridge": 0, "s8:tv_bridge": 0},
+    "fresh_decision_sample_at": "2026-11-05T08:39:51+08:00",
+    "fresh_decision_sample": {
+      "s6_regime_conflict": 60,
+      "s8_trend_atr_exceeded": 2,
+      "s8_trend_flow_unconfirmed": 1,
+      "s8_trend_no_fresh_setup": 6,
+      "s8_trend_volume_unconfirmed": 5,
+      "s8_jev_result_unavailable_separately_counted": 1
+    },
+    "fresh_sample_note": "Received after release and decided before expiry. Strategy rejections prove consumption, not trade acceptance or profitability. Expiry cleanup is not counted as decision recovery.",
+    "new_open_fill_claimed": false,
+    "future_profitability_claimed": false
+  },
+  "separate_performance_followups": [
+    "Health full-history receipt anti-joins take approximately 2-4 seconds on the S3 signal history. Not the immediate settlement blockage; optimize and benchmark independently.",
+    "Historical maintenance page cap only shrinks within a process lifetime. Restart warmup produced bounded QueryCanceled components; the latest five cycles have no component failures. Review recovery/backoff separately without broadening hotfix scope."
+  ]
+}

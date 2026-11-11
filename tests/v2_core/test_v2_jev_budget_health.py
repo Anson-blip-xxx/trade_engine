@@ -4,7 +4,6 @@ from dataclasses import asdict, replace
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_position_alert_details import event, notifier
 from test_v2_testnet_watchdog import Stop
 
@@ -19,6 +18,7 @@ from services.v2_jev_coordinator import (
 from services.v2_jev_entry_context import policy_key
 from services.v2_jev_reference import CONTROL_KEY
 from services.v2_testnet_watchdog import HealthWatchdog
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.jev_advisory import RESERVE_TOKENS, AdvisoryPolicy
 from v2_core.jev_entry_gate import JevEntryGatePolicy

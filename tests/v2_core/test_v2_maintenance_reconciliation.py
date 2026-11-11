@@ -2,10 +2,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_protection_child import SCOPE
 from test_v2_protection_child import setup as setup_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance import BinanceFutures
 from v2_core.errors import SubmissionNotSent
 from v2_core.maintenance_reconciliation import MaintenanceCloseReconciler

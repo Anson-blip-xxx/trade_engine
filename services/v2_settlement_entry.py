@@ -6,9 +6,13 @@ Every actual order still needs the existing account and venue safety guards.
 """
 
 import json
+import time
+from contextlib import contextmanager
 from dataclasses import asdict
 from uuid import UUID
 
+from v2_core.account_coverage import AccountCoverageAudit
+from v2_core.account_inventory import ACCOUNT_CONFIG_PATH, ROUTES
 from v2_core.evidence import canonical, digest
 from v2_core.state import BusinessState, StateKey
 
@@ -27,7 +31,62 @@ def entry_clearance(stage, result, protection_coverage):
         return None
 
 
-def _checked(stage, result, protection_coverage):
+def _refresh_coverage(stage):
+    """One bounded read-only venue audit; never extend an observation's age.
+
+    GET admission stops after five seconds, with the deadline checked again
+    after every response. An in-flight request retains the transport's existing
+    bounded socket timeout (10s in the deployed worker), not a claimed 5s
+    interrupt. Database reads/writes use independent connections, 1s statements
+    and 50ms lock waits. A late result cannot grant entry clearance.
+    """
+    deadline = time.monotonic() + 5
+
+    def remaining():
+        available = int((deadline - time.monotonic()) * 1000)
+        if available <= 0:
+            raise TimeoutError("SETTLEMENT_COVERAGE_REFRESH_DEADLINE")
+        return available
+
+    @contextmanager
+    def connect():
+        remaining()
+        with stage.connect() as connection:
+            limit = min(1000, remaining())
+            connection.execute(f"SET LOCAL statement_timeout='{limit}ms'")
+            connection.execute("SET LOCAL lock_timeout='50ms'")
+            yield connection
+            remaining()
+
+    request = stage.coverage.inventory.request
+    routes = {path for _, path in ROUTES} | {ACCOUNT_CONFIG_PATH}
+
+    class ReadOnlyRequest:
+        account_id = request.account_id
+        environment = request.environment
+
+        def __call__(self, method, path, params):
+            if method != "GET" or path not in routes or params:
+                raise ValueError("SETTLEMENT_COVERAGE_REFRESH_READ_ONLY")
+            remaining()
+            response = request(method, path, params)
+            remaining()
+            return response
+
+    audit = AccountCoverageAudit(
+        connect,
+        ReadOnlyRequest(),
+        scope=stage.scope,
+        clock_ms=stage.clock,
+        excluded_position_symbols=stage.coverage.excluded_position_symbols,
+    )
+    audit.inventory.max_duration_ms = 5000
+    result = audit.run_once()
+    remaining()
+    return result
+
+
+def _checked(stage, result, protection_coverage, *, allow_refresh=True):
     if stage.scope.environment != "SANDBOX" or not isinstance(result, dict):
         return None
     if (
@@ -76,7 +135,13 @@ def _checked(stage, result, protection_coverage):
         or type(values["enabled"]) is not bool
     ):
         return None
-    if stage.coverage.reuse_after_protection(protection_coverage) is None:
+    reusable = stage.coverage.reuse_after_protection(protection_coverage)
+    expired = (
+        reusable is None
+        and allow_refresh
+        and stage.coverage.expired_after_protection(protection_coverage)
+    )
+    if reusable is None and not expired:
         return None
     with stage.connect() as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -142,7 +207,22 @@ def _checked(stage, result, protection_coverage):
                     "risk_policy_version": policy_version,
                 }
             )
-    # No facts or timestamps are refreshed. The second durable proof check also
+    if expired:
+        # Validate ALL closed episodes and held reservations before spending
+        # another venue audit. Re-run every policy/account/ledger fence against
+        # the new observation; there is no recursive refresh or cached permit.
+        refreshed = _refresh_coverage(stage)
+        if BusinessState(stage.connect).read(policy_key(stage.scope)) != selected:
+            return None
+        answer = _checked(stage, result, refreshed, allow_refresh=False)
+        if answer is not None:
+            answer["evidence"]["coverage_refresh"] = {
+                "reason": "PERSISTED_COVERAGE_AGE_EXPIRED",
+                "previous_observation_id": protection_coverage["observation_id"],
+                "attempts": 1,
+            }
+        return answer
+    # No old facts or timestamps are refreshed. The second durable proof check also
     # fences fills/order state changes while the local checks were running.
     if stage.coverage.reuse_after_protection(protection_coverage) is None:
         return None

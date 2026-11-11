@@ -268,6 +268,138 @@ class StrategyWorker:
                 "reason": reason,
             }
 
+    def reject_completed_jev(self, signal_id, *, lease_token):
+        """Optional PG-only terminal veto; never invokes admission or orders.
+
+        The original signal lock serializes with ordinary consumption. Any
+        existing decision/receipt/intent wins. A live matching task lease and
+        unchanged fixed model binding are mandatory; uncertain reads roll back
+        and return to the scheduler's normal fresh-context path.
+        """
+        check = getattr(self.entry_filter, "terminal_veto", None)
+        if not callable(check):
+            return None
+        from v2_core.jev_entry_gate import GateAssessment
+        from v2_core.signals import Signals
+
+        try:
+            signal_id, lease_token = str(UUID(signal_id)), str(UUID(lease_token))
+            with self._connect() as conn, conn.transaction():
+                conn.execute("SET LOCAL lock_timeout='50ms'")
+                conn.execute("SET LOCAL statement_timeout='100ms'")
+                conn.execute(
+                    "SELECT 1 FROM v2_inbound_signals WHERE signal_id=%s FOR UPDATE",
+                    (signal_id,),
+                )
+                signal, stored, receipt = self._read(conn, signal_id)
+                if stored is not None or receipt is not None:
+                    return None
+                if conn.execute(
+                    "SELECT 1 FROM v2_trade_intents WHERE signal_id=%s "
+                    "AND (exchange,account_id,environment,product,producer)=(%s,%s,%s,%s,%s) LIMIT 1",
+                    (signal_id, *asdict(self.scope).values()),
+                ).fetchone():
+                    return None
+                task = conn.execute(
+                    "SELECT attempts,lease_token::text,lease_until>clock_timestamp(),completed_at IS NULL "
+                    "FROM v2_strategy_tasks WHERE consumer=%s AND signal_id=%s FOR UPDATE",
+                    (self.scope.consumer, signal_id),
+                ).fetchone()
+                if (
+                    task is None
+                    or type(task[0]) is not int
+                    or task[0] < 1
+                    or task[1:] != (lease_token, True, True)
+                ):
+                    return None
+                assessment = check(
+                    conn=conn,
+                    signal_id=signal_id,
+                    signal=deepcopy(signal),
+                    config=json.loads(self.config_json),
+                    consumer=self.scope.consumer,
+                )
+                if (
+                    not isinstance(assessment, GateAssessment)
+                    or assessment.status != "VETO"
+                    or assessment.reason
+                    not in {"JEV_TREND_UNSUPPORTED", "JEV_CHASE_RISK_HIGH"}
+                ):
+                    return None
+                if assessment.decision != StrategyDecision(
+                    "IGNORED", assessment.reason
+                ):
+                    return None
+                gate = json.loads(assessment.evidence_json)
+                if (
+                    gate.get("status") != "VETO"
+                    or gate.get("reason") != assessment.reason
+                    or gate.get("execution_authorized") is not False
+                    or gate.get("risk_override") is not False
+                    or gate.get("admission_authorized") is not False
+                    or gate.get("fresh_account_recheck") != "NOT_RUN_TERMINAL_VETO"
+                ):
+                    return None
+                now, owned = conn.execute(
+                    "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint, "
+                    "lease_token=%s::uuid AND lease_until>clock_timestamp() AND completed_at IS NULL "
+                    "FROM v2_strategy_tasks WHERE consumer=%s AND signal_id=%s",
+                    (lease_token, self.scope.consumer, signal_id),
+                ).fetchone()
+                if not owned or not gate["timing"]["checked_at_ms"] <= now < min(
+                    gate["timing"]["deadline_ms"],
+                    gate["model_expires_at_ms"],
+                    signal["expires_at_ms"],
+                ):
+                    return None
+                identity = str(uuid5(_NAMESPACE, self.scope.consumer + ":" + signal_id))
+                snapshot = {
+                    "signal_id": signal_id,
+                    "observed_at": signal["observed_at"],
+                    "decided_at": now,
+                    "expires_at_ms": signal["expires_at_ms"],
+                    "source": self.source,
+                    "symbol": signal["symbol"],
+                    "rationale": assessment.reason,
+                    "features": {
+                        "signal": signal["features"],
+                        "context": {},
+                        "evaluation": {
+                            "jev_entry_gate": gate,
+                            "admission_authorized": False,
+                            "execution_authorized": False,
+                            "fresh_account_recheck": "NOT_RUN_TERMINAL_VETO",
+                        },
+                    },
+                    "result": {"action": "IGNORED", "side": None, "quantity": None},
+                }
+                proof = DecisionEvidence(
+                    self.strategy_version, self.config_json, canonical(snapshot)
+                )
+                if len((proof.config_json + proof.snapshot_json).encode()) > 1_000_000:
+                    return None
+                bound = lambda: nullcontext(conn)
+                EvidenceStore(bound).put(proof)
+                conn.execute(
+                    "INSERT INTO v2_strategy_decisions (decision_id,consumer,signal_id,evidence_ref,action,side,quantity) "
+                    "VALUES (%s,%s,%s,%s,'IGNORED',NULL,NULL)",
+                    (identity, self.scope.consumer, signal_id, proof.evidence_ref),
+                )
+                Signals(bound).complete(
+                    consumer=self.scope.consumer,
+                    signal_id=signal_id,
+                    outcome="IGNORED",
+                    reason=assessment.reason,
+                )
+                return {
+                    "status": "IGNORED",
+                    "signal_id": signal_id,
+                    "decision_id": identity,
+                    "reason": assessment.reason,
+                }
+        except Exception:  # noqa: BLE001 - rollback optional negative path, no global block
+            return None
+
     def consume(self, signal_id, *, context):
         signal_id = str(UUID(signal_id))
         with self._connect() as conn:
@@ -490,11 +622,42 @@ class StrategyWorker:
                 )
                 _, stored, receipt = self._read(conn, signal_id)
                 if stored is None and receipt is None:
+                    from v2_core.trend_opportunities import claim_trend_opportunity
+
+                    opportunity = claim_trend_opportunity(
+                        conn,
+                        scope=self.scope,
+                        config=json.loads(self.config_json),
+                        snapshot=snapshot,
+                        decision_id=identity,
+                    )
+                    if opportunity is not None:
+                        snapshot["features"]["evaluation"]["trend_opportunity"] = (
+                            opportunity
+                        )
+                        if opportunity["status"] == "DUPLICATE_OPPORTUNITY":
+                            result = StrategyDecision(
+                                "IGNORED", "TREND_OPPORTUNITY_ALREADY_CLAIMED"
+                            )
+                            snapshot["rationale"] = result.rationale
+                            snapshot["result"] = {
+                                "action": result.action,
+                                "side": None,
+                                "quantity": None,
+                            }
+                        proof = DecisionEvidence(
+                            self.strategy_version,
+                            self.config_json,
+                            canonical(snapshot),
+                        )
                     # Cross-source candidates share one rolling opportunity window.
                     # The lock covers check + first immutable decision, including
                     # crashes before the winning decision is admitted as an intent.
+                    # The causal profile instead consumes the exact closed bar;
+                    # a genuinely new bar has no arbitrary rolling cooldown.
                     if (
-                        json.loads(self.config_json).get("dynamic_universe")
+                        opportunity is None
+                        and json.loads(self.config_json).get("dynamic_universe")
                         and result.action == "OPEN"
                     ):
                         fusion = frozen_context.get("signal_fusion", {})

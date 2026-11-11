@@ -1,4 +1,49 @@
-# Trading Engine
+# Trading Engine V2
+
+> 当前入口索引，核对日期：2026-10-31。这个工作树不是旧 `trading_engine`
+> 运行目录；工作树的最新源码也不等于所有服务当前部署的版本。
+> 下方折叠的 V1 说明仅供追溯，不能据此启动服务、调整资金比例或切换实盘。
+
+## 当前代码与运行入口
+
+| 职责 | 当前代码入口 | 注意事项 |
+|---|---|---|
+| 账户执行控制、子进程生命周期 | `services/v2_execution_supervisor.py`、`v2_execution_controller.py`、`v2_managed_testnet.py` | 独立 daemon 服务停用不代表它的装配代码已废弃 |
+| 行情采集与信号生产 | `services/v2_market_hub_entry.py`、`v2_s3_runtime.py` | 仍复用 `s0/core.py`、`s3/core.py`、`s3/detector.py` |
+| TradingView 接收 | `services/v2_tradingview_server.py` | 接收信号，不直接授权下单 |
+| 交易阶段编排 | `services/v2_trading_pipeline.py`、`v2_directional_*.py` | 保持保护、结算、维护和开仓阶段的预算与执行顺序 |
+| 账户管理与看板 | `services/v2_account_admin_entry.py`、`v2_dashboard.py` | 各自有独立发布版本；查看账户不等于切换实际执行账户 |
+| 复盘与研究旁路 | `services/v2_daily_mover_*`、`v2_reentry_*`、`v2_positioning_*`、`v2_onchain_*`、`v2_trend_campaign_*` | 需区分实时参考、观察任务与离线研究，不按文件名推断交易权限 |
+| 领域规则、台账与存储接口 | `v2_core/` | 已发现的跨层依赖列入维护计划，不宣称当前边界已完全纯化 |
+
+当前数据职责：PostgreSQL 保存交易事实、账户绑定、幂等与审计；Redis 用于缓存、
+共享行情及调度协调；ClickHouse 用于行情归档和分析。禁止用本地文件兜底交易状态。
+策略阈值和账户环境以当前绑定及版本化配置为准，不采用历史文档里的固定值。
+
+部署根是 `/opt/trade-engine-v2/`，不是直接运行本工作树。定位现行版本应同时核对
+systemd `WorkingDirectory`/`ExecStart`、符号链接目标和源码摘要；不能直接把工作树
+覆盖到运行目录，也不能按日期删除旧 release，基础设施可能仍引用其配置。
+
+## 维护与验收
+
+- [2026-10-31 整体评估与有序清理路线](docs/v2/V2_UPGRADE_MASTER_PLAN.md#2026-10-31-维护与结构优化路线当前)
+- [代码、部署与退役证据清单](docs/v2/CODEBASE_REVIEW_20261031.json)
+- [2026-11-01 M1 边界拆分与隔离回归验收](docs/v2/M1_BOUNDARIES_ACCEPTANCE_20261101.json)（工作树完成，未发布）
+- [2026-11-01 信号历史维护热修复验收](docs/v2/SIGNAL_HISTORY_HOTFIX_20261101.json)（与 M1 分开打包，状态以记录为准）
+- [V2 数据架构基线](docs/v2/V2_DATA_ARCHITECTURE_RESET.md)
+- 旧 `SYSTEM_TOPOLOGY.md` 和早期 Phase 文档是历史记录，不是当前服务清单。
+- 测试分为：离线单元/架构约束、临时 Unix socket 数据库集成、服务发布组合验收。
+  三者不能互相替代；测试数量不能代替准确的覆盖范围与失败列表。
+- 数据库集成使用 `scripts/qa_v2_data_core.sh` 创建的隔离环境；禁止传入业务数据库 DSN。
+  `tests/v2_core/conftest.py` 的外网禁用约束必须保留。
+
+已退役的 V2 副本：旧市场播报脚本与自动推送 main 的脚本。旧仓、运行发布目录和
+调度配置没有随之删除；原文件可从 Git 历史恢复，但不应直接恢复执行。
+
+<details>
+<summary>历史 V1 说明（仅供追溯，不是当前 V2 操作手册）</summary>
+
+# Trading Engine — Historical V1
 
 Automated Binance Futures trading system with event-driven strategies, unified position management, and multi-layered risk controls (signal quality gates → account-level breakers → real-time profit locks).
 
@@ -244,3 +289,5 @@ pytest -q          # unit + regression tests (risk caps, gates, guards, ledger)
 - **Data:** Redis (live state), PostgreSQL (transactional ledger), ClickHouse (analytics)
 - **Monitoring:** Prometheus (`:8000/metrics`) + Telegram alerts
 - **Exchange:** Binance Futures API (FAPI, testnet supported via `BINANCE_TESTNET=true`)
+
+</details>

@@ -1,0 +1,105 @@
+{
+  "change_set": "strategy-correctness-20261029",
+  "verified_at": "2026-10-29T10:14:39+08:00",
+  "base_commit": "ab825702a639dbbe6ebf308bb5c7e8499e6978fa",
+  "status": "CANDIDATE_CORRECTNESS_VERIFIED_NOT_DEPLOYED",
+  "candidate_feature_version": "s3-closed-1m-v5",
+  "candidate_confirmation_version": 2,
+  "default_shared_feature_version": "s3-closed-1m-v2",
+  "default_confirmation_version": 1,
+  "explicit_market_daemon_config": "V2_MARKET_FEATURE_VERSION",
+  "allowed_daemon_versions": [
+    "s3-closed-1m-v2",
+    "s3-closed-1m-v5"
+  ],
+  "deployed_to_execution": false,
+  "runtime_policy_changed": false,
+  "service_restarts": false,
+  "business_database_mutations": false,
+  "trading_orders_submitted": false,
+  "release_eligible": false,
+  "unperformed_release_checks": [
+    "COORDINATED_CONTROLLER_HUB_PUBLICATION_AND_VERSION_CONVERGENCE",
+    "CONTROLLED_SANDBOX_CANARY_WITH_CONFIRMED_EXISTING_POSITION_PROTECTION"
+  ],
+  "profitability_validated": false,
+  "unresolved_research": [
+    "REALIZED_MOVE_PROXY_STILL_USED_BY_REWARD_RISK_GATE",
+    "MOMENTUM_REVERSAL_SEPARATE_EXIT_VALIDATION",
+    "PROSPECTIVE_COST_INCLUSIVE_EDGE_AND_TREND_CAPTURE"
+  ],
+  "data_baseline": {
+    "as_of": "2026-10-29T09:54:11.228+08:00",
+    "observed": 200,
+    "settled": 199,
+    "unsettled": 1,
+    "net_pnl_usdt": "-42.68771967",
+    "gross_pnl_usdt": "-16.08664760",
+    "profit_factor": "0.92674247",
+    "cashflow_classification_independently_verified": false
+  },
+  "validation": {
+    "suite": "20 changed-path modules; isolated PostgreSQL+Redis, external TCP prohibited",
+    "passed": 705,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 95.22,
+    "command_prefix": "bash scripts/qa_v2_data_core.sh --confcutdir=tests/v2_core -q",
+    "diagnostics": "/tmp/v2-data-qa.YGjItT",
+    "qa_database_retained": false,
+    "full_repository_suite_completed": false,
+    "interrupted_full_suite": {
+      "passed_before_interrupt": 789,
+      "exit_code": 2,
+      "diagnostics": "/tmp/v2-data-qa.Jv3sQ8",
+      "interpretation": "NOT_A_FULL_SUITE_PASS; replaced by completed changed-path regression"
+    },
+    "legacy_v1_v4_frame_and_event_goldens_preserved": true,
+    "invalid_metadata_consumed_without_blocking_next_signal": true,
+    "independent_review_finding": "P2 nested indicator scope/time binding fixed and retested",
+    "lint": "PASS; detector pre-existing UP035/UP045/SIM102 excluded",
+    "diff_whitespace_check": "PASS"
+  },
+  "same_input_archived_comparison": {
+    "cases": 5,
+    "selection": "LATEST_FIVE_ACTUAL_ENTRIES_NOT_PNL_SELECTED",
+    "compared": 5,
+    "unavailable": 0,
+    "policy_version": 9,
+    "regime_scenarios": [
+      "neutral",
+      "risk-off"
+    ],
+    "historical_regime_reconstructed": false,
+    "stateful_breakout_history_replayed": false,
+    "full_account_or_jev_admission_run": false,
+    "alternate_pnl_computed": false,
+    "artifact": "docs/research/STRATEGY_CORRECTNESS_SAME_INPUT_20261029.json"
+  },
+  "performance": {
+    "scope": "offline single-symbol build_frame; not runtime latency SLA",
+    "iterations_per_version": 12,
+    "v2_median_ms": 41.774,
+    "v5_median_ms": 48.692,
+    "v2_max_ms": 62.159,
+    "v5_max_ms": 82.79
+  },
+  "source_sha256": {
+    "s3/detector.py": "f2d4a81cc98899d2546a6d7dcb6cf40710385dca94a98cd15e3220395e3b3f60",
+    "services/v2_directional_replay.py": "6eb3aadf17b7a381a8264565b3d69eb965500ba809570f3175b2182ff21a4206",
+    "services/v2_market_hub_entry.py": "57c3bc14bff588aa8d3aadf35c4ccd2490929479dec29a9c9370c2a8edd0d1d3",
+    "services/v2_price_features.py": "8bc7daf6c7ba9037d40ef495dd233415512472a82974bf37c21c0eb9ee615919",
+    "services/v2_s3_candles.py": "315b880eacc62e3f3a56b15e87383dae8cecc60e3d1054f44b7211b01371d73a",
+    "services/v2_shared_market.py": "993c1acc9a18a341beb98b699ef91f5fa068b073de36529e8ec5482e9da13c48",
+    "services/v2_shared_risk_reference.py": "afdb287437af72e9af120d26eb4f2e4165a6ed251b4929e81a82958d98415803",
+    "services/v2_risk_reference.py": "4c41015650b7b8f2fd78c1f5cdf462fb22edd4628ee4f3bca80777122fed3980",
+    "services/v2_s0_regime.py": "2c3fbbb06835d95c55f38b5729716e838f021d1e583a05d44430c48db19935f1",
+    "services/v2_strategy_correctness_review.py": "d9c7245a7fa733684ba5b7910e66e005427b2f608e5ecee6cea01c12b11a8412",
+    "v2_core/directional.py": "34f66c250622de488a81bfeee47b7a6a70aefe662a8e0d1392d2f03733c989d3",
+    "v2_core/directional_rules.py": "c4129cb24c59a8dc35925107b43ade9072e388e842d1588d1078ef7310a249f7",
+    "v2_core/runtime_policy.py": "96432f31400a2c99123d9730cb192a96d15b8885cbbfcaf4239df175ae13d3a5",
+    "tests/v2_core/test_v2_strategy_correctness_flow.py": "6fa095efe0e6f0824e25992c41808304813cebe669c2924636b90bfe405a7a60",
+    "tests/v2_core/test_v2_entry_confirmation.py": "ca86d91cd536f07b21179b96ca46d6a565e9a978e8f7ca37483809b1b12e3b90",
+    "tests/v2_core/test_v2_indicator_contract_v5.py": "fdfb5337abf1976509cc4dbaa9286eeb2358724c5b2ea5e700e93491f50e9673"
+  }
+}

@@ -8,11 +8,11 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_shared_market import shared as shared_fixture
 
 from services import v2_directional_account_context as context_module
 from services.v2_testnet_daemon_entry import PrivateRatePermit
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.guarded_transport import GuardedSignedRequest
 from v2_core.public_market import BinancePublicMarket, PublicMarketError

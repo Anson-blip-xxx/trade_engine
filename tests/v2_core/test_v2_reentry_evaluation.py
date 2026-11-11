@@ -13,13 +13,13 @@ from test_v2_directional_admission import formal
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_replay import SCOPE, scenario
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 from test_v2_reentry_observer import installed as installed_fixture
 from test_v2_reentry_observer import observed
 
 from services.v2_reentry_evaluation import coverage_report, evaluation_summary, outcomes
 from services.v2_reentry_observation_report import observation_report
 from services.v2_reentry_observer import ObserverLimits, persist, read_only
+from tests.support.v2_admission import database as database_fixture
 from v2_core.strategy import StrategyScope
 
 database = database_fixture

@@ -1,0 +1,180 @@
+{
+  "date": "2026-11-08",
+  "timezone": "Asia/Shanghai",
+  "status": "SANDBOX_RELEASED_BOUNDED_NATURAL_RECHECK_VERIFIED_PROFITABILITY_NOT_PROVEN",
+  "workspace": "/home/ubuntu/.opencode/trade/trading_engine-v2",
+  "scope": {
+    "environment": "SANDBOX",
+    "manual_orders_or_closes": false,
+    "live_execution_changed": false,
+    "account_switch": false,
+    "risk_policy_or_score_thresholds_relaxed": false,
+    "signal_or_model_ttl_extended": false,
+    "database_schema_changed": false,
+    "dirty_workspace_wholesale_deployed": false,
+    "manual_model_queries": 0
+  },
+  "diagnosis": {
+    "s6_review_window": "2026-11-07 13:08 to 24:00 UTC+8",
+    "terminal_jev_decisions": 64,
+    "reasons": {
+      "JEV_TREND_UNSUPPORTED": 39,
+      "JEV_MARKET_SNAPSHOT_EXPIRED_AT_INITIAL_BIND": 15,
+      "JEV_REVIEW_DEADLINE_EXPIRED": 9,
+      "PASS": 1
+    },
+    "late_rechecks": {
+      "same_cycle_wake_succeeded_then_account_read_quota_rejected": 8,
+      "same_cycle_remaining_time_insufficient": 1,
+      "confirmed_minute_tail_cases": 5,
+      "additional_case_may_cross_boundary_during_preflight": 1,
+      "remaining_quota_cases_not_proven_to_be_minute_tail": 2,
+      "cause": "A 15-second context ticket was refused if its full requested lifetime crossed the current minute safety boundary, even when a shorter fresh context acquisition could fit.",
+      "provider_latency_not_primary_cause": true
+    },
+    "denominator_limit": "S6 decision events, not independent opportunities, all consumers, or model performance evidence. Model completions and decision events have different denominators."
+  },
+  "changes": {
+    "context_ticket": "Clip only a newly reserved admission ticket to the authoritative PG minute end minus 500ms; validate the original deadline first. Existing weight caps, management reserve, route allowances, minute fences and no-refund behavior remain.",
+    "context_ticket_limit": "The clipped allowance is not a socket-timeout override or a guarantee that network work finishes before expiry. Expiry and real quota exhaustion still deny the candidate safely.",
+    "model_continuation": "Persist bounded JEV retry classification in existing task.error_code; valid continuations precede ordinary new candidates but committed recovery remains first. One-second next-attempt eligibility, no same-run spin or new queue.",
+    "source_refresh": "Only an unbound, still-valid candidate with genuinely old S3 evidence may wait for a new source. Each attempt reacquires full fresh account context and redoes admission. Future/corrupt data and already-bound deadlines are never repaired or retimed.",
+    "source_refresh_limit": "This gives the existing producer a chance to publish within the original signal lifetime. It cannot guarantee recovery of every stale candidate and does not avoid the initial account reads.",
+    "health": "Distinguish JEV recheck read-quota waits from capital-capacity waits while retaining true lag reporting.",
+    "replay": "Accept only the exact known legacy policy key set; explicitly evaluate its two historically absent guard/shadow features as false. Preserve original config/hash and record separate adapter provenance/evaluation hash. Arbitrary partial or future schemas remain unknown."
+  },
+  "controller": {
+    "prior": "/opt/trade-engine-v2/releases/entry-clearance-quality-controller-20261107-v1",
+    "candidate": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+    "staging": "/tmp/v2-nov08-frozen-qa.cTQMMs",
+    "changed_files": {
+      "v2_core/shared_market.py": "c8573047aafdc12aa2a59b68b414d644f128f7408b8c72960a0daba93b661fc7",
+      "services/v2_jev_entry_context.py": "0b81c403d810e110ed6c47149bbcefdfdc4a34e378d544d70bf0d93065416eec",
+      "v2_core/scheduling.py": "5df869b405ba8791c1663d1e8f8ea04f52688bb21fb349b6a1981be404c9946d",
+      "services/v2_trading_health.py": "7724e4271d47558868fc3b0836c535541c3d30eeadce5e86ca9ebcf7f343c7dc"
+    },
+    "excluded_unpublished_runtime_deltas": [
+      "ENTRY_STRUCTURE_CONTEXT_EXPIRED mapping",
+      "quant_enabled and QUANT_RESEARCH_DEGRADED health branches"
+    ],
+    "manifest_and_imports_verified": true,
+    "dry_run_venue_and_local_flat_at_ms": 1794107075246,
+    "dry_run_epoch": 20,
+    "release_wrapper": "scripts/v2_jev_freshness_release_20261108.py",
+    "deployment": "ACTIVE",
+    "release_started_at_ms": 1794107780279,
+    "pre_stop_flat_verified_at_ms": 1794107783150,
+    "post_stop_flat_verified_at_ms": 1794107790842,
+    "venue_positions_ordinary_and_conditional_orders_both_checks": 0,
+    "local_nonterminal_orders_unsettled_episodes_unstarted_intents_both_checks": 0,
+    "all_executors_gracefully_stopped": true,
+    "forced_stop": false,
+    "manage_only_recovery_verified": true,
+    "same_binding_active_verified": true,
+    "route_epoch_after": 21,
+    "coverage_after": "ACCOUNT_COVERAGE_CLEAR",
+    "pid_after": 4046145,
+    "policy_unchanged": true,
+    "policy_version": 11,
+    "profitability_verified": false
+  },
+  "movers": {
+    "prior": "/opt/trade-engine-v2/releases/entry-quality-movers-20261107-v1",
+    "active": "/opt/trade-engine-v2/releases/frozen-replay-movers-20261108-v1",
+    "changed_files": {
+      "services/v2_mover_gate_shadow.py": "abd3a14613bfbfee1ffaa3e043ff52e51f24e36265f284619e605c69790c82e9",
+      "services/v2_daily_mover_replay.py": "7b0f12afa1c5fd0db6680b7a0cc48655fecbc1a1cddcb2d388cc9361ade11c4e",
+      "services/v2_setup_shadow.py": "6a620e7c80539acb7a49e3ef53321745a81c1ed392ed82ed37dc870ea3e2caa5",
+      "services/v2_daily_mover_job.py": "afc477acafdbe91a6c78e680583ddfaecd7173191c3eb3173e56f616452d9270"
+    },
+    "timer_stopped_during_atomic_switch_and_restored": true,
+    "active_job_not_interrupted": true,
+    "first_run_exit": 0,
+    "first_run_delivery": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN",
+    "report_day": "2026-11-07",
+    "revisions_before": 4,
+    "revisions_after_first_run": 5,
+    "old_report_hashes_unchanged": true,
+    "original_sample_selection_and_evidence_refs_preserved": true,
+    "sent_count": 1,
+    "total_delivery_attempts": 1,
+    "new_revision_delivery_attempts": 0,
+    "second_run": {
+      "finished_at": "2026-11-08T11:10:22+08:00",
+      "exit": 0,
+      "result": "EXISTING",
+      "delivery": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN",
+      "revisions": 5,
+      "sent_count": 1,
+      "total_delivery_attempts": 1,
+      "latest_report_hash_unchanged": true
+    },
+    "new_revision_digest": "bd161d6740db6facb66b423d05be0fc9721b99aead591fcb494e6ea243cd389b",
+    "compatibility_version": "frozen-policy-compatibility-20261108-v1",
+    "frozen_replay": {"sample": 100, "baseline_match": 100, "unknown": 0, "baseline_mismatch": 0},
+    "stratified_study": {"sample": 96, "comparable": 95, "unknown": 1, "baseline_mismatch": 0},
+    "remaining_unknown": "Original frozen evidence has zero volume ratio and null taker flow; MISSING_FROZEN_FLOW remains unknown.",
+    "valid_path_counts_30_60_240_minutes": [12, 12, 12],
+    "next_evidence_or_optional_retry": null,
+    "historical_code_identity": "NOT_PROVEN",
+    "execution_or_profitability_authority": false
+  },
+  "qa": {
+    "initial_budget_batch": {"passed": 174, "seconds": 92.31, "log_directory": "/tmp/v2-data-qa.3pPZyp"},
+    "movers_frozen": {"passed": 393, "failed": 0, "errors": 0, "skipped": 0, "seconds": 75.01, "log_directory": "/tmp/v2-data-qa.fXQhSo"},
+    "controller_final": {"passed": 1053, "failed": 0, "errors": 0, "skipped": 0, "seconds": 361.26, "log_directory": "/tmp/v2-data-qa.wTxry4"},
+    "corrected_cold_start_pg_cases": {"passed": 3, "seconds": 2.10, "log_directory": "/tmp/v2-data-qa.invWU3"},
+    "retained_failures": [
+      {"scope": "movers first collection", "errors": 4, "cause": "Minimal runtime artifact lacks test-only v6 frame builder", "log_directory": "/tmp/v2-data-qa.w5GwWp"},
+      {"scope": "movers second run", "passed": 370, "setup_errors": 23, "cause": "Existing research schema migration was missing from the isolated test package", "log_directory": "/tmp/v2-data-qa.3G5f4h"},
+      {"scope": "controller first collection", "errors": 3, "cause": "QA package lacked existing flat-release helper scripts", "log_directory": "/tmp/v2-data-qa.ssm19Q"},
+      {"scope": "controller first complete run", "passed": 1049, "failed": 3, "skipped": 1, "seconds": 362.81, "cause": "New cold-start fixture created a fresh signal then rewound its referenced producer source, correctly triggering PRODUCER_CONTEXT_UNAVAILABLE before JEV. Corrected by producing signal and source together at the same old observation, with the original 90-second TTL.", "log_directory": "/tmp/v2-data-qa.rLfzYV"}
+    ],
+    "qa_only_dependencies_not_deployed": [
+      "movers v2_s3_candles.py and v2_price_features.py fixture builders from the already deployed controller",
+      "existing 20261026_daily_movers.sql for the disposable QA database",
+      "flat-release helper scripts in controller QA staging"
+    ],
+    "database_isolation": "Disposable local PG/Redis, serialized host QA lock; no configured trading DSN; Python external-network boundary enabled.",
+    "independent_code_and_release_review": "PASSED",
+    "profitability_proven": false
+  },
+  "postrelease_observation": {
+    "window_start": "2026-11-08T11:16:20+08:00",
+    "window_end": "2026-11-08T11:19:08+08:00",
+    "seconds": 168,
+    "phase": "ACTIVE",
+    "epoch": 21,
+    "same_binding": true,
+    "pending_route_request": false,
+    "route_blockers": [],
+    "natural_cycles": 11,
+    "cycle_complete": 11,
+    "health_snapshots": 10,
+    "active_alerts": [],
+    "signal_lag": "CLEAR",
+    "s3_tv_effective_and_expired_lag_counts": 0,
+    "coverage_clear_observations": 13,
+    "candidate_references": 69,
+    "natural_jev_ready": 3,
+    "same_cycle_wake_and_fresh_context_rechecks": 3,
+    "model_result_to_gate_ms": [1094, 1231, 1311],
+    "model_result_expired_before_gate": 0,
+    "gate_outcomes": {"JEV_TREND_UNSUPPORTED": 3},
+    "receipt_outcomes": {"IGNORED": 3},
+    "veto_bypassed": false,
+    "window_or_candidate_truncation": false,
+    "limits": "Short natural runtime sample, not proof that all latency causes are eliminated or that JEV improves profitability. Unbound candidates cannot be counted as failed model calls.",
+    "natural_branches_not_yet_observed": [
+      "JEV PASS followed by a real venue entry",
+      "Cross-cycle model continuation",
+      "A new TradingView candidate"
+    ],
+    "nonblocking_followup": {
+      "health_s3_queue_query_ms_approximate": [2600, 3500],
+      "health_tv_queue_query_ms_approximate": [30, 45],
+      "observed_backlog": false,
+      "next_action": "Profile the read-only health queue query separately; do not infer an execution defect or expand trading risk from this short observation."
+    }
+  }
+}

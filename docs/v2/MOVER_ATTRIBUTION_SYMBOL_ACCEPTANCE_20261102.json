@@ -1,0 +1,94 @@
+{
+  "date": "2026-11-02",
+  "timezone": "Asia/Shanghai",
+  "status": "CODE_VALIDATED_NOT_DEPLOYED",
+  "scope": [
+    "Directional entry-event attribution instead of consumer-only attribution",
+    "Source-fair, four UTC+8 window, uniform-rank signal sampling",
+    "Bounded frozen rejection operands, thresholds and source provenance",
+    "Concrete Chinese reason summaries with UTF-16 notification bounds",
+    "Exact CJK contract identities through intake, orders, protection and settlement",
+    "Research-only fixed volume-gate sensitivity, never automatic policy tuning"
+  ],
+  "runtime_changes": {
+    "services_restarted": false,
+    "release_symlinks_changed": false,
+    "business_database_writes": false,
+    "real_exchange_orders": false,
+    "webhooks_replayed": false,
+    "telegram_messages_sent": false,
+    "trading_thresholds_changed": false
+  },
+  "validation": {
+    "related_isolated_regression": {
+      "passed": 863,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 165.16,
+      "diagnostics": "/tmp/v2-data-qa.OGf1Y5"
+    },
+    "final_isolated_recheck": {
+      "passed": 120,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 17.72,
+      "diagnostics": "/tmp/v2-data-qa.Fgegez",
+      "selections": [
+        "tests/v2_core/test_v2_daily_mover_evidence.py",
+        "tests/v2_core/test_v2_daily_mover_directional_evidence.py",
+        "tests/v2_core/test_v2_mover_reason_digest.py",
+        "tests/v2_core/test_v2_mover_gate_shadow.py",
+        "tests/v2_core/test_v2_unicode_trade_cycle.py"
+      ]
+    },
+    "counts_overlap_do_not_add": true,
+    "runner": "scripts/qa_v2_data_core.sh",
+    "interpreter": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "database": "Disposable Unix-socket PostgreSQL with isolated-cluster identity guard",
+    "network": "V2 conftest denies external socket connections; venue operations are strict in-memory fakes",
+    "unicode_full_cycle": "Signals, intent, order/fill, protection recovery, reduce-only close, income, cash and settlement; replay does not duplicate writes or accounting",
+    "checks": ["ruff check passed", "git diff --check passed"],
+    "initial_fixture_failure": "A test tried to insert a secret-named field; the existing business-evidence credential guard correctly refused it. The fixture was corrected without bypassing that guard."
+  },
+  "historical_read_only_check": {
+    "market_day": "2026-11-01",
+    "symbols_examined": 20,
+    "query_errors": 0,
+    "transaction": "REPEATABLE READ READ ONLY, 3 second statement timeout, 100 millisecond lock timeout, bounded total budget",
+    "cutoff": "Original sent report evidence as_of_ms, not current-day decision information",
+    "historical_reports_overwritten": false,
+    "sampling_changed": true,
+    "counts_not_directly_comparable_to_earliest_window_sampling": true,
+    "shadow": {
+      "sample_count": 100,
+      "full_replays": 0,
+      "metric_only_comparisons": 98,
+      "unknown": 2,
+      "baseline_min_volume_ratio": "1",
+      "fixed_research_alternative": "0.75",
+      "single_volume_gate_changes": 14,
+      "independent_trade_samples": false,
+      "other_gates_verified": false,
+      "out_of_sample_validated": false,
+      "profitability_inference_authorized": false,
+      "automatic_execution_authorized": false
+    }
+  },
+  "compatibility_and_release_conditions": [
+    "Current workspace includes unrelated existing modifications. Do not deploy the entire dirty tree as this patch.",
+    "Controller, market hub and TradingView ingress need coordinated symbol-boundary upgrades; reporting needs its own compatible package.",
+    "Catalog supported flags must refresh naturally under the new hub. Do not hand-edit cached flags.",
+    "Venue listing, status, risk, quantity precision and environment checks remain mandatory. Syntax acceptance is not trade permission.",
+    "Existing ASCII event and frame identities are unchanged. Unicode frame and standard Pine event identities use exact UTF-8 SHA-256 components.",
+    "Once a CJK position exists, do not roll back to an ASCII-only controller, inventory reader or protection adapter.",
+    "No broad restart or forced close was authorized or performed as part of this implementation. Runtime activation remains a separate coordinated release step.",
+    "Independent onchain research symbol mappings were not expanded; that research module must remain optional and non-blocking."
+  ],
+  "source_sha256": {
+    "services/v2_daily_mover_evidence.py": "53aacd836a2d9ac6b8ee3850e3cd0739ec22203dae4908d8d825ff6d0583deab",
+    "services/v2_daily_mover_report.py": "083ca658db52f770fc50f186a5e40f05bcdde9214025d9d197fdc5cc5613af43",
+    "services/v2_mover_gate_shadow.py": "320079a6fdf669c3872ceafc10fe5a2c166282cd8d6d04c4c8ad77dfd6afc313",
+    "v2_core/symbols.py": "003c3c0ee76def4dc73e1919aa434ad8e8bbd7152f5ae2a2ab5d721efc263553",
+    "tests/v2_core/test_v2_unicode_trade_cycle.py": "4f107e04ccb5fa79ff3cbd83a9b7d64cd20a1fc16f53a2317c2dd77902dd10b1"
+  }
+}

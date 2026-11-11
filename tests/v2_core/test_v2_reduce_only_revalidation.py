@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 from test_v2_account_risk import SCOPE, configured, prepare, runner
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance import BinanceFutures
 from v2_core.transport import ExchangeTransportError
 

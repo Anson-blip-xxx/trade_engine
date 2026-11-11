@@ -14,6 +14,9 @@ from services.v2_jev_budget_health import (
     CODE as JEV_BUDGET_CODE,
 )
 from services.v2_jev_budget_health import (
+    MODEL_CODE as JEV_MODEL_CODE,
+)
+from services.v2_jev_budget_health import (
     apply_budget_health,
     read_budget_health,
 )
@@ -23,9 +26,11 @@ from v2_core.directional import directional_events
 from v2_core.recovery_diagnostics import summaries as recovery_summaries
 from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import (
+    ADMISSION_READ_QUOTA_CODES,
     CANDIDATE_CONTEXT_WAITS,
     EXPECTED_ADMISSION_WAITS,
     EXPECTED_CONTEXT_WAITS,
+    JEV_RETRY_CODES,
 )
 from v2_core.state import BusinessState, StateKey
 from v2_core.strategy import StrategyScope
@@ -58,8 +63,10 @@ _OPENING_INCIDENTS = frozenset(
 _CANDIDATE_DEPENDENCY_CODES = (
     frozenset(CANDIDATE_CONTEXT_WAITS) | EXPECTED_CONTEXT_WAITS
 )
-_CAPACITY_WAIT_CODES = EXPECTED_ADMISSION_WAITS - {"ADMISSION_BUDGET_UNAVAILABLE"}
-_QUEUE_REASON_CODES = EXPECTED_ADMISSION_WAITS | _CANDIDATE_DEPENDENCY_CODES
+_CAPACITY_WAIT_CODES = EXPECTED_ADMISSION_WAITS - ADMISSION_READ_QUOTA_CODES
+_QUEUE_REASON_CODES = (
+    EXPECTED_ADMISSION_WAITS | _CANDIDATE_DEPENDENCY_CODES | JEV_RETRY_CODES
+)
 _DETAIL_MAX_AGE_MS = 120000
 
 
@@ -414,6 +421,7 @@ class TradingHealth:
             "ORDER_PROGRESS_STALLED",
             "POSITION_SAFETY_BLOCKED",
             JEV_BUDGET_CODE,
+            JEV_MODEL_CODE,
         }:
             return None
         saved = self.store.read(self.key)
@@ -597,7 +605,7 @@ class TradingHealth:
                             AND (snapshot->>'expires_at_ms')::bigint>%s),
                         count(*) FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)
                             AND (snapshot->>'expires_at_ms')::bigint<=%s),
-                        count(*) FILTER(WHERE actionable AND error_code='ADMISSION_BUDGET_UNAVAILABLE'),
+                        count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
                         count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
                         count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
                         COALESCE((SELECT jsonb_object_agg(reason_code,reason_count) FROM (
@@ -624,6 +632,7 @@ class TradingHealth:
                             now,
                             sorted(EXPECTED_ADMISSION_WAITS),
                             now,
+                            sorted(ADMISSION_READ_QUOTA_CODES),
                             sorted(_CAPACITY_WAIT_CODES),
                             sorted(_CANDIDATE_DEPENDENCY_CODES),
                             sorted(_QUEUE_REASON_CODES),

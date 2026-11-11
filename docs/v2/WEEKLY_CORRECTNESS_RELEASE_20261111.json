@@ -1,0 +1,103 @@
+{
+  "schema": "weekly-correctness-release-v1",
+  "date": "2026-11-11",
+  "timezone": "Asia/Shanghai",
+  "status": "DEPLOYED_SANDBOX_FLAT_GATE_VERIFIED",
+  "authorization": "Publish reviewed fixes and restart only when flat; push V2 code to GitHub.",
+  "environment": "SANDBOX",
+  "account_identifiers_omitted": true,
+  "controller": {
+    "prior": "ready-queue-controller-20261110-v1",
+    "candidate": "weekly-correctness-controller-20261111-v1",
+    "changed_files": 3,
+    "exact_manifest_verified": true,
+    "dry_run": "FLAT_VERIFIED",
+    "preflight_epoch": 22,
+    "preflight_observed_at_ms": 1794379592846,
+    "position_counts": [0, 0, 0],
+    "ordinary_orders": 0,
+    "conditional_orders": 0,
+    "nonterminal_orders": 0,
+    "unsettled_episodes": 0,
+    "unstarted_intents": 0,
+    "release_script": "scripts/v2_weekly_correctness_release_20261111.py",
+    "execute_preflight_observed_at_ms": 1794380108604,
+    "stopped_flat_observed_at_ms": 1794380114173,
+    "graceful_stop_verified": true,
+    "forced_stop": false,
+    "same_binding": true,
+    "recovery_order": ["DRAINING", "ACTIVE"],
+    "active_epoch": 23,
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "main_pid": 3919631,
+    "n_restarts": 0,
+    "policy_unchanged": true,
+    "policy_version": 11,
+    "new_natural_order_or_model_veto_observed": false
+  },
+  "readers": {
+    "daily_movers": {"prior": "research-evidence-movers-20261110-v1", "candidate": "weekly-correctness-movers-20261111-v1", "changed_files": 3},
+    "account_admin": {"prior": "entry-quality-admin-20261107-v2", "candidate": "weekly-correctness-admin-20261111-v1", "changed_files": 1},
+    "exact_manifests_verified": true,
+    "historic_reports_recomputed": false,
+    "telegram_resends": false,
+    "older_research_readers_updated": false,
+    "daily_movers_link_updated": true,
+    "daily_movers_timer_active": true,
+    "daily_movers_job_manually_started": false,
+    "account_admin_restarted": true,
+    "account_admin_main_pid": 3923805,
+    "account_admin_n_restarts": 0,
+    "actual_web_database_role_candidate_read": "PASSED",
+    "fixed_week_read_comparison": {
+      "as_of_ms": 1794365545921,
+      "settled_count": 212,
+      "net_usdt": "-54.26577940",
+      "external_close_count": 5,
+      "external_close_net_usdt": "-7.33311986",
+      "candidate_import_roots_verified": true,
+      "mover_independent_external_projection_verified": true,
+      "historic_report_regeneration": false
+    }
+  },
+  "candidate_package_qa": {
+    "final_passed": 675,
+    "final_failed": 0,
+    "final_skipped": 0,
+    "seconds": 269.24,
+    "selected_suites": 24,
+    "verified_candidate_module_origins": 136,
+    "log": "/tmp/v2-data-qa.CjVMps/pytest.log",
+    "isolated_database_retained": false,
+    "initial_harness_issues": [
+      "Candidate's older test package hid current tests.support; fixed QA-only import separation. No candidate code change.",
+      "QA wrapper lacked multiprocessing main guard, causing spawned test child to rerun pytest; added guard and reran all 24 suites. No candidate code change."
+    ],
+    "scope": "Actual staged controller runtime modules with current test harness and deploy orchestration; not whole development snapshot or live profitability acceptance."
+  },
+  "post_release_http": {
+    "dashboard_overview": 200,
+    "account_page": 200,
+    "strategy_review": {"http": 200, "status": "AVAILABLE", "truncated": false},
+    "sandbox_execution_route": {"http": 200, "phase": "ACTIVE"}
+  },
+  "github_audit": {
+    "existing_unpushed_commits_reviewed": 23,
+    "staged_python_syntax_checked": 348,
+    "staged_json_syntax_checked_before_release_record": 38,
+    "new_high_confidence_credentials_found": 0,
+    "legacy_history_warning": "Retired services/s0/market_state_report.py contained a Telegram credential pattern already in the remote baseline. Removing the file from the new tree does not rotate it or erase history; rotate if still valid.",
+    "private_incident_evidence_ignored": true,
+    "push_mode": "FAST_FORWARD_NO_FORCE"
+  },
+  "boundaries": {
+    "forced_closes": false,
+    "forced_order_cancels": false,
+    "manual_test_orders": false,
+    "risk_or_strategy_parameters_changed": false,
+    "whole_workspace_deployed": false,
+    "github_target": "feature/v2-architecture",
+    "excluded_local_evidence": "deploy/v2-testnet/settlement-entry-witness-acceptance-20261029.json",
+    "existing_history_rewritten": false
+  }
+}

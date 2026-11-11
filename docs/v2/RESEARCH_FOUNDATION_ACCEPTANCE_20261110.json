@@ -1,0 +1,151 @@
+{
+  "date": "2026-11-10",
+  "timezone": "Asia/Shanghai",
+  "stage": "FIRST_PHASE_RESEARCH_FOUNDATION",
+  "status": "RESEARCH_RELEASED_EXECUTION_FIX_DEFERRED_BY_FLAT_GATE",
+  "scope": {
+    "environment": "SANDBOX",
+    "new_order_authority": false,
+    "forced_position_closes": false,
+    "automatic_strategy_promotion": false,
+    "leverage_or_risk_budget_changes": false,
+    "existing_execution_process_restarted": false,
+    "live_execution_touched": false
+  },
+  "delivered": [
+    "Daily account execution-cost evidence with frozen plan, quantity and current accounting revision binding.",
+    "Native original-stop decomposition only for a proven single close order; partial and ordinary exits are explicitly not comparable.",
+    "Source provenance distinguishes LIVE research from SANDBOX execution and does not turn environment labels into synchronized observations.",
+    "Frozen-input stagnation-exit baseline reproduction and OFF/SHADOW continuation qualification, without order or promotion authority.",
+    "An independently scheduled research worker with bounded data access and a narrow frozen-exit projection view.",
+    "A Telegram execution-cost completeness summary that preserves existing day/account cross-revision delivery deduplication."
+  ],
+  "qa": {
+    "working_tree_selected_suite": {
+      "passed": 1034,
+      "log": "/tmp/v2-data-qa.2NvCrC/pytest.log"
+    },
+    "exact_mover_candidate": {
+      "passed": 896,
+      "log": "/tmp/v2-data-qa.NTc6aq/pytest.log",
+      "source": "/opt/trade-engine-v2/releases/research-evidence-movers-20261110-v1"
+    },
+    "exact_stagnation_candidate": {
+      "passed": 138,
+      "log": "/tmp/v2-data-qa.LwpbEk/pytest.log",
+      "source": "/opt/trade-engine-v2/releases/stagnation-shadow-research-20261110-v1"
+    },
+    "counting_note": "1034 working-tree tests and 896+138 exact-candidate tests overlap; do not add them as unique coverage. These are selected related suites, not a whole-repository or live-order acceptance claim.",
+    "infrastructure": "Disposable PostgreSQL and Redis, simulated venue/model I/O; isolated QA databases removed by the existing cleanup script.",
+    "failures_resolved_during_acceptance": [
+      "New digest test fixture initially had inconsistent denominator/net data; corrected the fixture, not production logic.",
+      "Exact package tests depended on a newer working-tree S3 builder; replaced only the test fixture with a frozen research helper. No trading producer was copied into the research package.",
+      "Copied pytest bytecode retained original source filenames; reran exact-package QA with a fresh Python bytecode prefix. Actual modules were verified in the candidate QA directory.",
+      "Quant plan reference initially used bar close; corrected to the actual frozen directional entry price and added PostgreSQL regression cases. Missing current reference stays unknown."
+    ],
+    "independent_review": "No blocking issue found in research authority isolation, source/profit claims or cross-revision notification deduplication."
+  },
+  "read_only_real_account_verification": {
+    "review_date": "2026-11-09",
+    "verified_settled_trades": 11,
+    "net_usdt": "-5.83477162",
+    "gross_trade_pnl_usdt": "-4.608448",
+    "recorded_fees_usdt": "1.22632361",
+    "funding_note": "No missing funding value was inferred from residual arithmetic or replaced by zero.",
+    "plan_comparable_count": 11,
+    "native_initial_stop_decomposition_count": 2,
+    "published_package_actual_worker_user_check": {
+      "user": "tradev2movers",
+      "transaction": "REPEATABLE READ, READ ONLY",
+      "status": "AVAILABLE",
+      "query_complete": true,
+      "same_11_plan_comparisons_and_2_native_stop_decompositions": true
+    },
+    "examples": {
+      "AIOTUSDT": {
+        "planned_gross_stop_loss_usdt": "5.6801",
+        "actual_gross_loss_usdt": "6.0396",
+        "entry_adverse_price_difference_usdt": "0.2157",
+        "stop_fill_adverse_price_difference_usdt": "0.1438",
+        "gross_loss_above_plan_usdt": "0.3595",
+        "identity_verified": true
+      },
+      "BEATUSDT": {
+        "planned_gross_stop_loss_usdt": "2.42385",
+        "actual_gross_loss_usdt": "1.74811",
+        "entry_adverse_price_difference_usdt": "0.04407",
+        "stop_fill_adverse_price_difference_usdt": "-0.71981",
+        "gross_loss_above_plan_usdt": "-0.67574",
+        "identity_verified": true
+      }
+    },
+    "interpretation": "Signed price differences are measured identities, not proof of spread/slippage causation. Do not add already realized costs twice.",
+    "stagnation_exit_checks": {
+      "symbols": ["AGTUSDT", "ACTUSDT", "ONEUSDT", "ICNTUSDT"],
+      "frozen_baseline_reproduced": 4,
+      "continuation_qualification": "UNKNOWN",
+      "reason": "OBSERVATION_AVAILABILITY_NOT_PROVEN",
+      "counterfactual_pnl_proven": false,
+      "historical_code_identity_proven": false
+    }
+  },
+  "deployment": {
+    "daily_movers": {
+      "link": "/opt/trade-engine-v2/daily-movers",
+      "target": "/opt/trade-engine-v2/releases/research-evidence-movers-20261110-v1",
+      "previous_target": "/opt/trade-engine-v2/releases/frozen-replay-movers-20261108-v1",
+      "changed_or_added_source_files": 8,
+      "checksums_verified_before_switch": true,
+      "switched_only_while_worker_inactive": true,
+      "timer_restored": true,
+      "first_scheduled_run": "STARTED_AT_2026-11-10T12:20:13+08:00",
+      "first_scheduled_run_completion": "FINISHED",
+      "first_scheduled_run_exit_status": 0,
+      "first_scheduled_run_report_date": "2026-11-09",
+      "first_scheduled_run_account_report": "CREATED",
+      "first_scheduled_run_delivery": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN",
+      "first_scheduled_run_orders_submitted": false,
+      "first_scheduled_run_memory_peak": "236.3M",
+      "next_scheduled_run": "2026-11-10T13:20:13+08:00"
+    },
+    "trend_campaign": {
+      "link": "/opt/trade-engine-v2/trend-campaign-research",
+      "target": "/opt/trade-engine-v2/releases/stagnation-shadow-research-20261110-v1",
+      "previous_working_directory": "/opt/trade-engine-v2/positioning-research",
+      "shared_positioning_link_unchanged": true,
+      "changed_or_added_source_files": 5,
+      "runtime_policy_dependency": "Identical to already deployed execution policy schema; no policy values changed.",
+      "worker_exit_status": 0,
+      "worker_result": "COMPLETE",
+      "worker_report_count": 5,
+      "worker_errors": [],
+      "timer_active": true
+    },
+    "database": {
+      "migration": "db/migrations/20261110_stagnation_research_view.sql",
+      "view": "trade_v2.v2_stagnation_frozen_exit_evidence",
+      "projection_select_granted_to": ["tradev2campaign", "ubuntu"],
+      "research_role_base_state_tables_readable": false,
+      "research_role_projection_writable": false,
+      "trading_business_rows_changed_by_migration": false
+    },
+    "execution_controller": {
+      "unchanged_target": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+      "unchanged_main_pid": 4046145,
+      "pending_candidate": "/opt/trade-engine-v2/releases/jev-lease-controller-20261109-v1",
+      "dry_run_result": "FLAT_RELEASE_BLOCKED",
+      "block_stage": "PRECHECK",
+      "block_code": "LOCAL_RELEASE_WORK_PENDING",
+      "management_stop_attempted": false,
+      "local_active_episode_symbols_at_final_check": ["AIOUSDT", "B2USDT"],
+      "venue_inventory_note": "Local gate blocked first; no claim of a fresh full venue-flat check. This is a deployment gate, not proof that new entries are blocked."
+    }
+  },
+  "remaining_work": [
+    "Prospectively capture independently time-stamped comparable LIVE and SANDBOX market observations; source contracts alone are not data collection.",
+    "Capture real receipt time, native protection and closed-bar structure evidence before decisions; historical missing fields cannot be reconstructed as causal proof.",
+    "Validate bounded trend-continuation hypotheses with prospective/out-of-sample evidence and costs before changing exits.",
+    "Publish the already accepted execution lease-timeout fix only after the audited local and venue flat-release protocol succeeds.",
+    "Monitor scheduled research completion and source/cost unknown rates; no profitability improvement is claimed by this foundation release."
+  ]
+}

@@ -9,8 +9,10 @@ import json
 
 from services.v2_s3_candles import (
     BREAKOUT_VERSION,
+    CORRECTED_VERSION,
     PRICE_VERSION,
     ROLLING_VERSION,
+    STRUCTURE_VERSION,
     VERSION,
     build_frame,
 )
@@ -87,7 +89,14 @@ class ArchivedRiskReference:
         if not observed <= started < deadline:
             raise ReferenceUnavailable("REFERENCE_STALE")
         version = frame_id.split(":", 1)[0] if isinstance(frame_id, str) else None
-        if version not in {VERSION, PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION}:
+        if version not in {
+            VERSION,
+            PRICE_VERSION,
+            ROLLING_VERSION,
+            BREAKOUT_VERSION,
+            CORRECTED_VERSION,
+            STRUCTURE_VERSION,
+        }:
             raise ReferenceUnavailable("REFERENCE_FEATURE_VERSION_UNSUPPORTED")
         encoded = self.archive.get(archive_hash)
         if (

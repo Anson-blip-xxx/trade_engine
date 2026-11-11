@@ -3,9 +3,9 @@
 from dataclasses import replace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_pipeline import case as pipeline_case
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountRiskDenied
 from v2_core.runtime_policy import PolicyStore, resolve
 
@@ -247,9 +247,8 @@ def test_capacity_diagnostic_does_not_hide_lag_or_failures(database, blocked):
     import time
     from dataclasses import asdict
 
-    from test_v2_intent_admission import scheduler_signal
-
     from services.v2_trading_health import TradingHealth
+    from tests.support.v2_admission import scheduler_signal
     from v2_core.state import BusinessState, StateKey
 
     now = time.time_ns() // 1000000 + 31000

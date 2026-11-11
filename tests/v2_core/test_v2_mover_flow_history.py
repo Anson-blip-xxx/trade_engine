@@ -9,10 +9,10 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from psycopg.types.json import Jsonb
-from test_v2_intent_admission import database as database_fixture
 
 import services.v2_mover_flow_evaluation as adapter
 from services.v2_mover_flow_evaluation import FlowHistoryEvaluation
+from tests.support.v2_admission import database as database_fixture
 from v2_core.daily_movers import VERSION as MARKET_VERSION
 from v2_core.evidence import canonical, digest
 

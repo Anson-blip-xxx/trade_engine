@@ -8,12 +8,12 @@ from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_exit_stage import setup_exit
 from test_v2_directional_settlement import baseline
 from test_v2_directional_settlement import service as settlement_service
-from test_v2_intent_admission import database as database_fixture
 from test_v2_opening_cancel import case as cancel_case_fixture
 from test_v2_protection_install import case as install_case_fixture
 from test_v2_session_lock_release import _available
 from test_v2_unprotected_emergency import naked
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.ledger import Ledger
 from v2_core.session_lock import session_advisory_lock
 

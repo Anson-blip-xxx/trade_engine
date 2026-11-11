@@ -11,6 +11,7 @@ from test_v2_jev_entry_context import binding, publish, refresh
 from test_v2_jev_entry_context import case as context_case_fixture
 from test_v2_jev_reference import envelope
 
+from services import v2_jev_transport as transport
 from services.v2_jev_coordinator import JevCoordinator
 from services.v2_jev_reference import PUBLIC_SCOPE, public_features
 from v2_core import jev_advisory as subject
@@ -261,8 +262,13 @@ def test_peer_expiry_bounds_fixed_model_review_even_after_tv_disappears(context_
     ],
 )
 def test_child_classifies_typed_sdk_failure_without_exporting_bodies(
-    monkeypatch, kind, expected
+    monkeypatch, capsys, kind, expected
 ):
+    calls = []
+
+    class ConfigurationError(ValueError):
+        pass
+
     class APIError(Exception):
         def __init__(self, text, status=None):
             super().__init__(text)
@@ -294,6 +300,7 @@ def test_child_classifies_typed_sdk_failure_without_exporting_bodies(
             return None
 
         def system_one(self, **kwargs):
+            calls.append("system_one")
             if kind.startswith("http"):
                 status = {
                     "http_missing": None,
@@ -313,21 +320,33 @@ def test_child_classifies_typed_sdk_failure_without_exporting_bodies(
                 )
             raise types.get(kind, RuntimeError)("SECRET_BODY")
 
+    def create_client(**kwargs):
+        calls.append("create_client")
+        return Client()
+
     monkeypatch.setitem(sys.modules, "typesafe_sdk", fake_sdk)
     monkeypatch.setitem(
-        sys.modules, "jev_shared", SimpleNamespace(create_client=lambda **kw: Client())
+        sys.modules,
+        "jev_shared",
+        SimpleNamespace(
+            create_client=create_client, ConfigurationError=ConfigurationError
+        ),
     )
-    monkeypatch.setattr(subject, "version", lambda _: subject.SDK_VERSION)
-    monkeypatch.setattr(subject.logging, "disable", lambda _: None)
+    monkeypatch.setattr(transport, "version", lambda _: transport.SDK_VERSION)
+    monkeypatch.setattr(transport.logging, "disable", lambda _: None)
     prepared = subject.prepare_request(features(), now_ms=1200, max_age_ms=60000)
     payload = json.dumps({"request": prepared["request"], "timeout_ms": 1000}).encode()
     output = io.BytesIO()
     monkeypatch.setattr(
-        subject.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
+        transport.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(payload))
     )
-    monkeypatch.setattr(subject.sys, "stdout", SimpleNamespace(buffer=output))
-    assert subject._sdk_once() == expected
+    monkeypatch.setattr(transport.sys, "stdout", SimpleNamespace(buffer=output))
+    assert transport._sdk_once() == expected
+    # These exercise remote SDK failure classification, not the local
+    # dependency-import branch. Missing fake SDK types must not mask that path.
+    assert calls == ["create_client", "system_one"]
     assert output.getvalue() == b""
+    assert "SECRET_BODY" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -341,6 +360,6 @@ def test_child_classifies_typed_sdk_failure_without_exporting_bodies(
 )
 def test_child_exit_protocol_preserves_failure_type(code, error):
     with pytest.raises(error):
-        subject._bounded_process(
+        transport._bounded_process(
             [sys.executable, "-I", "-c", f"import sys;sys.exit({code})"], b"{}", 1000
         )

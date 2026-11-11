@@ -76,6 +76,26 @@ SCHEMA = {
     "sizing.atr_threshold": ("4", "0.01", "100"),
     "sizing.volatility_floor": ("0.2", "0", "1"),
     "entry.min_score": (30, 0, 100),
+    # Explicit opt-in: version 1 retains historical decision/replay semantics.
+    "entry.confirmation_version": (1, 1, 2),
+    # Separately gated causal 15m structure profile, never a global loosening.
+    "entry.trend_structure_enabled": (False, None, None),
+    # Independently opted-in; legacy snapshots keep identical decisions. Full
+    # body invalidation is structural, partial retracement remains shadow-only.
+    "trend.breakout_body_guard_enabled": (False, None, None),
+    "trend.entry_quality_shadow_enabled": (False, None, None),
+    "trend.max_structure_age_ms": (960000, 900000, 1800000),
+    "trend.max_chase_atr": ("1", "0.01", "3"),
+    "trend.min_volume_ratio": ("1", "0.1", "10"),
+    "trend.stop_atr": ("1.5", "0.5", "5"),
+    "trend.stop_buffer_atr": ("0.25", "0.01", "2"),
+    "trend.target_atr": ("3", "1", "10"),
+    "trend.roundtrip_cost_fraction": ("0.002", "0.0001", "0.05"),
+    "trend.min_stop_fraction": ("0.005", "0.0001", "0.05"),
+    "trend.max_stop_fraction": ("0.08", "0.001", "0.12"),
+    "trend.max_atr_pct": ("6", "0.01", "100"),
+    "trend.base_score": (60, 0, 100),
+    "trend.max_leverage": (2, 1, 5),
     "entry.short_min_strength": ("60", "0", "100"),
     "tv.trend_policy_enabled": (False, None, None),
     "tv.trend_min_strength": ("20", "0", "100"),
@@ -143,6 +163,10 @@ SCHEMA = {
     "analysis.soft_factor": ("0.5", "0", "1"),
     "scheduler.signal_batch": (20, 1, 1000),
     "scheduler.discovery_reconcile_seconds": (60, 1, 3600),
+    "scheduler.history_page_size": (1000, 100, 1000),
+    "scheduler.history_pages_per_tick": (8, 1, 32),
+    "scheduler.history_budget_ms": (500, 50, 2000),
+    "scheduler.history_interval_seconds": (1, 1, 60),
     "scheduler.progress_seconds": (300, 1, 3600),
     "scheduler.backlog_weighted_budget": (True, None, None),
     "scheduler.max_demand_weight": (16, 1, 1000),
@@ -220,6 +244,10 @@ def resolve(values=None):
         result["sizing.max_allocation"]
     ):
         raise ValueError("INVERTED_ALLOCATION_RANGE")
+    if Decimal(result["trend.min_stop_fraction"]) > Decimal(
+        result["trend.max_stop_fraction"]
+    ):
+        raise ValueError("INVERTED_TREND_STOP_RANGE")
     if Decimal(result["entry.reentry_reset_atr"]) <= Decimal(
         result["entry.reentry_resume_buffer_atr"]
     ):
@@ -303,6 +331,11 @@ class PolicyStore:
         values = resolve({**before.values, **changes})
         if values["capital.enabled"] and self.scope.environment != "SANDBOX":
             raise ValueError("TESTNET_CAPITAL_POLICY_ONLY")
+        if (
+            values["entry.trend_structure_enabled"]
+            and self.scope.environment != "SANDBOX"
+        ):
+            raise ValueError("TESTNET_TREND_POLICY_ONLY")
         with self.connect() as conn:
             # Do not change capital rules between a guarded account inspection
             # and its actual POST. No network I/O occurs in configuration writes.

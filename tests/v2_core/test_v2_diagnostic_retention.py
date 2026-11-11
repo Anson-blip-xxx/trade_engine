@@ -4,8 +4,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 from psycopg import sql
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState, StateKey
 
 database = database_fixture

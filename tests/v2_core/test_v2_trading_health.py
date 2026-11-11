@@ -4,8 +4,6 @@ from dataclasses import asdict
 
 import pytest
 from test_v2_directional_cash import closed as closed_fixture
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 from test_v2_testnet_watchdog import Stop
 
 from services.v2_testnet_watchdog import (
@@ -14,6 +12,8 @@ from services.v2_testnet_watchdog import (
     WatchdogDeliveryState,
 )
 from services.v2_trading_health import TradingHealth
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.state import BusinessState, StateKey
 
 database = database_fixture
@@ -374,8 +374,7 @@ def opening(
     """Create durable QA outcomes, not a transport or simulated health response."""
     from dataclasses import replace
 
-    from test_v2_intent_admission import evidence, intent
-
+    from tests.support.v2_admission import evidence, intent
     from v2_core.evidence import EvidenceStore
     from v2_core.intents import AdmissionCode, IntentStore
     from v2_core.ledger import Ledger

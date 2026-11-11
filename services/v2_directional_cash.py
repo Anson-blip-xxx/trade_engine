@@ -16,6 +16,7 @@ from v2_core.evidence import canonical, digest
 from v2_core.income_ownership import income_owner
 from v2_core.ledger import amount
 from v2_core.liquidation_cash import insurance_clear_candidate
+from v2_core.native_entry_precision import ORIGINS, protection_key
 from v2_core.precision import money_context
 from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import diagnostic_code
@@ -25,7 +26,129 @@ from v2_core.settlement_precision import rounding_proof
 from v2_core.state import BusinessState, StateKey
 
 
-def reconcile_cash(trace, report, rows, *, scope):
+def _native_entry_observation(conn, scope, trace, order):
+    """Read one exact immutable stop creation and adopted-order ownership.
+
+    Never search neighboring snapshots for a price that explains the result.
+    Current head cannot supply or replace creation-time entry economics.
+    """
+    request = order["request_evidence"]
+    key = protection_key(asdict(scope), trace["intent_id"], trace["request"]["symbol"])
+    client = "v2p-" + digest(key.identity)[:28]
+    source_client = request.get(
+        "parent_client_algo_id"
+        if request["origin"] == "BINANCE_ALGO_CHILD"
+        else "venue_client_order_id"
+    )
+    if source_client != client or (
+        request["origin"] == "BINANCE_EXTERNAL_CLOSE"
+        and request.get("kind") != "EXTERNAL_REDUCE_ONLY"
+    ):
+        return None
+    row = conn.execute(
+        """SELECT s.scope,s.version,s.payload,s.deleted,h.payload,h.deleted,
+        floor(extract(epoch FROM h.created_at)*1000)::bigint,h.reason
+        FROM v2_business_state s JOIN v2_state_history h USING(state_id)
+        WHERE s.state_id=%s AND h.version=1""",
+        (key.identity,),
+    ).fetchone()
+    if (
+        row is None
+        or row[0] != asdict(key)
+        or row[3]
+        or row[5]
+        or row[7] != "TESTNET_PROTECTION_PROTOCOL"
+    ):
+        raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+    owner_key = StateKey(
+        **asdict(scope),
+        namespace="native-child-owner-v1",
+        key=trace["request"]["symbol"] + ":" + request["exchange_order_id"],
+    )
+    owner = conn.execute(
+        """SELECT s.scope,s.version,s.payload,s.deleted,h.payload,h.deleted,h.reason
+        FROM v2_business_state s JOIN v2_state_history h USING(state_id)
+        WHERE s.state_id=%s AND h.version=1""",
+        (owner_key.identity,),
+    ).fetchone()
+    reason = (
+        "CONFIRMED_PARENT_CHILD_IDENTITY"
+        if request["origin"] == "BINANCE_ALGO_CHILD"
+        else "CONFIRMED_EXTERNAL_CLOSE"
+    )
+    if (
+        owner is None
+        or owner[0] != asdict(owner_key)
+        or owner[1] != 1
+        or owner[3]
+        or owner[2] != owner[4]
+        or owner[5]
+        or owner[6] != reason
+    ):
+        raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+    return {
+        "inventory": row[4]["creation_proof"]["inventory"],
+        "protection_creation": row[4],
+        "protection_state": row[2],
+        "protection_state_id": key.identity,
+        "protection_creation_version": 1,
+        "protection_state_version": row[1],
+        "creation_recorded_at_ms": row[6],
+        "protection_owner": owner[2],
+    }
+
+
+def _entry_observations(conn, scope, trace):
+    """Read only exact immutable preflight references, never search old inventory."""
+    result = {}
+    closing = [o for o in trace["orders"] if o["leg"] == "CLOSE"]
+    if len(closing) > 20:
+        raise ValueError("PNL_ENTRY_OBSERVATION_LIMIT")
+    for order in closing:
+        request = order.get("request_evidence", {})
+        if request.get("origin") in ORIGINS:
+            witness = _native_entry_observation(conn, scope, trace, order)
+            if witness is not None:
+                result[order["order_id"]] = witness
+            continue
+        if request.get("source") not in {
+            "directional-exit-v1",
+            "unprotected-emergency-v1",
+        }:
+            continue
+        identity = str(UUID(request["preflight_inventory"]))
+        key = StateKey(**asdict(scope), namespace="account-inventory-v1", key=identity)
+        row = conn.execute(
+            "SELECT scope,version,payload,deleted FROM v2_business_state WHERE state_id=%s",
+            (key.identity,),
+        ).fetchone()
+        if row is None or row[0] != asdict(key) or row[1] != 1 or row[3]:
+            raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+        witness = {"inventory": row[2]}
+        if request["source"] == "directional-exit-v1":
+            key = StateKey(
+                **asdict(scope), namespace="directional-exit-v1", key=trace["intent_id"]
+            )
+            if (
+                request.get("state_id") != key.identity
+                or type(request.get("state_version")) is not int
+                or request["state_version"] < 1
+            ):
+                raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+            row = conn.execute(
+                """SELECT s.scope,h.payload,h.deleted FROM v2_state_history h
+                JOIN v2_business_state s USING(state_id)
+                WHERE h.state_id=%s AND h.version=%s""",
+                (key.identity, request["state_version"]),
+            ).fetchone()
+            if row is None or row[0] != asdict(key) or row[2]:
+                raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+            witness["exit_state"] = row[1]
+        result[order["order_id"]] = witness
+    return result
+
+
+def reconcile_cash(trace, report, rows, *, scope, entry_observations=None):
     """All inputs must come from the bound journal, never caller completeness flags."""
     if any(trace["scope"].get(k) != v for k, v in asdict(scope).items()):
         raise ValueError("CASH_SCOPE_MISMATCH")
@@ -140,7 +263,7 @@ def reconcile_cash(trace, report, rows, *, scope):
         )
         if fees != Decimal(report["fees"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
-        precision = rounding_proof(trace, report)
+        precision = rounding_proof(trace, report, entry_observations=entry_observations)
         if gross != Decimal(report["gross_pnl"]) + amount(precision["amount"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
         funding_total = sum((Decimal(f["amount"]) for f in funding), Decimal(0))
@@ -414,14 +537,21 @@ class DirectionalCashAudit:
                     or row["evidence"] != {"source": "binance-income", "trade_id": ""}
                 ):
                     raise ValueError("UNATTRIBUTED_CASH")
-            proof = reconcile_cash(
-                current,
-                data.ledger.report(
-                    episode, settlement_currency="USDT", connection=conn
-                ),
-                target_rows,
-                scope=self.scope,
+            report = data.ledger.report(
+                episode, settlement_currency="USDT", connection=conn
             )
+            try:
+                proof = reconcile_cash(current, report, target_rows, scope=self.scope)
+            except ValueError as exc:
+                if str(exc) != "UNEXPLAINED_FILL_PNL_PRECISION":
+                    raise
+                proof = reconcile_cash(
+                    current,
+                    report,
+                    target_rows,
+                    scope=self.scope,
+                    entry_observations=_entry_observations(conn, self.scope, current),
+                )
             proof.update(
                 excluded_income_ids=[row["income_id"] for row in external_rows],
                 income_run=run["run_id"],

@@ -4,10 +4,10 @@ import json
 import time
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 
 from services.v2_trading_health import TradingHealth, signal_lag_state
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.runtime_policy import PolicyStore
 from v2_core.strategy import StrategyScope
 

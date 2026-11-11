@@ -14,12 +14,14 @@ from copy import deepcopy
 from decimal import Context, Decimal, localcontext
 
 from services.v2_jev_coordinator import CONTROL_KEY
+from services.v2_jev_transport import SharedJevQuery
 from v2_core.account_risk import AccountScope
 from v2_core.jev_advisory import (
     _NUMBERS,
+    STRUCTURE_INDICATOR_CONTRACT,
+    STRUCTURE_INDICATOR_VERSION,
     AdvisoryPolicy,
     JevAdvisory,
-    SharedJevQuery,
     _cached,
     prepare_request,
 )
@@ -50,6 +52,36 @@ def public_features(envelope, *, target, direction, context=None, now_ms=None):
         raise ValueError("JEV_PUBLIC_ENVELOPE_INVALID")
     frames = envelope["features"]
     short, hour = frames.get("15m", {}), frames.get("1h", {})
+    input_evidence = frames.get("input_evidence")
+    structure = None
+    if (
+        type(input_evidence) is dict
+        and input_evidence.get("window_version") == STRUCTURE_INDICATOR_VERSION
+    ):
+        from v2_core.trend_structure import validate_trend_structure
+
+        if (
+            input_evidence.get("source") != "BINANCE_FUTURES"
+            or input_evidence.get("environment") != "SANDBOX"
+            or input_evidence.get("interval") != "1m"
+            or type(input_evidence.get("closed_at")) is not int
+            or input_evidence["closed_at"] != envelope["observed_at"]
+        ):
+            raise ValueError("JEV_PUBLIC_INDICATOR_EVIDENCE_INVALID")
+        structure = validate_trend_structure(
+            frames.get("trend_structure"),
+            symbol=target,
+            environment="SANDBOX",
+            closed_at_ms=envelope["observed_at"],
+        )
+        if structure["status"] != "READY":
+            raise ValueError("JEV_PUBLIC_INDICATOR_WARMUP")
+        if context is not None and (
+            type(context) is not dict
+            or type(context.get("directional")) is not dict
+            or context["directional"].get("market") != frames
+        ):
+            raise ValueError("JEV_PUBLIC_INDICATOR_CONTEXT_MISMATCH")
 
     def number(value):
         if type(value) not in (str, int) or len(str(value)) > 80:
@@ -99,14 +131,32 @@ def public_features(envelope, *, target, direction, context=None, now_ms=None):
         "return_15m_pct": short.get("chg"),
         "return_1h_pct": hour.get("chg"),
         "return_4h_pct": frames.get("4h", {}).get("chg"),
-        "atr_pct": short.get("atr_pct"),
-        "rsi_15m": short.get("rsi"),
-        "ema_gap_15m_pct": gap(short),
-        "ema_gap_1h_pct": gap(hour),
-        "taker_buy_ratio": short.get("taker_buy_ratio"),
         # Candle-only base. Measured supplemental funding/spread may follow;
         # never infer depth, OI, volume ratios or private account data.
     }
+    if structure is None:
+        # Preserve legacy public state, questions and cache identity byte-for-
+        # byte. Only the explicitly selected v6 contract changes field units.
+        values.update(
+            atr_pct=short.get("atr_pct"),
+            rsi_15m=short.get("rsi"),
+            ema_gap_15m_pct=gap(short),
+            ema_gap_1h_pct=gap(hour),
+            taker_buy_ratio=short.get("taker_buy_ratio"),
+        )
+    else:
+        measured = structure["values"]
+        values.update(
+            atr_pct=measured["atr_pct"],
+            rsi_15m=None,
+            ema_gap_15m_pct=gap(measured),
+            ema_gap_1h_pct=None,
+            taker_buy_ratio=measured["taker_buy_ratio"],
+            relative_volume_15m=measured["volume_ratio"],
+            indicator_version=STRUCTURE_INDICATOR_VERSION,
+            indicator_contract=STRUCTURE_INDICATOR_CONTRACT,
+            indicator_closed_at_ms=structure["last_closed_at_ms"],
+        )
     if context is not None:
         # The full context never enters the queue. Select only proven public
         # scalars already obtained by normal admission; no extra HTTP reads.

@@ -1,9 +1,9 @@
 """Diagnostics must not change the scheduling clock, leases or business results."""
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision
 

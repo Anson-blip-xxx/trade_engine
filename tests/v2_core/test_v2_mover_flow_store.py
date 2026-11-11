@@ -8,7 +8,6 @@ from pathlib import Path
 import psycopg
 import pytest
 from psycopg.types.json import Jsonb
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_mover_flow_store import (
     MAX_PAYLOAD_BYTES,
@@ -17,6 +16,7 @@ from services.v2_mover_flow_store import (
     FlowEvidenceStore,
     _record,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.evidence import canonical, digest
 
 database = database_fixture

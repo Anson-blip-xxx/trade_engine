@@ -8,8 +8,8 @@ import pytest
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import scenario
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.directional_outcomes import DirectionalOutcomeJournal
 from v2_core.ledger import Ledger
 

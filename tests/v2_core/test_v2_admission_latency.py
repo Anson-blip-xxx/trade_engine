@@ -7,8 +7,6 @@ from dataclasses import asdict
 import pytest
 from test_v2_directional import inputs
 from test_v2_directional_replay import SCOPE, scenario
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 
 from services.v2_directional_context import DirectionalContext
 from services.v2_directional_replay import (
@@ -16,6 +14,8 @@ from services.v2_directional_replay import (
     market_plan,
     replay_decision,
 )
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.scheduling import StrategyScheduler
 from v2_core.signals import Signals
 from v2_core.strategy import StrategyDecision

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "release": "settlement-entry-witness-controller-20261029-v1",
+  "base_release": "/opt/trade-engine-v2/releases/profitability-foundation-controller-20261026-v1",
+  "scope": "SANDBOX controller only",
+  "runtime_changes": [
+    "services/v2_directional_cash.py",
+    "v2_core/settlement_precision.py"
+  ],
+  "preserved": [
+    "account binding",
+    "entry strategy/policy",
+    "market hub",
+    "venue fills",
+    "historical ledger"
+  ],
+  "activation": "guarded controller restart; same-binding/new-epoch resume after fresh coverage",
+  "files_sha256": {
+    "services/v2_directional_cash.py": "3abd960b9d1e323fa621b0ecfaf10d08c8730b57c49c05de8320d545c78162c7",
+    "v2_core/settlement_precision.py": "759f1386c521fe808b4b0a190fb3c515284a76574d17143ffa0083692c747c8b",
+    "scripts/v2_profitability_release_restart.py": "fd1909b06e176700e39b7138a0fe7c62be12b51a9a8cfbaf435770935b27dca5",
+    "scripts/v2_settlement_precision_release_restart.py": "70a389b7798ca0e4dfa3e3540b2c90d19e74a1cd0a102b5fa067b41a539df1a4",
+    "tests/v2_core/test_v2_observed_entry_precision.py": "33356d8b42eb9118751b87af676da6f05aee396f811534cba19ec0a955adc074",
+    "tests/v2_core/test_v2_settlement_entry.py": "2c038859a83d9c712aadfc96d12dcddd70e276ef7f016c3ae1033a4a9fd9908f",
+    "tests/v2_core/test_v2_profitability_release_restart.py": "343c0f82fa5585eaa268ba01049fe9e0c90f06c413cb074a50abe1afeed07a22",
+    "tests/v2_core/test_v2_settlement_precision_release_restart.py": "2ee8e8a2aac794214afd65d3a9bd5f21ffa6525abd48bef241b47bbdadcb71d8"
+  }
+}

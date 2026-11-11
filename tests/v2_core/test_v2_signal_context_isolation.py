@@ -8,10 +8,10 @@ from contextlib import contextmanager
 from copy import deepcopy
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_directional_admission import create_directional_admission_scheduler
+from tests.support.v2_admission import database as database_fixture
 from v2_core.ingress import ContextProvider, IntakeRejected
 from v2_core.producer import market_envelope
 from v2_core.runtime_policy import PolicyStore

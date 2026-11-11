@@ -1,0 +1,45 @@
+{
+  "version": "onchain-research-policy-20261031-v1",
+  "scope": "Optional SANDBOX position research; no execution input or automatic promotion",
+  "execution_authorized": false,
+  "automatic_parameter_updates": false,
+  "promotion_authorized": false,
+  "source": "DEXPAPRIKA_PUBLIC_KEYLESS",
+  "identity": "Reviewed primary-network mapping only; exact address and network, no fuzzy ticker search",
+  "pool_identity": "Uniswap v4 uses a validated bytes32 pool ID, never a token or contract address; token identity validation remains strict",
+  "unknown_identity": "Persist UNKNOWN in research run; never block or approve a trade",
+  "mapping_expiry": "30 days for initial reviewed seeds; expired or revoked mappings degrade to UNKNOWN",
+  "selection": "Current bound SANDBOX accounts, actually filled active residual positions; public symbols only",
+  "empty_positions": "IDLE; no automatic network work or invented positions",
+  "smoke_scope": "Explicitly marked Q/AKE research cases, not current holdings",
+  "read_limits": {
+    "symbols_per_batch": 3,
+    "requests_per_batch": 6,
+    "request_spacing_seconds": 6,
+    "hard_request_timeout_seconds": 3,
+    "network_batch_deadline_seconds": 50,
+    "response_bytes": 131072,
+    "maximum_provider_update_age_ms": 300000,
+    "pg_statement_timeout_ms": 1500,
+    "pg_lock_timeout_ms": 100,
+    "pg_role_connections": 3
+  },
+  "failures": {
+    "provider": "No immediate retries; persistent provider-only exponential cooldown, respecting bounded Retry-After",
+    "research_storage": "Do not request external data if circuit/registry cannot be read; stop further requests after failed persistence",
+    "low_disk": "Skip collection below 10 GiB free; bounded research retention remains attempted",
+    "worker_hang": "Independent systemd cgroup is killed after 75s; no trading service dependency or restart action",
+    "partial_evidence": "Normal partial coverage is not an operational outage and sends no Telegram notification",
+    "trading": "Opening, closing and native protection never call this sidecar or wait on its state"
+  },
+  "resources": {"cpu_quota_percent_of_one_core": 10, "memory_max_mib": 128, "tasks_max": 16, "nice": 15},
+  "retention": {"observations_days": 30, "runs_days": 90, "mapping_history": "append-only reviewed audit metadata"},
+  "limits_of_inference": [
+    "Buy/sell USD windows are provider aggregates, not independently reconstructed individual swaps.",
+    "Pool search is a top-three subset on one network, with no provider update timestamp; do not assume full coverage or verified freshness.",
+    "USD liquidity or price changes are not evidence of LP removal or participant intention.",
+    "Actual swap logs, LP events, exchange-wallet ownership/flows, block finality and reorg proof remain UNKNOWN.",
+    "No local file is used for live counters, state, mappings or observations; reviewed JSON is a deployment seed only.",
+    "Shared CPU, disk and PostgreSQL costs are bounded, not literally zero."
+  ]
+}

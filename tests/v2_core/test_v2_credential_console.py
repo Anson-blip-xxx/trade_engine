@@ -9,11 +9,11 @@ from uuid import uuid4
 import psycopg
 import pytest
 from test_v2_capital_journal import setup as journal_setup
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import intent
 
 from services.v2_account_admin_http import handler_for
 from services.v2_account_console import AccountConsole
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import intent
 from v2_core.account_draining import AccountDraining
 from v2_core.credential_vault import CredentialVault, VaultError
 from v2_core.intents import IntentStore

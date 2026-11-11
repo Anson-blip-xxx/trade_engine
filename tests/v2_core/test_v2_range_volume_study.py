@@ -4,10 +4,10 @@ from decimal import Decimal
 from functools import partial
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_quant_replay import scenario
 
 from services.v2_range_volume_study import archive_study, compare, persist
+from tests.support.v2_admission import database as database_fixture
 from v2_core.evidence import canonical
 from v2_core.quant_indicators import Bar
 from v2_core.quant_replay import ReplayPolicy, replay

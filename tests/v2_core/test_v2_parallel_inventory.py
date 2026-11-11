@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 from test_v2_account_inventory import SCOPE, ReadAccount
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.account_inventory import AccountInventory
 from v2_core.runtime_policy import PolicyStore

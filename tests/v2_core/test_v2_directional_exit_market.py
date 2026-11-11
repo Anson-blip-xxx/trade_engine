@@ -69,6 +69,12 @@ def provider(market=None, *, clock=86400000, **options):
 def test_fresh_mark_funding_and_closed_windows_are_exact():
     market = Market()
     result = provider(market)("BTCUSDT")
+    hourly = result.pop("_research_hourly")
+    assert hourly["symbol"] == "BTCUSDT"
+    assert hourly["environment"] == "SANDBOX"
+    assert hourly["interval"] == "1h"
+    assert len(hourly["rows"]) == 20
+    assert "available_at_ms" not in hourly
     assert result == {
         "symbol": "BTCUSDT",
         "environment": "SANDBOX",
@@ -108,6 +114,35 @@ def test_fresh_mark_funding_and_closed_windows_are_exact():
             },
         ),
     ]
+
+
+def test_research_bad_ohlcv_does_not_change_close_only_execution_observation():
+    market = Market()
+    baseline = provider()("BTCUSDT")
+    baseline.pop("_research_hourly")
+
+    def bad_research(path, rows):
+        if path.endswith("klines") and len(rows) == 20:
+            rows[0][1] = "bad-open"
+            rows[0][2] = None
+            rows[0][5] = "bad-volume"
+        return rows
+
+    market.mutate = bad_research
+    result = provider(market)("BTCUSDT")
+    assert result.pop("_research_hourly")["rows"][0][1] == "bad-open"
+    assert result == baseline
+    assert len(market.calls) == 4
+
+
+def test_research_hourly_uses_only_already_returned_closed_rows():
+    market = Market()
+    result = provider(market)("BTCUSDT")
+    rows = result["_research_hourly"]["rows"]
+    assert rows[0][0] == 14400000
+    assert rows[-1][6] + 1 == result["closed_1h_at_ms"]
+    assert all(row[6] < result["exchange_server_time_ms"] for row in rows)
+    assert [row[4] for row in rows] == [str(i) for i in range(81, 101)]
 
 
 def test_recurring_ema_is_bounded_to_the_ledger_numeric_scale():

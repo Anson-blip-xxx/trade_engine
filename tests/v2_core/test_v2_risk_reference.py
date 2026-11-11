@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 from market_fakes import ArchiveClient, candle_batch
 from test_v2_account_risk import POLICY, SCOPE, now, prepare, runner
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_risk_reference import (
     SOURCE,
@@ -15,6 +14,7 @@ from services.v2_risk_reference import (
 from services.v2_s3_candles import S3CandleRunner
 from services.v2_s3_runtime import S3Runtime
 from services.v2_s3_source import DurableCandleSource
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountRisk, RiskProvenance, RiskReference
 from v2_core.chunked_archive import ClickHouseChunkedArchive
 from v2_core.producer import ProducerPublisher

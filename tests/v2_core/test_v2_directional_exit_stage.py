@@ -3,9 +3,9 @@ from copy import deepcopy
 import pytest
 from test_v2_directional_lifecycle import SCOPE, Venue, opening
 from test_v2_directional_lifecycle import stage as protection_stage
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_exit import DirectionalExitStage
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance import BinanceFutures
 from v2_core.state import BusinessState, StateKey
 

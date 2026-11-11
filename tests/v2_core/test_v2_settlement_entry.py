@@ -7,10 +7,10 @@ import pytest
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_replay import SCOPE
 from test_v2_directional_settlement import Venue
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_settlement import DirectionalSettlementStage
 from services.v2_settlement_entry import policy_key
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountPolicy
 from v2_core.evidence import canonical
 from v2_core.state import BusinessState
@@ -113,6 +113,9 @@ def test_default_off_or_nonboolean_policy_never_changes_old_block(
         "LOCAL_ORDERS_NOT_FINAL",
         "WAITING_CLOSE",
         "CASH_MISMATCH",
+        "UNEXPLAINED_FILL_PNL_PRECISION",
+        "INCOME_FILL_MISMATCH",
+        "WALLET_CASH_MISMATCH",
         "ACCOUNT_BUSY",
         "UNOWNED_POSITION",
     ],

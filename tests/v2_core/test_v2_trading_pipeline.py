@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 from test_v2_directional import history, inputs, sizing
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 from test_v2_venue_readiness import Venue
 
 from services.v2_directional_admission import create_directional_admission_scheduler
@@ -16,6 +15,7 @@ from services.v2_directional_context import DirectionalContext
 from services.v2_directional_execution import bind_directional_venue_gate
 from services.v2_s3_runtime import S3Runtime
 from services.v2_trading_pipeline import TradingPipeline
+from tests.support.v2_admission import database as database_fixture
 from v2_core.ingress import ContextProvider
 from v2_core.producer import ProducerPublisher, market_envelope
 from v2_core.runtime import DataRuntime

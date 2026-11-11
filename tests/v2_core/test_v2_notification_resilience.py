@@ -3,10 +3,10 @@ import time
 
 from test_v2_account_inventory import TelegramConnection, sink
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal
 
 from services.v2_trading_health import TradingHealth
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal
 from v2_core.runtime_policy import PolicyStore
 from v2_core.strategy import StrategyScope
 from v2_core.trade_notifications import TradeLifecycleNotifications

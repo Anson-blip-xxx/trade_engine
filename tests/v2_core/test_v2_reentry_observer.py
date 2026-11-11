@@ -12,7 +12,6 @@ from psycopg import sql
 from test_v2_directional_admission import formal
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_replay import SCOPE, scenario
-from test_v2_intent_admission import database as database_fixture
 from test_v2_reentry import bar
 
 from services.v2_reentry_observation_report import observation_report
@@ -29,6 +28,7 @@ from services.v2_reentry_observer import (
     read_only,
 )
 from services.v2_trade_review import trade_review
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_registry import AccountRegistry
 from v2_core.reentry import VERSION, ReentryPolicy
 

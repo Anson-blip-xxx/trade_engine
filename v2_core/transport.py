@@ -9,6 +9,7 @@ from typing import ClassVar
 from urllib.parse import urlencode
 
 from v2_core.reduction_fence import revalidate_reduction_write
+from v2_core.symbols import is_supported_symbol
 
 
 class ExchangeTransportError(RuntimeError):
@@ -168,7 +169,7 @@ class BinanceSignedTransport:
                 not isinstance(params, dict)
                 or set(params) != expected
                 or not isinstance(params.get("symbol"), str)
-                or not re.fullmatch(r"[A-Z0-9_]{1,40}", params["symbol"])
+                or not is_supported_symbol(params["symbol"])
                 or (
                     path.endswith("/leverage")
                     and (
@@ -189,7 +190,7 @@ class BinanceSignedTransport:
                 not isinstance(params, dict)
                 or set(params) != {"symbol", "origClientOrderId"}
                 or not isinstance(params["symbol"], str)
-                or not re.fullmatch(r"[A-Z0-9_]{1,40}", params["symbol"])
+                or not is_supported_symbol(params["symbol"])
                 or not isinstance(params["origClientOrderId"], str)
                 or not re.fullmatch(r"v2[0-9a-f]{32}", params["origClientOrderId"])
             )
@@ -210,6 +211,7 @@ class BinanceSignedTransport:
                 != set(required)
                 | {"symbol", "side", "type", "triggerPrice", "clientAlgoId"}
                 or any(params.get(k) != v for k, v in required.items())
+                or not is_supported_symbol(params.get("symbol"), quote_assets=("USDT",))
                 or params.get("type") not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}
                 or params.get("side") not in {"BUY", "SELL"}
             ):

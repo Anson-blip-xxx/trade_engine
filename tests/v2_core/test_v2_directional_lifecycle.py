@@ -6,9 +6,9 @@ import pytest
 from test_v2_account_coverage import Account, inventory
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import SCOPE, scenario
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_lifecycle import DirectionalProtectionStage
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_coverage import coverage_from_facts
 
 database = database_fixture

@@ -2,7 +2,6 @@ import json
 from dataclasses import replace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_pipeline import case as pipeline_case
 from test_v2_venue_readiness import Venue
 
@@ -14,6 +13,7 @@ from services.v2_testnet_daemon import (
     TestnetTradingDaemon,
     create_directional_testnet_pipeline,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState
 
 database = database_fixture

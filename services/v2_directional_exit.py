@@ -30,6 +30,91 @@ _TERMINAL = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
 _ISOLATABLE_COVERAGE = {"LOCAL_ORDERS_NOT_FINAL", "MISSING_CONFIRMED_STOP"}
 
 
+def _research_clock(clock):
+    """Best-effort local query interval, never an execution freshness clock."""
+    try:
+        value = clock()
+        return value if type(value) is int and 0 <= value < 2**53 else None
+    except Exception:  # noqa: BLE001 - optional evidence cannot stop an exit
+        return None
+
+
+def _capture_exit_research(
+    *,
+    scope,
+    episode,
+    symbol,
+    at_ms,
+    opened_at_ms,
+    facts,
+    decision,
+    policy,
+    observation,
+    hourly,
+    spec,
+    protection,
+    query_started,
+    query_finished,
+):
+    """Attach bounded research to an existing write; no new I/O or authority."""
+    try:
+        # Optional dependency: even an unavailable adapter cannot block the
+        # already evaluated baseline exit or change its order request identity.
+        from services.v2_exit_research_snapshot import build_exit_research_snapshot
+
+        snapshot = build_exit_research_snapshot(
+            scope=scope,
+            episode=episode,
+            symbol=symbol,
+            at_ms=at_ms,
+            opened_at_ms=opened_at_ms,
+            facts={**facts, "momentum_closes_15m": list(facts["momentum_closes_15m"])},
+            baseline=decision.evidence(),
+            baseline_policy=dict(policy),
+            # The existing stage clock runs after the complete observer call.
+            # This is a conservative available-by receipt, not exchange time.
+            observation={**observation, "available_at_ms": at_ms},
+            hourly=(
+                {
+                    **hourly,
+                    "market_source": hourly.get(
+                        "market_source",
+                        "BINANCE_USDM_SANDBOX"
+                        if observation.get("environment") == "SANDBOX"
+                        and observation.get("source")
+                        in ("binance-public-exit-v1", "binance-public-exit-v2")
+                        else None,
+                    ),
+                    "available_at_ms": at_ms,
+                }
+                if isinstance(hourly, dict)
+                else None
+            ),
+            native={
+                "account_scope": asdict(scope),
+                "spec": asdict(spec),
+                "response": protection.get("research_terms"),
+                "observed_at_ms": query_started,
+                "available_at_ms": query_finished,
+                # No position query is added and no ledger quantity is
+                # promoted to a venue-confirmed protected quantity.
+            },
+        )
+        encoded = canonical(snapshot)
+        if len(encoded.encode()) > 65536:
+            raise ValueError("RESEARCH_CAPTURE_BOUND")
+    except Exception:  # noqa: BLE001 - research must not obstruct a baseline exit
+        snapshot = {
+            "version": "prospective-exit-research-snapshot-v1",
+            "status": "UNKNOWN",
+            "reason": "RESEARCH_CAPTURE_UNAVAILABLE",
+            "execution_authorized": False,
+            "promotion_authorized": False,
+        }
+        encoded = canonical(snapshot)
+    return snapshot, digest(encoded)
+
+
 def _ledger_digest(trace):
     return digest(
         canonical(
@@ -275,13 +360,18 @@ class DirectionalExitStage:
             }
             return {"status": "RECOVERING_CLOSE", "orders": outcomes}
         spec = self.stop.plan(opening["order_id"])
-        protection = self.protection.query(spec)
+        query_started = _research_clock(self.clock)
+        protection = self.protection.query(spec, research=True)
+        query_finished = _research_clock(self.clock)
         if protection["status"] != "NEW":
             return {
                 "status": "WAITING_NATIVE_PROTECTION",
                 "parent_status": protection["status"],
             }
         observation, now = self._observation(trace["request"]["symbol"])
+        # Private transport rows never alter the executing observation/digest.
+        # Only the bounded, validated research projection below is persisted.
+        research_hourly = observation.pop("_research_hourly", None)
         if any(
             row["leg"] == "CLOSE"
             and row["status"] in {"REJECTED", "CANCELLED"}
@@ -387,6 +477,25 @@ class DirectionalExitStage:
             "excursions": excursions,
             "excursions_error": excursions_error,
         }
+        if decision.reason == "LOW_YIELD_STAGNATION":
+            snapshot, snapshot_digest = _capture_exit_research(
+                scope=self.scope,
+                episode=episode,
+                symbol=trace["request"]["symbol"],
+                at_ms=now,
+                opened_at_ms=first,
+                facts=encoded_facts,
+                decision=decision,
+                policy=policy.values,
+                observation=observation,
+                hourly=research_hourly,
+                spec=spec,
+                protection=protection,
+                query_started=query_started,
+                query_finished=query_finished,
+            )
+            payload["research_snapshot"] = snapshot
+            payload["research_snapshot_digest"] = snapshot_digest
         identity = digest(
             canonical(
                 {
@@ -395,6 +504,15 @@ class DirectionalExitStage:
                     "policy_digest": policy.digest,
                     "quant_exit": quant,
                     "quant_exit_error": quant_failure,
+                    **(
+                        {
+                            "research_snapshot_digest": payload[
+                                "research_snapshot_digest"
+                            ]
+                        }
+                        if "research_snapshot_digest" in payload
+                        else {}
+                    ),
                 }
             )
         )

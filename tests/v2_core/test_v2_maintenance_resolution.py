@@ -3,12 +3,12 @@ from dataclasses import replace
 
 import pytest
 from test_v2_account_risk import prepare
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent
 from test_v2_maintenance_reconciliation import maintenance as maintenance_fixture
 from test_v2_protection_child import SCOPE
 from test_v2_protection_child import setup as setup_fixture
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent
 from v2_core.account_risk import AccountRiskDenied
 from v2_core.maintenance_reconciliation import MaintenanceCloseReconciler
 from v2_core.maintenance_resolution import MaintenanceResolution

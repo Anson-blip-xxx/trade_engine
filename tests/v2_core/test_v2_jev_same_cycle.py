@@ -5,13 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_jev_entry_context import binding, publish
 from test_v2_jev_entry_context import case as memory_fixture
 from test_v2_jev_fullflow import prepare_candidate
 from test_v2_trading_pipeline import case as pipeline_fixture
 
 from services import v2_jev_entry_context as subject
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState
 
 database = database_fixture

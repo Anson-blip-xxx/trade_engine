@@ -5,9 +5,9 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_layered_history import LayeredHistory, summarize, validate
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.entry_controls import Controls, resolve
 from v2_core.evidence import DecisionEvidence, EvidenceStore, canonical, digest

@@ -85,10 +85,12 @@ class HostDiskAssessment:
         disk_usage=shutil.disk_usage,
         clock_ms=lambda: time.time_ns() // 1000000,
         maintenance_status=None,
+        queue_storage_assess=None,
     ):
         self.connect, self.warning, self.recovery = connect, warning_gib, recovery_gib
         self.disk_usage, self.clock = disk_usage, clock_ms
         self.maintenance_status = maintenance_status
+        self.queue_storage_assess = queue_storage_assess
         self.store = BusinessState(connect)
         self.key = StateKey(
             "BINANCE",
@@ -130,6 +132,26 @@ class HostDiskAssessment:
             snapshot["active"] = sorted(
                 set(snapshot["active"]) | set(maintenance["active"])
             )
+        if self.queue_storage_assess is not None:
+            try:
+                storage = self.queue_storage_assess(
+                    self.connect,
+                    now_ms=snapshot["observed_at_ms"],
+                    previous=old.get("queue_storage"),
+                )
+            except Exception:  # noqa: BLE001 - telemetry cannot erase other checks
+                storage = {
+                    "status": "UNKNOWN",
+                    "observed_at_ms": snapshot["observed_at_ms"],
+                    "active": sorted(
+                        {"QUEUE_STORAGE_UNAVAILABLE"}
+                        | set(old.get("queue_storage", {}).get("active", []))
+                    ),
+                }
+            snapshot["queue_storage"] = storage
+            snapshot["active"] = sorted(
+                set(snapshot["active"]) | set(storage["active"])
+            )
         saved = self.store.change(
             self.key,
             expected_version=previous.version if previous else 0,
@@ -152,6 +174,7 @@ def monitor_once(
     disk_usage=shutil.disk_usage,
     clock_ms=lambda: time.time_ns() // 1000000,
     maintenance_status=None,
+    queue_storage_assess=None,
 ):
     assessment = HostDiskAssessment(
         connect,
@@ -160,6 +183,7 @@ def monitor_once(
         disk_usage=disk_usage,
         clock_ms=clock_ms,
         maintenance_status=maintenance_status,
+        queue_storage_assess=queue_storage_assess,
     )
 
     def notify(event):
@@ -192,6 +216,7 @@ def monitor_once(
 
 def main():
     from services.v2_managed_health import _notification_credentials
+    from services.v2_queue_storage_health import assess as queue_storage_assess
     from services.v2_retention_health import configured_assess as maintenance_status
     from services.v2_testnet_inventory import deployment_database
 
@@ -219,6 +244,7 @@ def main():
                 warning_gib=int(os.environ.get("V2_HOST_DISK_WARN_GIB", "16")),
                 recovery_gib=int(os.environ.get("V2_HOST_DISK_RECOVERY_GIB", "2")),
                 maintenance_status=maintenance_status,
+                queue_storage_assess=queue_storage_assess,
             )
         print(json.dumps(result, sort_keys=True), flush=True)
         if result["delivery_pending"]:

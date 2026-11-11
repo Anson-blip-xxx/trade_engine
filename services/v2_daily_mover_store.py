@@ -148,6 +148,48 @@ class DailyMoverStore:
             ).fetchone()
             return row
 
+    def pending_settlement_days(self, latest_day, now_ms):
+        """At most three prior natural days; latest revision per account only.
+
+        No trading-state scan and no date inferred from a moving retry counter.
+        Legacy pending reviews get one component-upgrade refresh in this window.
+        """
+        if type(now_ms) is not int or not 0 <= now_ms < 2**53:
+            raise ValueError("INVALID_REFRESH_CLOCK")
+        with self.connect() as c:
+            c.execute("SET TRANSACTION READ ONLY")
+            rows = c.execute(
+                """WITH latest AS MATERIALIZED (
+                SELECT DISTINCT ON(day,scope_key) day,report
+                FROM v2_daily_mover_reports
+                WHERE method_version=%s AND day>=%s::date-3 AND day<%s::date
+                ORDER BY day,scope_key,created_at DESC)
+                SELECT DISTINCT day::text FROM latest
+                WHERE (
+                    report#>>'{settlement_refresh,version}'='daily-mover-settlement-refresh-v1'
+                    AND report#>>'{settlement_refresh,status}' IN ('WAITING_SETTLEMENT','WAITING_EVIDENCE')
+                    AND CASE WHEN jsonb_typeof(report#>'{settlement_refresh,retry_after_ms}')='number'
+                        THEN (report#>>'{settlement_refresh,retry_after_ms}')::numeric BETWEEN 0 AND %s
+                            AND (report#>>'{settlement_refresh,retry_after_ms}')::numeric<9007199254740992
+                            AND trunc((report#>>'{settlement_refresh,retry_after_ms}')::numeric)
+                                =(report#>>'{settlement_refresh,retry_after_ms}')::numeric
+                        ELSE false END
+                ) OR (
+                    NOT report ? 'settlement_refresh'
+                    AND EXISTS (
+                        SELECT 1 FROM unnest(ARRAY['AWAITING_TERMINAL_ORDERS','AWAITING_SETTLEMENT',
+                            'SETTLEMENT_EVIDENCE_INCOMPLETE','SETTLEMENT_REVISION_CHANGED']) AS pending(reason)
+                        WHERE CASE WHEN jsonb_typeof(report#>ARRAY['account_day_review','coverage','excluded_reasons',reason])='number'
+                            THEN (report#>>ARRAY['account_day_review','coverage','excluded_reasons',reason])::numeric BETWEEN 1 AND 500
+                                AND trunc((report#>>ARRAY['account_day_review','coverage','excluded_reasons',reason])::numeric)
+                                    =(report#>>ARRAY['account_day_review','coverage','excluded_reasons',reason])::numeric
+                            ELSE false END
+                    )
+                ) ORDER BY day::text DESC LIMIT 3""",
+                (VERSION, latest_day, latest_day, now_ms),
+            ).fetchall()
+        return [row[0] for row in rows]
+
     def save_report(self, scope, day, report):
         return self._save_report(self.scope_key(scope), day, report)
 

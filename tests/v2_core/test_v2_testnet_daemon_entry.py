@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from market_fakes import ArchiveClient, Budget, MarketHTTP
 from test_v2_account_inventory import TelegramConnection, sink
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_followup import DirectionalFollowupStage
 from services.v2_s0_regime import ArchivedS0Stage
@@ -17,6 +16,7 @@ from services.v2_testnet_daemon_entry import (
     create_testnet_process,
     daemon_credentials,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.venue_readiness import GuardedOpeningSubmit
 
 database = database_fixture

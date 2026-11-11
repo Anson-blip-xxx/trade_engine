@@ -2,9 +2,9 @@ from decimal import Decimal
 
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_performance_reporting import performance, signal_funnel
+from tests.support.v2_admission import database as database_fixture
 
 database = database_fixture
 closed = closed_fixture

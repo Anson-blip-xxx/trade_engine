@@ -6,13 +6,13 @@ No replacement, bulk cancellation, live transport or automatic write retry.
 """
 
 import json
-import re
 import time
 from dataclasses import asdict, dataclass
 
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
 from v2_core.state import StateKey, normalized
+from v2_core.symbols import is_supported_symbol
 from v2_core.transport import ExchangeTransportError
 
 
@@ -43,7 +43,7 @@ class ProtectionSpec:
     def __post_init__(self):
         normalized(self.episode)
         if (
-            not re.fullmatch(r"[A-Z0-9]{1,30}USDT", self.symbol)
+            not is_supported_symbol(self.symbol, quote_assets=("USDT",))
             or self.side not in {"BUY", "SELL"}
             or self.kind not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}
         ):
@@ -161,7 +161,7 @@ class TestnetProtection:
             }
         return self.query(spec)
 
-    def query(self, spec):
+    def query(self, spec, *, research=False):
         snapshot, payload = self.read(spec)
         if snapshot is None:
             raise ValueError("unregistered protection")
@@ -228,11 +228,35 @@ class TestnetProtection:
         updated = {**payload, "status": raw["algoStatus"], "observation": raw}
         if updated != payload and not self.save(spec, snapshot, updated):
             return {"status": "CONCURRENT_CHANGE"}
-        return {
+        result = {
             "status": raw["algoStatus"],
             "algo_id": raw["algoId"],
             "client_algo_id": raw["clientAlgoId"],
         }
+        if research is True:
+            # Optional in-memory projection of the terms verified above. No
+            # query clock enters the protocol journal, so repeated identical
+            # NEW responses still do not cause another persistent state write.
+            # closePosition is a mode, not proof of fixed quantity coverage.
+            # Default callers keep their original compact journal/JSON shape.
+            result["research_terms"] = {
+                field: raw[field]
+                for field in (
+                    "symbol",
+                    "side",
+                    "positionSide",
+                    "algoType",
+                    "clientAlgoId",
+                    "workingType",
+                    "orderType",
+                    "closePosition",
+                    "priceProtect",
+                    "triggerPrice",
+                    "algoId",
+                    "algoStatus",
+                )
+            }
+        return result
 
     def cancel_flat_once(self, spec, *, symbol_only=False):
         """Flat-account test cleanup only; not safe replacement of a live stop."""

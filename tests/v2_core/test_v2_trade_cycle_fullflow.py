@@ -16,13 +16,13 @@ import test_v2_entry_upgrade_fullflow as existing
 import test_v2_trading_pipeline as pipeline_fixture
 from test_v2_directional_exit_stage import setup_exit
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database
 from test_v2_layered_history import row as history_row
 from test_v2_layered_history import seed as seed_history
 
 from services.v2_entry_research_context import EntryResearchContext
 from services.v2_entry_structure import EntryStructureContext
 from services.v2_trading_pipeline import failed
+from tests.support.v2_admission import database
 from v2_core.capital_model import rehearsal_profile
 from v2_core.entry_controls import configure
 from v2_core.runtime_policy import PolicyStore
@@ -346,7 +346,7 @@ def test_new_settled_anchor_fences_prepared_opening(database, monkeypatch):
 def test_slow_final_anchor_query_cannot_hold_submit_lock_or_send_order(
     database, monkeypatch
 ):
-    import services.v2_entry_structure as structure
+    import v2_core.entry_history as structure
 
     _, _, worker, signal_id, context, _, _, _ = build_cycle(
         database, monkeypatch, seeded=False

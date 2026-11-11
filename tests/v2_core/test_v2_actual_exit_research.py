@@ -5,10 +5,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services import v2_actual_exit_research as worker
 from services.v2_exit_funnel_audit import audit
+from tests.support.v2_admission import database as database_fixture
 from v2_core.evidence import canonical, digest
 
 database = database_fixture

@@ -7,9 +7,9 @@ from uuid import uuid4
 
 import pytest
 from test_v2_directional_exit_stage import SCOPE, setup_exit
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_pipeline import case as pipeline_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.state import BusinessState, StateKey
 

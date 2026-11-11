@@ -4,13 +4,13 @@ import json
 
 import pytest
 from test_v2_directional_replay import scenario
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_admission import (
     admission_decision,
     create_directional_admission_scheduler,
     signal_only_rejection,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.directional import below_minimum_strength
 from v2_core.evidence import canonical
 

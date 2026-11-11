@@ -7,6 +7,7 @@ not read legacy state or pretend its injected account data is venue-verified.
 
 from dataclasses import asdict, replace
 
+from services.v2_trend_entry import REJECTIONS as TREND_REJECTIONS
 from v2_core.directional import (
     analysis_adjustment,
     evaluate_market,
@@ -26,12 +27,15 @@ MARKET_ONLY_REJECTIONS = frozenset(
         "pump_down_uptrend",
         "entry_mode_unconfirmed",
         "takeover_not_ready",
+        "indicator_evidence_unconfirmed",
+        "takeover_flow_unconfirmed",
         "overextended",
         "atr_exceeded",
         "zero_volatility",
         "score_unreachable",
         "TV_DIRECTION_CONFLICT",
     }
+    | TREND_REJECTIONS
 )
 
 
@@ -39,15 +43,23 @@ def source_policy(signal, config):
     from v2_core.runtime_policy import resolve
 
     policy = resolve(config.get("policy"))
+    structural = (
+        policy["entry.trend_structure_enabled"] and config.get("source") != "quant"
+    )
     selected = (
         config.get("source") == "tv_bridge"
         and signal["signal"] in {"TREND_UP", "TREND_DOWN"}
         and policy["tv.trend_policy_enabled"]
+        and not structural
     )
     proof = {
         "version": "source-thresholds-v1",
         "source": config.get("source", "s3"),
-        "profile": "tv-trend-v1" if selected else "directional-default-v1",
+        "profile": "causal-trend-entry-v1"
+        if structural
+        else "tv-trend-v1"
+        if selected
+        else "directional-default-v1",
         "raw_strength": signal["features"]["strength"],
     }
     if selected:
@@ -56,11 +68,57 @@ def source_policy(signal, config):
             "entry.short_min_strength": policy["tv.trend_min_strength"],
             "entry.min_score": policy["tv.trend_min_score"],
         }
+    if structural:
+        from decimal import Decimal
+
+        policy = {
+            **policy,
+            "sizing.cost_buffer_fraction": str(
+                max(
+                    Decimal(policy["sizing.cost_buffer_fraction"]),
+                    Decimal(policy["trend.roundtrip_cost_fraction"]),
+                )
+            ),
+        }
     proof.update(
         min_score=policy["entry.min_score"],
         short_min_strength=policy["entry.short_min_strength"],
     )
     return policy, proof
+
+
+def bound_indicator_evidence(context):
+    """Bind warmup metadata to the same scoped, closed market observation.
+
+    An invalid contract is a terminal candidate rejection, not a reason to keep
+    retrying this signal. Outer context freshness is checked by its provider.
+    """
+    market = context["directional"]["market"]
+    evidence = market.get("input_evidence")
+    source = context.get("sources", {}).get("s3")
+    now = context.get("assembled_at")
+    if not isinstance(evidence, dict) or not isinstance(source, dict):
+        return None
+    closed = evidence.get("closed_at")
+    if (
+        evidence.get("source") != "BINANCE_FUTURES"
+        or evidence.get("interval") != "1m"
+        or evidence.get("environment") != context.get("environment")
+        or context.get("environment") not in {"SANDBOX", "LIVE"}
+        or type(now) is not int
+        or type(closed) is not int
+        or closed < 1440 * 60000
+        or closed % 60000
+        or closed > now
+        or source.get("source") != "s3"
+        or source.get("environment") != context["environment"]
+        or source.get("symbol") != context.get("symbol")
+        or type(source.get("observed_at")) is not int
+        or source["observed_at"] != closed
+        or source.get("features") != market
+    ):
+        return None
+    return evidence
 
 
 def market_plan(signal, context, config):
@@ -70,6 +128,12 @@ def market_plan(signal, context, config):
         return quant_market_plan(signal, context, config)
     if signal["signal"].startswith("QUANT_"):
         raise ValueError("QUANT_SOURCE_REQUIRED")
+    from v2_core.runtime_policy import resolve
+
+    if resolve(config.get("policy"))["entry.trend_structure_enabled"]:
+        from services.v2_trend_entry import evaluate_trend_market
+
+        return evaluate_trend_market(signal, context, config)
     event, snapshot = signal["features"], context["directional"]
     policy, proof = source_policy(signal, config)
     inputs = {
@@ -87,6 +151,17 @@ def market_plan(signal, context, config):
         "age_ms": context["assembled_at"] - signal["observed_at"],
         "policy": policy,
     }
+    if policy["entry.confirmation_version"] == 2:
+        # Metadata is not a numeric indicator. Keep its integer/bool types and
+        # freeze the producer's actual contract, never a reconstructed label.
+        evidence = snapshot["market"].get("input_evidence")
+        inputs["indicator_evidence"] = bound_indicator_evidence(context)
+        proof["confirmation_version"] = 2
+        proof["indicator_evidence"] = evidence
+        proof["indicator_evidence_bound"] = inputs["indicator_evidence"] is not None
+        # An observed move is not a calibrated remaining-return forecast. Keep
+        # the inherited gate for comparison, but never label its proxy as edge.
+        proof["reward_estimate_kind"] = "REALIZED_MOVE_PROXY_NOT_FORECAST"
     from v2_core.signal_fusion import validate_fusion
 
     fusion = validate_fusion(
@@ -98,9 +173,11 @@ def market_plan(signal, context, config):
     baseline = evaluate_market(**inputs)
     bonus = fusion["score_bonus"] if fusion else 0
     plan = evaluate_market(**inputs, score_bonus=bonus) if bonus else baseline
-    if fusion and fusion["veto"] and plan.reason in {
-        "CANDIDATE", "score_below_minimum"
-    }:
+    if (
+        fusion
+        and fusion["veto"]
+        and plan.reason in {"CANDIDATE", "score_below_minimum"}
+    ):
         plan = replace(plan, reason="TV_DIRECTION_CONFLICT")
     if (
         context.get("market_only") is True
@@ -206,6 +283,7 @@ def replay_decision(signal, context, config):
     # Sizing validates the candidate against the same source-specific minimum.
     # All other risk/capital settings remain identical to the frozen policy.
     settings, _ = source_policy(signal, config)
+    structural = scoring.get("profile") == "causal-trend-entry-v1"
     if settings["leverage.adaptive_enabled"]:
         from decimal import Decimal
 
@@ -226,7 +304,7 @@ def replay_decision(signal, context, config):
             if fusion and fusion["allocation_score"] is not None
             else plan,
             {**snapshot, "quant_atr_pct": scoring["atr_pct"]}
-            if config.get("source") == "quant"
+            if config.get("source") == "quant" or structural
             else snapshot,
             source=config.get("source"),
             age_ms=now - signal["observed_at"],
@@ -236,6 +314,30 @@ def replay_decision(signal, context, config):
         features["leverage_decision"] = proof
         if selected is None:
             return result("NO_VERIFIED_SAFE_LEVERAGE")
+        if structural:
+            # A profile ceiling is not a new venue-approved tier. For example,
+            # cap=4 over configured 2/3/5 must choose 3, never invent 4. Every
+            # lower tier retains the same conservative stop and venue proof.
+            tiers = {
+                settings["leverage.low"],
+                settings["leverage.medium"],
+                settings["leverage.adaptive_high"],
+            }
+            if settings["leverage.boost_enabled"]:
+                tiers.add(settings["leverage.boost"])
+            selected = max(
+                (
+                    tier
+                    for tier in tiers
+                    if tier <= min(selected, settings["trend.max_leverage"])
+                ),
+                default=None,
+            )
+            proof["profile_leverage_cap"] = settings["trend.max_leverage"]
+            proof["selected"] = selected
+            if selected is None:
+                proof["reason"] = "NO_VERIFIED_SAFE_LEVERAGE"
+                return result("NO_VERIFIED_SAFE_LEVERAGE")
         plan = replace(plan, leverage=selected)
         features["market_plan"] = asdict(plan)
     adjustment = analysis_adjustment(
@@ -267,7 +369,7 @@ def replay_decision(signal, context, config):
         **snapshot["sizing"],
         price=snapshot["price"],
         atr_pct=scoring["atr_pct"]
-        if config.get("source") == "quant"
+        if config.get("source") == "quant" or structural
         else decimal_features(snapshot["market"]["1h"]["atr_pct"]),
         analysis_factor=analysis_factor,
         policy=settings,
@@ -284,10 +386,18 @@ def replay_decision(signal, context, config):
         plan,
         sized,
         price=snapshot["price"],
-        expected_move_pct=snapshot["expected_move_pct"],
+        expected_move_pct=scoring["target_move_pct"]
+        if structural
+        else snapshot["expected_move_pct"],
         funding_rate=snapshot["funding_rate"],
         policy=settings,
     )
+    if structural and gate == "MARKET_GATES_PASSED":
+        from services.v2_trend_entry import trend_reward_gate
+
+        gate = trend_reward_gate(
+            plan, sized, price=snapshot["price"], proof=scoring, policy=settings
+        )
     features["execution_market_gate"] = gate
     if gate == "MARKET_GATES_PASSED" and "liquidity_controls" in context:
         from v2_core.liquidity import evaluate_execution_quote, evaluate_liquidity

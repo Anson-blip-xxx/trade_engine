@@ -9,7 +9,7 @@ feature windows → 候选事件（level dict，与 legacy 输出逐字同构）
 - 比较算符（>= <= > <）
 - strength 公式（floor/min/max/int()/abs）
 - 超买/超卖 guard（4h EMA20 ± 3×ATR%）与 strong_breakout（close_pos 语义，
-  S3-3：legacy producer 不写 → 恒 False；显式 v4 producer 产出真实窗口位置）
+  S3-3：legacy producer 不写 → 恒 False；显式 v4/v5 producer 产出真实窗口位置）
 - VIOLENT 方向 = 类型后缀；FAILED_BREAKOUT 携带 direction 字段
 
 状态/时间依赖：FAILED_BREAKOUT 不在本模块实现（经 breakout_runner 注入
@@ -42,6 +42,38 @@ def _noop(*args, **kwargs):
     return None
 
 
+def _corrected_atr_inputs(windows):
+    """V5 compares adjacent 14-minute TR blocks, never two latest-14 aliases."""
+    contract = windows['input_evidence'].get('indicator_contract')
+    expected = {
+        'atr_expansion_contract': 'LATEST_14_VS_PRECEDING_14_TR_1M',
+        'atr_period_unit': '1m_bar',
+        'atr_method': 'LATEST_14_TRUE_RANGES_ARITHMETIC_MEAN',
+        'atr_reference_method': 'PRECEDING_NONOVERLAPPING_14_TRUE_RANGES_ARITHMETIC_MEAN',
+        'atr_pct_denominator': 'LATEST_CLOSE_FOR_CURRENT_AND_REFERENCE',
+    }
+    if not isinstance(contract, dict) or any(
+        contract.get(field) != value for field, value in expected.items()
+    ):
+        raise ValueError('S3_ATR_EXPANSION_CONTRACT')
+    window = windows.get('15m')
+    if not isinstance(window, dict):
+        raise ValueError('S3_ATR_EXPANSION_INPUT_REQUIRED')  # noqa: TRY004 - invalid evidence contract
+    values = []
+    for field in ('atr_pct', 'atr_reference_pct'):
+        value = window.get(field)
+        if type(value) not in (int, float, str) or len(str(value)) > 80:
+            raise ValueError('S3_ATR_EXPANSION_INPUT_REQUIRED')
+        try:
+            value = float(value)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError('S3_ATR_EXPANSION_INPUT_INVALID') from exc
+        if not 0 <= value < float('inf'):
+            raise ValueError('S3_ATR_EXPANSION_INPUT_INVALID')
+        values.append(value)
+    return values
+
+
 def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
                             log_fn: Optional[Callable] = None,
                             breakout_runner: Optional[Callable] = None) -> list:
@@ -60,6 +92,12 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
     w1h  = windows.get('1h', {})
     w4h  = windows.get('4h', {})
     w24h = windows.get('24h', {})
+    evidence = windows.get('input_evidence')
+    version = evidence.get('window_version') if isinstance(evidence, dict) else None
+    if isinstance(version, str) and version.startswith('s3-closed-1m-v') and \
+            version not in {f's3-closed-1m-v{i}' for i in range(1, 7)}:
+        raise ValueError('S3_INDICATOR_VERSION_UNSUPPORTED')
+    corrected_atr = _corrected_atr_inputs(windows) if version in {'s3-closed-1m-v5', 's3-closed-1m-v6'} else None
     # ── 超买超卖检查（用于方向信号过滤：价格偏离 EMA20 太远时不产生趋势信号） ──
     _price = float(w15m.get('close', 0) or 0)
     _4h_ema20 = float(w4h.get('ema20', 0) or 0)
@@ -80,8 +118,10 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
     def _strong_breakout(side: str) -> bool:
         """Distinguish a supported breakout from a thin late spike."""
         evidence = windows.get('input_evidence')
-        if isinstance(evidence, dict) and evidence.get('window_version') == 's3-closed-1m-v4':
-            # V4 emits a real 0..100 observation: zero is a close at the low,
+        if isinstance(evidence, dict) and evidence.get('window_version') in {
+            's3-closed-1m-v4', 's3-closed-1m-v5', 's3-closed-1m-v6'
+        }:
+            # V4/V5 emit a real 0..100 observation: zero is a close at the low,
             # not a missing value. Preserve all legacy replay paths below.
             value = w15m.get('close_pos')
             if value is None or isinstance(value, bool):
@@ -92,6 +132,8 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
         else:
             close_pos = float(w15m.get('close_pos', 50) or 50)
         flow = w15m.get('taker_buy_ratio')
+        if version in {'s3-closed-1m-v5', 's3-closed-1m-v6'} and flow is None:
+            return False
         flow_ok = flow is None or (float(flow) >= 0.55 if side == 'LONG' else float(flow) <= 0.45)
         volume_ok = float(w15m.get('vol_ratio', 0) or 0) >= 1.5
         trend_change = float(w1h.get('chg', 0) or 0)
@@ -196,13 +238,30 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
                 'vol_ratio': w15m.get('vol_ratio'),
             })
 
+    # V6 separates a true closed-15m trend candidate from realized amplitude.
+    # It is not an entry permit: the account profile rechecks structure, flow,
+    # price chase, costs, sizing, protection and venue state independently.
+    structural = windows.get('trend_structure') if version == 's3-closed-1m-v6' else None
+    trend_values = structural.get('values') if isinstance(structural, dict) and structural.get('status') == 'READY' else None
+
+    def _structural_trend(side):
+        if not isinstance(trend_values, dict):
+            return False
+        sign = 1 if side == 'LONG' else -1
+        return all(sign * value > 0 for value in (
+            trend_values['close'] - trend_values['ema20'],
+            trend_values['ema20'] - trend_values['ema60'],
+            trend_values['ema20_slope'], trend_values['ema60_slope'],
+            trend_values['close'] - trend_values['previous_close'],
+        ))
+
     # ── TREND_UP ──
     trend_up_1h4h = w1h.get('chg', 0) >= THRESHOLDS['trend_up']['1h'] and \
                     w4h.get('chg', 0) >= THRESHOLDS['trend_up']['4h'] and \
                     (not _is_overbought() or _strong_breakout('LONG'))
     trend_up_24h  = w24h.get('chg', 0) >= THRESHOLDS['trend_up']['24h'] and \
                     w24h.get('ema20', 0) > w24h.get('ema60', 0)
-    if trend_up_1h4h or trend_up_24h:
+    if _structural_trend('LONG') if version == 's3-closed-1m-v6' else (trend_up_1h4h or trend_up_24h):
         strength = int(w1h.get('chg', 0) * 10 + w4h.get('chg', 0) * 5)
         events.append({
             'type': 'TREND_UP', 'symbol': symbol,
@@ -216,8 +275,8 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
                     (not _is_oversold() or _strong_breakout('SHORT'))
     trend_down_24h  = w24h.get('chg', 0) <= THRESHOLDS['trend_down']['24h'] and \
                     w24h.get('ema20', 0) < w24h.get('ema60', 0)
-    if trend_down_1h4h or trend_down_24h:
-        strength = int(abs(w1h.get('chg', 0)) * 10 + abs(w4h.get('chg', 0)) * 5)
+    if _structural_trend('SHORT') if version == 's3-closed-1m-v6' else (trend_down_1h4h or trend_down_24h):
+        strength = int(max(0, -w1h.get('chg', 0)) * 10 + max(0, -w4h.get('chg', 0)) * 5) if version == 's3-closed-1m-v6' else int(abs(w1h.get('chg', 0)) * 10 + abs(w4h.get('chg', 0)) * 5)
         events.append({
             'type': 'TREND_DOWN', 'symbol': symbol,
             'strength': max(15, min(99, strength)),
@@ -242,7 +301,16 @@ def detect_candidate_events(symbol: str, windows: dict, windows_raw: dict,
         })
 
     # ── ATR_EXPAND ──
-    if windows.get('15m', {}).get('atr_pct', 0) > \
+    if corrected_atr is not None:
+        current, reference = corrected_atr
+        if reference > 0 and current > reference * 2 and current > 0.5:
+            events.append({
+                'type': 'ATR_EXPAND', 'symbol': symbol,
+                'strength': min(99, int(current * 30)),
+                'atr_current_pct': current, 'atr_reference_pct': reference,
+                'atr_expansion_contract': 'LATEST_14_VS_PRECEDING_14_TR_1M',
+            })
+    elif windows.get('15m', {}).get('atr_pct', 0) > \
        windows.get('1h', {}).get('atr_pct', 0) * 2 and \
        w15m.get('atr_pct', 0) > 0.5:
         events.append({

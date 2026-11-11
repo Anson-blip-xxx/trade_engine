@@ -21,6 +21,7 @@ from v2_core.jev_advisory import (
     _result,
     prepare_request,
 )
+from v2_core.jev_health import MODEL_HEALTH_KEY, fold_model_health
 from v2_core.state import BusinessState, StateKey
 
 BUDGET_KEY = "shared-jev-primary"
@@ -39,6 +40,7 @@ _FALLBACK_REASONS = {
     "MODEL_LATE_RESPONSE",
     "PROVIDER_REQUEST_REJECTED",
     "MODEL_CONFIGURATION_UNAVAILABLE",
+    "MODEL_LOCAL_STARTUP_UNAVAILABLE",
     "MODEL_TIMEOUT",
     "TOKEN_RESERVATION_EXCEEDED",
     "DEADLINE_EXPIRED",
@@ -391,7 +393,14 @@ class JevCoordinator:
         if type(claim_id) is not str or str(UUID(claim_id)) != claim_id:
             raise ValueError("JEV_CLAIM_ID_INVALID")
         if charged_input_tokens is not None:
-            _integer(charged_input_tokens, 1, 1000000)
+            _integer(charged_input_tokens, 0, 1000000)
+            # Only the transport's explicit pre-provider startup protocol can
+            # prove zero usage. Unknown/remote/timeout failures retain reserve.
+            if charged_input_tokens == 0 and (
+                type(result) is not dict
+                or result.get("reason") != "MODEL_LOCAL_STARTUP_UNAVAILABLE"
+            ):
+                raise ValueError("JEV_COMPLETION_INVALID")
         key = self.request_state_key(request_key)
         with self.connect() as conn, conn.transaction():
             _limit_transaction(conn)
@@ -453,6 +462,10 @@ class JevCoordinator:
                     or result.get("execution_authorized") is not False
                     or result.get("risk_override") is not False
                     or (
+                        reason == "MODEL_LOCAL_STARTUP_UNAVAILABLE"
+                        and charged_input_tokens != 0
+                    )
+                    or (
                         reason
                         in {
                             "MODEL_TIMEOUT",
@@ -486,6 +499,7 @@ class JevCoordinator:
                             "TOKEN_RESERVATION_EXCEEDED",
                             "PROVIDER_REQUEST_REJECTED",
                             "MODEL_CONFIGURATION_UNAVAILABLE",
+                            "MODEL_LOCAL_STARTUP_UNAVAILABLE",
                         }
                         and (reason in {"DEADLINE_EXPIRED", "MODEL_LATE_RESPONSE"})
                         != (now_ms >= current["deadline_ms"])
@@ -542,4 +556,22 @@ class JevCoordinator:
                 },
                 operation,
             )
+            # This projection has no decision authority. Its fixed-size point
+            # update shares the existing coordinator lock but is savepoint-
+            # isolated: a diagnostic failure must not lose a completed result,
+            # change its budget accounting, or force another provider request.
+            try:
+                with conn.transaction():
+                    health_version, prior_health = _read(store, MODEL_HEALTH_KEY)
+                    health = fold_model_health(
+                        prior_health,
+                        status=checked["status"],
+                        reason=checked["reason"],
+                        completed_at_ms=now,
+                    )
+                    _write(
+                        store, MODEL_HEALTH_KEY, health_version, health, operation
+                    )
+            except Exception:  # noqa: BLE001,S110 - optional diagnostics never undo completion or leak DB errors
+                pass
             return True

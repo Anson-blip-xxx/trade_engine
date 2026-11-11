@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect bounded public positioning research every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:30 Asia/Shanghai
+RandomizedDelaySec=15
+Persistent=true
+Unit=trade-v2-positioning-research.service
+
+[Install]
+WantedBy=timers.target

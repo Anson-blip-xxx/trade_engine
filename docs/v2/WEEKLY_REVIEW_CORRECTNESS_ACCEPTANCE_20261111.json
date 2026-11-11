@@ -1,0 +1,161 @@
+{
+  "schema": "weekly-review-correctness-acceptance-v1",
+  "date": "2026-11-11",
+  "timezone": "Asia/Shanghai",
+  "status": "WORKSPACE_VERIFIED_NOT_DEPLOYED",
+  "scope": {
+    "environment": "SANDBOX",
+    "account_identity_omitted": true,
+    "orders_or_forced_closes": 0,
+    "live_business_database_writes": 0,
+    "service_restarts": 0,
+    "threshold_or_budget_changes": false
+  },
+  "exit_attribution": {
+    "root_cause": "Frozen external close origin/kind was not mapped by the ordinary review; the mover reader had an independent projection and whitelist.",
+    "classification": "RECONCILED_EXTERNAL_CLOSE",
+    "meaning": "Reconciled external reduction; the trigger is still unknown. Not proof of manual close, stop-loss or liquidation.",
+    "actual_cases": 5,
+    "net_usdt": "-7.33311986",
+    "current_revision_week_total": {
+      "settled": 212,
+      "wins": 79,
+      "losses": 133,
+      "net_usdt": "-54.26577940"
+    },
+    "financial_totals_changed": false,
+    "chronology_fix": "Select actual latest eligible CLOSE fill, not latest order updated_at; earlier partial exits cannot overwrite the final cause.",
+    "projection_safety": "Unknown origin remains unknown; liquidation requires explicit Binance external origin plus LIQUIDATION kind; no current exit state substituted.",
+    "source_files": [
+      "services/v2_trade_review.py",
+      "services/v2_daily_mover_evidence.py",
+      "services/v2_daily_mover_execution_review.py"
+    ],
+    "new_tests": "tests/v2_core/test_v2_trade_review_exit_attribution.py",
+    "qa": {
+      "initial": {
+        "passed": 580,
+        "failed": 5,
+        "reason": "New PG fixture supplied 9 parameters for 8 placeholders; fixed test wrapper replaced its final evidence argument rather than appending one.",
+        "log": "/tmp/v2-data-qa.uZT8aS/pytest.log"
+      },
+      "final": {
+        "passed": 585,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 43.37,
+        "log": "/tmp/v2-data-qa.KeAg88/pytest.log",
+        "isolated_database_retained": false,
+        "suites": 11
+      },
+      "scope": "Selected review, immutable-label, daily account/mover and exit-policy regressions using disposable PG and blocked venue networking; not whole repository or LIVE execution acceptance.",
+      "lint": "RUFF_AND_DIFF_CHECK_PASSED"
+    }
+  },
+  "entry_research": "docs/research/WEEKLY_FROZEN_ENTRY_REVIEW_20261111.json",
+  "independent_review": {
+    "status": "NO_CONFIRMED_CODE_BLOCKER",
+    "method": "Read-only review of final frozen code, source/test hashes and final PG log.",
+    "verified": "Negative-only decision authority, exact fixed binding/policy identity, transaction-held state locks, live lease, atomic evidence/decision/receipt, budget/drain checks and unchanged fresh-risk path for non-veto results.",
+    "coverage_limitations": [
+      "Dedicated restricted-role and individual pre-existing receipt/orphan-intent test variants were not added in this patch.",
+      "Selected isolated regression success is not whole-repository, all-permissions or live-venue acceptance.",
+      "No claim of strategy-profitability improvement or complete resolution of every signal-latency cause."
+    ]
+  },
+  "unchanged_runtime_observation": {
+    "service": "trade-v2-execution-controller.service",
+    "release": "ready-queue-controller-20261110-v1",
+    "main_pid": 2040297,
+    "n_restarts": 0,
+    "active_state": "active",
+    "sub_state": "running",
+    "interpretation": "Process identity unchanged; this is not end-to-end trading-health evidence."
+  },
+  "verified_workspace_file_sha256": {
+    "services/v2_trade_review.py": "693342707aafc1038dd5f1e0e70314da88896196518686b5ab5e117220c34485",
+    "services/v2_daily_mover_evidence.py": "5c25ceb64c9ff4826b630e81cd86afdb530e5d782ba1bc57a7a2aca369b2173a",
+    "services/v2_daily_mover_execution_review.py": "ff955bdb32d83edee2bc87e57b7359d97087b99db06d5abd1fab67bc3e7c5519",
+    "services/v2_jev_entry_context.py": "1153899124dad7051d9602b97fb7a6c071f6440a78db0ebfc8c448ba560f6488",
+    "v2_core/strategy.py": "4792ac57caed7408b40f3b0ed2e64370523083029bb5fa79da79393fe017400f",
+    "v2_core/scheduling.py": "1a46854a40c5c0c29177254fce2fa8ab4b285215af722381b2571494d2424a51",
+    "tests/v2_core/test_v2_trade_review_exit_attribution.py": "ce33f869527aee1f7eb3a76477da223edb9c53d617ca76262debe081d3c207be",
+    "tests/v2_core/test_v2_jev_terminal_veto.py": "2f2c090d76b27ade772bd5cc299cd7e740d0f159f36c2150c6dfdc64a13ba60e",
+    "tests/v2_core/test_v2_jev_lease_timeout.py": "d05aa70480f77d6e5bfea7c3ffd5b25eda6d7a69c568e8c77bddbdbe051c438d"
+  },
+  "jev_followup": {
+    "status": "WORKSPACE_VERIFIED_NOT_DEPLOYED",
+    "cause": "Successful model veto requires a redundant full signed account-context reacquisition before rejection; admission GET quota can expire the fixed 30-second review binding.",
+    "response_ms": 587,
+    "wait_woke_ms": 667,
+    "fixed_deadline_extended": false,
+    "fix": "PG-only verified terminal VETO before account GETs, both after same-cycle wake and on a pending-task continuation. Approved/fallback/uncertain candidates retain fresh risk/account rechecks.",
+    "historical_candidate_review": {
+      "window": "2026-11-08 through 2026-11-10 UTC+8",
+      "fixed_candidate_bindings": 1028,
+      "model_requests": 1007,
+      "successful_model_results": 1002,
+      "recorded_trend_vetoes": 843,
+      "successful_results_with_review_deadline_expired": 95,
+      "model_completed_before_fixed_deadline": 95,
+      "would_veto_under_original_bound_thresholds": 92,
+      "passed_model_thresholds_only": 3,
+      "model_latency_ms_min_median_max": [584, 747, 1256],
+      "remaining_at_model_completion_ms_min_median_max": [117, 13398, 29136],
+      "decision_lateness_ms_min_median_max": [819, 9634, 26407],
+      "interpretation": "Candidate outcomes, not settled-trade counts. Historic threshold comparison does not prove 92 recoverable decisions or profitable missed entries. Three model passes do not prove other risk checks would pass."
+    },
+    "boundaries": [
+      "No fabricated OPEN or reused account/risk admission proof; terminal decision is IGNORED only.",
+      "Exact account/source/signal/config/model request/direction/hash identity, bound policy versions and unexpired signal/model/review deadlines required.",
+      "Production ACCOUNT_PG shortcut requires a present, locked current runtime-policy row matching worker version/digest/values.",
+      "Completed model result, binding, gate policy and model control are checked under transaction-held locks; uncertainty falls back to the existing path.",
+      "Existing decision/receipt/intent wins; matching live task lease required; evidence/decision/receipt commit atomically and use the common token-guarded ACK.",
+      "PG statement/lock limits and scheduler budget/drain checks prevent optional rejection checks from adding unbudgeted account GETs.",
+      "Legacy bindings without model_control_version intentionally retain the normal path; no retrospective re-decisions or edits to historical receipts.",
+      "No increase to Binance admission budget, JEV token budget, signal TTL or model deadline. No production role grants."
+    ],
+    "source_files": [
+      "services/v2_jev_entry_context.py",
+      "v2_core/strategy.py",
+      "v2_core/scheduling.py"
+    ],
+    "new_tests": "tests/v2_core/test_v2_jev_terminal_veto.py",
+    "qa": {
+      "status": "PASSED",
+      "passed": 590,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 264.65,
+      "selected_suites": 21,
+      "suites": [
+        "test_v2_jev_terminal_veto.py",
+        "test_v2_jev_same_cycle.py",
+        "test_v2_jev_entry_context.py",
+        "test_v2_jev_fullflow.py",
+        "test_v2_jev_deferred_deadline_regression.py",
+        "test_v2_jev_lease_timeout.py",
+        "test_v2_jev_inflight.py",
+        "test_v2_jev_market_refresh_pg.py",
+        "test_v2_jev_configuration_fallback.py",
+        "test_v2_jev_strategy_filter.py",
+        "test_v2_jev_evidence.py",
+        "test_v2_scheduler_fairness.py",
+        "test_v2_ready_queue.py",
+        "test_v2_candidate_context_resolution.py",
+        "test_v2_trading_pipeline.py",
+        "test_v2_cooperative_drain.py",
+        "test_v2_admission_budget.py",
+        "test_v2_admission_latency.py",
+        "test_v2_context_group_budget.py",
+        "test_v2_signal_context_isolation.py",
+        "test_v2_candidate_failure_isolation.py"
+      ],
+      "log": "/tmp/v2-data-qa.44mVXk/pytest.log",
+      "isolated_database_retained": false,
+      "external_venue_network": "BLOCKED_BY_TEST_AUDIT_HOOK",
+      "scope": "Selected JEV, strategy scheduling, ready queue, context isolation and admission-budget regressions on disposable PostgreSQL; not whole repository or live-venue acceptance.",
+      "lint": "RUFF_AND_DIFF_CHECK_PASSED"
+    }
+  }
+}

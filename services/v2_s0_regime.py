@@ -12,8 +12,10 @@ from s0.core import classify_regime
 from services.v2_market_publishers import S0Publisher
 from services.v2_s3_candles import (
     BREAKOUT_VERSION,
+    CORRECTED_VERSION,
     PRICE_VERSION,
     ROLLING_VERSION,
+    STRUCTURE_VERSION,
     build_frame,
 )
 from services.v2_s3_candles import VERSION as S3_VERSION
@@ -65,7 +67,14 @@ def build_s0_state(windows, *, universe, s3_frame_id, s3_input_digest):
             not isinstance(evidence, dict)
             or evidence.get("source") != "BINANCE_FUTURES"
             or evidence.get("window_version")
-            not in {S3_VERSION, PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION}
+            not in {
+                S3_VERSION,
+                PRICE_VERSION,
+                ROLLING_VERSION,
+                BREAKOUT_VERSION,
+                CORRECTED_VERSION,
+                STRUCTURE_VERSION,
+            }
             or evidence.get("interval") != "1m"
             or evidence.get("bar_count") != 1440
             or type(evidence.get("closed_at")) is not int
@@ -203,6 +212,8 @@ class ArchivedS0Stage:
             PRICE_VERSION,
             ROLLING_VERSION,
             BREAKOUT_VERSION,
+            CORRECTED_VERSION,
+            STRUCTURE_VERSION,
         }:
             raise ValueError("S0_FEATURE_VERSION_UNSUPPORTED")
         encoded = self.archive.get(archive_hash)

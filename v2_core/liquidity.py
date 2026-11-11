@@ -11,12 +11,12 @@ from fractions import Fraction
 
 from v2_core.evidence import canonical, digest
 from v2_core.precision import amount
+from v2_core.symbols import is_supported_symbol
 
 VERSION = "liquidity-gate-v1"
 EVIDENCE_VERSION = "binance-depth-v1"
 _NUMERIC = re.compile(r"\+?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _CODE = re.compile(r"[A-Z][A-Z0-9_]{0,95}")
-_SYMBOL = re.compile(r"[A-Z0-9]{1,32}USDT")
 _LIMITATIONS = (
     "Snapshot depth is not a fill guarantee; displayed orders can change before execution.",
     "No order flow, cancellation rate, historical baseline, alpha or probability is inferred.",
@@ -130,7 +130,7 @@ def evaluate_liquidity(
         return result("LIQUIDITY_CONTROLS_INVALID")
     if (
         not isinstance(symbol, str)
-        or not _SYMBOL.fullmatch(symbol)
+        or not is_supported_symbol(symbol, quote_assets=("USDT",))
         or side not in ("BUY", "SELL")
         or type(now_ms) is not int
         or not 0 <= now_ms <= 2**53 - 1
@@ -329,7 +329,7 @@ def evaluate_execution_quote(*, evidence, controls, symbol, now_ms):
         return result("LIQUIDITY_EXECUTION_CONTROLS_INVALID")
     if (
         not isinstance(symbol, str)
-        or not _SYMBOL.fullmatch(symbol)
+        or not is_supported_symbol(symbol, quote_assets=("USDT",))
         or type(now_ms) is not int
         or not 0 <= now_ms <= 2**53 - 1
     ):

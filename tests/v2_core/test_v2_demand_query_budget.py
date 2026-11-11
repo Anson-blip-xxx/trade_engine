@@ -4,9 +4,9 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.scheduling import StrategyScheduler
 from v2_core.signals import Signals
 from v2_core.strategy import StrategyDecision

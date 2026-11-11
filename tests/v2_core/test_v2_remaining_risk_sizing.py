@@ -287,14 +287,14 @@ class Scope:
 
 
 def test_original_reserved_risk_remains_held_and_missing_evidence_fails_closed():
-    fake = Rows(rows=[("100", ".04", "7", "1", "96", "LONG")])
+    fake = Rows(rows=[("100", ".04", "7", "1", "96", "LONG", None, None)])
     result = portfolio_budget(
         fake, Scope(), settings=settings(), capital={"base": "1000", "factor": ".5"}
     )
     assert Decimal(result["held_stop_risk"]) == 7
     assert Decimal(result["remaining_stop_risk"]) == 8
     assert "LEFT JOIN" in fake.queries[0][0]
-    fake.rows = [("100", None, None, "1", None, None)]
+    fake.rows = [("100", None, None, "1", None, None, None, None)]
     with pytest.raises((ValueError, TypeError)):
         portfolio_budget(
             fake, Scope(), settings=settings(), capital={"base": "1000", "factor": "1"}
@@ -302,7 +302,7 @@ def test_original_reserved_risk_remains_held_and_missing_evidence_fails_closed()
 
 
 def test_original_fixed_stop_larger_than_percentage_is_not_understated():
-    fake = Rows(rows=[("102", ".04", None, "1", "96", "LONG")])
+    fake = Rows(rows=[("102", ".04", None, "1", "96", "LONG", None, None)])
     result = portfolio_budget(
         fake, Scope(), settings=settings(), capital={"base": "1000", "factor": "1"}
     )
@@ -328,6 +328,7 @@ def test_guard_rechecks_current_price_and_current_competing_reservations():
             proof,
             asdict(sized),
             sized.quantity,
+            None,
         )
     )
     allowed = guard_risk(
@@ -341,7 +342,7 @@ def test_guard_rechecks_current_price_and_current_competing_reservations():
     )
     assert Decimal(allowed["proposed_stop_risk"]) <= 20
     # A sibling taking risk after advisory sizing remains visible to final admission.
-    fake.rows = [("400", ".04", "20", "4", "96", "LONG")]
+    fake.rows = [("400", ".04", "20", "4", "96", "LONG", None, None)]
     with pytest.raises(ValueError, match="CAPITAL_PORTFOLIO_RISK_EXCEEDED"):
         guard_risk(
             fake,

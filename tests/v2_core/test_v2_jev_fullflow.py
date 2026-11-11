@@ -16,7 +16,6 @@ from uuid import uuid4
 
 import pytest
 from test_v2_directional_replay import SCOPE
-from test_v2_intent_admission import database as database_fixture
 from test_v2_jev_entry_context import model_response
 from test_v2_trading_pipeline import case as pipeline_fixture
 from test_v2_venue_readiness import Venue as ReadinessVenue
@@ -26,6 +25,7 @@ from services.v2_directional_settlement import DirectionalSettlementStage
 from services.v2_jev_coordinator import JevCoordinator
 from services.v2_jev_entry_context import JevEntryContext, policy_key
 from services.v2_jev_reference import CONTROL_KEY, PUBLIC_SCOPE
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountPolicy, RiskReference
 from v2_core.binance import BinanceFutures
 from v2_core.jev_advisory import AdvisoryPolicy, JevAdvisory

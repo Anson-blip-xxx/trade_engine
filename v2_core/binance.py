@@ -14,6 +14,7 @@ from v2_core.ledger import amount
 from v2_core.precision import decimal_text
 from v2_core.reduction_fence import revalidate_reduction_write
 from v2_core.runner import ExchangeObservation
+from v2_core.symbols import is_supported_symbol
 from v2_core.transport import ExchangeTransportError
 
 
@@ -119,7 +120,7 @@ class BinanceFutures:
         if type(order["reduce_only"]) is not bool:
             raise ValueError("explicit reduce-only flag required")
         amount(order["quantity"], positive=True)
-        if not re.fullmatch(r"[A-Z0-9_]{1,40}", order["symbol"]) or not re.fullmatch(
+        if not is_supported_symbol(order["symbol"]) or not re.fullmatch(
             r"[.A-Z:/a-z0-9_-]{1,36}", order["client_order_id"]
         ):
             raise ValueError("invalid venue symbol or client identity")

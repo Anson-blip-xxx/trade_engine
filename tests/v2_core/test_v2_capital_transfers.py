@@ -9,8 +9,8 @@ import pytest
 from test_v2_capital_income import baseline, income, project
 from test_v2_capital_income import case as income_case
 from test_v2_capital_journal import setup as journal_setup
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.capital_income import CapitalIncomeProjection
 from v2_core.capital_transfers import CapitalTransfers
 

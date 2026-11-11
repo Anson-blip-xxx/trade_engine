@@ -216,6 +216,7 @@ class WatchdogTelegramNotifier:
                 "ORDER_PROGRESS_STALLED",
                 "POSITION_SAFETY_BLOCKED",
                 "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED",
+                "JEV_MODEL_DEGRADED",
             }
         ):
             try:

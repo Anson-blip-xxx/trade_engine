@@ -11,7 +11,6 @@ import pytest
 from test_v2_directional import history, inputs, sizing
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import SCOPE, scenario, worker
-from test_v2_intent_admission import database as database_fixture
 from test_v2_testnet_daemon_entry import settings
 
 from services.v2_directional_admission import admission_decision
@@ -26,6 +25,7 @@ from services.v2_testnet_daemon_entry import (
     TestnetProcessConfig,
     create_testnet_process,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.jev_advisory import (
     AdvisoryPolicy,
     _result,

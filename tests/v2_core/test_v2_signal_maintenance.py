@@ -2,10 +2,10 @@ import json
 import threading
 from pathlib import Path
 
-from test_v2_intent_admission import database, scheduler_signal, strategy_worker
 from test_v2_trading_pipeline import case
 
 from services.v2_signal_maintenance import SignalMaintenance
+from tests.support.v2_admission import database, scheduler_signal, strategy_worker
 from v2_core.evidence import canonical
 from v2_core.runtime_policy import resolve
 from v2_core.scheduling import StrategyScheduler

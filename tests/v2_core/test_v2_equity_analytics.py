@@ -3,9 +3,9 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_equity_analytics import equity_report
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.state import BusinessState, StateKey
 

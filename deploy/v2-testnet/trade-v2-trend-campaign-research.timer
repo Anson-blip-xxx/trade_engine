@@ -1,0 +1,11 @@
+[Unit]
+Description=Compare actual trade residuals with a fixed trend shadow every thirty minutes
+
+[Timer]
+OnCalendar=*-*-* *:09/30:00 Asia/Shanghai
+RandomizedDelaySec=20
+Persistent=true
+Unit=trade-v2-trend-campaign-research.service
+
+[Install]
+WantedBy=timers.target

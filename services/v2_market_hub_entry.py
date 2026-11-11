@@ -1,12 +1,14 @@
 """Standalone Testnet-only market daemon: public GET endpoints, no credentials."""
 
 import json
+import os
 import shutil
 import signal
 import threading
 import time
 
 from services.v2_quant_research import QuantResearch
+from services.v2_s3_candles import CORRECTED_VERSION, PRICE_VERSION, STRUCTURE_VERSION
 from services.v2_shared_market import IncrementalArchive, SharedMarketHub
 from services.v2_testnet_inventory import deployment_database
 from v2_core.public_market import BinancePublicMarket
@@ -14,10 +16,24 @@ from v2_core.scheduling import diagnostic_code
 from v2_core.shared_market import HostBudget, MarketPolicy
 
 
+def configured_feature_version(environ=None):
+    """Explicit operator selection; never auto-activate a research candidate.
+
+    V3/V4 remain replayable but are not daemon options: their cross-window
+    ATR_EXPAND consumer is incompatible. V5 has a separately defined reference.
+    """
+    settings = os.environ if environ is None else environ
+    version = settings.get("V2_MARKET_FEATURE_VERSION", PRICE_VERSION)
+    if version not in {PRICE_VERSION, CORRECTED_VERSION, STRUCTURE_VERSION}:
+        raise ValueError("MARKET_DAEMON_FEATURE_VERSION_UNSUPPORTED")
+    return version
+
+
 def main():
     import clickhouse_connect
     import redis
 
+    feature_version = configured_feature_version()
     connect = deployment_database()
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -55,6 +71,7 @@ def main():
                 archive=IncrementalArchive(archive, "SANDBOX"),
                 clock_ms=lambda: time.time_ns() // 1000000,
                 monotonic_ms=lambda: time.monotonic_ns() // 1000000,
+                feature_version=feature_version,
                 quant_research=QuantResearch(
                     connect,
                     archive=IncrementalArchive(archive, "SANDBOX"),

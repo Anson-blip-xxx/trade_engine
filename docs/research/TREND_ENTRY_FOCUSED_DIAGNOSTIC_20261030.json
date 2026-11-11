@@ -1,0 +1,2466 @@
+{
+  "phase": "FOCUSED_TIMELINE",
+  "source_hashes_before_run": {
+    "services/v2_trend_entry.py": "f38adfd639024b68619cd6dc3fcd976885ada2cee6f38e4933fa92ccffcba6c7",
+    "services/v2_s3_candles.py": "36c77f6867d8f8064df0ee51770d38738564b6cf17842ba9985755c1ce65d094",
+    "s3/detector.py": "77707647c293f06bc8e49cdb369559e5f60eecb36a05537055befacf387370b6",
+    "v2_core/trend_structure.py": "40c2006ba4f9a73764732818b5a857b271d793b5ccb7d161f6fdc61e43e1c36c",
+    "v2_core/runtime_policy.py": "d180dd0ddee3caf20c086b53d46c6f0b62922943e1ec570dcb44cf589827484a"
+  },
+  "source_files_unchanged_during_run": true,
+  "archive_calls": 6,
+  "requested_minutes": 3330,
+  "rows": [
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793337300000,
+      "time_utc8": "13:15",
+      "input_digest": "f3564313c144e3fc4b9d5f8ff1c3adc5b70f500253a00d9e41e569e26e5e9677",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "PUMP_UP",
+          "HIGH_VOL",
+          "ATR_EXPAND"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "PUMP_UP",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.056261",
+          "close": "0.06006",
+          "ema20": "0.051076795049410808",
+          "ema60": "0.046956884437453807",
+          "ema20_slope": "0.000710423107902767",
+          "ema60_slope": "0.000353549649480753",
+          "atr_pct": "4.107819755701980686",
+          "previous_open": "0.054621",
+          "previous_close": "0.056261",
+          "previous_low": "0.054621",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.05775",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.502249627263638108",
+          "volume_ratio": "1.775781313342584088",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793338200000,
+      "time_utc8": "13:30",
+      "input_digest": "7f1a203c9905411666a10910f7fa87e235b9737538d5938050f1e4b2d11e8d60",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP",
+          "LOW_VOL",
+          "ATR_EXPAND",
+          "FAILED_BREAKOUT"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "LOW_VOL",
+          "FAILED_BREAKOUT"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.06006",
+          "close": "0.054631",
+          "ema20": "0.051414708704034436",
+          "ema60": "0.046971972355638455",
+          "ema20_slope": "0.000643180915240768",
+          "ema60_slope": "0.000350370643498927",
+          "atr_pct": "5.923877004950884808",
+          "previous_open": "0.056261",
+          "previous_close": "0.06006",
+          "previous_low": "0.050476",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.06006",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.190795161414461137",
+          "volume_ratio": "2.608492943085268477",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793339100000,
+      "time_utc8": "13:45",
+      "input_digest": "d869a983b940dedfc822ed44b729b3e94d5df8cacd9f03ce7aa4a43b050a771f",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.054631",
+          "close": "0.056471",
+          "ema20": "0.051896489672894191",
+          "ema60": "0.04737664116018998",
+          "ema20_slope": "0.000588565476294317",
+          "ema60_slope": "0.000337909649408453",
+          "atr_pct": "5.970595397443979533",
+          "previous_open": "0.06006",
+          "previous_close": "0.054631",
+          "previous_low": "0.052772",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.48682919409929244",
+          "volume_ratio": "2.112240076334924196",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793340000000,
+      "time_utc8": "14:00",
+      "input_digest": "ac564129d182e02e3ca35a100a7d241d6c4736397e3bf86f7c71da3b65d4f8dd",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BEARISH"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.056199",
+          "close": "0.05518",
+          "ema20": "0.052208689887198925",
+          "ema60": "0.047423192524193726",
+          "ema20_slope": "0.000377651110023239",
+          "ema60_slope": "0.00028083532573497",
+          "atr_pct": "5.874503277297084062",
+          "previous_open": "0.054631",
+          "previous_close": "0.056471",
+          "previous_low": "0.051665",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.226820036544573637",
+          "volume_ratio": "0.744120203614543454",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793340900000,
+      "time_utc8": "14:15",
+      "input_digest": "c55e47b14945e6b8f3da6e2d258afad7310024a0df8c5016446d669632fd0971",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.05518",
+          "close": "0.05586",
+          "ema20": "0.052556370504528521",
+          "ema60": "0.047674126171811624",
+          "ema20_slope": "0.000380707588478519",
+          "ema60_slope": "0.000285959759658202",
+          "atr_pct": "5.723742381226258119",
+          "previous_open": "0.056199",
+          "previous_close": "0.05518",
+          "previous_low": "0.05518",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.71086672754185647",
+          "volume_ratio": "1.348365261239805834",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793341800000,
+      "time_utc8": "14:30",
+      "input_digest": "e6c4d133197442657f1ef2df6c5a909dd8e20e361eaf45a12ae8d58dd556f280",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.05595",
+          "close": "0.05704",
+          "ema20": "0.052983581265256576",
+          "ema60": "0.048061836648196873",
+          "ema20_slope": "0.000362490052041294",
+          "ema60_slope": "0.000279975597514272",
+          "atr_pct": "5.408001930061141346",
+          "previous_open": "0.05518",
+          "previous_close": "0.05586",
+          "previous_low": "0.05507",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.964175919069946585",
+          "volume_ratio": "0.449032999254395139",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793342700000,
+      "time_utc8": "14:45",
+      "input_digest": "4d3518697161fe2e1de2481d491f26a27a054f5c4d6ac54e11584c77aab45eef",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "ATR_EXPAND"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.057035",
+          "close": "0.056828",
+          "ema20": "0.053349614106780374",
+          "ema60": "0.048307691186126787",
+          "ema20_slope": "0.000380296589177895",
+          "ema60_slope": "0.000290264131187202",
+          "atr_pct": "5.416554218508727689",
+          "previous_open": "0.05595",
+          "previous_close": "0.05704",
+          "previous_low": "0.055859",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.388212998042994855",
+          "volume_ratio": "0.879631115987120239",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793343600000,
+      "time_utc8": "15:00",
+      "input_digest": "22dcf5663dde64b58f1bd94d3d516f3a0ed7d3d2b4ee1b3557364ffe109ab35f",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.056828",
+          "close": "0.057381",
+          "ema20": "0.053733709463228652",
+          "ema60": "0.048667691908240451",
+          "ema20_slope": "0.000392345622263925",
+          "ema60_slope": "0.000295178418757825",
+          "atr_pct": "5.141308654217834365",
+          "previous_open": "0.057035",
+          "previous_close": "0.056828",
+          "previous_low": "0.055693",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.73212808081143177",
+          "volume_ratio": "0.778093335452592789",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793344500000,
+      "time_utc8": "15:15",
+      "input_digest": "6f15118bb6b4e6a8c0a98d2ed0a39c8d99a05e7f0e70b88b68212f4513ea31d4",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.057397",
+          "close": "0.05921",
+          "ema20": "0.054255645672428258",
+          "ema60": "0.049169679095191592",
+          "ema20_slope": "0.000423823351063193",
+          "ema60_slope": "0.000303735023518586",
+          "atr_pct": "4.861439004577204678",
+          "previous_open": "0.056828",
+          "previous_close": "0.057381",
+          "previous_low": "0.056828",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.820830397566559112",
+          "volume_ratio": "0.832584162527622376",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793345400000,
+      "time_utc8": "15:30",
+      "input_digest": "37e4d411c033c311dcf2fccd04830202ee6edc912fad2ed82b1a29ed0e22130c",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.059171",
+          "close": "0.059334",
+          "ema20": "0.054739003028544936",
+          "ema60": "0.049382882467659164",
+          "ema20_slope": "0.000463049264977162",
+          "ema60_slope": "0.000325373582390973",
+          "atr_pct": "4.621406732342854442",
+          "previous_open": "0.057397",
+          "previous_close": "0.05921",
+          "previous_low": "0.0573",
+          "prior20_low": "0.045809",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.395369773592018187",
+          "volume_ratio": "0.404858601328959791",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793346300000,
+      "time_utc8": "15:45",
+      "input_digest": "fdc7c93a8c319f9c06e069e058d783b3b658cd40129a98b18c943e412b16a82a",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.059334",
+          "close": "0.059958",
+          "ema20": "0.055235925423121106",
+          "ema60": "0.049678838929646599",
+          "ema20_slope": "0.000500773442856738",
+          "ema60_slope": "0.000344649500747032",
+          "atr_pct": "4.39987641577512204",
+          "previous_open": "0.059171",
+          "previous_close": "0.059334",
+          "previous_low": "0.058632",
+          "prior20_low": "0.04604",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.724031650468094837",
+          "volume_ratio": "0.833033607811954427",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793347200000,
+      "time_utc8": "16:00",
+      "input_digest": "6795d08e459486fbf91bf7186b9eec78ff73ecb11eec4c14e2f7bbb3f406fcda",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.059986",
+          "close": "0.05964",
+          "ema20": "0.055655288707698972",
+          "ema60": "0.049976018390774903",
+          "ema20_slope": "0.000466739977844539",
+          "ema60_slope": "0.000339080306364462",
+          "atr_pct": "4.21656546615579797",
+          "previous_open": "0.059334",
+          "previous_close": "0.059958",
+          "previous_low": "0.059334",
+          "prior20_low": "0.04912",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.439485395892218019",
+          "volume_ratio": "0.586987449382548634",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793348100000,
+      "time_utc8": "16:15",
+      "input_digest": "5aae88bdb2edbbe3cba0594797b289c5d85fe177ff188bc164ec3e0fb091814a",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.059646",
+          "close": "0.0608",
+          "ema20": "0.056145336050864488",
+          "ema60": "0.050361314482266482",
+          "ema20_slope": "0.000468819497780216",
+          "ema60_slope": "0.000342918540120265",
+          "atr_pct": "4.026387657477920374",
+          "previous_open": "0.059986",
+          "previous_close": "0.05964",
+          "previous_low": "0.05955",
+          "prior20_low": "0.049143",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.763965898971183429",
+          "volume_ratio": "0.58076888572889171",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793349000000,
+      "time_utc8": "16:30",
+      "input_digest": "f51b874ad6475c650f43d064c8dce2a6bde92bd452ac986e5c1a7e7828f651dd",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "VIOLENT_BULLISH",
+          "TREND_UP",
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.0608",
+          "close": "0.061121",
+          "ema20": "0.056619231712865423",
+          "ema60": "0.050723398652169747",
+          "ema20_slope": "0.000461087982976005",
+          "ema60_slope": "0.000344059363933393",
+          "atr_pct": "3.814800070302263534",
+          "previous_open": "0.059646",
+          "previous_close": "0.0608",
+          "previous_low": "0.059561",
+          "prior20_low": "0.049143",
+          "prior20_high": "0.066004",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.635039505155452486",
+          "volume_ratio": "0.671384498129753288",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": false,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "closed_at_ms": 1793349900000,
+      "time_utc8": "16:45",
+      "input_digest": "7e01baf324d2f74f7a62c31bee9deb1956e21609152a77ab84b5ad3b9ad38c2a",
+      "baseline": {
+        "event_types": [
+          "VIOLENT_BEARISH",
+          "ATR_EXPAND"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "PULSE_DOWN",
+          "VIOLENT_BEARISH",
+          "ATR_EXPAND"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.060801",
+          "close": "0.046793",
+          "ema20": "0.055683369867044803",
+          "ema60": "0.050582239132744515",
+          "ema20_slope": "0.000009337103531048",
+          "ema60_slope": "0.00019280538947418",
+          "atr_pct": "7.481128339040078482",
+          "previous_open": "0.0608",
+          "previous_close": "0.061121",
+          "previous_low": "0.06078",
+          "prior20_low": "0.049143",
+          "prior20_high": "0.066004",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.316053430081228369",
+          "volume_ratio": "2.468882719645457776",
+          "prior3_touched_ema20_short": true
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": false,
+          "ema20_slope_negative": false,
+          "ema60_slope_negative": false,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793304000000,
+      "time_utc8": "04:00",
+      "input_digest": "379b3b9e83c264e9db28f57ca8a39f1810b2a5f254606f1212b7ad703662e700",
+      "baseline": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "TREND_VOLUME_UNCONFIRMED",
+        "strength": 15,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 15,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793304000000,
+            "last_closed_at_ms": 1793304000000,
+            "input_digest": "354eabc1e523bc6250066b55f927becf30a2bfaa7675f7d726e218df82f9211b",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1479",
+              "high": "0.1482",
+              "low": "0.1477",
+              "close": "0.1478",
+              "volume": "40269",
+              "previous_open": "0.1476",
+              "previous_high": "0.1483",
+              "previous_low": "0.1476",
+              "previous_close": "0.1479",
+              "ema20": "0.149130234201302558",
+              "ema60": "0.149209031882496327",
+              "previous_ema20": "0.149270258854071248",
+              "previous_ema60": "0.149256795675123321",
+              "ema20_slope": "-0.000158420690651151",
+              "ema60_slope": "-0.000050492839621197",
+              "atr": "0.000756984935848491",
+              "atr_pct": "0.512168427502362018",
+              "prior20_high": "0.1523",
+              "prior20_low": "0.1475",
+              "prior20_mean_volume": "27901807.35",
+              "prior_swing_high": "0.1495",
+              "prior_swing_low": "0.1475",
+              "prior3_high": "0.1485",
+              "prior3_low": "0.1475",
+              "taker_buy_ratio": "0",
+              "volume_ratio": "0.00144323984087719",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": false
+            }
+          },
+          "atr_pct": "0.512168427502362018"
+        },
+        "structure_values": {
+          "open": "0.1479",
+          "close": "0.1478",
+          "ema20": "0.149130234201302558",
+          "ema60": "0.149209031882496327",
+          "ema20_slope": "-0.000158420690651151",
+          "ema60_slope": "-0.000050492839621197",
+          "atr_pct": "0.512168427502362018",
+          "previous_open": "0.1476",
+          "previous_close": "0.1479",
+          "previous_low": "0.1476",
+          "prior20_low": "0.1475",
+          "prior20_high": "0.1523",
+          "breakout_short": false,
+          "taker_buy_ratio": "0",
+          "volume_ratio": "0.00144323984087719",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793304900000,
+      "time_utc8": "04:15",
+      "input_digest": "e6a6cf21f659704b8a46cd168d24a004f9072a299cf33942dc7f3295d2f7af90",
+      "baseline": {
+        "event_types": [
+          "LOW_VOL"
+        ],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN",
+          "LOW_VOL"
+        ],
+        "reason": "TREND_ENTRY_MOVED",
+        "strength": 25,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 25,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793304900000,
+            "last_closed_at_ms": 1793304900000,
+            "input_digest": "69c25e523b142e070d90ef16322bc29cbdbd1dba1cc124f7ade2d6938ef1dc02",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1478",
+              "high": "0.1481",
+              "low": "0.1453",
+              "close": "0.1465",
+              "volume": "189268851",
+              "previous_open": "0.1479",
+              "previous_high": "0.1482",
+              "previous_low": "0.1477",
+              "previous_close": "0.1478",
+              "ema20": "0.14887976020320288",
+              "ema60": "0.14913016581268593",
+              "previous_ema20": "0.149130261277224236",
+              "previous_ema60": "0.149219323975827826",
+              "ema20_slope": "-0.00017825650036902",
+              "ema60_slope": "-0.000061208208378399",
+              "atr": "0.000902801317257035",
+              "atr_pct": "0.616246632939955557",
+              "prior20_high": "0.1523",
+              "prior20_low": "0.1475",
+              "prior20_mean_volume": "24149984.65",
+              "prior_swing_high": "0.1487",
+              "prior_swing_low": "0.1475",
+              "prior3_high": "0.1483",
+              "prior3_low": "0.1475",
+              "taker_buy_ratio": "0.06393318253937094",
+              "volume_ratio": "7.837224484529848345",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": true
+            }
+          },
+          "atr_pct": "0.616246632939955557",
+          "setup": "BREAKOUT",
+          "reference_price": "0.1465",
+          "entry_anchor": "0.1475"
+        },
+        "structure_values": {
+          "open": "0.1478",
+          "close": "0.1465",
+          "ema20": "0.14887976020320288",
+          "ema60": "0.14913016581268593",
+          "ema20_slope": "-0.00017825650036902",
+          "ema60_slope": "-0.000061208208378399",
+          "atr_pct": "0.616246632939955557",
+          "previous_open": "0.1479",
+          "previous_close": "0.1478",
+          "previous_low": "0.1477",
+          "prior20_low": "0.1475",
+          "prior20_high": "0.1523",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.06393318253937094",
+          "volume_ratio": "7.837224484529848345",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793305800000,
+      "time_utc8": "04:30",
+      "input_digest": "27552053cdb5b31fd6f6071cd50dbdd9a05e2d7d5c2155bc0a440d58ced2211a",
+      "baseline": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT"
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1465",
+          "close": "0.1466",
+          "ema20": "0.14866267692974393",
+          "ema60": "0.149062141528005042",
+          "ema20_slope": "-0.000202553821511635",
+          "ema60_slope": "-0.000073932552805569",
+          "atr_pct": "0.610809962343518171",
+          "previous_open": "0.1478",
+          "previous_close": "0.1465",
+          "previous_low": "0.1453",
+          "prior20_low": "0.1453",
+          "prior20_high": "0.1523",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.999196977363184585",
+          "volume_ratio": "1.003754231237554742",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793306700000,
+      "time_utc8": "04:45",
+      "input_digest": "d36f6268b45c850b17c8017050969ed5dfe925dabc434dd2d42af6ff203b8cf7",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "overextended",
+        "strength": 68,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 68,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "TREND_ENTRY_MOVED",
+        "strength": 68,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 68,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793306700000,
+            "last_closed_at_ms": 1793306700000,
+            "input_digest": "246dc61a2714aa72f6e6eae9997d1aec921e6fd1123d3ea5fb030406e8aa4b22",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1466",
+              "high": "0.147",
+              "low": "0.142",
+              "close": "0.142",
+              "volume": "213988488",
+              "previous_open": "0.1465",
+              "previous_high": "0.147",
+              "previous_low": "0.1462",
+              "previous_close": "0.1466",
+              "ema20": "0.148028173015662023",
+              "ema60": "0.148845527875608773",
+              "previous_ema20": "0.148662717543626447",
+              "previous_ema60": "0.149077579668002291",
+              "ema20_slope": "-0.000367394254926383",
+              "ema60_slope": "-0.000135420033481029",
+              "atr": "0.001188591368723712",
+              "atr_pct": "0.837036175157543563",
+              "prior20_high": "0.1523",
+              "prior20_low": "0.1453",
+              "prior20_mean_volume": "32694050.6",
+              "prior_swing_high": "0.1483",
+              "prior_swing_low": "0.1453",
+              "prior3_high": "0.1482",
+              "prior3_low": "0.1453",
+              "taker_buy_ratio": "0.000054297313414355",
+              "volume_ratio": "6.545181281391911714",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": true
+            }
+          },
+          "atr_pct": "0.837036175157543563",
+          "setup": "BREAKOUT",
+          "reference_price": "0.142",
+          "entry_anchor": "0.1453"
+        },
+        "structure_values": {
+          "open": "0.1466",
+          "close": "0.142",
+          "ema20": "0.148028173015662023",
+          "ema60": "0.148845527875608773",
+          "ema20_slope": "-0.000367394254926383",
+          "ema60_slope": "-0.000135420033481029",
+          "atr_pct": "0.837036175157543563",
+          "previous_open": "0.1465",
+          "previous_close": "0.1466",
+          "previous_low": "0.1462",
+          "prior20_low": "0.1453",
+          "prior20_high": "0.1523",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.000054297313414355",
+          "volume_ratio": "6.545181281391911714",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793307600000,
+      "time_utc8": "05:00",
+      "input_digest": "e261b7c876e100adfb2e2c9f6290e94411eebcb18b40bb96c42d3227c9bc68f0",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "overextended",
+        "strength": 99,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 99,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "TREND_ENTRY_MOVED",
+        "strength": 99,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 99,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793307600000,
+            "last_closed_at_ms": 1793307600000,
+            "input_digest": "fc85fed1d74bd723032219b5d914c07ac719e46408d9c583ea724f86ba11300b",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.142",
+              "high": "0.142",
+              "low": "0.1368",
+              "close": "0.1389",
+              "volume": "197024645",
+              "previous_open": "0.1466",
+              "previous_high": "0.147",
+              "previous_low": "0.142",
+              "previous_close": "0.142",
+              "ema20": "0.147158798707384122",
+              "ema60": "0.148509490346792773",
+              "previous_ema20": "0.148028145939740345",
+              "previous_ema60": "0.148835235782277274",
+              "ema20_slope": "-0.000573671307534464",
+              "ema60_slope": "-0.000213691127900804",
+              "atr": "0.001475166228458651",
+              "atr_pct": "1.062034721712491783",
+              "prior20_high": "0.1523",
+              "prior20_low": "0.142",
+              "prior20_mean_volume": "40794875.4",
+              "prior_swing_high": "0.1483",
+              "prior_swing_low": "0.142",
+              "prior3_high": "0.1481",
+              "prior3_low": "0.142",
+              "taker_buy_ratio": "0.115113472225771553",
+              "volume_ratio": "4.829642033910955394",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": true
+            }
+          },
+          "atr_pct": "1.062034721712491783",
+          "setup": "BREAKOUT",
+          "reference_price": "0.1389",
+          "entry_anchor": "0.142"
+        },
+        "structure_values": {
+          "open": "0.142",
+          "close": "0.1389",
+          "ema20": "0.147158798707384122",
+          "ema60": "0.148509490346792773",
+          "ema20_slope": "-0.000573671307534464",
+          "ema60_slope": "-0.000213691127900804",
+          "atr_pct": "1.062034721712491783",
+          "previous_open": "0.1466",
+          "previous_close": "0.142",
+          "previous_low": "0.142",
+          "prior20_low": "0.142",
+          "prior20_high": "0.1523",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.115113472225771553",
+          "volume_ratio": "4.829642033910955394",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793308500000,
+      "time_utc8": "05:15",
+      "input_digest": "6b5195af70438428c834ebe290ce2f8dd5702b1643afe18ad175349448ddc154",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "entry_mode_unconfirmed",
+        "strength": 73,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 73,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "HIGH_VOL"
+        ],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1389",
+          "close": "0.1405",
+          "ema20": "0.146524627401918968",
+          "ema60": "0.148246884105914321",
+          "ema20_slope": "-0.000712686738562928",
+          "ema60_slope": "-0.000273351528078919",
+          "atr_pct": "1.071556636338061327",
+          "previous_open": "0.142",
+          "previous_close": "0.1389",
+          "previous_low": "0.1368",
+          "prior20_low": "0.1368",
+          "prior20_high": "0.1523",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.794375449211857493",
+          "volume_ratio": "1.811206733684401112",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793309400000,
+      "time_utc8": "05:30",
+      "input_digest": "48125b97b3ab6ec081fc9bd922a5fbc0e7cfa0dbe1881f8ad126d688e9f36e9a",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "CANDIDATE",
+        "strength": 75,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 75,
+          "min_score": 30,
+          "short_min_strength": "60"
+        },
+        "pre_tick_historical_move_rr": {
+          "move_proxy_pct": "4.09",
+          "stop_fraction": "0.08",
+          "gross_ratio": "0.51125",
+          "would_pass_gross_proxy_rr_before_tick_funding_account": false,
+          "basis": "OBSERVED_1H_CHANGE_NOT_FORECAST"
+        }
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1405",
+          "close": "0.1406",
+          "ema20": "0.14596032817863984",
+          "ema60": "0.147976257298948001",
+          "ema20_slope": "-0.000689250536282884",
+          "ema60_slope": "-0.000278991701799883",
+          "atr_pct": "1.090877157962389082",
+          "previous_open": "0.1389",
+          "previous_close": "0.1405",
+          "previous_low": "0.1386",
+          "prior20_low": "0.1368",
+          "prior20_high": "0.1517",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.547362568795791362",
+          "volume_ratio": "2.235219850342204566",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793310300000,
+      "time_utc8": "05:45",
+      "input_digest": "414f0802ee4f97d05acb18386d228d5bc64b7d38a802db165bbc5590660975fa",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "strength_below_minimum",
+        "strength": 54,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 54,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "TREND_NO_FRESH_SETUP",
+        "strength": 54,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 54,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793310300000,
+            "last_closed_at_ms": 1793310300000,
+            "input_digest": "a3a792c6be71903e541f7556cc52e601681b8223f730a11d8eea8ea760c1ab1c",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1406",
+              "high": "0.142",
+              "low": "0.1386",
+              "close": "0.1386",
+              "volume": "93131400",
+              "previous_open": "0.1405",
+              "previous_high": "0.1419",
+              "previous_low": "0.14",
+              "previous_close": "0.1406",
+              "ema20": "0.145259320045316432",
+              "ema60": "0.147658884379202846",
+              "previous_ema20": "0.145960301102718162",
+              "previous_ema60": "0.147965965205616502",
+              "ema20_slope": "-0.000633128577968123",
+              "ema60_slope": "-0.000272774107640898",
+              "atr": "0.001667148267232652",
+              "atr_pct": "1.202848677657035934",
+              "prior20_high": "0.1512",
+              "prior20_low": "0.1368",
+              "prior20_mean_volume": "53887254.45",
+              "prior_swing_high": "0.147",
+              "prior_swing_low": "0.1368",
+              "prior3_high": "0.142",
+              "prior3_low": "0.1368",
+              "taker_buy_ratio": "0.066500299576727076",
+              "volume_ratio": "1.728263964281446148",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": false
+            }
+          },
+          "atr_pct": "1.202848677657035934"
+        },
+        "structure_values": {
+          "open": "0.1406",
+          "close": "0.1386",
+          "ema20": "0.145259320045316432",
+          "ema60": "0.147658884379202846",
+          "ema20_slope": "-0.000633128577968123",
+          "ema60_slope": "-0.000272774107640898",
+          "atr_pct": "1.202848677657035934",
+          "previous_open": "0.1405",
+          "previous_close": "0.1406",
+          "previous_low": "0.14",
+          "prior20_low": "0.1368",
+          "prior20_high": "0.1512",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.066500299576727076",
+          "volume_ratio": "1.728263964281446148",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793311200000,
+      "time_utc8": "06:00",
+      "input_digest": "ec667d3180c93261908573d6f31c3f64d2e6da33e1e16a04b8193d0bee97f884",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN",
+          "LOW_VOL"
+        ],
+        "reason": "strength_below_minimum",
+        "strength": 47,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 47,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN",
+          "LOW_VOL"
+        ],
+        "reason": "TREND_VOLUME_UNCONFIRMED",
+        "strength": 47,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 47,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793311200000,
+            "last_closed_at_ms": 1793311200000,
+            "input_digest": "d4bcc1b0c9f70dbe47e3b2b0a00f39400096e40a2335f7cdaa09c5789afa2e7d",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1386",
+              "high": "0.1389",
+              "low": "0.1377",
+              "close": "0.1379",
+              "volume": "41811444",
+              "previous_open": "0.1406",
+              "previous_high": "0.142",
+              "previous_low": "0.1386",
+              "previous_close": "0.1386",
+              "ema20": "0.144558432421952962",
+              "ema60": "0.1473389209569339",
+              "previous_ema20": "0.145259320045316432",
+              "previous_ema60": "0.147658884379202846",
+              "ema20_slope": "-0.000655370300701318",
+              "ema60_slope": "-0.000292245994822071",
+              "atr": "0.001633877358046553",
+              "atr_pct": "1.18482767080968294",
+              "prior20_high": "0.1512",
+              "prior20_low": "0.1368",
+              "prior20_mean_volume": "56606323.65",
+              "prior_swing_high": "0.147",
+              "prior_swing_low": "0.1368",
+              "prior3_high": "0.142",
+              "prior3_low": "0.1386",
+              "taker_buy_ratio": "0.001226554146276316",
+              "volume_ratio": "0.738635567618247895",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": false
+            }
+          },
+          "atr_pct": "1.18482767080968294"
+        },
+        "structure_values": {
+          "open": "0.1386",
+          "close": "0.1379",
+          "ema20": "0.144558432421952962",
+          "ema60": "0.1473389209569339",
+          "ema20_slope": "-0.000655370300701318",
+          "ema60_slope": "-0.000292245994822071",
+          "atr_pct": "1.18482767080968294",
+          "previous_open": "0.1406",
+          "previous_close": "0.1386",
+          "previous_low": "0.1386",
+          "prior20_low": "0.1368",
+          "prior20_high": "0.1512",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.001226554146276316",
+          "volume_ratio": "0.738635567618247895",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793312100000,
+      "time_utc8": "06:15",
+      "input_digest": "b78c6a0c502b6a63756d115bfc30f244e25a69de5cfeb055b4b8d2d75d874126",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "strength_below_minimum",
+        "strength": 59,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 59,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1379",
+          "close": "0.1379",
+          "ema20": "0.143924296000814585",
+          "ema60": "0.147029448138673772",
+          "ema20_slope": "-0.000678668367301192",
+          "ema60_slope": "-0.000312172355647576",
+          "atr_pct": "1.193506574217030703",
+          "previous_open": "0.1386",
+          "previous_close": "0.1379",
+          "previous_low": "0.1377",
+          "prior20_low": "0.1368",
+          "prior20_high": "0.1512",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.465919532181211641",
+          "volume_ratio": "2.667378795378922463",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793313000000,
+      "time_utc8": "06:30",
+      "input_digest": "add8e725993764fb252abdce54306ba9722d9cd35223658e6f52ef24896581a8",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "overextended",
+        "strength": 72,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 72,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "TREND_NO_FRESH_SETUP",
+        "strength": 72,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 72,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793313000000,
+            "last_closed_at_ms": 1793313000000,
+            "input_digest": "bb0afb86e196cce488f7adc45ff9e895425f6fef6f1ac72638655181dbf3ed10",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1379",
+              "high": "0.1384",
+              "low": "0.1368",
+              "close": "0.1368",
+              "volume": "83258361",
+              "previous_open": "0.1379",
+              "previous_high": "0.1384",
+              "previous_low": "0.1366",
+              "previous_close": "0.1379",
+              "ema20": "0.14324582836567833",
+              "ema60": "0.146708988367894922",
+              "previous_ema20": "0.143924336614697102",
+              "previous_ema60": "0.147044886278671021",
+              "ema20_slope": "-0.000671180431275665",
+              "ema60_slope": "-0.000322132848251714",
+              "atr": "0.001642658572400957",
+              "atr_pct": "1.200773810234617929",
+              "prior20_high": "0.1512",
+              "prior20_low": "0.1366",
+              "prior20_mean_volume": "66521136.75",
+              "prior_swing_high": "0.142",
+              "prior_swing_low": "0.1366",
+              "prior3_high": "0.142",
+              "prior3_low": "0.1366",
+              "taker_buy_ratio": "0.215252423717541113",
+              "volume_ratio": "1.251607610268325729",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": false
+            }
+          },
+          "atr_pct": "1.200773810234617929"
+        },
+        "structure_values": {
+          "open": "0.1379",
+          "close": "0.1368",
+          "ema20": "0.14324582836567833",
+          "ema60": "0.146708988367894922",
+          "ema20_slope": "-0.000671180431275665",
+          "ema60_slope": "-0.000322132848251714",
+          "atr_pct": "1.200773810234617929",
+          "previous_open": "0.1379",
+          "previous_close": "0.1379",
+          "previous_low": "0.1366",
+          "prior20_low": "0.1366",
+          "prior20_high": "0.1512",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.215252423717541113",
+          "volume_ratio": "1.251607610268325729",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793313900000,
+      "time_utc8": "06:45",
+      "input_digest": "580fe09ccd79f77b450481e28229088b77859b3b140cf0ccb3eb8ba5cc2fb031",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "overextended",
+        "strength": 60,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 60,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN",
+          "HIGH_VOL"
+        ],
+        "reason": "TREND_FLOW_UNCONFIRMED",
+        "strength": 60,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 60,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793313900000,
+            "last_closed_at_ms": 1793313900000,
+            "input_digest": "b065a36869d7db6d8ebd407907abe2a4b923002c1a6527acd134e2aa75839f1a",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.1368",
+              "high": "0.1375",
+              "low": "0.1359",
+              "close": "0.136",
+              "volume": "112339501",
+              "previous_open": "0.1379",
+              "previous_high": "0.1384",
+              "previous_low": "0.1368",
+              "previous_close": "0.1368",
+              "ema20": "0.142555773970971436",
+              "ema60": "0.146367828642825555",
+              "previous_ema20": "0.143245855441600008",
+              "previous_ema60": "0.146719280461226421",
+              "ema20_slope": "-0.0006675788053785",
+              "ema60_slope": "-0.000332685156616658",
+              "atr": "0.001639721143803094",
+              "atr_pct": "1.205677311619921834",
+              "prior20_high": "0.1512",
+              "prior20_low": "0.1366",
+              "prior20_mean_volume": "70681986.3",
+              "prior_swing_high": "0.142",
+              "prior_swing_low": "0.1366",
+              "prior3_high": "0.1389",
+              "prior3_low": "0.1366",
+              "taker_buy_ratio": "0.601948205199878892",
+              "volume_ratio": "1.589365365641966969",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": true
+            }
+          },
+          "atr_pct": "1.205677311619921834"
+        },
+        "structure_values": {
+          "open": "0.1368",
+          "close": "0.136",
+          "ema20": "0.142555773970971436",
+          "ema60": "0.146367828642825555",
+          "ema20_slope": "-0.0006675788053785",
+          "ema60_slope": "-0.000332685156616658",
+          "atr_pct": "1.205677311619921834",
+          "previous_open": "0.1379",
+          "previous_close": "0.1368",
+          "previous_low": "0.1368",
+          "prior20_low": "0.1366",
+          "prior20_high": "0.1512",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.601948205199878892",
+          "volume_ratio": "1.589365365641966969",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793314800000,
+      "time_utc8": "07:00",
+      "input_digest": "71ad392c90d1fc77d9092b128c31770d38e1c4e99e69384de849acc130e816b6",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "CANDIDATE",
+        "strength": 66,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 66,
+          "min_score": 30,
+          "short_min_strength": "60"
+        },
+        "pre_tick_historical_move_rr": {
+          "move_proxy_pct": "2.11",
+          "stop_fraction": "0.08",
+          "gross_ratio": "0.26375",
+          "would_pass_gross_proxy_rr_before_tick_funding_account": false,
+          "basis": "OBSERVED_1H_CHANGE_NOT_FORECAST"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "TREND_VOLUME_UNCONFIRMED",
+        "strength": 66,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 66,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793314800000,
+            "last_closed_at_ms": 1793314800000,
+            "input_digest": "cbb35cd6ee1e4dd14d1433d6f495ff13c36106a46d36d3a3c8db74b9c20913ba",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.136",
+              "high": "0.1361",
+              "low": "0.1347",
+              "close": "0.1348",
+              "volume": "58272158",
+              "previous_open": "0.1368",
+              "previous_high": "0.1375",
+              "previous_low": "0.1359",
+              "previous_close": "0.136",
+              "ema20": "0.141817128830878918",
+              "ema60": "0.145988555572568979",
+              "previous_ema20": "0.142555773970971436",
+              "previous_ema60": "0.146367828642825555",
+              "ema20_slope": "-0.000702412569945627",
+              "ema60_slope": "-0.000355657227984418",
+              "atr": "0.001622695029147677",
+              "atr_pct": "1.203779695213410523",
+              "prior20_high": "0.1502",
+              "prior20_low": "0.1359",
+              "prior20_mean_volume": "74638327.85",
+              "prior_swing_high": "0.142",
+              "prior_swing_low": "0.1359",
+              "prior3_high": "0.1384",
+              "prior3_low": "0.1359",
+              "taker_buy_ratio": "0.008449421076871737",
+              "volume_ratio": "0.780727002849113266",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": true
+            }
+          },
+          "atr_pct": "1.203779695213410523"
+        },
+        "structure_values": {
+          "open": "0.136",
+          "close": "0.1348",
+          "ema20": "0.141817128830878918",
+          "ema60": "0.145988555572568979",
+          "ema20_slope": "-0.000702412569945627",
+          "ema60_slope": "-0.000355657227984418",
+          "atr_pct": "1.203779695213410523",
+          "previous_open": "0.1368",
+          "previous_close": "0.136",
+          "previous_low": "0.1359",
+          "prior20_low": "0.1359",
+          "prior20_high": "0.1502",
+          "breakout_short": true,
+          "taker_buy_ratio": "0.008449421076871737",
+          "volume_ratio": "0.780727002849113266",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793315700000,
+      "time_utc8": "07:15",
+      "input_digest": "210ca09a1ccd698a86d8377cd0b1be70957b70daff15eebf308068dabd06a593",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "entry_mode_unconfirmed",
+        "strength": 63,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 63,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1349",
+          "close": "0.135",
+          "ema20": "0.141167829471508366",
+          "ema60": "0.145608365766695949",
+          "ema20_slope": "-0.000692653272613262",
+          "ema60_slope": "-0.00036297043886695",
+          "atr_pct": "1.200815821266006488",
+          "previous_open": "0.136",
+          "previous_close": "0.1348",
+          "previous_low": "0.1347",
+          "prior20_low": "0.1347",
+          "prior20_high": "0.1498",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.417107415053591415",
+          "volume_ratio": "2.229530894880357181",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793316600000,
+      "time_utc8": "07:30",
+      "input_digest": "24c53ff0e010f62784c0d4f292858f78ce364567a269ad133f41f490ca34a203",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "CANDIDATE",
+        "strength": 60,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 60,
+          "min_score": 30,
+          "short_min_strength": "60"
+        },
+        "pre_tick_historical_move_rr": {
+          "move_proxy_pct": "1.54",
+          "stop_fraction": "0.08",
+          "gross_ratio": "0.1925",
+          "would_pass_gross_proxy_rr_before_tick_funding_account": false,
+          "basis": "OBSERVED_1H_CHANGE_NOT_FORECAST"
+        }
+      },
+      "candidate": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "TREND_VOLUME_UNCONFIRMED",
+        "strength": 60,
+        "proof": {
+          "version": "causal-trend-entry-v1",
+          "profile": "causal-trend-entry-v1",
+          "source": "s3",
+          "raw_strength": 60,
+          "strength_semantics": "OBSERVED_AMPLITUDE_NOT_WIN_PROBABILITY",
+          "reward_estimate_kind": "ATR_TARGET_NOT_FORECAST",
+          "min_score": 30,
+          "execution_authorized": false,
+          "structure": {
+            "version": "trend-15m-structure-v1",
+            "status": "READY",
+            "source": "BINANCE_FUTURES",
+            "symbol": "REDUSDT",
+            "environment": "SANDBOX",
+            "closed_at_ms": 1793316600000,
+            "last_closed_at_ms": 1793316600000,
+            "input_digest": "512abd62c84a411661e5f2da272fce348367da637763880a50e15e6005692ffe",
+            "input_bar_count": 1440,
+            "complete_bar_count": 96,
+            "indicator_bar_count": 90,
+            "required_bars": 90,
+            "excluded_partial_minutes": 0,
+            "contract": {
+              "input_interval": "1m",
+              "bar_semantics": "UTC_ALIGNED_CLOSED_TIME_BARS",
+              "timeframe_minutes": 15,
+              "indicator_period_unit": "15m_bar",
+              "ema_periods": [
+                20,
+                60
+              ],
+              "ema_seed": "FIRST_CLOSE",
+              "atr_period": 14,
+              "atr_method": "WILDER_FIRST_PERIOD_SMA_SEED",
+              "history_selection": "LATEST_90_COMPLETE_BARS",
+              "breakout_prior_bars": 20,
+              "swing_prior_bars": 5,
+              "pullback_prior_bars": 3,
+              "slope_bars": 3,
+              "slope_unit": "PRICE_CHANGE_PER_15M_BAR",
+              "prior_windows_exclude_current": true,
+              "flow_method": "SUM_TAKER_BUY_BASE_VOLUME_DIVIDED_BY_SUM_BASE_VOLUME",
+              "zero_volume_flow": "UNKNOWN",
+              "volume_ratio_reference": "PREVIOUS_20_COMPLETE_15M_BARS",
+              "input_digest_contract": "CANONICAL_OLDEST_FIRST_OHLCV_TBV_DECIMAL_STRINGS",
+              "interpretation": "OBSERVED_STRUCTURE_NOT_FORECAST"
+            },
+            "values": {
+              "open": "0.135",
+              "high": "0.1351",
+              "low": "0.1345",
+              "close": "0.1346",
+              "volume": "51523",
+              "previous_open": "0.1349",
+              "previous_high": "0.1351",
+              "previous_low": "0.1335",
+              "previous_close": "0.135",
+              "ema20": "0.140542321902793284",
+              "ema60": "0.145247435741558377",
+              "previous_ema20": "0.141167829471508366",
+              "previous_ema60": "0.145608365766695949",
+              "ema20_slope": "-0.000671130738713586",
+              "ema60_slope": "-0.000366370315188252",
+              "atr": "0.001548194777316189",
+              "atr_pct": "1.150219002463736198",
+              "prior20_high": "0.1496",
+              "prior20_low": "0.1335",
+              "prior20_mean_volume": "82419600.75",
+              "prior_swing_high": "0.1384",
+              "prior_swing_low": "0.1335",
+              "prior3_high": "0.1375",
+              "prior3_low": "0.1335",
+              "taker_buy_ratio": "0.080798866525629331",
+              "volume_ratio": "0.000625130424451856",
+              "prior3_touched_ema20_long": true,
+              "prior3_touched_ema20_short": false,
+              "breakout_long": false,
+              "breakout_short": false
+            }
+          },
+          "atr_pct": "1.150219002463736198"
+        },
+        "structure_values": {
+          "open": "0.135",
+          "close": "0.1346",
+          "ema20": "0.140542321902793284",
+          "ema60": "0.145247435741558377",
+          "ema20_slope": "-0.000671130738713586",
+          "ema60_slope": "-0.000366370315188252",
+          "atr_pct": "1.150219002463736198",
+          "previous_open": "0.1349",
+          "previous_close": "0.135",
+          "previous_low": "0.1335",
+          "prior20_low": "0.1335",
+          "prior20_high": "0.1496",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.080798866525629331",
+          "volume_ratio": "0.000625130424451856",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": true
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793317500000,
+      "time_utc8": "07:45",
+      "input_digest": "06e6845bc61b1aff30f75332fa97d86085bb6ec2b86525adf594dbb2730f6a00",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "strength_below_minimum",
+        "strength": 51,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 51,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1346",
+          "close": "0.1348",
+          "ema20": "0.139995397356633551",
+          "ema60": "0.144889964893313222",
+          "ema20_slope": "-0.00060720923607104",
+          "ema60_slope": "-0.000353834653048514",
+          "atr_pct": "1.098250002029634052",
+          "previous_open": "0.135",
+          "previous_close": "0.1346",
+          "previous_low": "0.1345",
+          "prior20_low": "0.1335",
+          "prior20_high": "0.1495",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.836145883621931109",
+          "volume_ratio": "0.492714991947804648",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    },
+    {
+      "symbol": "REDUSDT",
+      "closed_at_ms": 1793318400000,
+      "time_utc8": "08:00",
+      "input_digest": "a70087c004b4040614c70b3dcaa1119199c350b9ebf26c3d2969a3578d302777",
+      "baseline": {
+        "event_types": [
+          "TREND_DOWN"
+        ],
+        "reason": "strength_below_minimum",
+        "strength": 45,
+        "proof": {
+          "version": "source-thresholds-v1",
+          "source": "s3",
+          "profile": "directional-default-v1",
+          "raw_strength": 45,
+          "min_score": 30,
+          "short_min_strength": "60"
+        }
+      },
+      "candidate": {
+        "event_types": [],
+        "reason": "NO_TREND_EVENT",
+        "structure_values": {
+          "open": "0.1349",
+          "close": "0.1349",
+          "ema20": "0.139510023428856665",
+          "ema60": "0.144522606470151578",
+          "ema20_slope": "-0.000552542949706649",
+          "ema60_slope": "-0.000341930357969436",
+          "atr_pct": "1.087958852006599082",
+          "previous_open": "0.1346",
+          "previous_close": "0.1348",
+          "previous_low": "0.1345",
+          "prior20_low": "0.1335",
+          "prior20_high": "0.1487",
+          "breakout_short": false,
+          "taker_buy_ratio": "0.405895151976280693",
+          "volume_ratio": "0.849710508992046723",
+          "prior3_touched_ema20_short": false
+        },
+        "short_alignment": {
+          "close_below_ema20": true,
+          "ema20_below_ema60": true,
+          "ema20_slope_negative": true,
+          "ema60_slope_negative": true,
+          "close_below_previous_close": false
+        }
+      }
+    }
+  ],
+  "version": "trend-entry-focused-diagnostic-v1",
+  "market_source": "BINANCE_USDM_SANDBOX_CLOSED_1M_ARCHIVE",
+  "regime_scenario": "neutral",
+  "policy_overrides": {
+    "entry.confirmation_version": 1,
+    "entry.short_min_strength": "60",
+    "entry.min_score": 30,
+    "entry.extension_default": "2",
+    "entry.extension_violent": "1.25",
+    "entry.max_atr": "6",
+    "entry.max_takeover_atr": "12",
+    "entry.flow_long": "0.52",
+    "entry.flow_short": "0.48",
+    "stop.default": "0.08",
+    "stop.max_default": "0.08",
+    "stop.pulse": "0.04",
+    "stop.panic": "0.035",
+    "stop.atr_multiplier": "2",
+    "entry.min_reward_risk": "1",
+    "entry.force_isolated": true
+  },
+  "variant_stages": {
+    "BASELINE": "MARKET_RULE_ONLY_BEFORE_HISTORICAL_MOVE_REWARD_RISK",
+    "CANDIDATE": "STRUCTURE_PLUS_PLANNED_COST_ADJUSTED_REWARD_RISK_BEFORE_TICK_SIZING_AND_ACCOUNT_ADMISSION"
+  },
+  "observation_note": "Actual TREND_DOWN event presence and gate decision at UTC15m closed boundaries; no missing event is promoted to an admission probe.",
+  "activation_decision": "RESEARCH_ONLY_NOT_READY_FOR_ACTIVATION",
+  "profitability_validated": false,
+  "execution_authorized": false,
+  "old_reward_risk_note": "For baseline market-rule candidates only, compare absolute realized 1h percent change to planned stop fraction times 100. This is pre-tick gross historical-move proxy, not forecast or execution simulation.",
+  "findings": {
+    "QUSDT": "All15 short observation points13:15–16:45 have no TREND_DOWN. At16:45 close breaches prior20low with aligned sell flow and volume, but EMA20 remains above EMA60, both3-bar slopes remain positive; ATR7.481% also exceeds6% profile limit. Do not change parameters just to fit this event.",
+    "REDUSDT": "Across17 points04:00–08:00:7 no TREND_DOWN,4 volume rejection,3 entry-moved rejection,2 no-fresh-setup,1 flow rejection. EMA alignment is bearish throughout. All3 baseline market-rule candidates in this window fail their pre-tick gross historical-move reward-risk test."
+  }
+}

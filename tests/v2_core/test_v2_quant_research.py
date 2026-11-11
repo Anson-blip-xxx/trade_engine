@@ -2,10 +2,10 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_quant_indicators import minutes
 
 from services.v2_quant_research import QuantEvidenceContext, QuantPolicy, QuantResearch
+from tests.support.v2_admission import database as database_fixture
 from v2_core.signals import Signals
 
 database = database_fixture

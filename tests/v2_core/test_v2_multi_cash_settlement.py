@@ -5,8 +5,8 @@ from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_lifecycle import opening
 from test_v2_directional_replay import SCOPE
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.runtime_policy import PolicyStore
 
 database = database_fixture

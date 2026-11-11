@@ -1,0 +1,244 @@
+{
+  "reviewed_at": "2026-11-01",
+  "timezone": "Asia/Shanghai",
+  "status": "v2 deployed and scoped live recovery accepted",
+  "scope": "SANDBOX controller only; no account switch or strategy/risk threshold change",
+  "incident": {
+    "observed": "s6:s3 and s8:s3 cold_expiry repeatedly QueryCanceled; live actionable lag was zero in sampled health snapshots",
+    "source_signals_approximate": 2500000,
+    "receipts_approximate": 5000000,
+    "cause": "full historical receipt anti-join before LIMIT, repeated from the beginning after transaction timeout",
+    "not_claimed": "the complete trading process was not continuously stopped; completed business cycles and an earlier accepted entry were observed"
+  },
+  "repair": {
+    "history": "indexed source/environment/request_key seek page before narrow receipt/task probes and before loading JSON snapshots",
+    "limits": {"page_size": 1000, "page_pairs_per_tick_max": 8, "per_consumer_history_budget_ms": 500, "history_interval_seconds": 1},
+    "dense_page_recovery": "query/lock/page-budget timeout halves the independent consumer/lane page cap down to one; same cursor and time budget, scheduled retry only; successful pages retain the smaller cap for this process lifetime",
+    "budget_fragment_correction": "reserve the complete per-operation half-budget before starting; otherwise yield without false failure/page reduction, and give the skipped lane first turn next tick",
+    "safety": [
+      "independent expiry/discovery cursors advance only after transaction commit",
+      "wraparound revisits late commits, skipped locks and released leases",
+      "existing account/consumer scope, decisions, intents and active-lease rechecks preserved",
+      "background lane never evaluates strategies or places orders",
+      "foreground hot path unchanged; no whole-history COUNT in maintenance",
+      "incomplete historical scan is not advertised as caught up"
+    ],
+    "diagnostics": "rate-limited sanitized cycle failures and recovery; DEGRADED contact no longer impersonates successful cycle progress"
+  },
+  "read_only_performance_probe": {
+    "page_rows": 1000,
+    "indexed_id_page_ms": 16,
+    "naive_ids_then_snapshot_expiry_before_receipt_probe_ms": 426.735,
+    "receipt_probe_before_snapshot_expiry_ms": 23.371,
+    "caveat": "single-page observational comparison on existing data; not a production throughput benchmark"
+  },
+  "package": {
+    "prior": "/opt/trade-engine-v2/releases/causal-trend-controller-20261030-v2",
+    "candidate": "/opt/trade-engine-v2/releases/signal-history-controller-20261101-v2",
+    "intermediate_release": "/opt/trade-engine-v2/releases/signal-history-controller-20261101-v1",
+    "v2_vs_v1_delta": ["services/v2_signal_maintenance.py"],
+    "changed_files": ["services/v2_managed_testnet.py", "services/v2_signal_maintenance.py", "v2_core/runtime_policy.py", "v2_core/scheduling.py"],
+    "excluded": "all unrelated dirty worktree/M1 changes, including pre-existing ReentryArchive wiring in managed_testnet and ENTRY_STRUCTURE_CONTEXT_EXPIRED mapping in scheduling",
+    "sha256": {
+      "services/v2_signal_maintenance.py": "cca7a890d1ac78472ff671797f64f90f47972661a60a63b23f69ffe82293074b",
+      "services/v2_managed_testnet.py": "a2cd20ca660a53dde4ef217e745047d672492b01711c31f8775d989942de325b",
+      "v2_core/runtime_policy.py": "70c19b1a6183d623edc65722a0bcbc2878bb4d9521ac3488a0403649b5e7609b",
+      "v2_core/scheduling.py": "4907dc2b4c998a00fcd34ea4924ca3b921a48d2e49804dacb7972abbaa631ee0"
+    },
+    "dependency_closure": {"modules": 138, "missing": 0},
+    "construction_smoke": {"schedulers": 4, "database_calls": 0, "exchange_calls": 0, "passed": true}
+  },
+  "qa": {
+    "workspace_isolated_database": {"passed": 378, "failed": 0, "seconds": 304.88, "diagnostics": "/tmp/v2-data-qa.tgouJ5/pytest.log", "temporary_services_stopped": true},
+    "candidate_offline": {"passed": 67, "skipped_database_tests": 22, "actual_candidate_imports_verified": true},
+    "candidate_initial_isolated_database": {"passed": 378, "failed": 0, "seconds": 283.68, "diagnostics": "/tmp/v2-data-qa.3HPaBW/pytest.log", "note": "before final adaptive-page addition and removal of unrelated context mapping"},
+    "candidate_v1_isolated_database": {"passed": 111, "failed": 0, "skipped": 0, "seconds": 30.0, "diagnostics": "/tmp/v2-data-qa.EfTWC9/pytest.log", "actual_candidate_imports_verified": true, "temporary_database_removed": true, "real_timeout_rollback": "100 uncommitted receipts rolled back after real PostgreSQL statement timeout; cap reduced 100 to 50; all 150 historical signals finished exactly once without decisions/orders"},
+    "candidate_v2_isolated_database": {"passed": 114, "failed": 0, "skipped": 0, "seconds": 35.59, "diagnostics": "/tmp/v2-data-qa.uhZWLm/pytest.log", "actual_candidate_imports_verified": true, "temporary_database_removed": true, "full_budget_and_lane_fairness_regressions": true},
+    "release_policy_smoke": {"passed": 39, "skipped_database_tests": 13},
+    "counts_note": "scoped overlapping suites; do not add their totals or claim the entire repository/database suite passed",
+    "independent_review": "no release blocker; known per-lane rescan performance opportunity recorded below"
+  },
+  "deployment": {"status": "v2 active", "dry_run": "PREFLIGHT_PASSED", "baseline_epoch": 13, "v1_epoch": 14, "v1_pid": 2892216, "v1_active_at": "2026-11-01T09:49:19+08:00", "v2_epoch": 15, "v2_pid": 2915015, "v2_active_by": "2026-11-01T09:54:00+08:00", "same_binding": true, "graceful_worker_stop_proved": true, "fresh_account_coverage": "ACCOUNT_COVERAGE_CLEAR", "other_service_pids_unchanged": {"market_hub": 1705614, "dashboard": 3264125, "account_admin": 1645997, "tradingview_ingress": 1645980}, "policy_comparison": {"stored_version_before": 10, "stored_version_after": 10, "existing_settings_changed": [], "new_defaults_only": ["scheduler.history_budget_ms", "scheduler.history_interval_seconds", "scheduler.history_page_size", "scheduler.history_pages_per_tick"]}},
+  "v1_live_findings": {
+    "good": "ACTIVE with no route blockers; completed business cycles, protection CLEAR, actionable queue lag zero and maintenance alarm cleared",
+    "defect_found_during_live_acceptance": "successful pages still shrank because tail-of-tick operations received only residual 25-100ms budgets; not evidence that full-size pages were inherently too heavy",
+    "response": "do not accept repeated shrink as recovery; add complete-budget admission and fair next-lane rotation, run new regressions and narrowly redeploy"
+  },
+  "live_acceptance": {
+    "status": "scoped live recovery accepted; not a profitability or fresh-order execution claim",
+    "window": {
+      "since": "2026-11-01T09:54:00+08:00",
+      "now": "2026-11-01T09:58:50.060681+08:00",
+      "completed_cycles": 19,
+      "cycle_statuses": {
+        "CYCLE_COMPLETE": 19
+      },
+      "protection_statuses": {
+        "CLEAR": 19
+      },
+      "entry_dispatch_enabled_all": true,
+      "sampled_health_states": 21,
+      "health_lag_statuses": {
+        "CLEAR": 21
+      },
+      "active_health_codes": {},
+      "maintenance_unavailable_cycles": 0
+    },
+    "last_observation": "2026-11-01T09:58:29.241144+08:00",
+    "route": {
+      "epoch": 15,
+      "phase": "ACTIVE",
+      "blockers": []
+    },
+    "coverage": {
+      "status": "ACCOUNT_COVERAGE_CLEAR",
+      "blockers": []
+    },
+    "latest_cycle": {
+      "status": "CYCLE_COMPLETE",
+      "elapsed_ms": 3403,
+      "protection": "CLEAR",
+      "exits": "CLEAR"
+    },
+    "maintenance": {
+      "s6": {
+        "status": "CURRENT",
+        "failures": {},
+        "history": {
+          "cold_expiry": {
+            "scanned_total": 393000,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 45,
+            "sweeps": 0
+          },
+          "discovery": {
+            "scanned_total": 206000,
+            "effective_page_size": 500,
+            "page_reductions": 1,
+            "page_ms": 32,
+            "sweeps": 0
+          }
+        }
+      },
+      "s6:tv": {
+        "status": "CURRENT",
+        "failures": {},
+        "history": {
+          "cold_expiry": {
+            "scanned_total": 3645,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 31,
+            "sweeps": 5
+          },
+          "discovery": {
+            "scanned_total": 3645,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 30,
+            "sweeps": 5
+          }
+        }
+      },
+      "s8": {
+        "status": "CURRENT",
+        "failures": {},
+        "history": {
+          "cold_expiry": {
+            "scanned_total": 351000,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 70,
+            "sweeps": 0
+          },
+          "discovery": {
+            "scanned_total": 351000,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 39,
+            "sweeps": 0
+          }
+        }
+      },
+      "s8:tv": {
+        "status": "CURRENT",
+        "failures": {},
+        "history": {
+          "cold_expiry": {
+            "scanned_total": 3645,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 27,
+            "sweeps": 5
+          },
+          "discovery": {
+            "scanned_total": 3645,
+            "effective_page_size": 1000,
+            "page_reductions": 0,
+            "page_ms": 26,
+            "sweeps": 5
+          }
+        }
+      }
+    },
+    "new_entry_observed_in_window": false,
+    "forced_test_orders": false,
+    "historical_full_s3_sweep_finished": false,
+    "observations": [
+      {
+        "at": "2026-11-01T09:54:00.275386+08:00",
+        "cycle": "CYCLE_COMPLETE",
+        "maintenance_status": {
+          "s6": "CURRENT",
+          "s6:tv": "CURRENT",
+          "s8": "CURRENT",
+          "s8:tv": "CURRENT"
+        },
+        "active_health": [],
+        "lag": "CLEAR"
+      },
+      {
+        "at": "2026-11-01T09:55:39.739858+08:00",
+        "cycle": "CYCLE_COMPLETE",
+        "maintenance_status": {
+          "s6": "CURRENT",
+          "s6:tv": "CURRENT",
+          "s8": "CURRENT",
+          "s8:tv": "CURRENT"
+        },
+        "active_health": [],
+        "lag": "CLEAR"
+      },
+      {
+        "at": "2026-11-01T09:57:09.226512+08:00",
+        "cycle": "CYCLE_COMPLETE",
+        "maintenance_status": {
+          "s6": "CURRENT",
+          "s6:tv": "CURRENT",
+          "s8": "CURRENT",
+          "s8:tv": "CURRENT"
+        },
+        "active_health": [],
+        "lag": "CLEAR"
+      },
+      {
+        "at": "2026-11-01T09:58:29.241144+08:00",
+        "cycle": "CYCLE_COMPLETE",
+        "maintenance_status": {
+          "s6": "CURRENT",
+          "s6:tv": "CURRENT",
+          "s8": "CURRENT",
+          "s8:tv": "CURRENT"
+        },
+        "active_health": [],
+        "lag": "CLEAR"
+      }
+    ]
+  },
+  "remaining_observations": [
+    "TradingHealth queue aggregate still scans historical unreceipted signals: sampled s3 consumers took about 1.6 and 2.0 seconds. Isolate this diagnostic transaction, retain explicit UNKNOWN while incomplete, and use bounded complete historical passes before clearing old alerts; do not merely truncate old backlog or lower the enclosing transaction timeout.",
+    "An already completed history lane may wrap again while its companion lane is incomplete; work remains page/time bounded, but independent lane cadence could reduce repeated I/O.",
+    "Market coverage pressure is separate from the confirmed maintenance defect; no claim that all universe symbols are fresh or that profitability is verified."
+  ]
+}

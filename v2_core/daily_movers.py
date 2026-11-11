@@ -5,18 +5,18 @@ predictable. Source gaps, new listings and unclosed days stay explicitly unknown
 Prices/amounts are decimal strings; no binary float enters the calculations.
 """
 
-import re
 from collections import Counter
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
+
+from v2_core.symbols import is_supported_symbol
 
 VERSION = "daily-movers-utc8-v1"
 MINUTE = 60_000
 DAY = 1440 * MINUTE
 ZONE = ZoneInfo("Asia/Shanghai")
 _CONTEXT = Context(prec=60, rounding=ROUND_HALF_EVEN)
-_ENGINE_SYMBOL = re.compile(r"[A-Z0-9]{1,32}USDT")
 _MAX_MS = 2**53 - 1
 
 
@@ -279,8 +279,8 @@ def rank_daily_movers(
                 eligible.append(
                     {
                         "symbol": symbol,
-                        "engine_symbol_supported": bool(
-                            _ENGINE_SYMBOL.fullmatch(symbol)
+                        "engine_symbol_supported": is_supported_symbol(
+                            symbol, quote_assets=("USDT",)
                         ),
                         "return_pct": _text(change),
                         "open": _text(values["o"]),

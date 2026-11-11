@@ -1,0 +1,38 @@
+[Unit]
+Description=V2 actual-fill trend residual shadow comparison (no order authority)
+After=postgresql@16-tradev2.service trade-v2-clickhouse.service
+
+[Service]
+Type=oneshot
+User=tradev2campaign
+Group=tradev2campaign
+WorkingDirectory=/opt/trade-engine-v2/trend-campaign-research
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_trend_campaign_entry
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment="V2_TREND_CAMPAIGN_DSN=dbname=trade_v2_testnet host=/var/run/postgresql port=55432 user=tradev2campaign"
+TimeoutStartSec=240
+TimeoutStopSec=15
+Nice=15
+CPUQuota=15%
+MemoryMax=256M
+TasksMax=16
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+StandardOutput=journal
+StandardError=journal

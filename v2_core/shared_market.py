@@ -292,7 +292,9 @@ class HostBudget:
             return None
         return lane_used if lane_window == window else 0
 
-    def _reserve(self, weight, *, deadline_ms=None):
+    def _reserve(self, weight, *, deadline_ms=None, clip_deadline_to_window=False):
+        if type(clip_deadline_to_window) is not bool:
+            raise ValueError("EGRESS_DEADLINE_POLICY_INVALID")
         policy = MarketPolicy.read(self.connect, self.environment)
         admission_policy = (
             AdmissionBudgetPolicy.read(self.connect, self.environment).validate_against(
@@ -306,11 +308,20 @@ class HostBudget:
             now = now_ms // 60000
             if now < window or blocked:
                 return None
-            if deadline_ms is not None and not (
-                now_ms < deadline_ms <= now_ms + 60000
-                and deadline_ms + 500 <= (now + 1) * 60000
-            ):
-                return None
+            if deadline_ms is not None:
+                # Validate the caller's original ceiling before clipping. An
+                # expired or arbitrarily distant deadline is never repaired.
+                if not now_ms < deadline_ms <= now_ms + 60000:
+                    return None
+                if clip_deadline_to_window:
+                    # A context may finish sooner than its maximum lifetime.
+                    # Do not black out the last 15 seconds of every minute
+                    # merely because the caller allowed up to 15 seconds.
+                    # This only SHORTENS a new ticket; no existing charge or
+                    # model/signal/account evidence lifetime is extended.
+                    deadline_ms = min(deadline_ms, (now + 1) * 60000 - 500)
+                if not now_ms < deadline_ms or deadline_ms + 500 > (now + 1) * 60000:
+                    return None
             if window != now:
                 used = market = 0
             market_next = market + (weight if self.lane != "management" else 0)
@@ -437,10 +448,18 @@ class AdmissionBudget(HostBudget):
         milliseconds(deadline_ms)
         if type(adaptive) is not bool:
             raise ValueError("ADMISSION_CONTEXT_TICKET_INVALID")
-        charged = self._reserve(30 if adaptive else 27, deadline_ms=deadline_ms)
+        charged = self._reserve(
+            30 if adaptive else 27,
+            deadline_ms=deadline_ms,
+            clip_deadline_to_window=True,
+        )
         if charged is None:
             raise ValueError("ADMISSION_BUDGET_UNAVAILABLE")
         window, now_ms = charged
+        # Derived from the same PG-locked minute used for the durable charge,
+        # never the caller's wall clock. Consumption still rechecks that minute
+        # and deadline before every GET and after connection establishment.
+        deadline_ms = min(deadline_ms, (window + 1) * 60000 - 500)
         return _ContextTicket(
             self, account_id, target, adaptive, window, now_ms, deadline_ms
         )

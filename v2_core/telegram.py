@@ -11,6 +11,8 @@ from decimal import Decimal, InvalidOperation
 from http.client import HTTPSConnection
 from uuid import UUID
 
+from v2_core.symbols import is_supported_symbol
+
 
 class TelegramDeliveryError(RuntimeError):
     """Fixed diagnostic, never raw URL, token, message or response."""
@@ -153,6 +155,7 @@ def _trade_text(scope, kind, _event_id, payload):
 
 
 BUSINESS_HEALTH_MESSAGES = {
+    "JEV_MODEL_DEGRADED": "JEV 最近完成的模型请求持续失败，降级结果不算模型通过。请检查模型启动、接口与调用结果；这不是供应商余额判断，也不是策略获利证明。按账户既定策略降级或跳过；此告警不会改变原风控、持仓保护和平仓流程。",
     "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED": "JEV 本系统共享日额度不足以预留下次调用；这不代表供应商余额不足。没有获得模型意见，不记为模型通过。按账户既定策略降级或跳过，持仓保护和平仓不受此项影响；每日 UTC+8 00:00 使用新额度窗口。",
     "EXECUTION_GUARD_PERMISSION_DENIED": "执行权限检查失败，交易请求在发送前已被拦截。请检查执行进程的数据库角色和绑定锁权限；开仓、保护及平仓都需要正确权限，禁止绕过安全守卫。",
     "EXECUTION_CONTROLLER_BLOCKED": "受管执行进程启动或运行受阻，当前不能确认完整交易链路可用。请检查执行路由的阻塞原因与启动权限自检，不要仅以服务存活判断交易正常。",
@@ -225,9 +228,81 @@ _COVERAGE_REASONS = {
     "EXCLUDED_POSITION_HAS_LOCAL_OWNERSHIP": "排除仓位仍有本地归属",
 }
 
+_JEV_MODEL_FAILURE_REASONS = {
+    "MODEL_LOCAL_STARTUP_UNAVAILABLE": "本地调用进程启动失败（尚未请求模型）",
+    "MODEL_CONFIGURATION_UNAVAILABLE": "模型客户端配置不可用",
+    "MODEL_UNAVAILABLE": "模型服务不可用",
+    "MODEL_RESPONSE_INVALID": "模型响应未通过格式校验",
+    "MODEL_UNKNOWN_FAILURE": "未分类调用失败（详情不公开）",
+    "MODEL_LATE_RESPONSE": "模型响应超过有效时限",
+    "PROVIDER_REQUEST_REJECTED": "供应商拒绝请求（不推断余额）",
+    "MODEL_TIMEOUT": "模型调用超时",
+    "TOKEN_RESERVATION_EXCEEDED": "返回用量超过本次预留",
+    "DEADLINE_EXPIRED": "调用期限已过",
+}
+_JEV_MODEL_ALERT_REASONS = {
+    "CONSECUTIVE_FAILURES": "连续失败达到诊断阈值",
+    "RECENT_REQUESTS_WITHOUT_SUCCESS": "观察窗口内保留完成记录均未成功",
+}
+
+
+def _jev_model_health_details(raw):
+    """Bounded scalar projection, with no provider text or prompt passthrough."""
+    if (
+        type(raw) is not dict
+        or type(raw.get("status")) is not str
+        or raw["status"] not in {"CURRENT", "STALE", "UNAVAILABLE"}
+    ):
+        return {"status": "UNAVAILABLE"}
+    if raw["status"] != "CURRENT":
+        return {"status": raw["status"]}
+    stamps = ("observed_at_ms", "latest_result_at_ms", "last_failure_at_ms")
+    counts = ("consecutive_failures", "recent_requests", "recent_failures", "window_ms")
+    if (
+        any(
+            type(raw.get(k)) is not int or not 0 <= raw[k] <= 253402214400000
+            for k in stamps
+        )
+        or any(type(raw.get(k)) is not int for k in counts)
+        or not 1 <= raw["consecutive_failures"] <= 1000000
+        or not 1 <= raw["recent_failures"] <= raw["recent_requests"] <= 20
+        or not 60000 <= raw["window_ms"] <= 86400000
+        or raw["last_failure_at_ms"] != raw["latest_result_at_ms"]
+        or not 0
+        <= raw["observed_at_ms"] - raw["latest_result_at_ms"]
+        < raw["window_ms"]
+        or type(raw.get("latest_reason")) is not str
+        or raw["latest_reason"] not in _JEV_MODEL_FAILURE_REASONS
+        or type(raw.get("reason")) is not str
+        or raw["reason"] not in _JEV_MODEL_ALERT_REASONS
+        or "last_success_at_ms" not in raw
+    ):
+        return {"status": "UNAVAILABLE"}
+    success = raw["last_success_at_ms"]
+    if success is not None and (
+        type(success) is not int or not 0 <= success <= raw["last_failure_at_ms"]
+    ):
+        return {"status": "UNAVAILABLE"}
+    if (
+        raw["reason"] == "CONSECUTIVE_FAILURES" and raw["consecutive_failures"] < 2
+    ) or (
+        raw["reason"] == "RECENT_REQUESTS_WITHOUT_SUCCESS"
+        and raw["recent_failures"] != raw["recent_requests"]
+    ):
+        return {"status": "UNAVAILABLE"}
+    return {
+        "status": "CURRENT",
+        **{name: raw[name] for name in stamps + counts},
+        "last_success_at_ms": success,
+        "latest_reason": raw["latest_reason"],
+        "reason": raw["reason"],
+    }
+
 
 def health_notification_details(code, raw):
     """Strict typed projection: never forward raw stored errors or responses."""
+    if code == "JEV_MODEL_DEGRADED":
+        return _jev_model_health_details(raw)
     if code == "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED":
         if (
             not isinstance(raw, dict)
@@ -295,9 +370,7 @@ def health_notification_details(code, raw):
             ):
                 continue
             symbol = record.get("symbol")
-            if not isinstance(symbol, str) or not re.fullmatch(
-                r"[A-Z0-9]{1,24}(?:USDT|USDC|USD)", symbol
-            ):
+            if not is_supported_symbol(symbol, quote_assets=("USDT", "USDC", "USD")):
                 continue
             item = {"symbol": symbol, "status": record["status"]}
             for identity in ("episode_id", "order_id"):
@@ -385,10 +458,26 @@ def _health_details_text(code, raw):
     if details is None:
         return []
     if details["status"] == "STALE":
+        if code == "JEV_MODEL_DEGRADED":
+            return ["详情：模型诊断已过期，不能据此判断已恢复；等待新鲜调用结果。"]
         return ["详情：最近诊断已过期，不作为当前仓位或保护状态。"]
     if details["status"] != "CURRENT":
         return ["详情：暂时无法读取；本项告警仍有效，请核对交易健康记录。"]
     lines = [f"诊断采样：{_time(details['observed_at_ms'])}"]
+    if code == "JEV_MODEL_DEGRADED":
+        lines.extend(
+            [
+                "告警依据：" + _JEV_MODEL_ALERT_REASONS[details["reason"]],
+                f"连续失败：{details['consecutive_failures']} 次；观察窗口 {details['window_ms'] // 1000} 秒内保留完成记录：{details['recent_failures']} / {details['recent_requests']} 次失败（非全部请求统计）。",
+                "最近结果：" + _JEV_MODEL_FAILURE_REASONS[details["latest_reason"]],
+                f"最近失败：{_time(details['last_failure_at_ms'])}",
+                "最近成功：暂无已记录的成功结果。"
+                if details["last_success_at_ms"] is None
+                else f"最近成功：{_time(details['last_success_at_ms'])}",
+                "恢复依据：需要后续已验证成功的模型结果；重置预算或没有新请求不等于恢复。",
+            ]
+        )
+        return lines
     if code == "JEV_LOCAL_DAILY_BUDGET_EXHAUSTED":
         lines.extend(
             [
@@ -536,6 +625,11 @@ class TelegramOperationalSink:
                 "RETENTION_TIMER_DISABLED": "定时清理任务未启用，请检查维护计时器；不要手动删除交易证据。",
                 "RETENTION_JOB_FAILED": "定时清理任务执行失败，请检查维护服务日志；失败批次不会删除交易证据。",
                 "RETENTION_JOB_STALE": "定时清理任务长时间没有完成，请检查调度与维护进程。",
+                "QUEUE_STORAGE_UNAVAILABLE": "任务队列存储检查超时或数据未知；不会把未知当恢复，也不会暂停交易。",
+                "QUEUE_READY_PROJECTION_UNAVAILABLE": "任务热队列未启用或同步触发器异常；消费者将使用原领取路径，请检查迁移与同步。",
+                "QUEUE_READY_INDEX_PRESSURE": "待处理任务索引相对活跃任务异常偏大，请检查自动清理；监控不会自动重建索引。",
+                "QUEUE_VACUUM_PRESSURE": "任务存储死元组积累且清理滞后，请检查自动清理与长事务；不会自动删除交易证据。",
+                "QUEUE_PROJECTION_MISMATCH": "任务热队列与未完成任务不一致，请立即核对同步触发器；监控不自动改写任务或下单。",
             }
             code = payload.get("error_code")
             if code not in descriptions or payload.get("status") not in {

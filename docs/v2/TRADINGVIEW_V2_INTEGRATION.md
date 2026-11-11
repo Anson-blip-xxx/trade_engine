@@ -28,6 +28,52 @@ This final Binance gate is mandatory even if a TradingView watchlist was built
 from Binance symbols, because listings and trading status can change after alert
 creation.
 
+## Partial alert coverage is supported
+
+The operator does not need to create alerts for every eligible contract. The
+Binance catalog defines the local scanning universe independently of the TV
+alert list. The shared hub retains background scanning slots alongside priority
+work for holdings, recent TV messages and explicit market demands. This is
+universe eligibility and fair scheduling, not a guarantee that every symbol has
+fresh candles within 90 seconds under the current request budget.
+
+- A local S3 candidate with no fresh same-symbol TV peer proceeds through the
+  same structural, account, JEV and execution checks. Fusion is `ABSENT`, with
+  zero confirmation bonus and no conflict veto; it does not wait for a TV alert.
+- A TV candidate does not require a matching S3 event, but still requires fresh
+  local market data and all mandatory risk checks. Event absence and market-data
+  absence are different conditions.
+- Fresh same-symbol, same-environment evidence may confirm or conflict. Evidence
+  from another symbol, the future, an expired message or outside the fusion
+  window cannot supply either confirmation or a veto. Absent TV is passed to JEV
+  as unknown (`null`), never fabricated agreement or disagreement.
+- S3 and TV candidates for the same structural opportunity share the existing
+  account-scoped durable claim; two sources do not authorize two orders.
+- Never receiving a signal does not establish that an alert was not configured,
+  nor that TradingView is broken. An installed alert may simply not have
+  triggered. Configured coverage requires an explicit operator inventory;
+  observed-receipt coverage must not be presented as that inventory.
+
+Regression coverage: `tests/v2_core/test_v2_tv_partial_coverage.py` exercises
+uncovered/expired/out-of-window/cross-symbol evidence, independent TV candidates,
+JEV unknown fields, unchanged sizing, mandatory account-risk rejection and
+mixed-symbol persisted fusion. Related shared-market and opportunity tests cover
+background scheduling and concurrent S3/TV deduplication. These tests do not
+submit live orders or establish strategy profitability.
+
+Validation on 2026-10-30: the partial-coverage module adds 11 cases; together
+with fusion, persisted dynamic context, shared-market scheduling, v6 entry,
+durable opportunity and JEV-contract regressions, **177 tests passed** in 36.98 s
+using isolated QA storage (`/tmp/v2-data-qa.vkRXQ9/pytest.log`, database removed).
+The read-only runtime check at 21:48 UTC+8 observed 3,873 local signals across
+437 contracts versus two TV signals across two contracts in the preceding
+20 minutes. There were 1,974 local decisions with fusion `ABSENT`; they reached
+normal rule evaluation, not a TV-wait state. Three real v6 JEV requests since
+activation completed with unknown TV confirmation. No OPEN was observed in that
+20-minute window, so this verifies source independence, not filled execution or
+profitability. This follow-up changed only tests/documentation, not running
+policy, services or trading state.
+
 ## Alert setup
 
 - Chart: a standard 15-minute `BINANCE:*USDT.P` perpetual chart.
@@ -59,3 +105,96 @@ The producer identity is deterministic:
 Retries preserve the same identity. `observed_at` is the confirmed 15-minute bar
 close, `expires_at_ms` is derived from that original time, and all timestamps are
 absolute Unix milliseconds. UTC+8 conversion is display-only.
+
+## Causal candidate producer v2
+
+`docs/tradingview_v2_universal.pine` now identifies itself as
+`tv-causal-15m-v2`. It requires a standard BINANCE perpetual 15-minute chart,
+enough indicator history, and four contiguous 15-minute intervals. A candidate
+is emitted only on the confirmed bar close. No higher-timeframe request,
+future-looking pivot, or unconfirmed bar supplies a trigger. These checks follow
+TradingView's [confirmed-bar semantics](https://www.tradingview.com/pine-script-docs/concepts/bar-states/)
+and [standard-chart distinction](https://www.tradingview.com/pine-script-docs/concepts/chart-information/).
+
+The volume baseline uses the preceding 20 bars by default, excluding the
+candidate bar. Existing trends can produce a new candidate when the closing
+price breaks the preceding 20-bar high/low, or when one of the preceding three
+bars retests the fast EMA and the current bar resumes beyond the immediately
+previous opposite candle's high/low. The prior close must hold the slow EMA.
+The original EMA/ADX transition remains a third setup. All three require
+aligned current-bar movement, both EMA slopes aligned over three bars, volume
+at least the prior-bar baseline by default, directional trend and closing-location
+confirmation. There is no timed cooldown: a fresh breakout on a later bar
+remains eligible. Fast-move volume thresholds remain separate. These parameters
+select candidates and are not calibrated profit forecasts.
+
+The single priority chain is pump, violent move, pulse, then trend. Every
+candidate requires a current candle moving in its stated direction. A violent
+short also requires a negative one-hour return and a close in the lower part of
+the candle and one-hour range. An upward rebound therefore cannot qualify as a
+violent short merely by remaining below the hour's midpoint. Strength uses only
+returns aligned with the candidate direction, plus excess volume; opposing
+returns contribute zero. Its bounded 20–99 scale is evidence, not win probability.
+
+## Optional producer audit metadata
+
+The updated ingress accepts legacy payloads unchanged. New v2 alerts add this
+exact optional object; additional fields, unknown versions/setups, mismatched
+event families and invalid bar times are rejected:
+
+```json
+{
+  "producer": {
+    "version": "tv-causal-15m-v2",
+    "setup": "TREND_BREAKOUT",
+    "timeframe": "15",
+    "bar_open_ms": 1793298600000,
+    "bar_close_ms": 1793299500000
+  }
+}
+```
+
+Allowed setups are `TREND_TRANSITION`, `TREND_BREAKOUT`,
+`TREND_PULLBACK_RESUME`, `PULSE`, `PUMP`, and `VIOLENT`. Each must match its
+existing TREND/PULSE/PUMP/VIOLENT event family. Bar times are integer Unix
+milliseconds; opening time must align to a 15-minute boundary, closing time must
+be exactly 900,000 ms later, and `bar_close_ms` must equal `observed_at`.
+The ingress saves this object under `features.tv_producer` without changing
+signal identity, freshness or expiry semantics.
+
+Metadata is untrusted producer evidence. The backend independently rebuilds its
+closed 15-minute market structure and applies market, account, risk and
+execution gates. A claimed breakout or pullback setup never grants permission
+to trade or overrides a backend veto. No secret or arbitrary text is accepted
+inside this object.
+
+## Rollout and validation boundary
+
+Deploy the metadata-capable ingress before installing the v2 Pine alert: the
+previous ingress intentionally rejects the new field. Existing alerts remain
+compatible with the new ingress. In TradingView, save the updated indicator,
+check it in Pine Editor, then recreate each alert with the same configured
+ingress-only secret. An existing server-side alert retains its prior script and
+inputs; editing the chart does not update that alert. See TradingView's
+[alert documentation](https://www.tradingview.com/pine-script-docs/concepts/alerts/).
+
+The script accepts 32–512 printable ASCII characters for the secret and escapes
+quotes and backslashes when building JSON. It does not display or log that
+value. Decimal evidence is serialized as strings with at most 18 fractional
+digits. The checked-in file contains only an input placeholder.
+
+Local tests cover producer expressions, prior-bar references, directional
+rebound rejection, setup selection conditions, metadata validation, exact replay
+and conflict handling. They are not a Pine compiler or a TradingView backtest.
+This workspace has no Pine compiler; Pine Editor compilation and live alert
+delivery have not been executed for this revision.
+
+### SANDBOX release, 2026-10-30
+
+The compatible ingress and v6 backend were deployed with operator authorization;
+the new entry profile is enabled in SANDBOX only. The webhook URL and ingress
+secret are unchanged. Local/public negative authentication and producer-format
+probes passed without submitting a valid signal. Existing legacy alerts remain
+accepted; the operator will recreate alerts using the revised Pine source.
+This does not establish Pine compilation, genuine v2 alert delivery, a filled
+order, or profitability. See the [release evidence](../../deploy/v2-testnet/trend-entry-tv-release-20261030.json).

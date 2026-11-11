@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import scenario
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_context import DirectionalContext
+from tests.support.v2_admission import database as database_fixture
 from v2_core.jev_entry_gate import GateAssessment
 from v2_core.signal_fusion import FusionPolicy, build_fusion
 

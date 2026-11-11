@@ -10,10 +10,29 @@ from copy import deepcopy
 from dataclasses import asdict
 from uuid import uuid4
 
+from v2_core.ready_queue import (
+    READY_COMPLETION_CHECK,
+    READY_CTE,
+    READY_SOURCE,
+    queue_mode,
+)
+
+JEV_PENDING_RETRY = "JEV_RESULT_PENDING"
+JEV_QUOTA_RETRY = "JEV_RECHECK_ADMISSION_BUDGET_UNAVAILABLE"
+JEV_MARKET_REFRESH_RETRY = "JEV_MARKET_REFRESH_PENDING"
+JEV_CONTINUATION_CODES = frozenset({JEV_PENDING_RETRY, JEV_QUOTA_RETRY})
+JEV_PENDING_REASONS = frozenset({JEV_PENDING_RETRY, JEV_MARKET_REFRESH_RETRY})
+JEV_RETRY_CODES = JEV_CONTINUATION_CODES | {JEV_MARKET_REFRESH_RETRY}
+ADMISSION_READ_QUOTA_CODES = frozenset(
+    {"ADMISSION_BUDGET_UNAVAILABLE", JEV_QUOTA_RETRY}
+)
+JEV_CONTINUATION_RETRY_SECONDS = 1
+
 EXPECTED_ADMISSION_WAITS = frozenset(
     {
         "ACCOUNT_RISK_CAPACITY_UNAVAILABLE",
         "ADMISSION_BUDGET_UNAVAILABLE",
+        JEV_QUOTA_RETRY,
         "EXISTING_SYMBOL_POSITION",
     }
 )
@@ -73,6 +92,10 @@ class _DrainAttempt(Exception):
     """Cooperative yield before business evaluation, never an exchange cancel."""
 
 
+class _TerminalJevVeto(Exception):
+    """Internal control flow to ACK after a negative check or bounded yield."""
+
+
 class StrategyScheduler:
     def __init__(
         self,
@@ -118,6 +141,62 @@ class StrategyScheduler:
         self.context_failure_attempts = context_failure_attempts
         self._last_reconcile_ms = None
         self._last_expiry_reconcile_ms = None
+        # Non-authoritative bounded anti-entropy progress. Each independent
+        # sweep wraps to the beginning, so late commits and released leases
+        # behind a cursor are revisited. Restarting safely repeats old pages.
+        self._expiry_history_cursor = None
+        self._discovery_history_cursor = None
+        self._expiry_history_sweeps = 0
+        self._discovery_history_sweeps = 0
+
+    def _history_page(self, conn, *, cursor, size):
+        """Limit raw inbox work before any receipt/task anti-join.
+
+        The existing unique (source,environment,request_key) index supports
+        this seek. A page is not a high-water admission/discovery boundary.
+        """
+        after = "AND request_key>%s" if cursor is not None else ""
+        return conn.execute(
+            f"""SELECT signal_id,request_key FROM v2_inbound_signals
+            WHERE source=%s AND environment=%s {after}
+            ORDER BY request_key LIMIT %s""",
+            (
+                self.worker.source,
+                self.worker.scope.environment,
+                *((cursor,) if cursor is not None else ()),
+                size,
+            ),
+        ).fetchall()
+
+    @staticmethod
+    def _history_bounds(size):
+        if size is not None and (type(size) is not int or not 1 <= size <= 10000):
+            raise ValueError("HISTORY_PAGE_SIZE_INVALID")
+
+    @staticmethod
+    def _history_progress(page, size, started):
+        complete = len(page) < size
+        cursor = None if complete else page[-1][1]
+        return cursor, {
+            "history_scanned": len(page),
+            "history_page_size": size,
+            "history_sweep_complete": complete,
+            "history_cursor_present": cursor is not None,
+            "history_elapsed_ms": round((time.perf_counter() - started) * 1000),
+        }
+
+    @staticmethod
+    def _history_budget(conn, started, budget_ms):
+        if budget_ms is None:
+            return
+        remaining = budget_ms - int((time.perf_counter() - started) * 1000)
+        if remaining <= 0:
+            raise TimeoutError("HISTORY_PAGE_BUDGET_EXHAUSTED")
+        conn.execute(
+            "SELECT set_config('statement_timeout',%s,true), "
+            "set_config('lock_timeout',%s,true)",
+            (f"{remaining}ms", f"{min(remaining, 250)}ms"),
+        )
 
     def _review_pending_once(
         self,
@@ -141,7 +220,12 @@ class StrategyScheduler:
         ):
             return outcome
 
-        def remaining():
+        from psycopg.errors import LockNotAvailable, QueryCanceled
+
+        review = {"signal_id": signal_id, "rechecked": False, "woke": False}
+        diagnostics.setdefault("jev_same_cycle", []).append(review)
+
+        def remaining(phase):
             if drain_requested(stop_requested):
                 raise _DrainAttempt()
             budget = (
@@ -149,22 +233,45 @@ class StrategyScheduler:
             )
             if budget <= 0:
                 return 0
-            with self._connect() as conn:
-                conn.execute("SET LOCAL lock_timeout='50ms'")
-                conn.execute("SET LOCAL statement_timeout='100ms'")
-                row = conn.execute(
-                    """SELECT greatest(0,extract(epoch FROM (lease_until-clock_timestamp()))*1000)::bigint
-                    FROM v2_strategy_tasks WHERE consumer=%s AND signal_id=%s
-                    AND lease_token=%s AND completed_at IS NULL""",
-                    (worker.scope.consumer, signal_id, token),
-                ).fetchone()
+            try:
+                # This connection only obtains an optional same-cycle wake
+                # hint. A timed-out read cannot prove lease ownership and must
+                # never authorize another consume. The original pending result
+                # retains its bounded durable retry; no deadline is extended.
+                with self._connect() as conn:
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    conn.execute("SET LOCAL lock_timeout='50ms'")
+                    conn.execute("SET LOCAL statement_timeout='100ms'")
+                    row = conn.execute(
+                        """SELECT greatest(0,extract(epoch FROM (lease_until-clock_timestamp()))*1000)::bigint
+                        FROM v2_strategy_tasks WHERE consumer=%s AND signal_id=%s
+                        AND lease_token=%s AND completed_at IS NULL""",
+                        (worker.scope.consumer, signal_id, token),
+                    ).fetchone()
+            except (QueryCanceled, LockNotAvailable) as exc:
+                # Deliberately scoped to this read-only transaction, not the
+                # model wait, context acquisition, consume or scheduling ACK.
+                review.update(
+                    reason="JEV_LEASE_CHECK_TIMEOUT",
+                    lease_check_error=type(exc).__name__,
+                    lease_check_phase=phase,
+                    execution_authorized=False,
+                )
+                metrics["jev_lease_read_timeout_count"] = (
+                    metrics.get("jev_lease_read_timeout_count", 0) + 1
+                )
+                if drain_requested(stop_requested):
+                    raise _DrainAttempt() from exc
+                return 0
+            if drain_requested(stop_requested):
+                raise _DrainAttempt()
+            if deadline is not None:
+                budget = min(budget, int((deadline - self.monotonic()) * 1000))
             return max(0, min(2000, budget, row[0] if row is not None else 0))
 
-        review = {"signal_id": signal_id, "rechecked": False, "woke": False}
-        diagnostics.setdefault("jev_same_cycle", []).append(review)
-        budget = remaining()
+        budget = remaining("BEFORE_WAIT")
         if budget <= 0:
-            review["reason"] = "SCHEDULER_OR_LEASE_BUDGET"
+            review.setdefault("reason", "SCHEDULER_OR_LEASE_BUDGET")
             return outcome
         diagnostics["stage"] = "JEV_WAIT"
         started = time.perf_counter()
@@ -182,8 +289,16 @@ class StrategyScheduler:
         review["wait_ms"], review["woke"] = round(elapsed), woke is True
         if drain_requested(stop_requested):
             raise _DrainAttempt()
-        if woke is not True or remaining() <= 0:
-            review["reason"] = "NO_TIMELY_RESULT_OR_LEASE"
+        if woke is not True or remaining("AFTER_WAIT") <= 0:
+            review.setdefault("reason", "NO_TIMELY_RESULT_OR_LEASE")
+            return outcome
+        reject = getattr(worker, "reject_completed_jev", None)
+        negative = reject(signal_id, lease_token=token) if callable(reject) else None
+        if negative is not None:
+            review["terminal_veto_without_account_recheck"] = True
+            return negative
+        if remaining("AFTER_NEGATIVE_CHECK") <= 0:
+            review.setdefault("reason", "BUDGET_EXPIRED_DURING_NEGATIVE_CHECK")
             return outcome
         # No old balance/context is reused. Normal admission transport quotas
         # still apply; a local quota miss is DEFERRED, never management credit.
@@ -198,8 +313,8 @@ class StrategyScheduler:
             metrics.get("jev_recheck_context_ms", 0)
             + (time.perf_counter() - context_started) * 1000
         )
-        if remaining() <= 0:
-            review["reason"] = "BUDGET_EXPIRED_DURING_FRESH_CONTEXT"
+        if remaining("AFTER_CONTEXT") <= 0:
+            review.setdefault("reason", "BUDGET_EXPIRED_DURING_FRESH_CONTEXT")
             return outcome
         diagnostics["stage"] = "CONSUME"
         review["rechecked"] = True
@@ -207,7 +322,13 @@ class StrategyScheduler:
         return worker.consume(signal_id, context=fresh)
 
     def expire_pending(
-        self, *, limit=1000, reconcile_seconds=None, hot_only=False, budget_ms=None
+        self,
+        *,
+        limit=1000,
+        reconcile_seconds=None,
+        hot_only=False,
+        budget_ms=None,
+        history_page_size=None,
     ):
         """Retire never-decided expired signals in one bounded transaction.
 
@@ -218,6 +339,9 @@ class StrategyScheduler:
         """
         if type(limit) is not int or not 1 <= limit <= 5000:
             raise ValueError("bounded expiry batch required")
+        self._history_bounds(history_page_size)
+        if history_page_size is not None and hot_only:
+            raise ValueError("HISTORY_PAGE_REQUIRES_COLD_EXPIRY")
         if budget_ms is not None and (
             type(budget_ms) is not int or not 1 <= budget_ms <= 5000
         ):
@@ -243,15 +367,26 @@ class StrategyScheduler:
             or self._last_expiry_reconcile_ms is None
             or not 0 <= now - self._last_expiry_reconcile_ms < reconcile_seconds * 1000
         )
-        reconcile = reconcile and not hot_only
+        paged = history_page_size is not None
+        reconcile = (reconcile or paged) and not hot_only
         recent = "" if reconcile else "AND (s.snapshot->>'expires_at_ms')::bigint>%s"
-        receipt_probe = "" if reconcile else "OFFSET 0"
+        receipt_probe = "" if reconcile and not paged else "OFFSET 0"
+        page_size = min(history_page_size, limit) if paged else None
+        history_metrics = None
 
         def complete(count, candidates):
             if reconcile:
                 # A full batch may mean an old backlog; drain again next cycle
                 # rather than parking it behind the reconciliation interval.
-                self._last_expiry_reconcile_ms = now if candidates < limit else None
+                self._last_expiry_reconcile_ms = (
+                    now
+                    if (
+                        history_metrics["history_sweep_complete"]
+                        if paged
+                        else candidates < limit
+                    )
+                    else None
+                )
             self.last_expiry_metrics = {
                 "full_reconciliation": reconcile,
                 "reconciled_at_ms": self._last_expiry_reconcile_ms,
@@ -259,6 +394,8 @@ class StrategyScheduler:
                 "expired": count,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000),
             }
+            if history_metrics is not None:
+                self.last_expiry_metrics.update(history_metrics)
             return count
 
         with self._connect() as conn:
@@ -269,22 +406,50 @@ class StrategyScheduler:
                     (f"{budget_ms}ms", f"{min(budget_ms, 250)}ms"),
                 )
             conn.execute("SET LOCAL jit=off")
+            if paged:
+                self._history_budget(conn, started, budget_ms)
+            page = (
+                self._history_page(
+                    conn, cursor=self._expiry_history_cursor, size=page_size
+                )
+                if paged
+                else None
+            )
+            if paged:
+                self._history_budget(conn, started, budget_ms)
+                pending = """SELECT p.signal_id FROM unnest(%s::uuid[]) p(signal_id)
+                    WHERE NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
+                        WHERE r.consumer=%s AND r.signal_id=p.signal_id OFFSET 0)"""
+                pending_args = ([row[0] for row in page], consumer)
+            else:
+                pending = f"""SELECT s.signal_id FROM v2_inbound_signals s
+                    WHERE s.source=%s AND s.environment=%s
+                    AND (s.snapshot->>'expires_at_ms')::bigint<=%s
+                    {recent}
+                    AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
+                        WHERE r.consumer=%s AND r.signal_id=s.signal_id {receipt_probe})"""
+                pending_args = (
+                    worker.source,
+                    worker.scope.environment,
+                    now,
+                    *((now - reconcile_seconds * 1000,) if not reconcile else ()),
+                    consumer,
+                )
+            snapshot_column = ",i.snapshot" if paged else ""
+            expiry_filter = (
+                "(s.snapshot->>'expires_at_ms')::bigint<=%s AND " if paged else ""
+            )
             # IDs first: avoid re-hashing historical wide snapshots after the
             # anti-join. Hot sweeps use the expiry index; full sweeps preserve
             # late commits and older lease releases without a high-water cursor.
             rows = conn.execute(
                 f"""WITH pending AS MATERIALIZED (
-                SELECT s.signal_id FROM v2_inbound_signals s
-                WHERE s.source=%s AND s.environment=%s
-                AND (s.snapshot->>'expires_at_ms')::bigint<=%s
-                {recent}
-                AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
-                    WHERE r.consumer=%s AND r.signal_id=s.signal_id {receipt_probe}))
+                {pending})
                 SELECT s.signal_id FROM pending p
                 CROSS JOIN LATERAL (
-                    SELECT i.signal_id,i.received_at FROM v2_inbound_signals i
+                    SELECT i.signal_id,i.received_at{snapshot_column} FROM v2_inbound_signals i
                     WHERE i.signal_id=p.signal_id OFFSET 0) s
-                WHERE NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
+                WHERE {expiry_filter}NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
                     WHERE d.consumer=%s AND d.signal_id=s.signal_id OFFSET 0)
                 AND NOT EXISTS (SELECT 1 FROM v2_trade_intents i
                     WHERE i.signal_id=s.signal_id
@@ -294,27 +459,25 @@ class StrategyScheduler:
                     AND t.lease_until>=statement_timestamp() OFFSET 0)
                 ORDER BY s.received_at,s.signal_id LIMIT %s FOR UPDATE OF s SKIP LOCKED""",
                 (
-                    worker.source,
-                    worker.scope.environment,
-                    now,
-                    *((now - reconcile_seconds * 1000,) if not reconcile else ()),
-                    consumer,
+                    *pending_args,
+                    *((now,) if paged else ()),
                     consumer,
                     *intent_scope,
                     consumer,
                     limit,
                 ),
             ).fetchall()
-            if not rows:
-                return complete(0, 0)
             # The broad discovery query uses a stable statement-time boundary:
             # clock_timestamp() is volatile and forces a correlated task lookup
             # for every historical signal, even ones already receipted. A lease
             # expiring during discovery is conservatively left for next time.
             # Recheck live leases below after locking each candidate signal, so
             # a lease renewed/acquired during discovery is never overwritten.
-            expired = conn.execute(
-                """INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason)
+            if paged and rows:
+                self._history_budget(conn, started, budget_ms)
+            expired = (
+                conn.execute(
+                    """INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason)
                 SELECT %s,s.signal_id,'EXPIRED','signal expired before scheduling'
                 FROM v2_inbound_signals s WHERE s.signal_id=ANY(%s::uuid[])
                 AND NOT EXISTS (SELECT 1 FROM v2_strategy_decisions d
@@ -326,9 +489,20 @@ class StrategyScheduler:
                     WHERE t.consumer=%s AND t.signal_id=s.signal_id
                     AND t.lease_until>=clock_timestamp())
                 ON CONFLICT DO NOTHING RETURNING signal_id""",
-                (consumer, [row[0] for row in rows], consumer, *intent_scope, consumer),
-            ).fetchall()
+                    (
+                        consumer,
+                        [row[0] for row in rows],
+                        consumer,
+                        *intent_scope,
+                        consumer,
+                    ),
+                ).fetchall()
+                if rows
+                else []
+            )
             if expired:
+                if paged:
+                    self._history_budget(conn, started, budget_ms)
                 conn.execute(
                     """INSERT INTO v2_strategy_tasks(consumer,signal_id,completed_at)
                     SELECT %s,unnest(%s::uuid[]),clock_timestamp()
@@ -336,6 +510,20 @@ class StrategyScheduler:
                         completed_at=EXCLUDED.completed_at,error_code=NULL""",
                     (consumer, [row[0] for row in expired]),
                 )
+        # A failed statement or commit must retry the same page. Never advance
+        # inside the transaction, including pages containing no eligible rows.
+        if paged:
+            self._expiry_history_cursor, history_metrics = self._history_progress(
+                page, page_size, started
+            )
+            self._expiry_history_sweeps += int(
+                history_metrics["history_sweep_complete"]
+            )
+            history_metrics["history_sweeps"] = self._expiry_history_sweeps
+            history_metrics["history_page"] = {
+                key.removeprefix("history_"): value
+                for key, value in history_metrics.items()
+            }
         return complete(len(expired), len(rows))
 
     def progress(self):
@@ -426,11 +614,15 @@ class StrategyScheduler:
         stop_requested=None,
         hot_only=False,
         discover_only=False,
+        history_page_size=None,
     ):
         if stop_requested is not None and not callable(stop_requested):
             raise TypeError("callable stop check required")
         if type(hot_only) is not bool or type(discover_only) is not bool:
             raise ValueError("explicit discovery mode required")
+        self._history_bounds(history_page_size)
+        if history_page_size is not None and (hot_only or not discover_only):
+            raise ValueError("HISTORY_PAGE_REQUIRES_COLD_DISCOVERY")
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid strategy batch limit")
         if any(
@@ -471,25 +663,50 @@ class StrategyScheduler:
         reconcile = self._last_reconcile_ms is None or not (
             0 <= now - self._last_reconcile_ms < reconcile_seconds * 1000
         )
-        reconcile = reconcile and not hot_only
+        paged = history_page_size is not None
+        reconcile = (reconcile or paged) and not hot_only
         live_filter = (
             "" if reconcile else "AND (s.snapshot->>'expires_at_ms')::bigint>%s"
         )
         # Prevent a hot, tiny input set being expanded into a full historical
         # task hash join by cardinality estimates. Cold anti-entropy may hash.
-        task_probe = "" if reconcile else "OFFSET 0"
+        task_probe = "" if reconcile and not paged else "OFFSET 0"
+        page_size = min(history_page_size, limit) if paged else None
         # No high-water mark: late commits and previously admitted-but-unprepared
         # intents remain discoverable. Previously scheduled tasks never starve
         # discovery of later signals, including when earlier tasks are failing.
         with self._connect() as conn:
+            if paged:
+                self._history_budget(conn, started, budget_ms)
             conn.execute("SET LOCAL jit=off")
+            page = (
+                self._history_page(
+                    conn, cursor=self._discovery_history_cursor, size=page_size
+                )
+                if paged
+                else None
+            )
+            if paged:
+                self._history_budget(conn, started, budget_ms)
+                pending = """SELECT p.signal_id FROM unnest(%s::uuid[]) p(signal_id)
+                    WHERE NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
+                        WHERE t.consumer=%s AND t.signal_id=p.signal_id OFFSET 0)"""
+                pending_args = ([row[0] for row in page], consumer)
+            else:
+                pending = f"""SELECT s.signal_id FROM v2_inbound_signals s
+                    WHERE s.source=%s AND s.environment=%s
+                    {live_filter}
+                    AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
+                        WHERE t.consumer=%s AND t.signal_id=s.signal_id {task_probe})"""
+                pending_args = (
+                    worker.source,
+                    worker.scope.environment,
+                    *((now,) if not reconcile else ()),
+                    consumer,
+                )
             conn.execute(
                 f"""WITH undiscovered AS MATERIALIZED (
-                SELECT s.signal_id FROM v2_inbound_signals s
-                WHERE s.source=%s AND s.environment=%s
-                {live_filter}
-                AND NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
-                    WHERE t.consumer=%s AND t.signal_id=s.signal_id {task_probe}))
+                {pending})
                 INSERT INTO v2_strategy_tasks(consumer,signal_id)
                 SELECT %s,s.signal_id FROM undiscovered p
                 CROSS JOIN LATERAL (
@@ -505,10 +722,7 @@ class StrategyScheduler:
                     (s.snapshot->>'expires_at_ms')::bigint,s.received_at,s.signal_id
                 LIMIT %s ON CONFLICT DO NOTHING""",
                 (
-                    worker.source,
-                    worker.scope.environment,
-                    *((now,) if not reconcile else ()),
-                    consumer,
+                    *pending_args,
                     consumer,
                     consumer,
                     now,
@@ -517,13 +731,44 @@ class StrategyScheduler:
                     limit,
                 ),
             )
-        if reconcile:
+        history_metrics = None
+        if paged:
+            self._discovery_history_cursor, history_metrics = self._history_progress(
+                page, page_size, started
+            )
+            self._discovery_history_sweeps += int(
+                history_metrics["history_sweep_complete"]
+            )
+            history_metrics["history_sweeps"] = self._discovery_history_sweeps
+            history_metrics["history_page"] = {
+                key.removeprefix("history_"): value
+                for key, value in history_metrics.items()
+            }
+            self._last_reconcile_ms = (
+                now if history_metrics["history_sweep_complete"] else None
+            )
+        elif reconcile:
             self._last_reconcile_ms = now
         results = {}
         metrics["discovery_ms"] = (time.perf_counter() - started) * 1000
         if discover_only:
             # Dedicated housekeeping: never claim, evaluate or admit an intent.
+            if history_metrics is not None:
+                self.last_run_metrics = {
+                    key: round(value) for key, value in metrics.items()
+                }
+                self.last_run_metrics.update(history_metrics)
+                diagnostics.update(
+                    stage="COMPLETE", stop_reason="HISTORY_PAGE_COMPLETE"
+                )
             return results
+        mode, mode_reason = queue_mode(self._connect)
+        diagnostics["queue_source"] = {"mode": mode, "reason": mode_reason}
+        ready_cte = READY_CTE if mode == "READY" else ""
+        task_source = READY_SOURCE if mode == "READY" else "v2_strategy_tasks t"
+        completion_check = (
+            READY_COMPLETION_CHECK if mode == "READY" else "t.completed_at IS NULL"
+        )
         for _ in range(limit):
             if drain_requested(stop_requested):
                 diagnostics["stop_reason"] = "STOP_REQUESTED"
@@ -538,11 +783,11 @@ class StrategyScheduler:
             # expire while preceding callbacks are running.
             with self._connect() as conn:
                 row = conn.execute(
-                    """WITH due AS (
-                    SELECT t.signal_id FROM v2_strategy_tasks t
-                    JOIN v2_inbound_signals s USING(signal_id)
+                    f"""WITH {ready_cte} due AS (
+                    SELECT t.signal_id FROM {task_source}
+                    JOIN v2_inbound_signals s ON s.signal_id=t.signal_id
                     WHERE t.consumer=%s AND s.source=%s AND s.environment=%s
-                    AND t.completed_at IS NULL AND t.next_attempt_at<=clock_timestamp()
+                    AND ({completion_check}) AND t.next_attempt_at<=clock_timestamp()
                     AND (t.lease_until IS NULL OR t.lease_until<clock_timestamp())
                     AND NOT (t.signal_id=ANY(%s::uuid[]))
                     AND (%s OR s.snapshot->>'signal'=ANY(%s::text[])
@@ -553,8 +798,9 @@ class StrategyScheduler:
                         WHEN EXISTS (SELECT 1 FROM v2_strategy_decisions d
                             WHERE d.consumer=t.consumer AND d.signal_id=t.signal_id) THEN 0
                         WHEN (s.snapshot->>'observed_at')::bigint<=%s
-                            AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
-                        ELSE 2 END,
+                            AND (s.snapshot->>'expires_at_ms')::bigint>%s
+                            THEN CASE WHEN t.error_code=ANY(%s::text[]) THEN 1 ELSE 2 END
+                        ELSE 3 END,
                         CASE WHEN s.snapshot->>'signal'=ANY(%s::text[]) THEN 0 ELSE 1 END,
                         (s.snapshot->>'expires_at_ms')::bigint,t.next_attempt_at,t.signal_id LIMIT 1
                     FOR UPDATE OF t SKIP LOCKED)
@@ -563,6 +809,7 @@ class StrategyScheduler:
                     FROM due WHERE t.consumer=%s AND t.signal_id=due.signal_id
                     RETURNING t.signal_id::text,t.attempts,t.error_code""",
                     (
+                        *((consumer,) if mode == "READY" else ()),
                         consumer,
                         worker.source,
                         worker.scope.environment,
@@ -572,6 +819,7 @@ class StrategyScheduler:
                         consumer,
                         worker.runtime._now(),
                         worker.runtime._now(),
+                        sorted(JEV_CONTINUATION_CODES),
                         list(self.priority_events),
                         token,
                         lease_seconds,
@@ -585,6 +833,9 @@ class StrategyScheduler:
             signal_id, attempt, previous_error = row
             error = None
             wait_reason = None
+            outcome = None
+            jev_pending = False
+            jev_quota_wait = False
             snapshot = None
             context_at = time.perf_counter()
             consuming_at = None
@@ -592,6 +843,33 @@ class StrategyScheduler:
             try:
                 if drain_requested(stop_requested):
                     raise _DrainAttempt()
+                reject = getattr(worker, "reject_completed_jev", None)
+                if previous_error in JEV_CONTINUATION_CODES and callable(reject):
+                    outcome = reject(signal_id, lease_token=token)
+                    if drain_requested(stop_requested):
+                        raise _DrainAttempt()
+                    if (
+                        outcome is None
+                        and deadline is not None
+                        and self.monotonic() >= deadline
+                    ):
+                        outcome = {"status": "DEFERRED", "reason": JEV_PENDING_RETRY}
+                        diagnostics["stop_reason"] = (
+                            "BUDGET_EXPIRED_DURING_NEGATIVE_CHECK"
+                        )
+                    if outcome is not None:
+                        results[signal_id] = outcome["status"]
+                        if outcome["status"] == "IGNORED":
+                            diagnostics.setdefault("jev_terminal_vetoes", []).append(
+                                {
+                                    "signal_id": signal_id,
+                                    "fresh_account_recheck": "NOT_RUN_TERMINAL_VETO",
+                                    "execution_authorized": False,
+                                }
+                            )
+                        # Keep the common lease-token-guarded ACK below; do not
+                        # start context acquisition for an immutable rejection.
+                        raise _TerminalJevVeto()
                 with self._connect() as conn:
                     snapshot, stored, receipt = worker._read(conn, signal_id)
                 if drain_requested(stop_requested):
@@ -623,6 +901,10 @@ class StrategyScheduler:
                 diagnostics["stage"] = "CONSUME"
                 metrics["context_ms"] += (consuming_at - context_at) * 1000
                 outcome = worker.consume(signal_id, context=context)
+                jev_pending = (
+                    outcome.get("status") == "DEFERRED"
+                    and outcome.get("reason") == JEV_PENDING_RETRY
+                )
                 outcome = self._review_pending_once(
                     outcome,
                     signal_id=signal_id,
@@ -634,6 +916,8 @@ class StrategyScheduler:
                     metrics=metrics,
                 )
                 results[signal_id] = outcome["status"]
+            except _TerminalJevVeto:
+                pass
             except _DrainAttempt:
                 # Only our lease-token guarded ACK below releases this attempt.
                 # No decision/receipt is invented and no other lease is cleared.
@@ -645,6 +929,12 @@ class StrategyScheduler:
                 # dependency failure that blocks unrelated prepared orders.
                 wait_reason = candidate_wait_reason(exc, stage=diagnostics["stage"])
                 results[signal_id] = "DEFERRED" if wait_reason else "UNAVAILABLE"
+                jev_quota_wait = (
+                    type(exc) is ValueError
+                    and error == "ADMISSION_BUDGET_UNAVAILABLE"
+                    and diagnostics["stage"] == "CONTEXT"
+                    and (jev_pending or previous_error in JEV_CONTINUATION_CODES)
+                )
                 if error in CANDIDATE_CONTEXT_WAITS and (
                     type(exc) is not ValueError or diagnostics["stage"] != "CONTEXT"
                 ):
@@ -715,6 +1005,31 @@ class StrategyScheduler:
                 if error is None
                 else max(interval_seconds, min(300, 2 ** min(attempt, 9)))
             )
+            continuation = None
+            if results[signal_id] == "DEFERRED":
+                if jev_quota_wait:
+                    continuation = JEV_QUOTA_RETRY
+                elif (
+                    error is None
+                    and isinstance(outcome, dict)
+                    and outcome.get("reason") in JEV_PENDING_REASONS
+                ):
+                    continuation = outcome["reason"]
+            if continuation is not None:
+                # This marker is scheduling metadata, not model/risk authority.
+                # The next lease still rebuilds context and verifies the original
+                # binding/deadline. No extra attempt in this run, no new queue,
+                # no larger evaluation budget and no management-lane credit.
+                delay = JEV_CONTINUATION_RETRY_SECONDS
+                diagnostics.setdefault("jev_continuations", []).append(
+                    {
+                        "signal_id": signal_id,
+                        "reason": continuation,
+                        "original_cause": error or continuation,
+                        "retry_seconds": delay,
+                        "execution_authorized": False,
+                    }
+                )
             if results[signal_id] == "DRAINED":
                 delay = 0  # next owner may evaluate afresh; no artificial backoff
             if wait_reason is not None:
@@ -757,7 +1072,7 @@ class StrategyScheduler:
                         next_attempt_at=clock_timestamp()+%s*interval '1 second',
                         lease_token=NULL,lease_until=NULL,error_code=%s
                         WHERE t.consumer=%s AND t.signal_id=%s AND t.lease_token=%s""",
-                        (delay, error, consumer, signal_id, token),
+                        (delay, continuation or error, consumer, signal_id, token),
                     )
             except Exception as exc:  # noqa: BLE001 - lease expiry retries lost scheduling acknowledgement
                 results[signal_id] = "UNAVAILABLE"

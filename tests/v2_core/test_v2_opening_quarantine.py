@@ -5,7 +5,6 @@ from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services import v2_opening_quarantine as module
 from services.v2_opening_quarantine import (
@@ -13,6 +12,7 @@ from services.v2_opening_quarantine import (
     quarantine_key,
     quarantine_rejection,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 from v2_core.evidence import canonical, digest
 from v2_core.state import BusinessState

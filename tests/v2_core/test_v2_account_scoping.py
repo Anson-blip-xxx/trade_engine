@@ -3,9 +3,9 @@ from dataclasses import replace
 
 import pytest
 from test_v2_account_risk import POLICY, SCOPE, now, prepare, runner
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent
 from v2_core.account_risk import AccountRisk
 from v2_core.attention import RecoveryAttention
 from v2_core.delivery import Projector

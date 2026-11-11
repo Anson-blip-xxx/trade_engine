@@ -11,9 +11,9 @@ from test_v2_credential_console import KEY, SECRET
 from test_v2_credential_console import case as console_case
 from test_v2_credential_console import database as database_fixture
 from test_v2_credential_console import setup as journal_setup
-from test_v2_intent_admission import intent
 
 from services.v2_systemd_master_keys import SystemdMasterKeys
+from tests.support.v2_admission import intent
 from v2_core.account_risk import AccountScope
 from v2_core.credential_import import import_existing_credentials
 from v2_core.credential_vault import VaultError

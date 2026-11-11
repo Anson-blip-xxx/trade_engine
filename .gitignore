@@ -29,6 +29,9 @@ services/s0/market_state.json
 services/s7/config/*.json
 config/*.json
 
+# 私有现场验收记录：含真实交易标识，不进入代码仓库。
+deploy/v2-testnet/settlement-entry-witness-acceptance-20261029.json
+
 # ── 编辑备份 ──
 *.bak
 *.bak.*

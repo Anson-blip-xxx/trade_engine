@@ -7,12 +7,12 @@ import pytest
 from test_v2_directional_cash import closed as closed_fixture
 from test_v2_directional_replay import SCOPE as DB_SCOPE
 from test_v2_directional_settlement import baseline, service
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_profit_capture_review import (
     build_profit_capture_review,
     strict_trade_review,
 )
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_risk import AccountScope
 
 SCOPE = AccountScope("BINANCE", "qa-account", "SANDBOX", "FUTURES")

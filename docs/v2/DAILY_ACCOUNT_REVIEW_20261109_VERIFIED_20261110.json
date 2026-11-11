@@ -1,0 +1,315 @@
+{
+  "schema": "daily-trading-review-v1",
+  "day": "2026-11-09",
+  "timezone": "Asia/Shanghai",
+  "verified_at": "2026-11-10T10:19:23+08:00",
+  "status": "READ_ONLY_REVIEW_COMPLETE_NO_STRATEGY_OR_SERVICE_CHANGE",
+  "scope": "CURRENT_ACTIVE_SANDBOX_ACCOUNT_IDENTIFIERS_OMITTED",
+  "accounting": "Complete current-revision settlements assigned to last actual close day, including recorded costs; not account-equity returns or unrealized PnL.",
+  "completeness": {
+    "daily_settlements": 11,
+    "nov4_9_close_fill_candidates": 187,
+    "nov4_9_candidates_missing_from_review": 0,
+    "bounded_loaded_records": 232,
+    "truncated": false
+  },
+  "results": {
+    "nov9": {
+      "trades": 11,
+      "wins": 5,
+      "losses": 6,
+      "net_usdt": "-5.83477162",
+      "gross_usdt": "-4.608448",
+      "recorded_fees_usdt": "1.22632361",
+      "profit_factor": "0.60793821",
+      "average_win_usdt": "1.80950080",
+      "average_loss_usdt": "2.48037927",
+      "median_hold_minutes": "76.1957",
+      "long": {
+        "trades": 3,
+        "net_usdt": "-6.88795356"
+      },
+      "short": {
+        "trades": 8,
+        "net_usdt": "1.05318194"
+      }
+    },
+    "nov4_9": {
+      "trades": 187,
+      "wins": 71,
+      "losses": 116,
+      "net_usdt": "-50.90623399",
+      "gross_usdt": "-34.69749070",
+      "profit_factor": "0.77203608",
+      "win_rate_pct": "37.9679",
+      "consecutive_negative_settlement_days": 6
+    },
+    "ranking_split": {
+      "associated": {
+        "trades": 3,
+        "net_usdt": "6.32620034"
+      },
+      "other": {
+        "trades": 8,
+        "net_usdt": "-12.16097196"
+      },
+      "warning": "Membership is ex-post. It is not an available-at-entry feature or a strategy backtest."
+    }
+  },
+  "jev": {
+    "model_approved": {
+      "trades": 7,
+      "net_usdt": "-7.63317731"
+    },
+    "fallback": {
+      "trades": 4,
+      "net_usdt": "1.79840569",
+      "cause": "MODEL_TIMEOUT",
+      "trades_by_symbol": [
+        {
+          "symbol": "BEATUSDT",
+          "net_usdt": "-1.87293827"
+        },
+        {
+          "symbol": "ACTUSDT",
+          "net_usdt": "-2.69292023"
+        },
+        {
+          "symbol": "KOMAUSDT",
+          "net_usdt": "6.00316907"
+        },
+        {
+          "symbol": "ONEUSDT",
+          "net_usdt": "0.36109512"
+        }
+      ]
+    },
+    "trend_score_equal_point6": 5,
+    "score_provenance": "All seven frozen gate hypotheses match corresponding PG COMPLETED / ADVISORY_READY results, model jev-1.13.0. Project parser has no default 0.6 or clipping to threshold. No independent upstream raw HTTP body audited.",
+    "interpretation": "Executed settled subset only, not all candidates, not randomized or matched counterfactual; does not establish incremental model benefit or harm. Scores are not calibrated win probabilities."
+  },
+  "television": {
+    "primary_s3": {
+      "trades": 10,
+      "net_usdt": "-8.26505131"
+    },
+    "primary_tv": {
+      "trades": 1,
+      "net_usdt": "2.43027969"
+    },
+    "actual_fusion_participation": {
+      "trades": 2,
+      "symbol": "GTCUSDT",
+      "net_usdt": "-0.72684256",
+      "first": "02:45 S3 primary plus same-direction TV confirmation, -3.15712225",
+      "second": "09:45 TV primary plus same-direction S3 confirmation, +2.43027969"
+    },
+    "interpretation": "Primary-source labels undercount contributing TV confirmations. Participation does not prove predictive value."
+  },
+  "trade_findings": {
+    "aiot": {
+      "side": "BUY",
+      "opened": "16:17:44",
+      "closed": "17:33:56",
+      "net_usdt": "-6.161111",
+      "entry_source": "S3_ONLY",
+      "jev_trend": "0.60",
+      "jev_chase": "0.62",
+      "quantity": "719",
+      "planned_entry": "0.1729",
+      "planned_stop": "0.165",
+      "planned_gross_loss": "5.6801",
+      "actual_entry": "0.1732",
+      "actual_exit": "0.1648",
+      "actual_gross_loss": "6.0396",
+      "entry_price_difference_cost": "0.2157",
+      "stop_fill_difference_cost": "0.1438",
+      "exit": "VENUE_PROTECTION_CHILD",
+      "conclusion": "Confirmed native protection fill, not missing stop or unclosed position. Price differences explain 0.3595 gross loss above plan; planned risk is not an actual-loss guarantee. Other ten trades sum +0.32633938, a concentration description, not permission to exclude this loser."
+    },
+    "one": {
+      "side": "SELL",
+      "opened": "12:24:55",
+      "closed": "14:03:41",
+      "net_usdt": "0.36109512",
+      "exit": "LOW_YIELD_STAGNATION",
+      "frozen_exit_hold_minutes": "98.69",
+      "frozen_estimated_net_r": "0.21277",
+      "rule": "Hold >=90 minutes, positive gross profit and estimated net/planned loss <0.25",
+      "hour_ema9": "0.00168222",
+      "hour_ema20": "0.00176665",
+      "conclusion": "Exit followed existing rule while hourly averages remained bearishly aligned. Current S8 stagnation rule has no trend-takeover exception; study conditional continuation, not blanket holding extension."
+    },
+    "koma_large": {
+      "side": "SELL",
+      "opened": "12:09:03",
+      "closed": "14:06:46",
+      "net_usdt": "6.00316907",
+      "exit": "PEAK_DRAWDOWN",
+      "management": "30 percent reduced at >=5 percent; remaining peak 8.898 percent to 6.605 percent exceeds 2 percentage-point drawdown."
+    },
+    "koma_small": {
+      "side": "SELL",
+      "opened": "05:42:55",
+      "closed": "05:59:25",
+      "net_usdt": "-0.03806385",
+      "exit": "PEAK_DRAWDOWN",
+      "estimated_exit_net_usdt": "1.09315",
+      "mark": "0.0142972",
+      "actual_buy_exit": "0.01442",
+      "conclusion": "Mark-based estimated profit was not realized at the actual exit price. No contemporaneous order book audit, so spread, latency and liquidity causes remain unassigned."
+    }
+  },
+  "postexit_paths": {
+    "source": "BINANCE_USDM_SANDBOX",
+    "horizon_minutes": 60,
+    "anchors": "First fully-after-flat minute close, not actual exit price; no costs, not executable delayed-exit PnL.",
+    "one": {
+      "start": "14:05",
+      "end": "15:04",
+      "directional_end_pct": "2.4803",
+      "favorable_pct": "2.7223",
+      "adverse_pct": "-0.7260"
+    },
+    "koma_large": {
+      "start": "14:08",
+      "end": "15:07",
+      "directional_end_pct": "-2.7448",
+      "favorable_pct": "1.0386",
+      "adverse_pct": "-5.1187"
+    },
+    "koma_small": {
+      "start": "06:01",
+      "end": "07:00",
+      "directional_end_pct": "0.8136",
+      "favorable_pct": "1.2881",
+      "adverse_pct": "-0.8136"
+    },
+    "matched_30_or_240_minute_paths_available": false,
+    "inference": "ONE warrants research, whereas the profitable KOMA exit preceded an adverse rebound; uniform holding extension is not supported."
+  },
+  "reentry": {
+    "optional_reentry_mode_off": 11,
+    "same_side_prior": {
+      "trades": 5,
+      "net_usdt": "4.54056341"
+    },
+    "opposite_side_prior": {
+      "trades": 5,
+      "net_usdt": "-4.21422403"
+    },
+    "no_proven_prior_in_bounded_history": {
+      "trades": 1,
+      "net_usdt": "-6.161111"
+    },
+    "interpretation": "Descriptive, bounded historical association, not proof of missing reset or independent waves. Nov9 same-side result is counter-evidence to blanket bans based on Nov4-8 same-side losses."
+  },
+  "rejections": {
+    "retained_gain_top10": {
+      "listed_symbols": 8,
+      "same_direction_trades": 0,
+      "regime_conflict_observations": 93,
+      "denominator": "Retained stratified samples, not all-day counts or independent opportunities."
+    },
+    "merl_positive_case": {
+      "at": "04:37:33",
+      "regime": "weak_bear",
+      "local_ema_alignment": "EMA20>EMA60, both slopes positive",
+      "breakout": true,
+      "volume_ratio": "1.4456",
+      "taker_buy_share": "0.718",
+      "atr_pct": "1.12",
+      "conclusion": "Candidate for independent relative-strength/regime-gate replay, not proof that removing one gate would admit or profit."
+    },
+    "merl_counterexample": {
+      "at": "08:07",
+      "volume_ratio": "0.6007",
+      "taker_buy_share": "0.1068"
+    },
+    "ain": {
+      "atr_rejections": 14,
+      "retained_same_direction_samples": 20,
+      "example_at": "17:49",
+      "atr_pct": "7.636",
+      "limit_pct": "6",
+      "price": "0.08314",
+      "structure_close": "0.096",
+      "later_taker_buy_share": "0.7396"
+    },
+    "on": {
+      "retained_samples": 8,
+      "atr_rejections": 5,
+      "alignment_rejections": 3,
+      "example_at": "22:35",
+      "alignment": "EMA20>EMA60 and positive EMA60 slope"
+    },
+    "volume_replay": {
+      "complete": 98,
+      "baseline_matched": 98,
+      "unknown": 2,
+      "single_gate_changed": 12,
+      "market_candidate_evaluations_added": 3,
+      "added": "ONE short once, TST long twice",
+      "historical_code_identity_proven": false
+    },
+    "stratified_volume": {
+      "fixed_deduplicated_opportunities": 96,
+      "comparable": 96,
+      "breakout_candidates_added": 0,
+      "pullback_candidates_added": 1,
+      "only_added_symbol": "GUNUSDT",
+      "only_added_side": "SELL",
+      "volume_ratio": "0.96174"
+    },
+    "conclusion": "No basis for uniformly removing/reducing volume or ATR gates. Counterfactual candidate changes are not fills or profitability."
+  },
+  "market_environment": {
+    "execution_and_frozen_structure": "SANDBOX",
+    "ranking": "LIVE",
+    "actual_market_hub": "/opt/trade-engine-v2/releases/mover-symbol-hub-20261102-v1",
+    "verified_runtime_wiring": "v2_market_hub_entry constructs BinancePublicMarket(environment=SANDBOX); public_market maps SANDBOX to demo-fapi.binance.com.",
+    "implication": "Testnet volume/flow and fills cannot establish LIVE liquidity or be spliced with LIVE daily returns as realized strategy performance. Separate realistic public-market research and environment-specific execution validation.",
+    "ranking_coverage": {
+      "covered": 522,
+      "total": 659,
+      "excluded": 137,
+      "current_catalog_delivery_before_day_end": 136,
+      "daily_summary_unavailable": 1,
+      "missing_summary_symbol": "GAIBUSDT",
+      "missing_summary_requests": "3 MOVER_PUBLIC_HTTP_ERROR; current catalog PENDING_TRADING"
+    },
+    "unavailable_testnet_catalog": [
+      "PIEVERSEUSDT",
+      "EDGEUSDT",
+      "UAIUSDT",
+      "ELSAUSDT"
+    ],
+    "historical_catalog_limit": "Current lookup/exclusion does not prove historical listing or delisting coverage; absence of retained signal remains unknown, not strategy rejection."
+  },
+  "runtime": {
+    "controller": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+    "nov9_lease_fix_active": false,
+    "controller_pid": 4046145,
+    "restart_count": 0,
+    "this_review_did_not_restart_or_deploy": true,
+    "note": "Nov9 fixed lease-read path remains undeployed; current review cannot attribute old-version results to that fix or claim online latency resolved."
+  },
+  "next_validation_priorities": [
+    "Verify and separate LIVE research inputs from SANDBOX execution validation, without changing the running trading route.",
+    "Quantify entry and exit executable-price deviation from plans/mark estimates, retaining costs and evidence.",
+    "Prospectively compare trend-aware stagnation exits against the existing rule; retain adverse rebound counterexamples.",
+    "Run an independent relative-strength versus global-regime-gate study, with frozen causal inputs and held-out windows.",
+    "Evaluate JEV over all eligible candidates with matched context, fallbacks and rejected cases; do not optimize scores on this day's eleven trades."
+  ],
+  "changes": {
+    "business_data_written": false,
+    "venue_or_model_calls": false,
+    "strategy_modified": false,
+    "service_restarted": false
+  },
+  "diagnostic_scripts": [
+    "/tmp/v2-review-nov10.nn7nw6/review.py",
+    "/tmp/v2_nov09_jev_source_audit_20261110.py"
+  ],
+  "limits": "Retrospective descriptive analysis of one account/environment. Not a claim of predictive edge, causal model effect or future profit."
+}

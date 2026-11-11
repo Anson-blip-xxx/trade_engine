@@ -11,12 +11,12 @@ from uuid import uuid4
 import psycopg
 import pytest
 from psycopg import sql
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_managed_testnet import ChildWorker
 from services.v2_testnet_daemon import TestnetTradingDaemon
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision
 

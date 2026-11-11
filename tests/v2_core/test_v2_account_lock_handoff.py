@@ -6,13 +6,13 @@ import pytest
 from test_v2_directional_cash import SCOPE as CASH_SCOPE
 from test_v2_directional_cash import auditor
 from test_v2_directional_cash import closed as closed_fixture
-from test_v2_intent_admission import database as database_fixture
 from test_v2_maintenance_reconciliation import maintenance as maintenance_fixture
 from test_v2_maintenance_resolution import prepared
 from test_v2_protection_child import SCOPE
 from test_v2_protection_child import setup as setup_fixture
 from test_v2_venue_readiness import case as opening_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.session_lock import session_advisory_lock
 
 database = database_fixture

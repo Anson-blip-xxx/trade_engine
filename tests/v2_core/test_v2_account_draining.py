@@ -5,9 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import evidence, intent, opened, record
 
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import evidence, intent, opened, record
 from v2_core.account_draining import AccountDraining
 from v2_core.account_registry import AccountRegistry
 from v2_core.account_risk import AccountRiskDenied, AccountScope

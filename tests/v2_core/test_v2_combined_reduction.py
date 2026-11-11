@@ -5,10 +5,10 @@ from dataclasses import asdict
 from uuid import UUID
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_symbol_exit_isolation import build_case
 from test_v2_symbol_reduction import SCOPE, blocked, case, prove
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.account_inventory import AccountInventory
 from v2_core.evidence import canonical, digest
 from v2_core.state import BusinessState, StateKey

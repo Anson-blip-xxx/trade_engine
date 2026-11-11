@@ -67,7 +67,7 @@ class BinanceDirectionalExitMarket:
     def _exact(value):
         return decimal_text(derived_amount(value, rounding=ROUND_HALF_EVEN))
 
-    def _candles(self, target, *, interval, count, end, width):
+    def _candles(self, target, *, interval, count, end, width, retain_rows=False):
         start = end - count * width
         rows = self.transport(
             "/fapi/v1/klines",
@@ -93,7 +93,10 @@ class BinanceDirectionalExitMarket:
             ):
                 raise ValueError("invalid closed exit candle")
             closes.append(amount(row[4], positive=True))
-        return closes
+        # Preserve the original response only for a research-side projection.
+        # OHLCV beyond close is NOT an execution dependency: its optional
+        # validation belongs to the fail-soft adapter in the exit stage.
+        return (closes, rows) if retain_rows else closes
 
     def __call__(self, raw_symbol):
         target = symbol(raw_symbol)
@@ -130,8 +133,13 @@ class BinanceDirectionalExitMarket:
         closes_15m = self._candles(
             target, interval="15m", count=4, end=close_15m, width=900000
         )
-        closes_1h = self._candles(
-            target, interval="1h", count=hour_count, end=close_1h, width=3600000
+        closes_1h, hourly_rows = self._candles(
+            target,
+            interval="1h",
+            count=hour_count,
+            end=close_1h,
+            width=3600000,
+            retain_rows=True,
         )
         with money_context():
             if self.indicator_version == EMA_EXIT_INDICATORS:
@@ -153,6 +161,15 @@ class BinanceDirectionalExitMarket:
             "exchange_server_time_ms": server,
             "closed_15m_at_ms": close_15m,
             "closed_1h_at_ms": close_1h,
+            # No receipt time is invented here. The consumer records when this
+            # returned bundle actually became available, before its decision.
+            # Do not increase LEGACY's 20-bar query to satisfy a research model.
+            "_research_hourly": {
+                "symbol": target,
+                "environment": self.environment,
+                "interval": "1h",
+                "rows": hourly_rows,
+            },
         }
         if self.indicator_version == EMA_EXIT_INDICATORS:
             result["indicator_contract"] = {

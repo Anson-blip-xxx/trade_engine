@@ -2,9 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services import v2_exit_sampler as sampler
+from tests.support.v2_admission import database as database_fixture
 from v2_core.evidence import canonical
 
 database = database_fixture

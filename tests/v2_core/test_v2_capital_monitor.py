@@ -10,9 +10,9 @@ from test_v2_capital_income import baseline, income
 from test_v2_capital_income import case as income_case
 from test_v2_capital_journal import setup as journal_setup
 from test_v2_capital_transfers import transfer_case as transfer_fixture
-from test_v2_intent_admission import database as database_fixture
 from test_v2_testnet_watchdog import Connection
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.capital_monitor import (
     CapitalMonitorTelegram,
     CapitalTransferMonitor,

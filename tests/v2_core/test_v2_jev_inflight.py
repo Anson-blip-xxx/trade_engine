@@ -6,7 +6,6 @@ from dataclasses import asdict, replace
 from types import SimpleNamespace
 from uuid import uuid4
 
-from test_v2_intent_admission import database as database_fixture
 from test_v2_jev_entry_context import (
     POLICY,
     SCOPE,
@@ -22,6 +21,7 @@ from test_v2_jev_entry_gate import case as gate_case_fixture
 from services import v2_jev_entry_context as subject
 from services.v2_jev_coordinator import JevCoordinator
 from services.v2_jev_reference import CONTROL_KEY, PUBLIC_SCOPE
+from tests.support.v2_admission import database as database_fixture
 from v2_core.jev_advisory import AdvisoryPolicy, _result, parse_response
 from v2_core.jev_entry_gate import evaluate_entry_gate
 from v2_core.state import BusinessState

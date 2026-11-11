@@ -6,6 +6,7 @@ from copy import deepcopy
 
 from v2_core.evidence import canonical
 from v2_core.signals import SignalConflict
+from v2_core.symbols import contract_symbol
 
 
 class IntakeRejected(ValueError):
@@ -27,11 +28,10 @@ def identity(value):
 
 
 def symbol(value):
-    if not isinstance(value, str) or not re.fullmatch(
-        r"[A-Z0-9]{1,32}(USDT|USDC)", value
-    ):
-        raise IntakeRejected("INVALID_SYMBOL")
-    return value
+    try:
+        return contract_symbol(value)
+    except ValueError:
+        raise IntakeRejected("INVALID_SYMBOL") from None
 
 
 class SignalIngress:

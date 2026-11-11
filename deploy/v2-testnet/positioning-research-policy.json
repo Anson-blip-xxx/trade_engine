@@ -1,0 +1,35 @@
+{
+  "version": "positioning-trend-research-20261031-v1",
+  "purpose": "Prospective public positioning evidence and actual-fill trend residual research",
+  "execution_authorized": false,
+  "automatic_parameter_updates": false,
+  "promotion_authorized": false,
+  "positioning_source": "BINANCE_USDM_LIVE_PUBLIC",
+  "actual_fill_comparison_source": "SANDBOX_ONLY",
+  "historical_research_through_utc8": "2026-10-31",
+  "new_hypothesis_validation": "Only unseen future dates; do not reuse earlier flow-v1 holdout as proof",
+  "collection": {
+    "interval_seconds": 300,
+    "batch_symbols": 8,
+    "max_requests_per_run": 64,
+    "max_seconds_per_run": 90,
+    "minimum_free_disk_gib": 10,
+    "order_credentials": "NONE",
+    "rate_limit_scope": "existing LIVE host market lane; preserve management reserve",
+    "failure_effect": "research UNKNOWN or DEFERRED only; no execution dependency"
+  },
+  "interpretation": {
+    "top_ratio": "Relative subgroup shares; not absolute inventory or participant intent",
+    "open_interest": "Base quantity and notional value separately; never net capital inflow",
+    "funding": "Past settled rates and current quoted rate are separate, intervals may change",
+    "availability": "A historical event timestamp is not proof of receipt at that event time",
+    "baseline": "Keep price-only baseline and failed/unknown controls",
+    "costs": "Unknown counterfactual funding is not zero; gross shadow is not realizable net PnL"
+  },
+  "not_implemented_by_this_release": [
+    "Automatic leverage increases",
+    "Live trend exits",
+    "Live pyramiding or re-entry changes",
+    "A validated predictive probability"
+  ]
+}

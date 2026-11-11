@@ -1,0 +1,205 @@
+{
+  "status": "CONTROLLER_DEPLOYED_AND_READY_PATH_VERIFIED_20261111",
+  "date_timezone": "2026-11-10 Asia/Shanghai",
+  "scope": "SANDBOX task scheduling; no strategy or risk changes",
+  "root_cause": {
+    "canonical_task_rows_estimate": 9248992,
+    "problem": "High-churn task leases and completions shared a historical table and a partial due index. Vacuum thresholds scaled with retained history; the small live queue could require a large physical index scan.",
+    "previous_repair": "SIGNAL_QUEUE_INDEX_REPAIR_20261110.json describes the earlier concurrent reindex and immediate vacuum mitigation. This change separates the unfinished task projection from retained history."
+  },
+  "architecture": {
+    "canonical": "v2_strategy_tasks remains authoritative for identity, attempts, leases, deadlines and completion; historical decisions and financial records are unchanged.",
+    "ready": "v2_strategy_ready contains unfinished (consumer,signal_id) keys only. AFTER INSERT/UPDATE/DELETE ALWAYS trigger synchronizes it in the same transaction.",
+    "lease_churn": "Lease/retry updates probe membership but do not rewrite an existing ready row.",
+    "claim": "Materialized ready keys, read-only primary-key candidate probes, then original task recheck and single-row FOR UPDATE SKIP LOCKED. No scan of the historical due index in the tested claim plan.",
+    "concurrency": "Original task leases remain shared by old and new workers; rollback, abandoned-lease recovery and single selected-row locking are tested.",
+    "fallback": "Missing/disabled/unvalidated projection or failed advisory gate uses the canonical task query, not an empty queue. Actual claim/ACK errors are not swallowed.",
+    "migration": "Every DDL run invalidates prior validation. Trigger starts before bounded backfill; skipped locked tasks are revisited. Only exact bidirectional set validation under short locks enables READY.",
+    "vacuum": {
+      "canonical_scale_factor": 0,
+      "canonical_dead_tuple_threshold": 100000,
+      "ready_scale_factor": 0,
+      "ready_dead_tuple_threshold": 1000,
+      "global_postgres_settings_changed": false
+    }
+  },
+  "online_schema": {
+    "applied": true,
+    "migration": "db/migrations/20261110_strategy_ready_queue.sql",
+    "sha256": "a885043abe9ef68120e559087e1ff756b86f7767063a0c065a576506d2d247ab",
+    "operator": "scripts/v2_ready_queue_migrate_20261110.py; dry-run unless --execute; fixed sandbox database identity and original task owner required",
+    "ddl_transaction_ms": 61,
+    "backfill_batch_size": 100,
+    "backfill_batches_including_final_empty_check": 4,
+    "backfilled_rows": 254,
+    "exact_enable_ms": 16,
+    "lock_wait_limit_ms": 200,
+    "statement_limit_ms": 2000,
+    "controller_pid_unchanged": 4046145,
+    "business_history_deleted": false,
+    "canonical_task_rows_rewritten_by_backfill": false,
+    "forced_closes_or_diagnostic_orders": false,
+    "live_ready_autovacuum_verified_at": "2026-11-10 16:46:25.426962 UTC+8",
+    "live_ready_autovacuum_count": 2,
+    "final_integrity_check": {"ready": 280, "unfinished": 280, "missing": 0, "extra": 0, "index_bytes": 294912}
+  },
+  "production_scale_read_only_plan": {
+    "actual_claim_sql_explained_without_execution": true,
+    "indexes": [
+      "v2_inbound_signals_pkey",
+      "v2_strategy_decisions_consumer_signal_id_key",
+      "v2_strategy_tasks_pkey"
+    ],
+    "old_due_index_used": false,
+    "read_only_select_analogue_ms": 5.272,
+    "shared_hit_blocks": 2435,
+    "shared_read_blocks": 6,
+    "limit": "Timing is a SELECT analogue with row locking and UPDATE removed, not live claim latency, physical disk I/O or a matched before/after benchmark."
+  },
+  "monitor": {
+    "deployed": true,
+    "release": "/opt/trade-engine-v2/releases/queue-health-maintenance-20261110-v1",
+    "link": "/opt/trade-engine-v2/host-maintenance",
+    "timer": "trade-v2-host-disk-health.timer",
+    "period_seconds": 60,
+    "service_result": "success",
+    "component": "services/v2_queue_storage_health.py",
+    "notification": "Existing DM-only host health transitions; durable delivery acknowledgement and dedup. Unknown preserves previous alarms.",
+    "checks": [
+      "correct always-enabled sync trigger and validated control",
+      "bounded exact bidirectional unfinished/ready key comparison",
+      "ready index size versus exact active count, or UNKNOWN when capped",
+      "fixed dead tuple thresholds and last vacuum age"
+    ],
+    "sample_limit_per_set": 10001,
+    "sql_statement_timeout_ms": 200,
+    "sql_lock_timeout_ms": 50,
+    "connection_timeout_seconds": 5,
+    "service_timeout_seconds": 45,
+    "claim_p95": "NOT_PROVIDED; aggregate claim_ms/processed is not a P95",
+    "writes": "Diagnostic snapshot and notification acknowledgement only; no repair, reindex, task rewrite or order authority",
+    "last_verified_snapshot": {
+      "observed_at_ms": 1794300255895,
+      "active_alarms": [],
+      "status": "AVAILABLE",
+      "ready_count": 216,
+      "unfinished_count": 216,
+      "missing_ready": 0,
+      "unexpected_ready": 0,
+      "ready_index_bytes": 245760
+    }
+  },
+  "qa": {
+    "checkout_selected_regressions": {"passed": 426, "log": "/tmp/v2-data-qa.53fv8j/pytest.log"},
+    "final_ready_including_repeat_migration": {"passed": 28, "log": "/tmp/v2-data-qa.9jC0yI/pytest.log"},
+    "exact_controller_source_bundle": {"passed": 252, "log": "/tmp/v2-data-qa.Ki8qxV/pytest.log"},
+    "exact_monitor_source_bundle": {"passed": 94, "log": "/tmp/v2-data-qa.haWilM/pytest.log"},
+    "counts_overlap_and_are_not_additive": true,
+    "external_network_disabled": true,
+    "dedicated_temporary_postgres_and_redis": true,
+    "regressions_caught_and_fixed": [
+      "Locking a LATERAL subquery alias locked all ready candidates rather than only the selected task.",
+      "A plain JOIN could still choose the historical partial due index. Two-stage primary-key lookups and canonical state rechecks now prevent that tested plan.",
+      "Repeat migration could preserve a stale enabled marker after a disabled trigger missed tasks. Each migration now invalidates proof before restoring the trigger."
+    ],
+    "harness_correction": "Initial monitor artifact QA lacked the new migration fixture file; copied only the test DDL into the isolated harness and reran all 94 cases successfully. No runtime code was changed for this correction.",
+    "coverage": [
+      "transaction rollback and original task fields/xmin/ctid preservation during migration",
+      "trigger insert/update/delete, retry membership stability, malformed trigger rejection",
+      "same-count different-member projection mismatch, bounded backfill skip-and-revisit",
+      "concurrent claims, canonical/ready mixed workers, abandoned leases, selected-row lock scope",
+      "20,000 retained completed tasks and exact actual claim execution plan",
+      "scheduler fairness, signal history/maintenance, cooperative drain, JEV lease timeout",
+      "trading pipeline, testnet daemon, candidate context and advisory isolation",
+      "monitor timeout/capped/statistics reset behavior, DM dedup and recovery"
+    ]
+  },
+  "controller_release": {
+    "deployed": true,
+    "prior": "/opt/trade-engine-v2/releases/jev-freshness-controller-20261108-v1",
+    "candidate": "/opt/trade-engine-v2/releases/ready-queue-controller-20261110-v1",
+    "operator": "scripts/v2_ready_queue_release_20261110.py",
+    "flat_preflight": "FLAT_VERIFIED_BEFORE_AND_AFTER_GRACEFUL_STOP",
+    "active_sandbox_episodes_at_check": 0,
+    "bounded_flat_observation": "2026-11-10 16:45:09 through 16:49:55 UTC+8; five read-only samples all ACTIVE episodes=1. No background deployment watcher was installed.",
+    "restart_attempted": true,
+    "condition": "Fresh local and exchange flat proof before and after graceful stop; same account binding and unchanged risk policy. Existing flat-only authorization is preserved.",
+    "unrelated_exit_evidence_candidate_not_bundled": true,
+    "source_sha256": {
+      "v2_core/scheduling.py": "87d1cdff590932808232512d47691ed1809022d69779e14b782cd15bc4207172",
+      "v2_core/ready_queue.py": "2c08c8511edad0a5e41e05e8424ec18b4c61a0dbbcc627c7ff5c042b3220faa3",
+      "db/postgres_v2_core_schema.sql": "f593bc023f8ebd0b5a68e695f6db8fc884437c179a015c9cdfc08ca429443796",
+      "db/migrations/20261110_strategy_ready_queue.sql": "a885043abe9ef68120e559087e1ff756b86f7767063a0c065a576506d2d247ab"
+    }
+  },
+  "post_migration_old_runtime": {
+    "last_ten_cycles": "10 CYCLE_COMPLETE, 0 ENTRY_BLOCKED",
+    "route_phase": "ACTIVE",
+    "route_epoch_unchanged": 21,
+    "route_blockers": [],
+    "health_findings": [],
+    "latest_cycle_finished_at_ms": 1794300233127
+  },
+  "final_runtime_check": {
+    "health_observed_at_ms": 1794300645461,
+    "route_phase": "ACTIVE",
+    "route_epoch": 21,
+    "route_blockers": [],
+    "active_health_alarms": [],
+    "health_findings": ["SIGNAL_MAINTENANCE_DEGRADED"],
+    "last_ten_cycles": "10 CYCLE_COMPLETE, 0 ENTRY_BLOCKED",
+    "interpretation": "Background history maintenance reported degradation again; it did not block these cycles. Do not label the entire system problem-free."
+  },
+  "release_verification_20261111": {
+    "restart_at_utc8": "2026-11-11 08:43:10 UTC+8",
+    "user_authorization": "Restart if currently flat",
+    "release_script_exit_code": 0,
+    "pre_stop_flat_observed_at_ms": 1794357787563,
+    "post_stop_flat_observed_at_ms": 1794357790186,
+    "both_flat_checks": {
+      "venue_positions": 0,
+      "ordinary_orders": 0,
+      "conditional_orders": 0,
+      "local_nonterminal_orders": 0,
+      "local_unsettled_episodes": 0,
+      "local_unstarted_intents": 0
+    },
+    "graceful_stop_proven": true,
+    "forced_stop": false,
+    "old_pid": 4046145,
+    "new_pid": 2040297,
+    "same_account_binding": true,
+    "route_epoch_before": 21,
+    "route_epoch_after": 22,
+    "route_phase": "ACTIVE",
+    "route_blockers": [],
+    "coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "policy_unchanged": true,
+    "policy_version": 11,
+    "post_restart_cycles_observed": 6,
+    "cycle_complete": 6,
+    "entry_blocked": 0,
+    "processed_attempts_not_unique_signals": 132,
+    "scheduler_failure_codes": [],
+    "verified_ready_consumers": ["s6:s3", "s8:s3", "s6:tv_bridge", "s8:tv_bridge"],
+    "protection_exit_settlement_checks": "CLEAR in all six observed cycles; these are management checks, not new fill evidence",
+    "signal_lag": "CLEAR",
+    "health_observed_at_ms": 1794357870118,
+    "active_health_alarms": [],
+    "remaining_health_findings": ["SIGNAL_MAINTENANCE_DEGRADED"],
+    "last_observed_cycle_finished_at_ms": 1794357878239,
+    "queue_integrity": {"ready": 380, "unfinished": 380, "missing": 0, "extra": 0, "index_bytes": 573440},
+    "ready_autovacuum_count_before_restart": 282,
+    "last_pre_restart_ready_autovacuum_at": "2026-11-11 08:42:35.552841 UTC+8",
+    "diagnostic_orders_or_forced_closes": false,
+    "independent_review": "Exact four-file manifest and flat-only same-binding release protocol reviewed; no blocking findings"
+  },
+  "limitations": [
+    "The new claim path became active on 2026-11-11. Six initial completed cycles verify runtime use, not a multi-day latency guarantee or a new open-close round trip.",
+    "The ready queue grows with genuinely unfinished tasks; it is not an absolute backlog cap. Existing bounded expiry maintenance and lag monitoring remain necessary.",
+    "Fixed vacuum triggers are maintenance requests, not a guarantee against long transactions, I/O saturation or stalled autovacuum. Independent monitoring remains necessary.",
+    "No multi-day recurrence-free claim or profitability claim is made. Observe churn and real claim latency after cutover.",
+    "Earlier background history timeouts and an unclassified CONTEXT ValueError are not claimed fixed by this work.",
+    "Original SQL due index is retained for canonical fallback and bounded unfinished-task checks. The new hot claim avoids it; historical storage is not removed."
+  ]
+}

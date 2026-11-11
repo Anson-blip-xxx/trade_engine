@@ -41,6 +41,92 @@ def database():
     )
 
 
+def _safe_cycle_failure(exc):
+    """Return code metadata only; never format exception arguments or locals."""
+    name = type(exc).__name__
+    error_type = (
+        name
+        if name.isascii() and name.isidentifier() and len(name) <= 80
+        else "Exception"
+    )
+    root = os.path.dirname(os.path.dirname(__file__))
+    frames = []
+    cursor = exc.__traceback__
+    while cursor is not None:
+        code = cursor.tb_frame.f_code
+        relative = os.path.relpath(code.co_filename, root).split(os.sep)
+        if (
+            len(relative) == 2
+            and relative[0] in {"services", "v2_core"}
+            and relative[1].endswith(".py")
+            and relative[1][:-3].isascii()
+            and relative[1][:-3].isidentifier()
+            and code.co_name.isascii()
+            and code.co_name.isidentifier()
+        ):
+            frames.append(
+                {
+                    "module": relative[0] + "." + relative[1][:-3],
+                    "function": code.co_name,
+                    "line": cursor.tb_lineno,
+                }
+            )
+        cursor = cursor.tb_next
+    return {"error_type": error_type, "frames": frames[-5:]}
+
+
+class _CycleDiagnostics:
+    """Bounded journal diagnostics; a logging failure never controls trading."""
+
+    def __init__(self, interval_seconds=60, *, clock=None):
+        if type(interval_seconds) is not int or not 5 <= interval_seconds <= 3600:
+            raise ValueError("BOUNDED_CYCLE_DIAGNOSTIC_INTERVAL_REQUIRED")
+        self.interval = interval_seconds
+        self.clock = clock or time.monotonic
+        self.failures = self.suppressed = 0
+        self.last_emitted = None
+
+    @staticmethod
+    def _emit(payload):
+        try:
+            print(json.dumps(payload, separators=(",", ":")), flush=True)
+        except Exception:  # noqa: BLE001,S110 - logging must not break protection
+            pass
+
+    def failed(self, exc):
+        self.failures += 1
+        now = self.clock()
+        if self.last_emitted is not None and now - self.last_emitted < self.interval:
+            self.suppressed += 1
+            return
+        self._emit(
+            {
+                "component": "execution-worker-cycle",
+                "status": "DEGRADED",
+                "error_code": "EXECUTION_CYCLE_FAILED",
+                **_safe_cycle_failure(exc),
+                "consecutive_failures": self.failures,
+                "suppressed_since_last": self.suppressed,
+            }
+        )
+        self.last_emitted = now
+        self.suppressed = 0
+
+    def succeeded(self):
+        if self.failures:
+            self._emit(
+                {
+                    "component": "execution-worker-cycle",
+                    "status": "RECOVERED",
+                    "error_code": "EXECUTION_CYCLE_RECOVERED",
+                    "consecutive_failures": self.failures,
+                    "suppressed_since_last": self.suppressed,
+                }
+            )
+        self.failures = self.suppressed = 0
+        self.last_emitted = None
+
+
 @contextmanager
 def vault_connection():
     with database()() as c:
@@ -277,6 +363,9 @@ def child_main(tenant, target, values, stop, release, channel):
     maintenance = None
     cache = archive = process = None
     try:
+        cycle_diagnostics = _CycleDiagnostics(
+            int(values.get("V2_CONTROLLER_CYCLE_DIAGNOSTIC_INTERVAL_SECONDS", "60"))
+        )
         import clickhouse_connect
         import redis
 
@@ -398,8 +487,10 @@ def child_main(tenant, target, values, stop, release, channel):
             try:
                 process.daemon.run_once()
                 channel.send("CYCLE")
-            except Exception:  # noqa: BLE001
+                cycle_diagnostics.succeeded()
+            except Exception as exc:  # noqa: BLE001 - retry without exception payloads
                 degraded = True
+                cycle_diagnostics.failed(exc)
                 channel.send("DEGRADED")
             stop.wait(
                 cycle_delay(
@@ -457,6 +548,7 @@ def child_main(tenant, target, values, stop, release, channel):
 class ChildWorker:
     def __init__(self, tenant, target, values):
         self.last_progress = time.monotonic()
+        self.last_contact = self.last_progress
         self.progress_timeout = int(
             values.get("V2_CONTROLLER_PROGRESS_TIMEOUT_SECONDS", "300")
         )
@@ -506,7 +598,12 @@ class ChildWorker:
                 if message == "FAILED":
                     return False
                 if message in {"CYCLE", "DEGRADED"}:
-                    self.last_progress = time.monotonic()
+                    self.last_contact = time.monotonic()
+                    # A responsive error loop is alive, but is not successful
+                    # business progress. Existing timeout drains entries only;
+                    # it does not restart or abandon the protection worker.
+                    if message == "CYCLE":
+                        self.last_progress = self.last_contact
             except EOFError:
                 return False
         return self.process.is_alive()

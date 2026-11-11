@@ -58,7 +58,11 @@ with psycopg.connect(
     current["request_epoch"] = observed["request_epoch"]
     current["pending"] = observed["pending_request"] is not None
     if action == "capture":
-        if current["phase"] != "ACTIVE" or current["blockers"] or current["pending"]:
+        capture_phase = request.get("capture_phase", "ACTIVE")
+        if capture_phase not in {"ACTIVE", "DRAINING"}:
+            raise ValueError("INVALID_CAPTURE_PHASE")
+        expected_blockers = [] if capture_phase == "ACTIVE" else ["RECOVERING_SOURCE"]
+        if current["phase"] != capture_phase or current["blockers"] != expected_blockers or current["pending"]:
             raise ValueError("HEALTHY_ACTIVE_BASELINE_REQUIRED")
         if current["request_epoch"] != current["epoch"]:
             raise ValueError("NO_PENDING_REQUEST_REQUIRED")
@@ -305,7 +309,7 @@ def wait_route(baseline, *, phase, since_ms, timeout):
     raise ReleaseError("ROUTE_READINESS_TIMEOUT")
 
 
-def execute(*, apply=False):
+def execute(*, apply=False, resume=True):
     stage, baseline = "PRECHECK", None
     try:
         verify_layout()
@@ -355,6 +359,9 @@ def execute(*, apply=False):
             phase=recovery["phase"],
             coverage=recovery["coverage"],
         )
+        if not resume:
+            emit("MANAGE_ONLY_HELD", epoch=baseline["epoch"], entries_enabled=False)
+            return 0
         stage = "SAME_BINDING_REQUEST"
         requested = database("request", baseline, request_id=str(uuid4()))
         if requested.get("epoch") != baseline["epoch"] + 1:

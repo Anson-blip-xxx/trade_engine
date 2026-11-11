@@ -5,7 +5,6 @@ from dataclasses import replace
 import pytest
 from test_v2_account_coverage import Account
 from test_v2_directional_replay import scenario, worker
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_admission import (
     admission_decision,
@@ -13,6 +12,7 @@ from services.v2_directional_admission import (
     create_directional_admission_worker,
 )
 from services.v2_directional_protection import DirectionalStopRecovery
+from tests.support.v2_admission import database as database_fixture
 from v2_core.runner import RiskVerdict
 
 database = database_fixture
@@ -418,8 +418,8 @@ def test_original_strategy_stop_is_recovered_without_new_context(
 
 def test_protection_does_not_adopt_legacy_intent(database):
     from test_v2_directional_replay import SCOPE
-    from test_v2_intent_admission import evidence, intent
 
+    from tests.support.v2_admission import evidence, intent
     from v2_core.service import TradingData
 
     data, original, venue = TradingData(database), intent(), Account()

@@ -26,7 +26,7 @@ HTTP 200 `RECORDED` 只代表信号可靠登记（或原记录确认），不代
 认证使用固定时序比较，密钥不进入业务记录，错误响应不回显请求或数据库异常文本。
 
 必需字段：secret、event_id、observed_at、expires_at_ms、symbol、signal、price、strength。
-可选字段：taker_buy_ratio、orderflow_bias、chg_15m、chg_1h、vol_1h。其余字段拒绝，
+可选字段：taker_buy_ratio、orderflow_bias、chg_15m、chg_1h、vol_1h、producer。其余字段拒绝，
 包括 source、environment、自由文本 comment；不能把凭据塞入审计上下文。
 
 - event_id：1–128 位 ASCII 字母、数字或 `_.:/-`；生产者必须在首次生成时固定，
@@ -42,6 +42,13 @@ HTTP 200 `RECORDED` 只代表信号可靠登记（或原记录确认），不代
   chg_15m / chg_1h 是百分比变化，范围 [-100,10000]；vol_1h 是一小时内
   `(high-low)/low*100` 波动百分比，范围 [0,10000]。这三个字段仍是生产者证据，
   不能由接收时间或后来的市场场景补写。
+- producer：可选、完整且严格白名单的审计对象，只有 version、setup、timeframe、
+  bar_open_ms、bar_close_ms 五个字段。当前 version 为 `tv-causal-15m-v2`，
+  timeframe 为字符串 `15`；setup 为与事件族匹配的 TREND_TRANSITION、
+  TREND_BREAKOUT、TREND_PULLBACK_RESUME、PULSE、PUMP 或 VIOLENT。
+  开盘毫秒必须对齐 15 分钟，收盘毫秒等于开盘加 900000，且等于 observed_at。
+  只存为 `features.tv_producer`，不是交易许可；后端独立重建结构，继续执行全部
+  风控门禁。不带 producer 的旧请求保持兼容，带未知字段/版本的请求拒绝。
 
 旧 alert 模板没有稳定 ID/触发时间/期限，不能直接指向此接口；模板迁移须与
 生产者接线一起验收。本轮未修改远端 TradingView 配置。

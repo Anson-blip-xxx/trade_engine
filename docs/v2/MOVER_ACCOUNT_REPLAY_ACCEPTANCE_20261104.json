@@ -1,0 +1,145 @@
+{
+  "version": "mover-account-replay-acceptance-v1",
+  "status": "RESEARCH_ONLY_RELEASED_AND_PERSISTED_VERIFIED",
+  "verified_at": "2026-11-04T19:11:00+08:00",
+  "workspace": "/home/ubuntu/.opencode/trade/trading_engine-v2",
+  "release": "/opt/trade-engine-v2/releases/mover-account-replay-20261104-v1",
+  "previous_release": "/opt/trade-engine-v2/releases/mover-review-20261103-v1",
+  "active_link": "/opt/trade-engine-v2/daily-movers",
+  "scope": {
+    "files_changed_from_previous_release": [
+      "services/v2_daily_account_review.py",
+      "services/v2_daily_mover_replay.py",
+      "services/v2_daily_mover_job.py",
+      "services/v2_daily_mover_report.py"
+    ],
+    "whole_dirty_workspace_deployed": false,
+    "database_grants_changed": false,
+    "trading_parameters_changed": false,
+    "execution_services_restarted": false,
+    "manual_orders_submitted": false,
+    "historical_reports_deleted": false,
+    "research_revision_appended": true,
+    "stored_method_version_changed": false
+  },
+  "source_sha256": {
+    "services/v2_daily_account_review.py": "4a0e2d2c837cd4a8c6be0444b23913a97daf72662e2d461fdc82011c4da7cb7f",
+    "services/v2_daily_mover_replay.py": "693f123bf57a48319acb82feb21ccb5a8270acc23cff6d3db5b451ee91ecf849",
+    "services/v2_daily_mover_job.py": "5fd3566c86eabd08adfe3552588a13e6bb603ea8951935c6493bb1295b3eda01",
+    "services/v2_daily_mover_report.py": "30e778d1bbaa4db511cd81c5f2ace63a6909d2099a4e56d58bf77dc2ffaca60c"
+  },
+  "qa": {
+    "isolated_research_related_suite": {
+      "passed": 1522,
+      "failed": 0,
+      "elapsed_seconds": 103.99,
+      "diagnostics": "/tmp/v2-data-qa.ZbyRRt",
+      "temporary_database_retained": false,
+      "network_denied": true,
+      "note": "Initial run exposed an invalid missing-table test query with no parameter placeholders. Test corrected to reach server SQLSTATE 42P01; production error classification was not weakened. Entire suite rerun successfully."
+    },
+    "candidate_package_suite": {
+      "passed": 383,
+      "skipped": 24,
+      "failed": 0,
+      "skip_reason": "PG cases covered by isolated suite, not run against production",
+      "production_module_origins_asserted": true,
+      "fixture_note": "Two pure candle generators from active controller release supply test inputs; all four changed research modules load from the candidate package."
+    },
+    "dense_unicode_formatter_suite": {"passed": 25, "failed": 0},
+    "ruff": "PASSED",
+    "real_read_only_combined_canary": {
+      "status": "PASSED",
+      "wall_seconds": 1.995,
+      "cpu_seconds": 1.85,
+      "peak_rss_kib": 76992,
+      "raw_frozen_inputs_logged_or_persisted": false
+    }
+  },
+  "verified_closed_episode_results": {
+    "basis": "Database-verified S6/S8 complete settlements attributed to final close day in UTC+8; no opening-date lower bound; not exchange account equity change",
+    "2026-11-02": {"count": 10, "net_usdt": "14.83799578", "wins": 6, "losses": 4},
+    "2026-11-03": {
+      "count": 28,
+      "net_usdt": "6.97271373",
+      "wins": 12,
+      "losses": 16,
+      "profit_factor": "1.2561054942",
+      "held_minutes_median": "50.3473415",
+      "buy_count": 11,
+      "buy_net_usdt": "-9.52299967",
+      "sell_count": 17,
+      "sell_net_usdt": "16.49571340",
+      "carry_in_count": 2,
+      "ranking_episode_sample": {"count": 14, "net_usdt": "25.90918239"},
+      "remaining_closed_episodes": {"count": 14, "net_usdt": "-18.93646866"},
+      "complement_note": "Complement of verified ranking episode refs, not necessarily symbols outside the top20 ranking",
+      "coverage_complete": true,
+      "candidate_truncation": false,
+      "funding_breakdown_separately_proven": false
+    }
+  },
+  "frozen_input_re_evaluation": {
+    "basis": "CURRENT_EVALUATOR_ON_FROZEN_INPUTS_BASELINE_CHECKED",
+    "historical_code_identity": "NOT_PROVEN",
+    "requested_count": 100,
+    "replayed_count": 97,
+    "baseline_matched_count": 97,
+    "baseline_mismatch_count": 0,
+    "unknown_count": 3,
+    "unknown_reasons": {"FROZEN_CONTEXT_BINDING_MISMATCH": 3},
+    "volume_gate_changed_count": 13,
+    "new_market_candidate_count": 2,
+    "query_complete": true,
+    "retryable": false,
+    "baseline_min_volume_ratio": "1",
+    "candidate_min_volume_ratio": "0.75",
+    "regime_policy_changed": false,
+    "automatic_parameter_updates": false,
+    "promotion_authorized": false,
+    "candidate_means_executable_or_profitable_trade": false
+  },
+  "live_run": {
+    "unit": "trade-v2-daily-movers.service",
+    "started_at": "2026-11-04T19:09:07+08:00",
+    "completed_at": "2026-11-04T19:10:09+08:00",
+    "report_created_at": "2026-11-04T19:10:09.047311+08:00",
+    "exit_status": 0,
+    "result": "success",
+    "memory_peak_bytes": 115974144,
+    "cpu_usage_ns": 6419605000,
+    "review_pipeline": "daily-mover-review-pipeline-v3",
+    "account_review_status": "AVAILABLE",
+    "frozen_replay_status": "PARTIAL",
+    "partial_reason": "3 historical contexts incomplete, not an operational query failure",
+    "optional_review_status": "COMPLETED",
+    "optional_attempts": 1,
+    "optional_retry_after_ms": null,
+    "tg_utf16_units": 1944,
+    "all_twenty_symbols_preserved": true,
+    "account_header_precedes_rankings": true,
+    "delivery_result": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN",
+    "duplicate_daily_dm_sent": false,
+    "timer_enabled": true,
+    "timer_active": true
+  },
+  "uninterrupted_processes": {
+    "trade-v2-execution-controller.service": {"pid_before": 1724432, "pid_after": 1724432, "state": "active", "restarts": 0},
+    "trade-v2-market-hub.service": {"pid_before": 1724401, "pid_after": 1724401, "state": "active", "restarts": 0},
+    "trade-v2-tradingview-ingress.service": {"pid_before": 1724402, "pid_after": 1724402, "state": "active", "restarts": 0}
+  },
+  "safety": {
+    "account_candidate_cap": 500,
+    "overflow_reported_unknown_not_first500_total": true,
+    "account_read_budget_seconds": 20,
+    "replay_reference_cap": 100,
+    "replay_batch_size": 20,
+    "replay_read_budget_seconds": 15,
+    "statement_timeout_max_ms": 3000,
+    "lock_timeout_ms": 100,
+    "optional_reads_use_separate_readonly_repeatable_read_connections": true,
+    "transient_optional_retry_max_attempts": 3,
+    "formatting_happens_before_delivery_claim": true
+  },
+  "rollback": "Stop only daily-movers.timer; wait for research oneshot to be inactive; atomically restore daily-movers symlink to previous_release and start the timer. Preserve reports; do not restart trading services."
+}

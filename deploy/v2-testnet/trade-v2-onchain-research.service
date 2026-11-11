@@ -1,0 +1,44 @@
+[Unit]
+Description=Optional V2 on-chain position research (no trading dependency)
+After=network-online.target postgresql@16-tradev2.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradev2onchain
+Group=tradev2onchain
+WorkingDirectory=/opt/trade-engine-v2/onchain-research
+ExecStart=/opt/trade-engine-v2/venvs/managed-controller-20260927/bin/python -m services.v2_onchain_entry
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment="V2_ONCHAIN_DSN=dbname=trade_v2_testnet host=/var/run/postgresql port=55432 user=tradev2onchain"
+Environment=V2_ONCHAIN_BATCH_SYMBOLS=3
+Environment=V2_ONCHAIN_MIN_FREE_GIB=10
+TimeoutStartSec=75
+TimeoutStopSec=5
+KillMode=control-group
+Nice=15
+CPUQuota=10%
+MemoryHigh=96M
+MemoryMax=128M
+TasksMax=16
+IOWeight=10
+IOSchedulingClass=idle
+OOMScoreAdjust=900
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+StandardOutput=journal
+StandardError=journal

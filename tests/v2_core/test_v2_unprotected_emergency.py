@@ -3,8 +3,8 @@
 
 import pytest
 from test_v2_directional_exit_stage import setup_exit
-from test_v2_intent_admission import database as database_fixture
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.runtime_policy import resolve
 from v2_core.transport import ExchangeTransportError
 

@@ -5,11 +5,11 @@ import time
 from contextlib import contextmanager
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
-from test_v2_intent_admission import scheduler_signal, strategy_worker
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_trading_health import TradingHealth
+from tests.support.v2_admission import database as database_fixture
+from tests.support.v2_admission import scheduler_signal, strategy_worker
 from v2_core.runtime_policy import resolve
 from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy import StrategyDecision

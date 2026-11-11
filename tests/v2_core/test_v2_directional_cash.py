@@ -5,10 +5,10 @@ from decimal import Decimal
 import pytest
 from test_v2_directional_admission import formal
 from test_v2_directional_replay import SCOPE, scenario
-from test_v2_intent_admission import database as database_fixture
 from test_v2_trading_pipeline import case as pipeline_fixture
 
 from services.v2_directional_cash import DirectionalCashAudit, reconcile_cash
+from tests.support.v2_admission import database as database_fixture
 from v2_core.state import BusinessState, StateKey
 
 database = database_fixture

@@ -3,9 +3,9 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_market_pipeline import MarketSupervisor
+from tests.support.v2_admission import database as database_fixture
 from v2_core.operational import MarketAlerts
 from v2_core.public_market import PublicMarketError
 from v2_core.telegram import TelegramDeliveryError, TelegramOperationalSink

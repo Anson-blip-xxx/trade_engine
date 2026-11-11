@@ -14,9 +14,9 @@ from test_v2_credential_console import add
 from test_v2_directional_exit_stage import ExitVenue, observation, setup_exit
 from test_v2_directional_lifecycle import SCOPE, opening
 from test_v2_execution_routes import case, routes, setup
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_exit import DirectionalExitStage
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance import BinanceFutures
 from v2_core.guarded_transport import GuardedSignedRequest
 from v2_core.runtime_policy import PolicyStore

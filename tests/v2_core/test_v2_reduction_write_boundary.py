@@ -5,9 +5,9 @@ from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 from test_v2_symbol_exit_isolation import assert_no_new_orders, build_case
 
+from tests.support.v2_admission import database as database_fixture
 from v2_core.binance import BinanceFutures
 from v2_core.guarded_transport import GuardedSignedRequest
 from v2_core.transport import BinanceSignedTransport

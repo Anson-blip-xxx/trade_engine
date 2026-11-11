@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 from market_fakes import Budget, MarketHTTP
 from test_v2_directional_replay import scenario
-from test_v2_intent_admission import database as database_fixture
 
 from services.v2_directional_admission import create_directional_admission_worker
 from services.v2_shared_market import (
@@ -18,6 +17,7 @@ from services.v2_shared_market import (
 )
 from services.v2_shared_market_context import DynamicMarketContext
 from services.v2_testnet_daemon_entry import PrivateRatePermit, TestnetProcessConfig
+from tests.support.v2_admission import database as database_fixture
 from v2_core.evidence import canonical, digest
 from v2_core.public_market import BinancePublicMarket
 from v2_core.shared_market import Catalog, HostBudget, MarketPolicy, contracts
@@ -139,14 +139,15 @@ def test_policy_rejects_unsafe_bounds(changes):
 
 
 def test_catalog_filters_contract_types_and_reports_unsupported_format():
-    response = catalog_response(["BTCUSDT", "测试USDT"])
+    response = catalog_response(["BTCUSDT", "测试USDT", "éUSDT"])
     response["symbols"] += [
         dict(contract("ETHBTC"), quoteAsset="BTC"),
         dict(contract("BTCUSDT_270326"), contractType="NEXT_QUARTER"),
     ]
     found = contracts(response)
-    assert set(found) == {"BTCUSDT", "测试USDT"}
-    assert found["BTCUSDT"]["supported"] and not found["测试USDT"]["supported"]
+    assert set(found) == {"BTCUSDT", "测试USDT", "éUSDT"}
+    assert found["BTCUSDT"]["supported"] and found["测试USDT"]["supported"]
+    assert not found["éUSDT"]["supported"]
     with pytest.raises(ValueError, match="DUPLICATE"):
         contracts(catalog_response(["BTCUSDT", "BTCUSDT"]))
 

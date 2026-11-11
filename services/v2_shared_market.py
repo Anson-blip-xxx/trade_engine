@@ -12,8 +12,10 @@ from services.v2_market_publishers import S0Publisher
 from services.v2_s0_regime import build_s0_state
 from services.v2_s3_candles import (
     BREAKOUT_VERSION,
+    CORRECTED_VERSION,
     PRICE_VERSION,
     ROLLING_VERSION,
+    STRUCTURE_VERSION,
     build_frame,
 )
 from services.v2_s3_runtime import S3Runtime
@@ -23,6 +25,7 @@ from v2_core.producer import ProducerPublisher, RedisMarketContext
 from v2_core.projections import RedisProjection
 from v2_core.scheduling import diagnostic_code
 from v2_core.shared_market import Catalog, MarketPolicy
+from v2_core.symbols import shared_frame_id
 
 
 def normalize_rows(rows, start, end):
@@ -126,7 +129,13 @@ class IncrementalArchive:
 
 class IncrementalCandles:
     def __init__(self, transport, cache, archive, *, feature_version=PRICE_VERSION):
-        if feature_version not in (PRICE_VERSION, ROLLING_VERSION, BREAKOUT_VERSION):
+        if feature_version not in (
+            PRICE_VERSION,
+            ROLLING_VERSION,
+            BREAKOUT_VERSION,
+            CORRECTED_VERSION,
+            STRUCTURE_VERSION,
+        ):
             raise ValueError("MARKET_FEATURE_VERSION_UNSUPPORTED")
         self.transport, self.cache, self.archive = transport, cache, archive
         self.environment = transport.environment
@@ -189,8 +198,10 @@ class IncrementalCandles:
             PRICE_VERSION: "v2",
             ROLLING_VERSION: "v3",
             BREAKOUT_VERSION: "v4",
+            CORRECTED_VERSION: "v5",
+            STRUCTURE_VERSION: "v6",
         }[self.feature_version]
-        frame["frame_id"] = f"s3-shared-{version}:{target}:{observed}"
+        frame["frame_id"] = shared_frame_id(f"s3-shared-{version}", target, observed)
         # Normalize decimals exactly as build_frame does before durable hashing.
         from services.v2_s3_candles import amount
 

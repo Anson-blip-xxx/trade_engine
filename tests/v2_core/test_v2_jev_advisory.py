@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 
+from services import v2_jev_transport as transport
 from v2_core import jev_advisory as jev
 
 
@@ -455,11 +456,11 @@ def test_shared_sdk_query_uses_only_fixed_command_and_sanitized_stdin(
         calls.append((argv, json.loads(payload), timeout_ms))
         return json.dumps(response()).encode()
 
-    monkeypatch.setattr(jev, "_bounded_process", run)
-    result = jev.SharedJevQuery()(request, timeout_ms=500)
+    monkeypatch.setattr(transport, "_bounded_process", run)
+    result = transport.SharedJevQuery()(request, timeout_ms=500)
     assert result["model"] == jev.MODEL
     command, payload, timeout = calls[0]
-    assert command[0] == jev.SHARED_PYTHON and command[1] == "-I"
+    assert command[0] == transport.SHARED_PYTHON and command[1] == "-I"
     assert command[-1] == "--sdk-once"
     assert payload == {"request": request, "timeout_ms": 500} and timeout == 500
 
@@ -471,10 +472,10 @@ def test_shared_query_cannot_be_a_generic_prompt_or_gateway(
     request = jev.prepare_request(features, now_ms=100100, max_age_ms=60000)["request"]
     request[alter] = "unapproved"
     monkeypatch.setattr(
-        jev, "_bounded_process", lambda *a: pytest.fail("child launched")
+        transport, "_bounded_process", lambda *a: pytest.fail("child launched")
     )
     with pytest.raises(ValueError):
-        jev.SharedJevQuery()(request, timeout_ms=500)
+        transport.SharedJevQuery()(request, timeout_ms=500)
 
 
 def test_sdk_worker_pins_model_disables_retries_and_outputs_only_contract(
@@ -499,16 +500,18 @@ def test_sdk_worker_pins_model_disables_retries_and_outputs_only_contract(
         return Client()
 
     monkeypatch.setitem(
-        sys.modules, "jev_shared", SimpleNamespace(create_client=create_client)
+        sys.modules,
+        "jev_shared",
+        SimpleNamespace(create_client=create_client, ConfigurationError=ValueError),
     )
     monkeypatch.setitem(
         sys.modules, "typesafe_sdk", SimpleNamespace(RetryPolicy=lambda **kw: kw)
     )
-    monkeypatch.setattr(jev, "version", lambda name: "0.7.5")
-    monkeypatch.setattr(jev.logging, "disable", lambda level: None)
+    monkeypatch.setattr(transport, "version", lambda name: "0.7.5")
+    monkeypatch.setattr(transport.logging, "disable", lambda level: None)
     stdout = io.BytesIO()
     monkeypatch.setattr(
-        jev.sys,
+        transport.sys,
         "stdin",
         SimpleNamespace(
             buffer=io.BytesIO(
@@ -516,8 +519,8 @@ def test_sdk_worker_pins_model_disables_retries_and_outputs_only_contract(
             )
         ),
     )
-    monkeypatch.setattr(jev.sys, "stdout", SimpleNamespace(buffer=stdout))
-    assert jev._sdk_once() == 0
+    monkeypatch.setattr(transport.sys, "stdout", SimpleNamespace(buffer=stdout))
+    assert transport._sdk_once() == 0
     assert calls[0]["retry"] == {"max_retries": 0, "timeout": 0.8}
     assert calls[0]["timeout"] == 0.8
     assert json.loads(stdout.getvalue()) == jev.parse_response(response())
@@ -525,14 +528,14 @@ def test_sdk_worker_pins_model_disables_retries_and_outputs_only_contract(
 
 def test_sdk_mismatch_does_not_import_shared_secret_client(features, monkeypatch):
     request = jev.prepare_request(features, now_ms=100100, max_age_ms=60000)["request"]
-    monkeypatch.setattr(jev, "version", lambda name: "0.7.6")
+    monkeypatch.setattr(transport, "version", lambda name: "0.7.6")
     monkeypatch.setitem(
         sys.modules,
         "jev_shared",
         SimpleNamespace(create_client=lambda **kw: pytest.fail("read config")),
     )
     monkeypatch.setattr(
-        jev.sys,
+        transport.sys,
         "stdin",
         SimpleNamespace(
             buffer=io.BytesIO(
@@ -540,7 +543,7 @@ def test_sdk_mismatch_does_not_import_shared_secret_client(features, monkeypatch
             )
         ),
     )
-    assert jev._sdk_once() == 1
+    assert transport._sdk_once() == 7
 
 
 def test_child_timeout_is_bounded_and_only_own_process_is_killed(monkeypatch):
@@ -552,10 +555,10 @@ def test_child_timeout_is_bounded_and_only_own_process_is_killed(monkeypatch):
         children.append(process)
         return process
 
-    monkeypatch.setattr(jev.subprocess, "Popen", record)
+    monkeypatch.setattr(transport.subprocess, "Popen", record)
     started = time.monotonic()
     with pytest.raises(TimeoutError):
-        jev._bounded_process(
+        transport._bounded_process(
             [sys.executable, "-I", "-c", "import time; time.sleep(10)"], b"{}", 100
         )
     assert time.monotonic() - started < 1
@@ -565,11 +568,11 @@ def test_child_timeout_is_bounded_and_only_own_process_is_killed(monkeypatch):
 
 def test_child_stdout_is_bounded_and_stderr_is_not_exposed():
     with pytest.raises(ValueError, match="JEV_RESPONSE_TOO_LARGE"):
-        jev._bounded_process(
+        transport._bounded_process(
             [sys.executable, "-I", "-c", "print('x' * 10000)"], b"{}", 1000
         )
     with pytest.raises(ValueError, match="JEV_SDK_UNAVAILABLE"):
-        jev._bounded_process(
+        transport._bounded_process(
             [
                 sys.executable,
                 "-I",
@@ -604,9 +607,11 @@ def test_child_does_not_inherit_trading_or_loader_environment(monkeypatch):
         captures.append(kwargs["env"])
         return popen(*args, **kwargs)
 
-    monkeypatch.setattr(jev.subprocess, "Popen", capture)
+    monkeypatch.setattr(transport.subprocess, "Popen", capture)
     assert (
-        jev._bounded_process([sys.executable, "-I", "-c", "print('{}')"], b"{}", 1000)
+        transport._bounded_process(
+            [sys.executable, "-I", "-c", "print('{}')"], b"{}", 1000
+        )
         == b"{}\n"
     )
     assert set(captures[0]) == {"PATH", "LANG", "TYPESAFE_API_KEY"}
@@ -623,9 +628,9 @@ def test_spawn_time_consumes_hard_deadline(monkeypatch):
         time.sleep(0.15)
         return process
 
-    monkeypatch.setattr(jev.subprocess, "Popen", delayed)
+    monkeypatch.setattr(transport.subprocess, "Popen", delayed)
     with pytest.raises(TimeoutError):
-        jev._bounded_process(
+        transport._bounded_process(
             [sys.executable, "-I", "-c", "import time; time.sleep(10)"], b"{}", 100
         )
     assert children[0].wait(timeout=1) < 0

@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import pytest
 from test_v2_execution_routes import add, case, database, routes, setup
-from test_v2_intent_admission import evidence, intent
 
 from services.v2_dashboard import DashboardData
+from tests.support.v2_admission import evidence, intent
 from v2_core.evidence import EvidenceStore
 from v2_core.intents import IntentStore
 

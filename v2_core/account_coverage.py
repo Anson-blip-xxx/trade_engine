@@ -328,6 +328,21 @@ class AccountCoverageAudit:
         caller's original full audit path; actual reductions still collect
         their own fresh inventory under the original execution guards.
         """
+        checked = self._protection_witness(proof)
+        return checked[0] if checked is not None and checked[1] is False else None
+
+    def expired_after_protection(self, proof):
+        """Only a complete, unchanged persisted witness may request a refresh.
+
+        This boolean is not coverage clearance. A stale, once-valid observation
+        must be collected again and pass the ordinary five-second reuse fence.
+        Tampering, changed facts, slow acquisition and unknown evidence do not
+        receive this disposition.
+        """
+        checked = self._protection_witness(proof)
+        return checked is not None and checked[1] is True
+
+    def _protection_witness(self, proof):
         try:
             if not isinstance(proof, dict):
                 return None
@@ -387,10 +402,14 @@ class AccountCoverageAudit:
                         any(
                             type(value) is not int for value in (started, finished, now)
                         )
-                        or not 0 <= started <= finished <= now <= started + 5000
+                        or not 0 <= started <= finished <= now
+                        or finished > started + 5000
                     ):
                         return None
-                    return {**result, "observation_id": identity}
+                    return (
+                        {**result, "observation_id": identity},
+                        now > started + 5000,
+                    )
         except Exception:  # noqa: BLE001 - a diagnostic reuse miss must re-audit
             return None
 

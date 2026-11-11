@@ -1,0 +1,35 @@
+[
+  {
+    "version": "onchain-asset-map-v1",
+    "provider": "DEXPAPRIKA",
+    "symbol": "QUSDT",
+    "network_id": "bsc",
+    "token_address": "0xc07e1300dc138601fa6b0b59f8d0fa477e690589",
+    "contract_multiplier": "1",
+    "status": "VERIFIED",
+    "verified_at_ms": 1793440200000,
+    "valid_until_ms": 1796032200000,
+    "source_links": [
+      "https://www.binance.com/en/support/announcement/detail/e1826e566e5b454ba7b439082bfbbc4f",
+      "https://quackai.ai/blog/introducing-q-powering-the-future-of-ai-governance",
+      "https://www.binance.com/en/alpha/bsc/0xc07e1300dc138601fa6b0b59f8d0fa477e690589"
+    ],
+    "reason_code": "OFFICIAL_FUTURES_AND_TOKEN_ADDRESS_REVIEW"
+  },
+  {
+    "version": "onchain-asset-map-v1",
+    "provider": "DEXPAPRIKA",
+    "symbol": "AKEUSDT",
+    "network_id": "bsc",
+    "token_address": "0x2c3a8ee94ddd97244a93bc48298f97d2c412f7db",
+    "contract_multiplier": "1",
+    "status": "VERIFIED",
+    "verified_at_ms": 1793440200000,
+    "valid_until_ms": 1796032200000,
+    "source_links": [
+      "https://www.binance.com/en/support/announcement/detail/f7b86984a0d34f4fbfc3204fa93ae344",
+      "https://www.binance.com/en-IN/alpha/bsc/0x2c3a8ee94ddd97244a93bc48298f97d2c412f7db"
+    ],
+    "reason_code": "OFFICIAL_FUTURES_AND_TOKEN_ADDRESS_REVIEW"
+  }
+]

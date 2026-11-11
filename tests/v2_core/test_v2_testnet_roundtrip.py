@@ -3,9 +3,9 @@ import json
 from decimal import Decimal
 
 import pytest
-from test_v2_intent_admission import database as database_fixture
 
 from services import v2_testnet_roundtrip as rt
+from tests.support.v2_admission import database as database_fixture
 from v2_core.service import TradingData
 
 database = database_fixture
