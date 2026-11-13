@@ -55,6 +55,7 @@ def _capture_exit_research(
     protection,
     query_started,
     query_finished,
+    quantity_evidence=None,
 ):
     """Attach bounded research to an existing write; no new I/O or authority."""
     try:
@@ -96,8 +97,9 @@ def _capture_exit_research(
                 "response": protection.get("research_terms"),
                 "observed_at_ms": query_started,
                 "available_at_ms": query_finished,
-                # No position query is added and no ledger quantity is
-                # promoted to a venue-confirmed protected quantity.
+                # The prior coverage audit already acquired this observation.
+                # Its original clock is retained, never refreshed to exit time.
+                "quantity_evidence": quantity_evidence,
             },
         )
         encoded = canonical(snapshot)
@@ -478,6 +480,12 @@ class DirectionalExitStage:
             "excursions_error": excursions_error,
         }
         if decision.reason == "LOW_YIELD_STAGNATION":
+            try:
+                research_quantity = self.audit.research_position(
+                    trace["request"]["symbol"]
+                )
+            except Exception:  # noqa: BLE001 - optional, no new inventory call
+                research_quantity = None
             snapshot, snapshot_digest = _capture_exit_research(
                 scope=self.scope,
                 episode=episode,
@@ -493,6 +501,7 @@ class DirectionalExitStage:
                 protection=protection,
                 query_started=query_started,
                 query_finished=query_finished,
+                quantity_evidence=research_quantity,
             )
             payload["research_snapshot"] = snapshot
             payload["research_snapshot_digest"] = snapshot_digest

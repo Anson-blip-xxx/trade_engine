@@ -858,6 +858,10 @@ class JevEntryContext:
                     "binding_version": bound.version,
                     "gate_policy_source": policy_source,
                     "gate_policy_version": policy_version,
+                    # The fixed binding has already matched this attempt's
+                    # control identity above. Old unversioned bindings stay
+                    # unknown; today's control must not fill their history.
+                    "model_control_version": binding.get("model_control_version"),
                     "gate_policy_state_id": profile_key.identity
                     if policy_source == "ACCOUNT_PG"
                     else None,

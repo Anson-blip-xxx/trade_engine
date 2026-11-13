@@ -234,6 +234,62 @@ def test_model_finished_before_next_ten_second_cycle_can_pass_after_restart(case
     assert evidence["timing"]["started_at_ms"] == first
     assert evidence["timing"]["deadline_ms"] == first + 30000
     assert evidence["binding_version"] == 1
+    assert evidence["model_control_version"] == bound["model_control_version"] == 1
+
+
+@pytest.mark.parametrize("trend,expected", [("0.8", "PASS"), ("0.3", "VETO")])
+def test_normal_assessment_freezes_exact_bound_model_control_for_comparison(
+    case, trend, expected
+):
+    scoped_policy(case, POLICY, version=7)
+    case.db.rows[CONTROL_KEY.identity] = StateSnapshot(
+        11, canonical(asdict(AdvisoryPolicy(enabled=True))), False
+    )
+    service = dynamic(case)
+    assert service.assess(**case.args).status == "PENDING"
+    _, saved, bound = binding(case)
+    publish(case, trend=trend)
+    result = service.assess(**case.args)
+    assert result.status == expected
+    evidence = json.loads(result.evidence_json)
+    assert evidence["gate_policy_version"] == bound["gate_policy_version"] == 7
+    assert evidence["model_control_version"] == bound["model_control_version"] == 11
+    assert binding(case)[1] == saved
+    assert len(case.queued) == 1
+    from services.v2_integration_effectiveness import jev_comparison_identity
+
+    assert jev_comparison_identity(evidence)["status"] == "COMPLETE"
+
+
+def test_old_binding_does_not_acquire_current_model_control_version(case):
+    assert case.service.assess(**case.args).status == "PENDING"
+    key, saved, bound = binding(case)
+    del bound["model_control_version"]
+    case.db.rows[key.identity] = StateSnapshot(saved.version, canonical(bound), False)
+    old = case.db.rows[key.identity]
+    publish(case)
+    # The legacy path permits identical control values without a bound revision;
+    # its new diagnostic field must stay unknown, not claim this later version.
+    case.db.rows[CONTROL_KEY.identity] = StateSnapshot(
+        25, canonical(asdict(AdvisoryPolicy(enabled=True))), False
+    )
+    result = case.service.assess(**case.args)
+    assert result.status == "PASS"
+    assert json.loads(result.evidence_json)["model_control_version"] is None
+    assert binding(case)[1] == old
+
+
+def test_revision_change_with_same_values_cannot_publish_a_new_model_identity(case):
+    assert case.service.assess(**case.args).status == "PENDING"
+    _, saved, _ = binding(case)
+    publish(case)
+    case.db.rows[CONTROL_KEY.identity] = StateSnapshot(
+        2, canonical(asdict(AdvisoryPolicy(enabled=True))), False
+    )
+    result = case.service.assess(**case.args)
+    assert_skip(result, "JEV_CANDIDATE_BINDING_INVALID")
+    assert json.loads(result.evidence_json).get("model_control_version") is None
+    assert binding(case)[1] == saved
 
 
 def test_missing_result_cannot_reset_deadline_or_model_snapshot(case):

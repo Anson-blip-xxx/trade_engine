@@ -33,7 +33,7 @@ class Market:
             closes = (
                 ["97", "98", "99", "100"]
                 if params["interval"] == "15m"
-                else [str(value) for value in range(81, 101)]
+                else [str(value) for value in range(101 - count, 101)]
             )
             assert count == len(closes)
             value = [
@@ -73,7 +73,7 @@ def test_fresh_mark_funding_and_closed_windows_are_exact():
     assert hourly["symbol"] == "BTCUSDT"
     assert hourly["environment"] == "SANDBOX"
     assert hourly["interval"] == "1h"
-    assert len(hourly["rows"]) == 20
+    assert len(hourly["rows"]) == 24
     assert "available_at_ms" not in hourly
     assert result == {
         "symbol": "BTCUSDT",
@@ -108,9 +108,9 @@ def test_fresh_mark_funding_and_closed_windows_are_exact():
             {
                 "symbol": "BTCUSDT",
                 "interval": "1h",
-                "startTime": 14400000,
+                "startTime": 0,
                 "endTime": 86399999,
-                "limit": 20,
+                "limit": 24,
             },
         ),
     ]
@@ -122,7 +122,7 @@ def test_research_bad_ohlcv_does_not_change_close_only_execution_observation():
     baseline.pop("_research_hourly")
 
     def bad_research(path, rows):
-        if path.endswith("klines") and len(rows) == 20:
+        if path.endswith("klines") and len(rows) == 24:
             rows[0][1] = "bad-open"
             rows[0][2] = None
             rows[0][5] = "bad-volume"
@@ -139,17 +139,17 @@ def test_research_hourly_uses_only_already_returned_closed_rows():
     market = Market()
     result = provider(market)("BTCUSDT")
     rows = result["_research_hourly"]["rows"]
-    assert rows[0][0] == 14400000
+    assert rows[0][0] == 0
     assert rows[-1][6] + 1 == result["closed_1h_at_ms"]
     assert all(row[6] < result["exchange_server_time_ms"] for row in rows)
-    assert [row[4] for row in rows] == [str(i) for i in range(81, 101)]
+    assert [row[4] for row in rows] == [str(i) for i in range(77, 101)]
 
 
 def test_recurring_ema_is_bounded_to_the_ledger_numeric_scale():
     market = Market()
 
     def recurring(path, value):
-        if path.endswith("klines") and len(value) == 20:
+        if path.endswith("klines") and len(value) == 24:
             for row in value:
                 row[4] = "1"
             value[-1][4] = "2"

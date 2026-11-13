@@ -7,6 +7,21 @@ from tests.v2_core.test_v2_exit_research_snapshot import inputs
 from v2_core.trend_runner import StagnationShadowPolicy, stagnation_shadow
 
 
+def test_actual_market_and_inventory_capture_is_consumable(monkeypatch):
+    from tests.v2_core.test_v2_exit_research_capture import EPISODE, NOW, payload
+    from tests.v2_core.test_v2_exit_research_complete import complete_case
+
+    case, _ = complete_case(monkeypatch)
+    case.service.evaluate(EPISODE)
+    research = payload(case)["research_snapshot"]
+    compared = stagnation_shadow(
+        {"opened_at_ms": NOW - 90 * 60_000, "snapshots": [research["snapshot"]]},
+        policy=StagnationShadowPolicy(mode="SHADOW"),
+    )
+    assert compared["status"] != "UNAVAILABLE"
+    assert compared["execution_authorized"] is False
+
+
 @pytest.mark.parametrize("side", ["BUY", "SELL"])
 @pytest.mark.parametrize("raw_rows", [False, True])
 def test_collected_snapshot_is_consumable_by_research_shadow(side, raw_rows):

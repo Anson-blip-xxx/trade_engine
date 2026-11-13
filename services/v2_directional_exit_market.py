@@ -43,6 +43,7 @@ class BinanceDirectionalExitMarket:
         exit_fee_rate,
         max_skew_ms=5000,
         indicator_version=LEGACY_EXIT_INDICATORS,
+        research_hourly_bars=24,
     ):
         if (
             environment != "SANDBOX"
@@ -52,6 +53,8 @@ class BinanceDirectionalExitMarket:
             or type(max_skew_ms) is not int
             or not 1 <= max_skew_ms <= 10000
             or indicator_version not in (LEGACY_EXIT_INDICATORS, EMA_EXIT_INDICATORS)
+            or type(research_hourly_bars) is not int
+            or research_hourly_bars not in (20, 24)
         ):
             raise ValueError("explicit bounded Testnet exit market required")
         self.transport, self.environment, self.clock = (
@@ -62,27 +65,33 @@ class BinanceDirectionalExitMarket:
         self.fee = number(exit_fee_rate, minimum=0, maximum=Decimal(".01"))
         self.max_skew = max_skew_ms
         self.indicator_version = indicator_version
+        self.research_hourly_bars = research_hourly_bars
 
     @staticmethod
     def _exact(value):
         return decimal_text(derived_amount(value, rounding=ROUND_HALF_EVEN))
 
-    def _candles(self, target, *, interval, count, end, width, retain_rows=False):
+    def _candles(
+        self, target, *, interval, count, end, width, retain_rows=False, extra=0
+    ):
         start = end - count * width
+        requested = count + extra
         rows = self.transport(
             "/fapi/v1/klines",
             {
                 "symbol": target,
                 "interval": interval,
-                "startTime": start,
+                "startTime": start - extra * width,
                 "endTime": end - 1,
-                "limit": count,
+                "limit": requested,
             },
         )
-        if not isinstance(rows, list) or len(rows) != count:
+        if not isinstance(rows, list) or not count <= len(rows) <= requested:
             raise ValueError("incomplete closed exit candles")
         closes = []
-        for index, row in enumerate(rows):
+        # Only the original indicator window is an execution dependency. An
+        # absent or malformed older research prefix must not prevent an exit.
+        for index, row in enumerate(rows[-count:]):
             opened = start + index * width
             if (
                 not isinstance(row, list)
@@ -140,6 +149,9 @@ class BinanceDirectionalExitMarket:
             end=close_1h,
             width=3600000,
             retain_rows=True,
+            extra=max(0, self.research_hourly_bars - hour_count)
+            if close_1h >= self.research_hourly_bars * 3600000
+            else 0,
         )
         with money_context():
             if self.indicator_version == EMA_EXIT_INDICATORS:
@@ -163,7 +175,8 @@ class BinanceDirectionalExitMarket:
             "closed_1h_at_ms": close_1h,
             # No receipt time is invented here. The consumer records when this
             # returned bundle actually became available, before its decision.
-            # Do not increase LEGACY's 20-bar query to satisfy a research model.
+            # Extra older rows share this existing request. LEGACY still uses
+            # exactly its latest 20 closes; extra research history can be partial.
             "_research_hourly": {
                 "symbol": target,
                 "environment": self.environment,

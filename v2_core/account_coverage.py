@@ -6,6 +6,7 @@ any ambiguity blocks the diagnostic. Does not repair, close or cancel anything.
 
 import json
 from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal, localcontext
 from uuid import UUID, uuid4
@@ -210,6 +211,9 @@ class AccountCoverageAudit:
         ):
             raise ValueError("testnet futures coverage only")
         self.connect, self.scope = connect, scope
+        # Research-only transport evidence from this invocation, never a
+        # coverage result, order permit or cross-cycle latest-row cache.
+        self._research_positions = {}
         self.excluded_position_symbols = _excluded_positions(excluded_position_symbols)
         self.inventory = AccountInventory(
             request,
@@ -219,6 +223,64 @@ class AccountCoverageAudit:
             read_workers=self._read_workers,
             combined_account_config=self._combined_account_config,
         )
+
+    def _remember_research_positions(self, observation):
+        """Project an already verified CLEAR inventory without new I/O.
+
+        The complete inventory interval conservatively brackets positionRisk.
+        Neither venue updateTime nor a later evaluation clock repairs its age.
+        This optional projection can never invalidate the original audit.
+        """
+        self._research_positions = {}
+        try:
+            if observation["account_scope"] != asdict(self.scope):
+                return
+            started, finished = (
+                observation["started_at_ms"],
+                observation["finished_at_ms"],
+            )
+            if (
+                type(started) is not int
+                or type(finished) is not int
+                or not 0 <= started <= finished < 2**53
+                or observation["failures"]
+            ):
+                return
+            from v2_core.account_inventory import positions
+
+            before = positions(observation["responses"]["positions_before"])
+            after = positions(observation["responses"]["positions_after"])
+            if before != after or any(row["side"] != "BOTH" for row in after):
+                return
+            excluded = set(self.excluded_position_symbols)
+            projected = {}
+            for row in after:
+                if row["symbol"] in excluded:
+                    continue
+                projected[row["symbol"]] = {
+                    "account_scope": asdict(self.scope),
+                    "response": {
+                        "symbol": row["symbol"],
+                        "positionSide": row["side"],
+                        "positionAmt": row["quantity"],
+                    },
+                    "observed_at_ms": started,
+                    "available_at_ms": finished,
+                }
+            self._research_positions = projected
+        except Exception:  # noqa: BLE001 - optional research never changes coverage
+            self._research_positions = {}
+
+    def research_position(self, target):
+        """Detached existing evidence only; callers must validate as-of freshness."""
+        try:
+            symbol(target)
+            proof = self._research_positions.get(target)
+            if proof is None or proof["account_scope"] != asdict(self.scope):
+                return None
+            return deepcopy(proof)
+        except Exception:  # noqa: BLE001 - optional evidence cannot obstruct exits
+            return None
 
     def _combined_account_config(self):
         selected = BusinessState(self.connect).read(
@@ -343,6 +405,7 @@ class AccountCoverageAudit:
         return checked is not None and checked[1] is True
 
     def _protection_witness(self, proof):
+        self._research_positions = {}
         try:
             if not isinstance(proof, dict):
                 return None
@@ -406,14 +469,18 @@ class AccountCoverageAudit:
                         or finished > started + 5000
                     ):
                         return None
+                    if now <= started + 5000:
+                        self._remember_research_positions(observation)
                     return (
                         {**result, "observation_id": identity},
                         now > started + 5000,
                     )
         except Exception:  # noqa: BLE001 - a diagnostic reuse miss must re-audit
+            self._research_positions = {}
             return None
 
     def run_once(self):
+        self._research_positions = {}
         with session_advisory_lock(
             self.connect, "testnet-protocol-account:" + self.scope.key
         ) as acquired:
@@ -502,4 +569,8 @@ class AccountCoverageAudit:
                             ),
                         ),
                     )
-            return {**result, "observation_id": identity}
+        # Do not publish even research evidence until the original audit and
+        # its lock handoff have both completed successfully.
+        if not blockers:
+            self._remember_research_positions(observation)
+        return {**result, "observation_id": identity}

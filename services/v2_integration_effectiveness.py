@@ -14,12 +14,24 @@ from decimal import Decimal, localcontext
 from zoneinfo import ZoneInfo
 
 from v2_core.account_risk import AccountScope
-from v2_core.evidence import canonical
+from v2_core.evidence import canonical, digest
 from v2_core.strategy import StrategyScope
 
 MINUTE = 60_000
 DAY = 86_400_000
 MODEL_VETO_REASONS = {"JEV_TREND_UNSUPPORTED", "JEV_CHASE_RISK_HIGH"}
+_JEV_POLICY_FIELDS = frozenset(
+    {
+        "enabled",
+        "min_trend_support",
+        "max_chase_risk",
+        "max_wait_ms",
+        "max_age_ms",
+        "cache_ttl_ms",
+        "unavailable_action",
+        "unavailable_wait_ms",
+    }
+)
 
 
 def _number(value, *, positive=False):
@@ -85,6 +97,100 @@ def jev_classification(gate):
     return "UNCLASSIFIED"
 
 
+def jev_comparison_identity(gate):
+    """Use only frozen gate/model identity, never current controls or defaults.
+
+    Legacy evidence remains readable, but two absent identities are not equal
+    experimental treatments. The complete effective policy is fingerprinted,
+    not just its two scores: deadlines and fallback behavior also select samples.
+    """
+    from v2_core.jev_entry_gate import JevEntryGatePolicy
+
+    required = {
+        "policy",
+        "gate_policy_source",
+        "gate_policy_version",
+        "model_control_version",
+        "model",
+        "prompt_version",
+    }
+    result = {
+        "status": "UNKNOWN",
+        "reason": "MISSING_JEV_COMPARISON_IDENTITY",
+        "digest": None,
+        "policy_digest": None,
+        "identity": None,
+    }
+    if not isinstance(gate, dict) or not required <= gate.keys():
+        return result
+    try:
+        policy = gate["policy"]
+        if not isinstance(policy, dict) or set(policy) != _JEV_POLICY_FIELDS:
+            return result
+        # Exact field presence is checked before parsing: no historical proof
+        # may acquire today's policy defaults through the dataclass constructor.
+        JevEntryGatePolicy(**policy)
+        if policy["enabled"] is not True:
+            raise ValueError("DISABLED_GATE_NOT_MODEL_TREATMENT")
+        source, version = gate["gate_policy_source"], gate["gate_policy_version"]
+        if source not in {"ACCOUNT_PG", "EXPLICIT_OVERRIDE"}:
+            raise ValueError("UNKNOWN_POLICY_SOURCE")
+        if source == "EXPLICIT_OVERRIDE":
+            if version is not None:
+                raise ValueError("OVERRIDE_VERSION_INVALID")
+        elif type(version) is not int or not 0 <= version < 2**63:
+            raise ValueError("POLICY_VERSION_INVALID")
+        model_version = gate["model_control_version"]
+        if model_version is None:
+            return result
+        if type(model_version) is not int or not 0 <= model_version < 2**63:
+            raise ValueError("MODEL_CONTROL_VERSION_INVALID")
+        for key in ("model", "prompt_version"):
+            value = gate[key]
+            if (
+                not isinstance(value, str)
+                or not 1 <= len(value) <= 160
+                or value != value.strip()
+                or any(ord(c) < 32 for c in value)
+            ):
+                raise ValueError("MODEL_IDENTITY_INVALID")
+        identity = {
+            "policy_digest": digest(canonical(policy)),
+            "gate_policy_source": source,
+            "gate_policy_version": version,
+            "model_control_version": model_version,
+            "model": gate["model"],
+            "prompt_version": gate["prompt_version"],
+        }
+        return {
+            "status": "COMPLETE",
+            "reason": "FROZEN_GATE_AND_MODEL_IDENTITY",
+            "digest": digest(canonical(identity)),
+            "policy_digest": identity["policy_digest"],
+            "identity": identity,
+        }
+    except (ValueError, TypeError, ArithmeticError):
+        return {**result, "reason": "INVALID_JEV_COMPARISON_IDENTITY"}
+
+
+def _candidate_evidence(evaluation, original, gate):
+    # The negative-only fast path deliberately skips the second account read.
+    # An old original_admission, if ever supplied alongside it, cannot turn that
+    # honest absence into a freshly rechecked or executable candidate.
+    terminal = (
+        evaluation.get("fresh_account_recheck") == "NOT_RUN_TERMINAL_VETO"
+        or gate.get("fresh_account_recheck") == "NOT_RUN_TERMINAL_VETO"
+        or gate.get("public_snapshot_policy")
+        == "FIXED_MODEL_SNAPSHOT_NEGATIVE_ONLY"
+        or gate.get("decision_effect") == "TERMINAL_REJECTION_ONLY"
+    )
+    if terminal:
+        return "TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK"
+    if original.get("admission_authorized") is True:
+        return "RECORDED_POST_RISK_CANDIDATE"
+    return "NO_RECORDED_POST_RISK_CANDIDATE"
+
+
 def tv_classification(source, proof):
     if source == "tv_bridge":
         return "TV_DIRECT"
@@ -138,6 +244,7 @@ def candidate_from_record(record):
     # come from the frozen plan/config, never from subsequent price movement.
     side = side or {"S6": "BUY", "S8": "SELL"}.get(record.get("strategy"))
     jev = jev_classification(gate)
+    candidate_evidence = _candidate_evidence(evaluation, original, gate)
     return {
         "decision_id": record["decision_id"],
         "evidence_ref": record["evidence_ref"],
@@ -154,7 +261,9 @@ def candidate_from_record(record):
         "jev": jev,
         "jev_reason": gate.get("reason"),
         "fallback_cause": gate.get("fallback_cause"),
-        "post_risk_candidate": original.get("admission_authorized") is True,
+        "post_risk_candidate": candidate_evidence == "RECORDED_POST_RISK_CANDIDATE",
+        "candidate_evidence": candidate_evidence,
+        "jev_comparison_identity": jev_comparison_identity(gate),
         "tv": tv_classification(record.get("source"), fusion),
         "tv_status": fusion.get("status"),
         "tv_decision_effect": tv_decision_effect(fusion),
@@ -283,26 +392,36 @@ def _summary(rows, horizon):
 
 def _matched(rows, horizon, policy):
     """Greedy non-reused time pairs; not randomized treatment/causal uplift."""
-    buckets = defaultdict(list)
+    buckets, excluded = defaultdict(list), Counter()
     for row in rows:
-        if row["post_risk_candidate"] and row["jev"] in {"PASS", "VETO"}:
-            # Unknown regimes cannot establish a same-regime comparison.
-            if (
-                row["regime"] == "UNKNOWN"
-                or row["markouts"][str(horizon)]["status"] != "COMPLETE"
-            ):
-                continue
-            day = (row["decided_at_ms"] + 8 * 3_600_000) // DAY
-            key = (
-                row["side"],
-                row["regime"],
-                row["source"],
-                row["tv"],
-                row["config_digest"],
-                row["strategy_version"],
-                day,
-            )
-            buckets[key].append(row)
+        if row["jev"] not in {"PASS", "VETO"}:
+            continue
+        if not row["post_risk_candidate"]:
+            excluded[row["candidate_evidence"]] += 1
+            continue
+        identity = row["jev_comparison_identity"]
+        if identity["status"] != "COMPLETE":
+            excluded[identity["reason"]] += 1
+            continue
+        # Unknown regimes cannot establish a same-regime comparison.
+        if row["regime"] == "UNKNOWN":
+            excluded["REGIME_UNKNOWN"] += 1
+            continue
+        if row["markouts"][str(horizon)]["status"] != "COMPLETE":
+            excluded["MARKOUT_INCOMPLETE"] += 1
+            continue
+        day = (row["decided_at_ms"] + 8 * 3_600_000) // DAY
+        key = (
+            row["side"],
+            row["regime"],
+            row["source"],
+            row["tv"],
+            row["config_digest"],
+            row["strategy_version"],
+            identity["digest"],
+            day,
+        )
+        buckets[key].append(row)
     pairs, unmatched = [], Counter()
     for bucket in buckets.values():
         passing = sorted(
@@ -345,6 +464,7 @@ def _matched(rows, horizon, policy):
         "pairs": pairs,
         "matched_pairs": len(pairs),
         "unmatched_eligible": dict(unmatched),
+        "excluded_model_decisions": dict(excluded),
         "mean_pass_minus_veto_bps": _text(
             sum(Decimal(p["pass_minus_veto_bps"]) for p in pairs) / len(pairs)
         )
@@ -359,6 +479,11 @@ def _matched(rows, horizon, policy):
             "tv_usage",
             "config_digest",
             "strategy_version",
+            "effective_jev_gate_policy_digest",
+            "jev_gate_policy_source_and_version",
+            "model_and_prompt_version",
+            "model_control_version",
+            "recorded_post_risk_candidate",
             "UTC+8_day",
             "bounded_time_distance",
         ],
@@ -408,7 +533,12 @@ def build_report(
             "FALLBACK",
         }
         if not eligible:
-            failure = "NOT_COMPARABLE_POST_RISK_CANDIDATE"
+            failure = (
+                "TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK"
+                if candidate["candidate_evidence"]
+                == "TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK"
+                else "NOT_COMPARABLE_POST_RISK_CANDIDATE"
+            )
         elif time.monotonic() >= deadline:
             failure = "RESEARCH_TIME_BUDGET_EXHAUSTED"
         elif completed:
@@ -441,11 +571,29 @@ def build_report(
         rows.append(candidate)
     groups = defaultdict(list)
     for row in rows:
-        groups[(row["jev"], row["tv"], row["side"], row["regime"])].append(row)
+        identity = row["jev_comparison_identity"]
+        # Preserve all old report fields, but never pool absent identities into
+        # an apparent common treatment. Unknown rows retain individual paths.
+        identity_key = (
+            identity["digest"]
+            if identity["status"] == "COMPLETE"
+            else "unmatched:" + row["decision_id"]
+        )
+        groups[
+            (
+                row["jev"],
+                row["tv"],
+                row["side"],
+                row["regime"],
+                row["candidate_evidence"],
+                identity_key,
+            )
+        ].append(row)
     with localcontext() as ctx:
         ctx.prec = 50
         return {
             "schema": "tv-jev-effectiveness-v1",
+            "comparison_version": "jev-policy-risk-cohorts-v2",
             "kind": "MARKOUT_NOT_STRATEGY_PNL",
             "as_of_ms": as_of_ms,
             "window_start_ms": start_ms,
@@ -459,6 +607,12 @@ def build_report(
             "decision_count": len(rows),
             "excluded_records": dict(excluded),
             "jev_counts": dict(Counter(r["jev"] for r in rows)),
+            "candidate_evidence_counts": dict(
+                Counter(r["candidate_evidence"] for r in rows)
+            ),
+            "jev_comparison_identity_counts": dict(
+                Counter(r["jev_comparison_identity"]["status"] for r in rows)
+            ),
             "tv_counts": dict(Counter(r["tv"] for r in rows)),
             "tv_decision_effect_counts": dict(
                 Counter(r["tv_decision_effect"] for r in rows)
@@ -485,6 +639,11 @@ def build_report(
                     "tv": k[1],
                     "side": k[2],
                     "regime": k[3],
+                    "candidate_evidence": k[4],
+                    "jev_comparison_identity": v[0]["jev_comparison_identity"],
+                    "grouping": "SAME_FROZEN_IDENTITY"
+                    if v[0]["jev_comparison_identity"]["status"] == "COMPLETE"
+                    else "ISOLATED_INCOMPLETE_IDENTITY",
                     "horizons": {
                         str(h): _summary(v, h) for h in policy.horizons_minutes
                     },
@@ -505,6 +664,8 @@ def build_report(
                 "Only immutable integration decisions in the bounded account window are included; expired signals without decisions are not model vetoes.",
                 "Missing, conflicting and incomplete candles stay unknown, not zero return. Recent unclosed horizons are censored.",
                 "Matched comparisons control recorded direction/regime/source/version/day only; symbols, candidate quality and selection bias remain confounders.",
+                "JEV comparisons additionally require the same complete frozen effective gate policy, gate source/version, model, prompt and model control version. Missing identities are not inferred from current controls or pooled together.",
+                "Terminal model vetoes without a fresh account recheck are a separate evidence cohort, not newly risk-approved candidates. Their missing original context is not reconstructed or counted as executable missed trades.",
                 "No alternative historical risk state, capital reuse, order execution or complete strategy exit path is reconstructed.",
                 "Minimum pair count is a reporting threshold, not statistical significance or authorization to increase exposure.",
                 "Actual settled PnL is reported separately and must never be added to or substituted for hypothetical markouts.",

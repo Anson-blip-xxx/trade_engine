@@ -162,6 +162,8 @@ class BinancePublicMarket:
                 ("1m", 1440): (60000, 86400000, 10),
                 ("15m", 4): (900000, 3600000, 1),
                 ("1h", 20): (3600000, 72000000, 1),
+                ("1h", 24): (3600000, 86400000, 1),
+                ("1h", 60): (3600000, 216000000, 1),
             }
             contract = contracts.get((params["interval"], params["limit"]))
             limit = params["limit"]

@@ -1,7 +1,7 @@
 """Fixed-horizon integration research cannot invent trades or use future inputs."""
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal
 
 import pytest
@@ -13,13 +13,26 @@ from services.v2_integration_effectiveness import (
     candidate_from_record,
     fixed_horizon_markout,
     jev_classification,
+    jev_comparison_identity,
     load_records,
     load_tv_funnel,
     tv_classification,
 )
 from v2_core.account_risk import AccountScope
+from v2_core.jev_entry_gate import JevEntryGatePolicy
 
 POLICY = EffectivenessPolicy((1, 2), "5", "2", minimum_matched_pairs=2)
+
+
+def gate_identity():
+    return {
+        "policy": asdict(JevEntryGatePolicy(enabled=True, max_wait_ms=30000)),
+        "gate_policy_source": "ACCOUNT_PG",
+        "gate_policy_version": 2,
+        "model_control_version": 3,
+        "model": "jev-1.13.0",
+        "prompt_version": "jev-public-entry-v2",
+    }
 
 
 def record(identity="a", **changes):
@@ -39,7 +52,11 @@ def record(identity="a", **changes):
         "evaluation": {
             "admission_authorized": True,
             "market_plan": {"side": "LONG", "reason": "CANDIDATE"},
-            "jev_entry_gate": {"status": "PASS", "reason": "JEV_SECOND_FILTER_PASSED"},
+            "jev_entry_gate": {
+                **gate_identity(),
+                "status": "PASS",
+                "reason": "JEV_SECOND_FILTER_PASSED",
+            },
         },
         "actual_filled": False,
         "actual_settled_net_usdt": None,
@@ -54,7 +71,11 @@ def veto(identity="b", **changes):
             "admission_authorized": True,
             "market_plan": {"side": "LONG"},
         },
-        "jev_entry_gate": {"status": "VETO", "reason": "JEV_CHASE_RISK_HIGH"},
+        "jev_entry_gate": {
+            **gate_identity(),
+            "status": "VETO",
+            "reason": "JEV_CHASE_RISK_HIGH",
+        },
     }
     return r
 
@@ -233,6 +254,167 @@ def test_match_is_same_direction_regime_version_day_and_non_reused():
 def test_unknown_regime_is_not_assumed_comparable():
     result = report([record(regime=None), veto(regime=None)])
     assert all(m["matched_pairs"] == 0 for m in result["matched_jev_comparisons"])
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("gate_policy_version", 4),
+        ("model_control_version", 4),
+        ("model", "jev-other-model"),
+        ("prompt_version", "different-prompt"),
+        ("policy.min_trend_support", "0.7"),
+        ("policy.max_chase_risk", "0.5"),
+        ("policy.max_wait_ms", 20000),
+        ("policy.unavailable_action", "BASELINE"),
+    ],
+)
+def test_model_comparisons_never_mix_gate_threshold_or_control_identities(field, value):
+    other_pass, other_veto = record("other-pass"), veto("other-veto")
+    for row in (other_pass, other_veto):
+        gate = row["evaluation"]["jev_entry_gate"]
+        if field.startswith("policy."):
+            gate["policy"][field.split(".")[1]] = value
+        else:
+            gate[field] = value
+    result = report([record(), other_pass, veto(), other_veto])
+    assert len(result["groups"]) == 4
+    for comparison in result["matched_jev_comparisons"]:
+        assert comparison["matched_pairs"] == 2
+        assert {
+            (pair["pass_decision_id"], pair["veto_decision_id"])
+            for pair in comparison["pairs"]
+        } == {("a", "b"), ("other-pass", "other-veto")}
+    cross_only = report([record(), other_veto])
+    assert all(m["matched_pairs"] == 0 for m in cross_only["matched_jev_comparisons"])
+
+
+def test_explicit_override_does_not_match_account_policy_with_same_thresholds():
+    denied = veto()
+    denied["evaluation"]["jev_entry_gate"].update(
+        gate_policy_source="EXPLICIT_OVERRIDE", gate_policy_version=None
+    )
+    result = report([record(), denied])
+    assert result["jev_comparison_identity_counts"] == {"COMPLETE": 2}
+    assert all(m["matched_pairs"] == 0 for m in result["matched_jev_comparisons"])
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "policy",
+        "gate_policy_version",
+        "model_control_version",
+        "model",
+        "prompt_version",
+    ],
+)
+def test_old_evidence_without_identity_is_readable_but_not_pooled_or_matched(missing):
+    rows = [record(), record("a2"), veto(), veto("b2")]
+    for row in rows:
+        del row["evaluation"]["jev_entry_gate"][missing]
+    result = report(rows)
+    assert result["schema"] == "tv-jev-effectiveness-v1"
+    assert result["jev_counts"] == {"PASS": 2, "VETO": 2}
+    assert result["jev_comparison_identity_counts"] == {"UNKNOWN": 4}
+    assert len(result["groups"]) == 4
+    assert all(
+        group["grouping"] == "ISOLATED_INCOMPLETE_IDENTITY"
+        and group["horizons"]["1"]["candidates"] == 1
+        and group["horizons"]["1"]["complete"] == 1
+        for group in result["groups"]
+    )
+    assert all(
+        comparison["matched_pairs"] == 0
+        and comparison["excluded_model_decisions"]
+        == {"MISSING_JEV_COMPARISON_IDENTITY": 4}
+        for comparison in result["matched_jev_comparisons"]
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("model_control_version", True),
+        ("model_control_version", -1),
+        ("gate_policy_version", True),
+        ("gate_policy_version", None),
+        ("gate_policy_source", "UNKNOWN"),
+        ("model", ""),
+        ("prompt_version", " x"),
+        ("policy", {"enabled": True}),
+    ],
+)
+def test_invalid_or_partial_identity_cannot_create_a_shared_treatment(field, value):
+    proof = gate_identity()
+    proof[field] = value
+    result = jev_comparison_identity(proof)
+    assert result["status"] == "UNKNOWN"
+    assert result["digest"] is result["identity"] is None
+
+
+def test_unversioned_binding_is_unknown_even_when_null_field_is_present():
+    proof = {**gate_identity(), "model_control_version": None}
+    assert jev_comparison_identity(proof)["reason"] == "MISSING_JEV_COMPARISON_IDENTITY"
+
+
+@pytest.mark.parametrize("old_admission", [False, True])
+def test_terminal_veto_real_evidence_shape_is_separate_and_never_risk_approved(
+    old_admission,
+):
+    denied = veto(regime=None)
+    # The shape persisted by StrategyWorker.reject_completed_jev(): empty
+    # context, no decision side, and explicitly no second account-risk check.
+    denied["evaluation"] = {
+        "jev_entry_gate": {
+            **gate_identity(),
+            "schema": "jev-entry-gate-v1",
+            "status": "VETO",
+            "reason": "JEV_TREND_UNSUPPORTED",
+            "hypotheses": {"trend_supported": "0.45", "chase_risk": "0.2"},
+            "fresh_account_recheck": "NOT_RUN_TERMINAL_VETO",
+            "public_snapshot_policy": "FIXED_MODEL_SNAPSHOT_NEGATIVE_ONLY",
+            "decision_effect": "TERMINAL_REJECTION_ONLY",
+            "admission_authorized": False,
+            "execution_authorized": False,
+            "risk_override": False,
+        },
+        "admission_authorized": False,
+        "execution_authorized": False,
+        "fresh_account_recheck": "NOT_RUN_TERMINAL_VETO",
+    }
+    if old_admission:
+        denied["evaluation"]["original_admission"] = {"admission_authorized": True}
+    before = deepcopy(denied)
+
+    def forbidden(*_):
+        pytest.fail("terminal veto cannot acquire hypothetical post-risk price paths")
+
+    result = report([denied], forbidden)
+    row = result["rows"][0]
+    assert row["jev"] == "VETO" and row["side"] == "BUY"
+    assert row["regime"] == "UNKNOWN" and row["post_risk_candidate"] is False
+    assert row["candidate_evidence"] == "TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK"
+    assert result["candidate_evidence_counts"] == {
+        "TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK": 1
+    }
+    assert result["groups"][0]["horizons"]["1"]["complete"] == 0
+    assert all(
+        m["excluded_model_decisions"] == {"TERMINAL_VETO_NO_FRESH_ACCOUNT_RECHECK": 1}
+        and m["matched_pairs"] == 0
+        for m in result["matched_jev_comparisons"]
+    )
+    assert denied == before
+
+
+def test_terminal_marker_alone_cannot_be_overridden_by_an_old_admission_flag():
+    denied = veto()
+    denied["evaluation"]["jev_entry_gate"]["fresh_account_recheck"] = (
+        "NOT_RUN_TERMINAL_VETO"
+    )
+    result = report([veto("normal"), denied])
+    assert len(result["groups"]) == 2
+    assert {r["post_risk_candidate"] for r in result["rows"]} == {False, True}
 
 
 def test_actual_pnl_is_separate_from_markout_no_implicit_hypothetical_fill():

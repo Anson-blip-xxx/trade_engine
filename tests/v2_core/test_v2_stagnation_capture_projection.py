@@ -17,6 +17,49 @@ from v2_core.state import BusinessState, StateKey
 database = database_fixture
 
 
+def test_actual_exit_capture_survives_pg_view_and_research_reader(database):
+    from test_v2_directional_exit_market import Market, provider
+    from test_v2_directional_exit_stage import SCOPE as exit_scope
+    from test_v2_directional_exit_stage import setup_exit
+
+    root = Path(__file__).resolve().parents[2]
+    with database() as conn:
+        for migration in (
+            "20261110_stagnation_research_view.sql",
+            "20261110_stagnation_prospective_projection.sql",
+        ):
+            conn.execute((root / "db/migrations" / migration).read_text())
+    # The lifecycle fixture opens at virtual millisecond 3. Keep its elapsed
+    # holding clock bounded rather than mixing that epoch with wall time.
+    now = 72 * 3_600_000 + 123_000
+    _, result, venue, service = setup_exit(database, allow_writes=True, now=now)
+    service.observe = provider(Market(server=now), clock=now)
+    episode = result["intent_id"]
+    answer = service.run_once()
+    assert answer["exits"][episode]["status"] == "DISPATCHED", answer
+    # The reader accepts a caller-supplied closed-trade context. This fixture
+    # tests the projection, not a completed exchange settlement or its PnL.
+    as_of = time.time_ns() // 1_000_000 + 1000
+    trade = {
+        "id": episode,
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "opened_ms": 3,
+        "closed_ms": now + 1000,
+        "exit_reason": "LOW_YIELD_STAGNATION",
+    }
+    with database() as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        loaded = evidence.load_frozen_exit(conn, exit_scope, trade, as_of_ms=as_of)
+    assert loaded["status"] == "AVAILABLE", loaded
+    assert loaded["prospective_capture"]["digest_verified"]
+    shadow = evidence.compare_frozen_exit(loaded)["comparison"]["reports"][0]["report"]
+    assert shadow["baseline_reproduced_count"] == 1
+    assert shadow["status"] != "UNAVAILABLE", shadow
+    assert shadow["execution_authorized"] is False
+    assert len(venue.order_writes) == 1
+
+
 def capture_fixture():
     trade, legacy = frozen()
     raw = scenario()["snapshots"][0]

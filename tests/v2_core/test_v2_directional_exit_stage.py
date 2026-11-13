@@ -106,6 +106,38 @@ def test_wait_cycle_is_clear_and_persists_peak_evidence(database):
     assert BusinessState(database).read(service._key(episode)).version == 1
 
 
+def test_inventory_and_actual_market_bundle_persist_qualified_exit_research(database):
+    """Real isolated PG/audit/market adapter; fake exchange, no live calls."""
+    import json
+
+    from test_v2_directional_exit_market import Market, provider
+
+    now = 72 * 3_600_000 + 123_000
+    _, result, venue, service = setup_exit(database, allow_writes=True, now=now)
+    market = Market(server=now)
+    service.observe = provider(market, clock=now)
+    answer = service.run_once()
+    episode = result["intent_id"]
+    assert answer["exits"][episode]["status"] == "DISPATCHED", answer
+    saved = json.loads(BusinessState(database).read(service._key(episode)).payload_json)
+    assert saved["decision"]["reason"] == "LOW_YIELD_STAGNATION"
+    research = saved["research_snapshot"]
+    assert research["status"] == "AVAILABLE", research
+    assert research["qualification_gaps"] == []
+    assert len(research["snapshot"]["hourly_history"]) == 24
+    native = research["snapshot"]["native_protection"]
+    assert native["protected_quantity"] == "1.25"
+    assert native["observed_at_ms"] <= now
+    assert native["available_at_ms"] <= now
+    assert len(market.calls) == 4
+    assert len(venue.order_writes) == 1
+    assert venue.order_writes[0]["reduceOnly"] == "true"
+    assert venue.order_writes[0]["quantity"] == "1.25"
+    # A second cycle recovers the already-acknowledged close, never reposts.
+    service.run_once()
+    assert len(venue.order_writes) == 1
+
+
 def test_exit_audit_honors_explicit_external_position_exclusion(database):
     _, result, venue, service = setup_exit(database)
     venue.rows["/fapi/v3/positionRisk"].append(

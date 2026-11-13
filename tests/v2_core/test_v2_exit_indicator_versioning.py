@@ -80,7 +80,7 @@ def test_legacy_default_keeps_sma_and_output_shape():
     assert result["source"] == "binance-public-exit-v1"
     assert result["ema20_1h"] == "101"
     assert "indicator_contract" not in result
-    assert market.calls[-1][1]["limit"] == 20
+    assert market.calls[-1][1]["limit"] == 24
 
 
 def test_ema_ignores_callers_decimal_precision():

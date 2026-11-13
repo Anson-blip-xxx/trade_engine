@@ -1,0 +1,120 @@
+{
+  "schema": "profit-capture-review-v1",
+  "date": "2026-11-13",
+  "timezone": "Asia/Shanghai",
+  "as_of_display": "2026-11-13 08:38 UTC+8",
+  "status": "READ_ONLY_REVIEW_NO_STRATEGY_CHANGE",
+  "scope": {
+    "execution_environment": "SANDBOX",
+    "account_identity_omitted": true,
+    "live_database_writes": 0,
+    "venue_requests": 0,
+    "parameter_changes": 0,
+    "service_restarts": 0,
+    "controller_release": "weekly-correctness-controller-20261111-v1",
+    "runtime_policy_version": 11
+  },
+  "account_settlement": {
+    "basis": "CURRENT_REVISION_COMPLETE_USDT_SETTLEMENT_BY_FINAL_CLOSE_DAY_NOT_EQUITY_RETURN",
+    "week": {
+      "start_day": "2026-11-06",
+      "end_day_inclusive": "2026-11-12",
+      "settled": 179,
+      "wins": 75,
+      "losses": 104,
+      "gross_trade_usdt": "-18.74499150",
+      "fees_usdt": "16.46564258",
+      "funding_usdt": "0.67712263",
+      "correction_usdt": "-0.00000002",
+      "net_usdt": "-34.53351147",
+      "profit_factor_rounded": "0.832",
+      "median_held_minutes_rounded": "66.32",
+      "median_open_notional_usdt_rounded": "102.53",
+      "all_observed_leverage": 2,
+      "long": {"count": 73, "net_usdt_rounded": "-0.7160"},
+      "short": {"count": 106, "net_usdt_rounded": "-33.8175"},
+      "winner_net_total_rounded": "171.3025",
+      "loser_net_total_rounded": "-205.8360",
+      "truncated": false,
+      "independent_check": "Account-scoped CLOSE fills without an opening-time lower bound returned 179 episodes, all currently settled, with matching final-close window and net total; carry-in included."
+    },
+    "days": [
+      {"day": "2026-11-11", "complete_day": true, "settled": 31, "wins": 17, "losses": 14, "net_usdt_rounded": "-11.4826"},
+      {"day": "2026-11-12", "complete_day": true, "settled": 8, "wins": 5, "losses": 3, "net_usdt_rounded": "4.8394"},
+      {"day": "2026-11-13", "complete_day": false, "settled": 8, "wins": 6, "losses": 2, "net_usdt_rounded": "18.8800"}
+    ],
+    "post_release_opened_settled_subset": {
+      "count": 24,
+      "net_usdt_rounded": "17.1859",
+      "interpretation": "Small descriptive subset, concentrated in the latest partial day; no attribution to a correctness-only release with unchanged trading policy."
+    },
+    "counterexample_to_never_captures_large_moves": {
+      "symbol": "INITUSDT",
+      "direction": "BUY",
+      "day": "2026-11-10",
+      "net_usdt_rounded": "18.2649",
+      "opening_notional_usdt_rounded": "97.7235",
+      "net_to_open_notional_pct_rounded": "18.69",
+      "interpretation": "Actual trade return on opening notional, not account return or capture of the day's full move."
+    }
+  },
+  "jev_candidate_decisions": {
+    "day": "2026-11-12",
+    "method": "Hourly bounded account-consumer decision reads, exact receipt lookup, then exact evidence projection for JEV reasons or OPEN actions; no model calls or full raw evidence export.",
+    "selected_gate_decisions": 406,
+    "trend_veto": 396,
+    "pass": 8,
+    "review_deadline_expired": 2,
+    "full_candidate_veto_rate": null,
+    "source": "s3",
+    "truncated": false,
+    "active_min_trend_support": "0.6",
+    "active_max_chase_risk": "0.7",
+    "unavailable_action": "BASELINE",
+    "limitations": [
+      "Decision events are not independent market opportunities; repeated symbol/bar/model contexts may occur.",
+      "Selection misses PASS evidence subsequently changed to TREND_OPPORTUNITY_ALREADY_CLAIMED. Other refreshed market rejections can lack final gate evidence despite an earlier model request. 406 is not a complete model-candidate denominator; do not report 396/406 as the overall veto rate.",
+      "This is not all model requests, all ingress signals, or a veto-error rate.",
+      "High rejection rate does not establish lost profits or that rejected trades would pass fresh execution checks.",
+      "Model hypothesis scores are explicitly uncalibrated, not trade win probabilities."
+    ]
+  },
+  "verified_design_gaps": [
+    {
+      "id": "STRATEGY_HEURISTICS_USED_AS_UNVALIDATED_HARD_VETOES",
+      "evidence": "Active trend path combines global long-regime veto, EMA alignment and slopes, current candle direction, taker flow, relative volume, setup and proximity tests, followed by JEV thresholds. Their independent incremental profitability is not established by rejection counts.",
+      "source": "services/v2_trend_entry.py:117"
+    },
+    {
+      "id": "TREND_ENTRY_WITH_SHORT_WAVE_EXIT",
+      "evidence": "Active structural entries select S6A/S8; peak activates at 3 percent and a 2 percentage point retreat closes remaining exposure. Independent residual-trend policy supports OFF/SHADOW only, not execution.",
+      "source": "v2_core/trend_runner.py:40",
+      "counterevidence": "Nov12 MAGMA profitable peak exit was followed by an adverse price path; JCT two exits had mixed following paths. Uniformly widening exits is not supported."
+    },
+    {
+      "id": "RESEARCH_CAPTURE_NOT_OPERATIONALLY_COMPLETE",
+      "evidence": "Workspace exit capture is absent from the active controller. Eleven reviewed stagnation examples lack prospective capture and fail OBSERVATION_AVAILABILITY_NOT_PROVEN. Existing workspace capture also omits native position quantity evidence and legacy input retains only 20 hourly bars where the research contract needs at least 24.",
+      "source": "services/v2_directional_exit.py:42",
+      "boundary": "Deploying only the caller is insufficient. Do not invent historic availability. Separate descriptive exit research eligibility from permission to keep actual exposure open."
+    },
+    {
+      "id": "ACTIVE_LEVERAGE_PROFILE_CAP",
+      "evidence": "trend.max_leverage=2 caps structural entries after adaptive tier choice, despite configured 3/5/8 tiers elsewhere. All 179 settled weekly trades used 2x.",
+      "source": "services/v2_directional_replay.py:332",
+      "boundary": "Changing leverage does not necessarily increase notional under risk-based sizing; increasing a losing cohort's exposure is not a profitability fix."
+    }
+  ],
+  "adjustment_priorities_not_implemented": [
+    "Complete and verify bounded fail-soft forward exit evidence collection, including same-observation quantity proof and sufficient hourly history; retain retrospective descriptive research when execution proof is unavailable.",
+    "Keep account isolation, reserved margin, valid prices, native protection and idempotent execution as hard constraints. Test global regime and JEV as graded research inputs rather than adding more universal vetoes.",
+    "Compare coherent breakout and pullback-resumption profiles independently; merely lowering volume from 1 to 0.75 produced only four extra market candidates in Nov12's bounded frozen replay, not proven executions.",
+    "Implement and validate actual trend-residual management after partial realization, with structure-based invalidation and no added risk budget; preserve the short-wave baseline for a fair comparison.",
+    "Prioritize the short cohort's entry quality and payoff structure, and evaluate net R, costs, tail contribution, drawdown and giveback on fixed future windows before raising exposure."
+  ],
+  "research_boundaries": [
+    "LIVE daily mover rankings and SANDBOX trade execution are not interchangeable price histories.",
+    "Exit-reason PnL groups are classifications of actual results, not alternative-strategy backtests.",
+    "No claim that looser rules, longer holding, higher leverage or JEV softening will improve profitability.",
+    "Reviewed existing runner simulations contain open arms and unavailable cases; closed-only totals are not complete comparative strategy results."
+  ]
+}
