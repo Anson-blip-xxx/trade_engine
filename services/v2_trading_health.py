@@ -97,6 +97,21 @@ def settlement_health_projection(cycle):
     }
 
 
+def entry_blocking_stages(phases, *, settlement_clear=False):
+    """Attribute blocked entry without promoting background bookkeeping.
+
+    Maintenance keeps its independent degraded finding. It never participates
+    in the pipeline's safety gate, including when a real blocker co-occurs.
+    """
+    return [
+        name
+        for name, value in phases.items()
+        if name != "signal_maintenance"
+        and failed(value)
+        and not (name == "settlement" and settlement_clear)
+    ]
+
+
 def rejected_residual_closes(conn, scope, now, safety_seconds):
     """Read owned active episodes, then indexed order/fill children only.
 
@@ -755,10 +770,7 @@ class TradingHealth:
                 }
         if latest and latest[0].get("status") == "ENTRY_BLOCKED":
             phases = latest[0].get("phases", {})
-            blocked = [
-                name for name, value in phases.items()
-                if failed(value) and not (name == "settlement" and settlement_clear)
-            ]
+            blocked = entry_blocking_stages(phases, settlement_clear=settlement_clear)
             findings["PIPELINE_ENTRY_BLOCKED"] = {"stages": blocked}
             if any(name in blocked for name in ("protection", "exits")):
                 finding = findings.setdefault("POSITION_SAFETY_BLOCKED", {})

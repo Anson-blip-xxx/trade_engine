@@ -17,7 +17,7 @@ EXPECTED = {
     "services/v2_directional_cash.py": "562b2fc5f467b1a9478d3a80ec7a9fd8d965219ca4c7d82b715a061b8538762d",
     "services/v2_directional_settlement.py": "d8e48b540360b7908171c1c69f26882f7d194147f8823987aa39f66ad8c60432",
     "services/v2_performance_reporting.py": "055dbbba7f46556a09bb5614afd144a5b8fd3bac22749c5d672b546028457811",
-    "services/v2_trading_health.py": "2949582528a0625c50fa3749c3713a4f241271d71e2e2e28c1b76ae2b8e94842",
+    "services/v2_trading_health.py": "19b058494abc4baa90710575ff3234c155f62f9a217998c692861e5ea97e4db7",
     "services/v2_trading_pipeline.py": "8244aa7a202acd1d74921e7701152c7aadf5f926a840bf64c59cab6fd926b03e",
     "v2_core/cash_adjustment_basis.py": "6d418326642dcc61339fcefbc4024ac7b2ddf8e8920906b2152df0b2b4ab1168",
     "v2_core/runtime_policy.py": "7dfd0793c919651af6cbce554449984876598ea9e6458867764e141493a4d605",

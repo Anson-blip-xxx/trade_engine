@@ -90,13 +90,26 @@ def ports(monkeypatch):
     monkeypatch.setattr(activation.sys, "dont_write_bytecode", True)
 
     def process(command, **kwargs):
+        assert kwargs == {
+            "text": True,
+            "timeout": 10,
+            "stderr": activation.subprocess.DEVNULL,
+        }
+        state["process_calls"].append(command)
+        if command[:4] == ["sudo", "-n", "readlink", "-f"]:
+            assert command[4] == "/proc/" + state["pid"] + "/cwd"
+            if state.get("readlink_failure"):
+                raise PermissionError("SENSITIVE_PROVIDER_FAILURE")
+            return (
+                "/wrong/process" if state["cwd_mismatch"] else str(state["process_cwd"])
+            )
         assert command[:2] == ["systemctl", "show"]
         assert command[-3:] == ["-p", "MainPID", "--value"]
-        assert kwargs == {"text": True}
-        state["process_calls"].append(command)
         state["process_cwd"] = (
             root if command[2] == "trade-v2-execution-controller.service" else admin
         )
+        if state.get("pid_changed") and len(state["process_calls"]) == 3:
+            return "124"
         return state["pid"]
 
     monkeypatch.setattr(activation.subprocess, "check_output", process)
@@ -162,7 +175,7 @@ def test_activation_dry_run_reads_but_never_patches_or_logs_account_ids(ports, c
     assert activation.main() == 0
     assert ports["patches"] == []
     assert ports["captures"] == 1
-    assert len(ports["process_calls"]) == 2
+    assert len(ports["process_calls"]) == 6
     output = capsys.readouterr().out
     assert "private-unit" not in output
     assert json.loads(output)["writes"] is False
@@ -209,13 +222,31 @@ def test_unknown_cli_arguments_cannot_write(ports, monkeypatch, arguments):
     assert ports["process_calls"] == ports["patches"] == []
 
 
-@pytest.mark.parametrize("pid", ["", "0", "1", "-1", "not-a-pid"])
+@pytest.mark.parametrize(
+    "pid",
+    ["", "0", "1", "-1", "not-a-pid", "１２３", "2147483648", "123/../../environ"],
+)
 def test_running_pid_is_required_before_policy_access(ports, pid):
     ports["pid"] = pid
     with pytest.raises(ValueError, match="COMPATIBLE_RUNNING_RELEASE_REQUIRED"):
         activation.main()
     assert ports["captures"] == 0
     assert ports["patches"] == []
+
+
+@pytest.mark.parametrize("failure", ["pid_changed", "readlink_failure"])
+def test_cross_user_cwd_failure_or_restart_is_sanitized(ports, failure):
+    ports[failure] = True
+    with pytest.raises(ValueError, match="^COMPATIBLE_RUNNING_RELEASE_REQUIRED$"):
+        activation.main()
+    assert ports["captures"] == 0
+    assert ports["patches"] == []
+
+
+def test_running_rejects_unapproved_service_before_sudo(ports):
+    with pytest.raises(ValueError, match="COMPATIBLE_RUNNING_RELEASE_REQUIRED"):
+        activation.running("other.service", activation.ADMIN)
+    assert ports["process_calls"] == []
 
 
 @pytest.mark.parametrize(

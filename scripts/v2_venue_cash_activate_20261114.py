@@ -43,15 +43,33 @@ def reviewed_controller():
 
 
 def running(unit, expected):
-    pid = subprocess.check_output(
-        ["systemctl", "show", unit, "-p", "MainPID", "--value"], text=True
-    ).strip()
-    if (
-        not pid.isdecimal()
-        or int(pid) <= 1
-        or Path("/proc", pid, "cwd").resolve() != expected
-    ):
+    """Inspect another service user's cwd without reading its environment."""
+    if unit not in {
+        "trade-v2-execution-controller.service",
+        "trade-v2-account-admin.service",
+    }:
         raise ValueError("COMPATIBLE_RUNNING_RELEASE_REQUIRED")
+    command = ["systemctl", "show", unit, "-p", "MainPID", "--value"]
+    try:
+        pid = subprocess.check_output(
+            command, text=True, timeout=10, stderr=subprocess.DEVNULL
+        ).strip()
+        if not pid.isascii() or not pid.isdecimal() or not 1 < int(pid) < 2**31:
+            raise ValueError
+        cwd = subprocess.check_output(
+            ["sudo", "-n", "readlink", "-f", "/proc/" + pid + "/cwd"],
+            text=True,
+            timeout=10,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        # A restart while inspecting /proc invalidates the observation.
+        after = subprocess.check_output(
+            command, text=True, timeout=10, stderr=subprocess.DEVNULL
+        ).strip()
+        if cwd != str(expected) or after != pid:
+            raise ValueError
+    except (OSError, subprocess.SubprocessError, ValueError):
+        raise ValueError("COMPATIBLE_RUNNING_RELEASE_REQUIRED") from None
 
 
 def main():
