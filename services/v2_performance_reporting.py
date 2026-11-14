@@ -4,6 +4,8 @@ Only owned V2 directional episodes are included. All days are UTC+8. Missing
 venue realized PnL or non-USDT fees make cash PnL unknown rather than zero.
 """
 
+from v2_core.cash_adjustment_basis import cash_adjustment_basis_sql
+
 
 def performance(conn, account_id=None):
     scope = "i.exchange='BINANCE' AND i.environment='SANDBOX' AND i.product='FUTURES' AND i.producer IN ('s6','s8')"
@@ -24,18 +26,28 @@ def performance(conn, account_id=None):
         (SELECT coalesce(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)
          FROM v2_orders o JOIN v2_fills f USING(order_id) WHERE o.episode_id=i.intent_id)>0)
         FROM v2_trade_intents i WHERE {scope}""").fetchone()
-    cash = conn.execute(f"""WITH events AS (
+    adjustment_basis = cash_adjustment_basis_sql()
+    cash = conn.execute(f"""WITH adjustments AS (
+        SELECT i.account_id,c.occurred_at_ms,c.currency,c.amount,
+          {adjustment_basis} AS basis
+        FROM v2_cash_adjustments c JOIN v2_trade_intents i
+          ON i.intent_id=c.episode_id WHERE {scope}
+        ), events AS (
         SELECT i.account_id,f.occurred_at_ms,
           CASE WHEN f.fee_currency='USDT' AND f.payload->>'venue_realized_pnl' IS NOT NULL
-            THEN (f.payload->>'venue_realized_pnl')::numeric-f.fee END AS pnl
+            THEN (f.payload->>'venue_realized_pnl')::numeric-f.fee END AS pnl,
+          false AS unclassified_adjustment
         FROM v2_fills f JOIN v2_orders o USING(order_id)
         JOIN v2_trade_intents i ON i.intent_id=o.episode_id WHERE {scope}
         UNION ALL
-        SELECT i.account_id,c.occurred_at_ms,CASE WHEN c.currency='USDT' THEN c.amount END
-        FROM v2_cash_adjustments c JOIN v2_trade_intents i ON i.intent_id=c.episode_id WHERE {scope}
+        SELECT account_id,occurred_at_ms,
+          CASE WHEN currency='USDT' AND basis='REAL_CASH' THEN amount END,
+          basis='UNKNOWN'
+        FROM adjustments WHERE basis<>'THEORY_TO_VENUE_BRIDGE'
         ) SELECT account_id,(to_timestamp(occurred_at_ms/1000.0) AT TIME ZONE 'Asia/Shanghai')::date::text,
           CASE WHEN count(*) FILTER (WHERE pnl IS NULL)=0 THEN sum(pnl) END,
-          count(*) FILTER (WHERE pnl IS NULL)
+          count(*) FILTER (WHERE pnl IS NULL),
+          count(*) FILTER (WHERE unclassified_adjustment)
         FROM events GROUP BY 1,2 ORDER BY 2 DESC,1 LIMIT 180""").fetchall()
     closed = conn.execute(f"""WITH settled AS ({latest})
         SELECT s.account_id,(to_timestamp(f.closed_ms/1000.0) AT TIME ZONE 'Asia/Shanghai')::date::text,
@@ -61,8 +73,9 @@ def performance(conn, account_id=None):
                     "day": d,
                     "net_pnl": str(p) if p is not None else None,
                     "unvalued_events": n,
+                    "unclassified_adjustments": unknown,
                 }
-                for a, d, p, n in cash
+                for a, d, p, n, unknown in cash
             ],
             "closed_trades": [
                 {"account_id": a, "day": d, "net_pnl": str(p), "trades": n}
@@ -70,6 +83,7 @@ def performance(conn, account_id=None):
             ],
             "mark_to_market": None,
             "mark_to_market_status": "DAILY_EQUITY_SNAPSHOTS_NOT_AVAILABLE",
+            "cash_basis": "VENUE_REPORTED_PNL_PLUS_CLASSIFIED_CASH_V1",
             "note": "收支按事件时间；整笔业绩按最终平仓时间；不可相加。每日净值尚无完整快照，不推算。",
         },
     }

@@ -177,7 +177,13 @@ def test_settlement_to_outcome_crash_gap_is_recovered(database, closed, monkeypa
         "record",
         lambda _: (_ for _ in ()).throw(ConnectionError("after settlement commit")),
     )
-    assert worker.run_once()["status"] == "BLOCKED"
+    attempted = worker.run_once()
+    assert attempted["status"] == "CLEAR"
+    assert attempted["settlements"][episode]["status"] == "SETTLED"
+    assert attempted["outcomes"][episode] == {
+        "status": "BLOCKED",
+        "error_code": "ConnectionError",
+    }
     assert runtime.data.trace(episode)["episode"]["status"] == "SETTLED"
     with database() as conn:
         assert (

@@ -18,12 +18,13 @@ from v2_core.ledger import amount
 from v2_core.liquidation_cash import insurance_clear_candidate
 from v2_core.native_entry_precision import ORIGINS, protection_key
 from v2_core.precision import money_context
-from v2_core.runtime_policy import PolicyStore
+from v2_core.runtime_policy import PolicySnapshot, PolicyStore, resolve
 from v2_core.scheduling import diagnostic_code
 from v2_core.service import TradingData
 from v2_core.session_lock import session_advisory_lock
 from v2_core.settlement_precision import rounding_proof
 from v2_core.state import BusinessState, StateKey
+from v2_core.venue_cash import CashDifferencePolicy, analyze_venue_cash
 
 
 def _native_entry_observation(conn, scope, trace, order):
@@ -148,8 +149,24 @@ def _entry_observations(conn, scope, trace):
     return result
 
 
-def reconcile_cash(trace, report, rows, *, scope, entry_observations=None):
+def reconcile_cash(
+    trace, report, rows, *, scope, entry_observations=None, policy_snapshot=None
+):
     """All inputs must come from the bound journal, never caller completeness flags."""
+    policy_values = None
+    if policy_snapshot is not None:
+        if (
+            type(policy_snapshot) is not PolicySnapshot
+            or type(policy_snapshot.version) is not int
+            or policy_snapshot.version < 0
+        ):
+            raise ValueError("INVALID_CASH_POLICY_SNAPSHOT")
+        policy_values = resolve(policy_snapshot.values)
+        if canonical(policy_values) != policy_snapshot.values_json:
+            raise ValueError("INVALID_CASH_POLICY_SNAPSHOT")
+    cash_basis_version = (
+        1 if policy_values is None else policy_values["settlement.cash_basis_version"]
+    )
     if any(trace["scope"].get(k) != v for k, v in asdict(scope).items()):
         raise ValueError("CASH_SCOPE_MISMATCH")
     if trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY" or trace["scope"][
@@ -263,18 +280,55 @@ def reconcile_cash(trace, report, rows, *, scope, entry_observations=None):
         )
         if fees != Decimal(report["fees"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
-        # Only after exact per-trade income/fee matching may the narrowly
-        # witnessed venue-reported cash boundary be considered. This remains a
-        # candidate: final fresh inventory and wallet equality are mandatory
-        # in DirectionalSettlementStage before any correction is committed.
-        precision = rounding_proof(
-            trace,
-            report,
-            entry_observations=entry_observations,
-            allow_reported_boundary_cash=True,
-        )
-        if gross != Decimal(report["gross_pnl"]) + amount(precision["amount"]):
-            raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
+        if cash_basis_version == 2:
+            # Actual income and per-trade values already match exactly above.
+            # Do not guess exchange rounding or require a pre-close witness to
+            # explain cash facts. Review classification is separate from final
+            # fresh account coverage and exact wallet equality; no correction
+            # amount is manufactured and no tolerance is applied to the wallet.
+            analysis = analyze_venue_cash(
+                trace,
+                report,
+                policy=CashDifferencePolicy(
+                    version="runtime-policy-v1:" + str(policy_snapshot.version),
+                    max_abs_per_fill=policy_values[
+                        "settlement.max_difference_per_fill_usdt"
+                    ],
+                    max_sum_abs_episode=policy_values[
+                        "settlement.max_difference_episode_usdt"
+                    ],
+                ),
+            )
+            if gross != Decimal(analysis["actual_gross_pnl"]):
+                raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
+            basis = {
+                "cash_basis_version": 2,
+                "venue_cash_analysis": analysis,
+                "cash_policy_snapshot": {
+                    "version": policy_snapshot.version,
+                    "digest": policy_snapshot.digest,
+                    "values": {
+                        name: policy_values[name]
+                        for name in (
+                            "settlement.cash_basis_version",
+                            "settlement.max_difference_per_fill_usdt",
+                            "settlement.max_difference_episode_usdt",
+                        )
+                    },
+                },
+            }
+        else:
+            # Historical version 1 retains its original rounding/witness
+            # contract. An explicit account policy activation selects version 2.
+            precision = rounding_proof(
+                trace,
+                report,
+                entry_observations=entry_observations,
+                allow_reported_boundary_cash=True,
+            )
+            if gross != Decimal(report["gross_pnl"]) + amount(precision["amount"]):
+                raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
+            basis = {"precision_reconciliation": precision}
         funding_total = sum((Decimal(f["amount"]) for f in funding), Decimal(0))
         insurance_total = sum((Decimal(f["amount"]) for f in insurance), Decimal(0))
         return {
@@ -288,7 +342,7 @@ def reconcile_cash(trace, report, rows, *, scope, entry_observations=None):
             "funding_candidates": funding,
             "insurance_clear": str(insurance_total),
             "insurance_candidates": insurance,
-            "precision_reconciliation": precision,
+            **basis,
             "settlement_authorized": False,
             "trade_ids": sorted(trades),
             "income_digest": digest(canonical({"rows": rows})),
@@ -505,11 +559,8 @@ class DirectionalCashAudit:
             ]
             if len(rows) != run["rows"]:
                 raise ValueError("INCOME_WINDOW_CHANGED")
-            managed = (
-                PolicyStore(lambda: nullcontext(conn), self.scope)
-                .read()
-                .values["capital.enabled"]
-            )
+            policy_snapshot = PolicyStore(lambda: nullcontext(conn), self.scope).read()
+            managed = policy_snapshot.values["capital.enabled"]
             # Same-symbol overlapping exposure still cannot own funding uniquely.
             overlap = conn.execute(
                 """SELECT 1 FROM v2_trade_intents i JOIN v2_orders o ON o.episode_id=i.intent_id
@@ -550,9 +601,18 @@ class DirectionalCashAudit:
                 episode, settlement_currency="USDT", connection=conn
             )
             try:
-                proof = reconcile_cash(current, report, target_rows, scope=self.scope)
+                proof = reconcile_cash(
+                    current,
+                    report,
+                    target_rows,
+                    scope=self.scope,
+                    policy_snapshot=policy_snapshot,
+                )
             except ValueError as exc:
-                if str(exc) != "UNEXPLAINED_FILL_PNL_PRECISION":
+                if (
+                    policy_snapshot.values["settlement.cash_basis_version"] != 1
+                    or str(exc) != "UNEXPLAINED_FILL_PNL_PRECISION"
+                ):
                     raise
                 proof = reconcile_cash(
                     current,
@@ -560,6 +620,7 @@ class DirectionalCashAudit:
                     target_rows,
                     scope=self.scope,
                     entry_observations=_entry_observations(conn, self.scope, current),
+                    policy_snapshot=policy_snapshot,
                 )
             proof.update(
                 excluded_income_ids=[row["income_id"] for row in external_rows],

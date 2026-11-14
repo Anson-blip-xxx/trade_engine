@@ -1,0 +1,121 @@
+{
+  "schema": "venue-cash-basis-acceptance-v1",
+  "date": "2026-11-14",
+  "timezone": "Asia/Shanghai",
+  "status": "QA_PASSED_WEB_DEPLOYED_CONTROLLER_WAITING_FOR_FLAT",
+  "scope": "Existing BINANCE SANDBOX linear USDT directional episodes only",
+  "root_cause": "Actual fill cash, exact matched income and wallet were forced to conform to an enumerated theoretical rounding model. Unrecognized but economically reconciled cash shapes blocked settlement and therefore new entry scheduling. Research outcome failures after a successful financial commit also leaked into the entry gate.",
+  "contract": {
+    "versioned_immutable_cash_basis": "venue-cash-basis-v1",
+    "authority": "Original venue fill realized PnL plus exact matched income, real funding/insurance and final account wallet reconciliation",
+    "theoretical_pnl": "Retained separately with exact rational per-fill differences and absolute-sum/max anomaly measures",
+    "new_theory_to_cash_corrections": false,
+    "requires_guessed_rounding_algorithm": false,
+    "requires_preclose_entry_witness": false,
+    "wallet_tolerance": "0",
+    "income_identity_and_fee_matching_relaxed": false,
+    "final_account_inventory_required": true,
+    "policy_and_ledger_revision_fenced": true,
+    "ledger_recomputes_analysis_before_commit": true,
+    "historical_fill_or_settlement_rewrites": false,
+    "material_or_unknown_cash_discrepancy": "Explicit REVIEW_REQUIRED or existing financial blocker; not silently ignored",
+    "research_failure_after_settlement": "Retried and independently alerted as SETTLEMENT_ANALYSIS_DEGRADED; does not undo or block known-clear cash",
+    "legacy_daily_cash": "Exclude only provenance-verified theory-to-venue bridge adjustments; retain real funding/insurance; unknown corrections produce an explicit unknown cash result"
+  },
+  "policy": {
+    "default_cash_basis_version": 1,
+    "new_cash_basis_version": 2,
+    "max_abs_difference_per_fill_usdt": "0.000001",
+    "max_sum_absolute_differences_per_episode_usdt": "0.0001",
+    "limits_are_wallet_tolerances": false,
+    "activation": "Account-scoped PostgreSQL PolicyStore CAS after compatible controller and admin releases; only the basis selector changes",
+    "activation_script": "scripts/v2_venue_cash_activate_20261114.py"
+  },
+  "read_only_historical_shadow": {
+    "recent_settlements": 100,
+    "exact": 97,
+    "within_reviewed_policy": 3,
+    "maximum_total_reported_difference_usdt": "0.00000001",
+    "fresh_income_and_wallet_revalidation": false,
+    "mutations": false,
+    "historical_bridge_records_by_model": {
+      "binance-usdt-observed-entry-truncate-8-v1": 8,
+      "binance-usdt-per-fill-truncate-8-v1": 9,
+      "venue-reported-boundary-cash-adjustment-v1": 1
+    }
+  },
+  "qa": {
+    "workspace_integration": {"passed": 539, "failed": 0, "seconds": 263.62, "log": "/tmp/v2-data-qa.C7esb7/pytest.log"},
+    "candidate_controller_final": {"passed": 800, "failed": 0, "seconds": 276.62, "log": "/tmp/v2-data-qa.Mmz7M0/pytest.log", "verified_candidate_imports": 112},
+    "candidate_dashboard": {"passed": 7, "failed": 0, "seconds": 5.19, "log": "/tmp/v2-data-qa.BA2bLM/pytest.log"},
+    "candidate_admin": {"passed": 45, "failed": 0, "deselected_cross_application_fixture": 1, "seconds": 30.28, "log": "/tmp/v2-data-qa.XfhsbV/pytest.log"},
+    "workspace_cross_application_fixture": {"passed": 1, "failed": 0, "seconds": 2.01, "log": "/tmp/v2-data-qa.m5ZLQj/pytest.log"},
+    "independent_health_consumer_audit": "New research-degradation alert is notification/display only; execution supervisor discards health.step return, and capital/worker gates do not read business-health active findings",
+    "counts_are_additive_unique_tests": false,
+    "coverage": [
+      "Historical positive/negative/zero cash shapes; multi-fill exact rational math; 200 generated episodes; theoretical differences below 1e-18",
+      "Missing/duplicate/wrong income, fee mismatch, one-storage-quantum wallet mismatch and material review remain blocked",
+      "Atomic rollback, concurrent retry, immutable fills, funding once, no new precision correction",
+      "Basis/account/revision/digest/analysis/policy tampering and configuration races rejected",
+      "Settled research failures isolated while true cash errors remain blocking; independent alert debounce and recovery",
+      "Legacy daily cash bridge double-count removed, unknown corrections explicit, insurance retained",
+      "Actual runtime package origins; minimal dashboard column privileges; guarded activation and flat-only release"
+    ],
+    "initial_failures_not_hidden": [
+      "Initial draft used the wrong fill column name; corrected before successful integration run",
+      "Strict result validator initially rejected trailing-zero monetary strings; exact normalization and regression added",
+      "Initial candidate test selection ran dashboard and admin-cross-runtime fixtures against the controller package; separated tests by actual service artifact rather than copying unrelated runtime code"
+    ],
+    "real_new_version_natural_trade_lifecycle_verified": false
+  },
+  "artifacts": {
+    "controller": "/opt/trade-engine-v2/releases/venue-cash-controller-20261114-v1",
+    "controller_changed_files": 12,
+    "controller_manifest": "scripts/v2_venue_cash_release_20261114.py",
+    "dashboard": "/opt/trade-engine-v2/releases/venue-cash-dashboard-20261114-v1",
+    "dashboard_changed_files": 2,
+    "admin": "/opt/trade-engine-v2/releases/venue-cash-admin-20261114-v1",
+    "admin_changed_files": 1,
+    "unreleased_quant_wiring_deployed": false,
+    "dashboard_permission_patch": "db/postgres_v2_dashboard_cash_basis_grants.sql",
+    "dashboard_grant": "Only SELECT of eleven income-proof columns, not table-wide SELECT or writes"
+  },
+  "rollout": {
+    "controller_deployed": false,
+    "new_cash_basis_activated": false,
+    "runtime_cash_basis_version": 1,
+    "runtime_policy_version": 11,
+    "dashboard_deployed": true,
+    "admin_compatible_parser_deployed": true,
+    "dashboard_minimal_income_read_grant_applied": true,
+    "dashboard_actual_role_candidate_query_seconds": 0.056,
+    "dashboard_income_table_wide_select": false,
+    "dashboard_income_write_privileges": false,
+    "dashboard_income_source_id_select": false,
+    "web_process_working_directories_verified": true,
+    "web_http_checks": {
+      "dashboard_root": 200,
+      "dashboard_api_overview": 200,
+      "dashboard_api_overview_seconds": 0.241,
+      "account_page": 200,
+      "strategy_page": 200,
+      "authenticated_account_api": 200,
+      "unauthenticated_account_api": 403
+    },
+    "flat_precheck": "LOCAL_RELEASE_WORK_PENDING",
+    "observed_local_position": "VELVETUSDT",
+    "controller_pid_unchanged": true,
+    "forced_close_or_restart": false,
+    "latest_checked_pipeline": "CYCLE_COMPLETE",
+    "protection_exit_settlement": "CLEAR",
+    "latest_signal_consumption_lag_state": "CLEAR",
+    "active_health_alarms_at_check": [],
+    "market_hub_and_tradingview_restart_required": false
+  },
+  "rollback": "To disable new settlement valuation, set the selector back to 1 through PolicyStore CAS, retaining the compatible parser and new ledger reader for already-committed cash-basis records. Do not roll back to an old parser that rejects the added keys or an old ledger reader that would misvalue those settlements. Old immutable facts and release packages remain available.",
+  "remaining_boundaries": [
+    "Unknown positions, orders, income ownership, material cash discrepancies and mismatched wallets still fail closed; this is not a general bypass of settlement safety",
+    "Existing bounded income-publication grace and retained risk reservations are unchanged",
+    "LIVE activation is outside this Testnet implementation and has not been verified"
+  ]
+}

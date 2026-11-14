@@ -145,7 +145,16 @@ class DirectionalSettlementStage:
                 }
             result = self._settle_locked(episode, cash)
         if result.get("status") == "SETTLED":
-            result["outcome"] = self.outcomes.record(episode)
+            # Settlement and risk release have already committed. A derived
+            # analysis failure cannot turn that financial fact back into a
+            # blocked settlement; run_once retries missing outcomes separately.
+            try:
+                result["outcome"] = self.outcomes.record(episode)
+            except Exception as exc:  # noqa: BLE001 - retain safe analysis diagnostics
+                result["outcome"] = {
+                    "status": "BLOCKED",
+                    "error_code": diagnostic_code(exc),
+                }
         return result
 
     def _external_cash(
@@ -217,6 +226,14 @@ class DirectionalSettlementStage:
         return external, run["run_id"]
 
     def _settle_locked(self, episode, cash):
+        venue_basis = cash.get("cash_basis_version", 1) == 2
+        if venue_basis and cash["venue_cash_analysis"]["anomaly"]["status"] not in {
+            "EXACT",
+            "WITHIN_POLICY",
+        }:
+            # Material/unexplained economics still require review. Small venue
+            # reporting differences no longer require a guessed rounding model.
+            raise ValueError("VENUE_CASH_REVIEW_REQUIRED")
         baseline_order, baseline_proof, baseline, baseline_version = self._baseline(
             episode
         )
@@ -264,7 +281,9 @@ class DirectionalSettlementStage:
             cash=cash,
         )
         with money_context():
-            external_amount = sum((Decimal(row["amount"]) for row in external), Decimal(0))
+            external_amount = sum(
+                (Decimal(row["amount"]) for row in external), Decimal(0)
+            )
             wallet_delta = final_wallet - start_wallet
             attributed_wallet_delta = wallet_delta - external_amount
         if attributed_wallet_delta != provisional:
@@ -316,6 +335,14 @@ class DirectionalSettlementStage:
                 raise ValueError("CASH_OBSERVATION_SUPERSEDED")
             if self.coverage.facts(connection=conn) != after:
                 raise ValueError("SETTLEMENT_FACTS_CHANGED")
+            if venue_basis:
+                policy = PolicyStore(lambda: nullcontext(conn), self.scope).read()
+                captured = cash["cash_policy_snapshot"]
+                if (
+                    policy.version != captured["version"]
+                    or policy.digest != captured["digest"]
+                ):
+                    raise ValueError("SETTLEMENT_POLICY_SUPERSEDED")
             journal = IncomeJournal(lambda: nullcontext(conn))
             revision = cash["ledger_revision"]
             for funding in cash["funding_candidates"]:
@@ -335,7 +362,9 @@ class DirectionalSettlementStage:
                 revision += 1
             for insurance in cash.get("insurance_candidates", []):
                 inserted = journal.assign_insurance_clear(
-                    insurance["income_id"], episode, expected_revision=revision,
+                    insurance["income_id"],
+                    episode,
+                    expected_revision=revision,
                     evidence={
                         "source": "directional-settlement-v1",
                         "fills_complete": True,
@@ -347,8 +376,8 @@ class DirectionalSettlementStage:
                 )
                 revision += int(inserted)
             ledger = Ledger(lambda: nullcontext(conn))
-            precision = cash["precision_reconciliation"]
-            if amount(precision["amount"]) != 0:
+            precision = cash.get("precision_reconciliation")
+            if not venue_basis and amount(precision["amount"]) != 0:
                 inserted = ledger.adjustment(
                     episode_id=episode,
                     source_id=f"{precision['model']}:{episode}",
@@ -366,10 +395,22 @@ class DirectionalSettlementStage:
                 )
                 revision += int(inserted)
             report = ledger.report(episode, settlement_currency="USDT", connection=conn)
+            cash_basis = None
+            if venue_basis:
+                cash_basis = ledger.cash_basis_candidate(
+                    episode,
+                    report,
+                    analysis=cash["venue_cash_analysis"],
+                    income_digest=cash["income_digest"],
+                    connection=conn,
+                )
+                net_pnl = cash_basis["net_pnl"]
+            else:
+                net_pnl = report["net_pnl"]
             if (
                 report["accounting_revision"] != revision
                 or report["accounting_status"] != "CALCULATED"
-                or Decimal(report["net_pnl"]) != provisional
+                or Decimal(net_pnl) != provisional
             ):
                 raise ValueError("FINAL_LEDGER_CASH_MISMATCH")
             proof = {
@@ -387,7 +428,6 @@ class DirectionalSettlementStage:
                 "final_inventory_digest": digest(canonical(final)),
                 "cash_audit_digest": digest(canonical(cash)),
                 "wallet_delta": str(wallet_delta),
-                "precision_reconciliation": precision,
                 "attributed_wallet_delta": str(attributed_wallet_delta),
                 "external_income_run": income_run,
                 "external_income": [
@@ -398,7 +438,7 @@ class DirectionalSettlementStage:
                     }
                     for row in external
                 ],
-                "net_pnl": report["net_pnl"],
+                "net_pnl": net_pnl,
                 "funding_income_ids": [
                     f["income_id"] for f in cash["funding_candidates"]
                 ],
@@ -406,11 +446,19 @@ class DirectionalSettlementStage:
                     f["income_id"] for f in cash.get("insurance_candidates", [])
                 ],
             }
+            if venue_basis:
+                proof.update(
+                    cash_basis=cash_basis,
+                    income_digest=cash["income_digest"],
+                    cash_policy_snapshot=cash["cash_policy_snapshot"],
+                )
+            else:
+                proof["precision_reconciliation"] = precision
             ledger.settle(episode, currency="USDT", evidence=proof)
         return {
             "status": "SETTLED",
             "episode": episode,
-            "net_pnl": report["net_pnl"],
+            "net_pnl": net_pnl,
             "final_inventory": final["observation_id"],
             "settlement_authorized": False,
         }
@@ -459,14 +507,17 @@ class DirectionalSettlementStage:
             for (episode,) in rows:
                 try:
                     results[episode] = self.settle(episode)
+                    if (
+                        results[episode].get("status") == "SETTLED"
+                        and "outcome" in results[episode]
+                    ):
+                        outcomes[episode] = results[episode].pop("outcome")
                 except Exception as exc:  # noqa: BLE001 - isolate and sanitize one episode
                     results[episode] = {
                         "status": "BLOCKED",
                         "error_code": diagnostic_code(exc),
                     }
-            unresolved = any(
-                r.get("status") != "SETTLED" for r in results.values()
-            ) or any(r.get("status") == "BLOCKED" for r in outcomes.values())
+            unresolved = any(r.get("status") != "SETTLED" for r in results.values())
             return {
                 "status": "BLOCKED" if unresolved else "CLEAR",
                 "settlements": results,

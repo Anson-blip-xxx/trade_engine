@@ -20,6 +20,7 @@ from services.v2_jev_budget_health import (
     apply_budget_health,
     read_budget_health,
 )
+from services.v2_settlement_entry import settled_result_valid, settlement_result_valid
 from services.v2_trading_pipeline import failed
 from v2_core.account_risk import AccountScope
 from v2_core.directional import directional_events
@@ -68,6 +69,32 @@ _QUEUE_REASON_CODES = (
     EXPECTED_ADMISSION_WAITS | _CANDIDATE_DEPENDENCY_CODES | JEV_RETRY_CODES
 )
 _DETAIL_MAX_AGE_MS = 120000
+
+
+def settlement_health_projection(cycle):
+    """Separate derived-analysis health only for a verified result contract."""
+    phases = cycle.get("phases", {})
+    result = phases.get("settlement") if isinstance(phases, dict) else None
+    clear = settlement_result_valid(result, status="CLEAR") and all(
+        settled_result_valid(episode, record)
+        for episode, record in result["settlements"].items()
+    )
+    if not clear:
+        return False, None
+    errors = [
+        {"episode": episode, "error_code": record["error_code"]}
+        for episode, record in sorted(result["outcomes"].items())
+        if record.get("status") == "BLOCKED"
+    ]
+    if not errors:
+        return True, None
+    return True, {
+        "cycle_id": cycle.get("cycle_id"),
+        "observed_at_ms": cycle.get("finished_at_ms"),
+        "episodes": errors,
+        "financial_status": "CLEAR",
+        "execution_authorized": False,
+    }
 
 
 def rejected_residual_closes(conn, scope, now, safety_seconds):
@@ -710,7 +737,11 @@ class TradingHealth:
             }
             # This explains a refusal; it never suppresses a queue-lag finding
             # or a safety failure in the same cycle.
+        settlement_clear = False
         if latest:
+            settlement_clear, analysis_finding = settlement_health_projection(latest[0])
+            if analysis_finding is not None:
+                findings["SETTLEMENT_ANALYSIS_DEGRADED"] = analysis_finding
             maintenance = latest[0].get("phases", {}).get("signal_maintenance", {})
             if failed(maintenance):
                 # Bookkeeping is not opening authority, but failure must remain
@@ -724,7 +755,10 @@ class TradingHealth:
                 }
         if latest and latest[0].get("status") == "ENTRY_BLOCKED":
             phases = latest[0].get("phases", {})
-            blocked = [name for name, value in phases.items() if failed(value)]
+            blocked = [
+                name for name, value in phases.items()
+                if failed(value) and not (name == "settlement" and settlement_clear)
+            ]
             findings["PIPELINE_ENTRY_BLOCKED"] = {"stages": blocked}
             if any(name in blocked for name in ("protection", "exits")):
                 finding = findings.setdefault("POSITION_SAFETY_BLOCKED", {})
@@ -788,6 +822,7 @@ class TradingHealth:
         delays = {
             "SIGNAL_CONSUMPTION_LAG": settings["health.signal_confirm_seconds"] * 1000,
             "SIGNAL_MAINTENANCE_DEGRADED": settings["health.pipeline_seconds"] * 1000,
+            "SETTLEMENT_ANALYSIS_DEGRADED": settings["health.pipeline_seconds"] * 1000,
             "PIPELINE_ENTRY_BLOCKED": settings["health.pipeline_seconds"] * 1000,
             "POSITION_SAFETY_BLOCKED": settings["health.safety_seconds"] * 1000,
         }

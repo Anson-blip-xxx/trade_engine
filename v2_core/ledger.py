@@ -50,6 +50,113 @@ class Ledger:
     def __init__(self, connection_factory):
         self._connect = connection_factory
 
+    @staticmethod
+    def _cash_inputs(conn, episode_id):
+        from v2_core.settlement_cash_basis import fill_facts
+
+        scope = conn.execute(
+            """SELECT exchange,account_id,environment,product
+            FROM v2_trade_intents WHERE intent_id=%s""",
+            (episode_id,),
+        ).fetchone()
+        if scope is None:
+            raise ValueError("unknown intent")
+        rows = conn.execute(
+            """SELECT o.leg,f.quantity,f.price,f.fee,f.fee_currency,f.fill_key,
+            f.payload,f.occurred_at_ms,o.order_id::text
+            FROM v2_fills f JOIN v2_orders o USING(order_id)
+            WHERE o.episode_id=%s""",
+            (episode_id,),
+        ).fetchall()
+        cash = conn.execute(
+            """SELECT amount,currency,adjustment_key,kind,evidence
+            FROM v2_cash_adjustments WHERE episode_id=%s""",
+            (episode_id,),
+        ).fetchall()
+        return {
+            "scope": dict(
+                zip(
+                    ("exchange", "account_id", "environment", "product"),
+                    scope,
+                    strict=True,
+                )
+            ),
+            "facts": fill_facts(rows),
+            "cash_rows": cash,
+        }
+
+    def cash_basis_candidate(
+        self, episode_id, report, *, analysis, income_digest, connection
+    ):
+        """Build valuation inside the caller's final reconciliation transaction."""
+        from v2_core.settlement_cash_basis import build_basis
+
+        episode_id = str(UUID(episode_id))
+        if report["intent_id"] != episode_id:
+            raise ValueError("VENUE_CASH_EPISODE_MISMATCH")
+        return build_basis(
+            report,
+            **self._cash_inputs(connection, episode_id),
+            analysis=analysis,
+            income_digest=income_digest,
+        )
+
+    def _verify_cash_analysis(self, conn, episode_id, report, evidence):
+        """Rebuild review classification from bound fills before final commit.
+
+        An analysis dict must not authenticate itself through basis equality.
+        Re-read the account policy and the immutable journal, including the
+        actual opening side, rather than trusting copied totals or status flags.
+        Committed reports need not repeat this expensive admission verification.
+        """
+        from v2_core.account_risk import AccountScope
+        from v2_core.runtime_policy import PolicyStore
+        from v2_core.service import TradingData
+        from v2_core.venue_cash import CashDifferencePolicy, analyze_venue_cash
+
+        trace = TradingData(self._connect).trace(episode_id, connection=conn)
+        if trace is None:
+            raise ValueError("VENUE_CASH_EPISODE_MISMATCH")
+        scope = AccountScope(
+            **{
+                name: trace["scope"][name]
+                for name in ("exchange", "account_id", "environment", "product")
+            }
+        )
+        policy = PolicyStore(lambda: nullcontext(conn), scope).read()
+        captured = evidence.get("cash_policy_snapshot")
+        values = policy.values
+        relevant = {
+            name: values[name]
+            for name in (
+                "settlement.cash_basis_version",
+                "settlement.max_difference_per_fill_usdt",
+                "settlement.max_difference_episode_usdt",
+            )
+        }
+        if (
+            not isinstance(captured, dict)
+            or type(captured.get("version")) is not int
+            or captured["version"] != policy.version
+            or captured.get("digest") != policy.digest
+            or captured.get("values") != relevant
+            or values["settlement.cash_basis_version"] != 2
+        ):
+            raise ValueError("VENUE_CASH_POLICY_SNAPSHOT_MISMATCH")
+        expected = analyze_venue_cash(
+            trace,
+            report,
+            policy=CashDifferencePolicy(
+                version="runtime-policy-v1:" + str(policy.version),
+                max_abs_per_fill=values["settlement.max_difference_per_fill_usdt"],
+                max_sum_abs_episode=values["settlement.max_difference_episode_usdt"],
+            ),
+        )
+        if evidence["cash_basis"].get("analysis") != expected:
+            raise ValueError("VENUE_CASH_ANALYSIS_MISMATCH")
+        if expected["anomaly"]["status"] not in {"EXACT", "WITHIN_POLICY"}:
+            raise ValueError("VENUE_CASH_REVIEW_REQUIRED")
+
     def record_fill(
         self,
         *,
@@ -298,13 +405,15 @@ class Ledger:
                 or not intent[0]["symbol"].endswith(settlement_currency)
             ):
                 raise ValueError("linear quote-settled futures report only")
-            settled = (
-                conn.execute(
-                    """SELECT 1 FROM v2_settlements s JOIN v2_episodes e USING(episode_id)
+            settlement = conn.execute(
+                """SELECT s.evidence FROM v2_settlements s JOIN v2_episodes e USING(episode_id)
                     WHERE s.episode_id=%s AND s.revision=e.accounting_revision""",
-                    (episode_id,),
-                ).fetchone()
-                is not None
+                (episode_id,),
+            ).fetchone()
+            settled = settlement is not None
+            basis = settlement[0].get("cash_basis") if settled else None
+            cash_inputs = (
+                self._cash_inputs(conn, episode_id) if basis is not None else None
             )
             revision = conn.execute(
                 "SELECT accounting_revision FROM v2_episodes WHERE episode_id=%s",
@@ -368,7 +477,7 @@ class Ledger:
             fees = fees if currency_ok else None
             cash = cash if currency_ok else None
             net = gross - fees + cash if gross is not None and currency_ok else None
-        return {
+        report = {
             "intent_id": episode_id,
             "accounting_revision": None if revision is None else revision[0],
             "decision": intent[1],
@@ -387,6 +496,16 @@ class Ledger:
             else "PENDING",
             "explanation": "成交价差、费用及资金调整；不构成策略因果证明",
         }
+        if basis is not None:
+            from v2_core.settlement_cash_basis import apply_basis
+
+            report = apply_basis(
+                report,
+                basis,
+                **cash_inputs,
+                expected_income_digest=settlement[0].get("income_digest"),
+            )
+        return report
 
     def settle(self, episode_id, *, currency, evidence):
         """Require explicit reconciliation evidence; never infer flat from silence.
@@ -485,6 +604,32 @@ class Ledger:
             ).fetchone()
             if foreign_currency:
                 raise ValueError("explicit currency conversion required")
+            if "cash_basis" in evidence:
+                from v2_core.settlement_cash_basis import apply_basis
+
+                basis = evidence["cash_basis"]
+                inputs = self._cash_inputs(conn, episode_id)
+                report = self.report(
+                    episode_id, settlement_currency=currency, connection=conn
+                )
+                self._verify_cash_analysis(conn, episode_id, report, evidence)
+                valued = apply_basis(
+                    report,
+                    basis,
+                    **inputs,
+                    expected_income_digest=evidence.get("income_digest"),
+                )
+                if (
+                    evidence.get("source") != "directional-settlement-v1"
+                    or evidence.get("account_scope") != inputs["scope"]
+                    or evidence.get("income_digest") != basis["income_digest"]
+                    or Decimal(evidence["net_pnl"]) != Decimal(valued["net_pnl"])
+                    or Decimal(evidence["attributed_wallet_delta"])
+                    != Decimal(valued["net_pnl"])
+                    or basis["analysis"]["anomaly"]["status"]
+                    not in {"EXACT", "WITHIN_POLICY"}
+                ):
+                    raise ValueError("VENUE_CASH_SETTLEMENT_PROOF_MISMATCH")
             conn.execute(
                 """INSERT INTO v2_settlements(episode_id,revision,currency,evidence)
                 VALUES (%s,%s,%s,%s::jsonb)""",

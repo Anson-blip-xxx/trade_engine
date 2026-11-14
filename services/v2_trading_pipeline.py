@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from uuid import uuid4
 
+from services.v2_settlement_entry import settled_result_valid, settlement_result_valid
 from v2_core.evidence import canonical
 from v2_core.runtime_policy import PolicyStore, resolve
 from v2_core.scheduling import drain_requested
@@ -29,6 +30,23 @@ def failed(value):
         value in {"UNKNOWN", "UNAVAILABLE", "RETRY", "BLOCKED"}
         if isinstance(value, str)
         else False
+    )
+
+
+def _stage_clear(name, stage, result):
+    from services.v2_directional_settlement import DirectionalSettlementStage
+
+    if name == "settlement" and isinstance(stage, DirectionalSettlementStage):
+        # Only this concrete stage separates committed cash from derived
+        # analysis. No other stage or arbitrary nested error is exempted.
+        return settlement_result_valid(result, status="CLEAR") and all(
+            settled_result_valid(episode, record)
+            for episode, record in result["settlements"].items()
+        )
+    return (
+        isinstance(result, dict)
+        and result.get("status") == "CLEAR"
+        and not failed(result)
     )
 
 
@@ -315,11 +333,7 @@ class TradingPipeline:
                 # must not stop live signal consumption. Keep its result in
                 # the cycle journal without weakening the other three gates.
                 if name != "followups":
-                    stage_clear = (
-                        isinstance(result, dict)
-                        and result.get("status") == "CLEAR"
-                        and not failed(result)
-                    )
+                    stage_clear = _stage_clear(name, stage, result)
                     clearance = getattr(stage, "entry_clearance", None)
                     if (
                         name == "settlement"

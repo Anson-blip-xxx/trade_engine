@@ -17,6 +17,11 @@ from v2_core.state import BusinessState, StateKey
 # profile. Bounds are validation invariants, not hidden trading thresholds.
 # name: (default, minimum, maximum). Decimal settings are exact JSON strings.
 SCHEMA = {
+    # Explicit cash-basis migration; legacy accounting remains the default.
+    # These are anomaly-review limits, never wallet reconciliation tolerances.
+    "settlement.cash_basis_version": (1, 1, 2),
+    "settlement.max_difference_per_fill_usdt": ("0.000001", "0", "0.01"),
+    "settlement.max_difference_episode_usdt": ("0.0001", "0", "0.01"),
     # Fail-safe reductions are independently gated from opening permission.
     "protection.emergency_exit_enabled": (True, None, None),
     "protection.unconfirmed_grace_ms": (30000, 0, 300000),

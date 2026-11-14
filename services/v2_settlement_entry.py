@@ -6,6 +6,7 @@ Every actual order still needs the existing account and venue safety guards.
 """
 
 import json
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -13,7 +14,9 @@ from uuid import UUID
 
 from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.account_inventory import ACCOUNT_CONFIG_PATH, ROUTES
+from v2_core.directional_outcomes import settlement_amount
 from v2_core.evidence import canonical, digest
+from v2_core.precision import amount
 from v2_core.state import BusinessState, StateKey
 
 
@@ -21,6 +24,63 @@ def policy_key(scope):
     return StateKey(
         **asdict(scope), namespace="settlement-entry-policy-v1", key="current"
     )
+
+
+def settled_result_valid(episode, record):
+    """Recognize only the concrete stage's committed financial result."""
+    try:
+        return (
+            str(UUID(episode)) == episode
+            and isinstance(record, dict)
+            and set(record)
+            == {"status", "episode", "net_pnl", "final_inventory", "settlement_authorized"}
+            and record["status"] == "SETTLED"
+            and record["episode"] == episode
+            and record["settlement_authorized"] is False
+            and str(UUID(record["final_inventory"])) == record["final_inventory"]
+            and settlement_amount(record["net_pnl"]).is_finite()
+        )
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def settlement_result_valid(result, *, status):
+    """Keep isolated analysis diagnostics inside their exact known contract."""
+    if (
+        not isinstance(result, dict)
+        or set(result) != {"status", "settlements", "outcomes", "settlement_authorized"}
+        or result["status"] != status
+        or result["settlement_authorized"] is not False
+        or not isinstance(result["settlements"], dict)
+        or not isinstance(result["outcomes"], dict)
+    ):
+        return False
+    for episode, record in result["outcomes"].items():
+        try:
+            if str(UUID(episode)) != episode or not isinstance(record, dict):
+                return False
+            if set(record) == {"status", "error_code"}:
+                if (
+                    record["status"] != "BLOCKED"
+                    or not isinstance(record["error_code"], str)
+                    or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,127}", record["error_code"])
+                    is None
+                ):
+                    return False
+            elif (
+                set(record)
+                != {"episode_id", "closed_at_ms", "return_pct", "quality_score", "closing_price"}
+                or record["episode_id"] != episode
+                or type(record["closed_at_ms"]) is not int
+                or record["closed_at_ms"] < 0
+                or not amount(record["return_pct"]).is_finite()
+                or not 0 <= amount(record["quality_score"]) <= 100
+                or amount(record["closing_price"], positive=True) <= 0
+            ):
+                return False
+        except (ValueError, TypeError, AttributeError):
+            return False
+    return True
 
 
 def entry_clearance(stage, result, protection_coverage):
@@ -87,34 +147,19 @@ def _refresh_coverage(stage):
 
 
 def _checked(stage, result, protection_coverage, *, allow_refresh=True):
-    if stage.scope.environment != "SANDBOX" or not isinstance(result, dict):
-        return None
-    if (
-        result.get("status") != "BLOCKED"
-        or result.get("settlement_authorized") is not False
+    if stage.scope.environment != "SANDBOX" or not settlement_result_valid(
+        result, status="BLOCKED"
     ):
-        return None
-    if set(result) != {"status", "settlements", "outcomes", "settlement_authorized"}:
         return None
     outcomes, settlements = result["outcomes"], result["settlements"]
-    if (
-        not isinstance(outcomes, dict)
-        or not isinstance(settlements, dict)
-        or not settlements
-    ):
+    if not settlements:
         return None
-    for record in outcomes.values():
-        if not isinstance(record, dict) or "status" in record or "error_code" in record:
-            return None
     lagging = set()
     for episode, record in settlements.items():
         if str(UUID(episode)) != episode or not isinstance(record, dict):
             return None
         if record.get("status") == "SETTLED":
-            if (
-                "error_code" in record
-                or record.get("settlement_authorized") is not False
-            ):
+            if not settled_result_valid(episode, record):
                 return None
             continue
         if record != {
@@ -145,6 +190,22 @@ def _checked(stage, result, protection_coverage, *, allow_refresh=True):
         return None
     with stage.connect() as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        if outcomes:
+            # An error is ignorable only for an already committed settlement in
+            # this account and current revision, never for a lagging episode.
+            settled = conn.execute(
+                """SELECT i.intent_id::text FROM v2_trade_intents i
+                JOIN v2_episodes e ON e.episode_id=i.intent_id
+                JOIN v2_settlements s ON s.episode_id=e.episode_id
+                    AND s.revision=e.accounting_revision
+                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                AND e.status='SETTLED' AND s.currency='USDT'
+                AND i.intent_id=ANY(%s::uuid[])""",
+                (*asdict(stage.scope).values(), list(outcomes)),
+            ).fetchall()
+            if {row[0] for row in settled} != set(outcomes):
+                return None
         # All closed, unsettled directional episodes, not just a caller-selected
         # subset. LIMIT+1 makes a truncated batch a denial, never a clearance.
         rows = conn.execute(

@@ -165,10 +165,10 @@ def test_outcome_failure_after_commit_backfills_without_reapplying_cash(
         "record",
         lambda *_: (_ for _ in ()).throw(ValueError("OUTCOME_RETRY_REQUIRED")),
     )
-    assert (
-        service(database, income).run_once()["settlements"][episode]["error_code"]
-        == "OUTCOME_RETRY_REQUIRED"
-    )
+    attempted = service(database, income).run_once()
+    assert attempted["status"] == "CLEAR"
+    assert attempted["settlements"][episode]["status"] == "SETTLED"
+    assert attempted["outcomes"][episode]["error_code"] == "OUTCOME_RETRY_REQUIRED"
     assert runtime.data.trace(episode)["episode"]["status"] == "SETTLED"
     monkeypatch.setattr(DirectionalOutcomeJournal, "record", original)
     assert service(database, income).run_once()["status"] == "CLEAR"
