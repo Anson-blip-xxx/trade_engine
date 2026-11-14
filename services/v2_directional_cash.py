@@ -263,7 +263,16 @@ def reconcile_cash(trace, report, rows, *, scope, entry_observations=None):
         )
         if fees != Decimal(report["fees"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
-        precision = rounding_proof(trace, report, entry_observations=entry_observations)
+        # Only after exact per-trade income/fee matching may the narrowly
+        # witnessed venue-reported cash boundary be considered. This remains a
+        # candidate: final fresh inventory and wallet equality are mandatory
+        # in DirectionalSettlementStage before any correction is committed.
+        precision = rounding_proof(
+            trace,
+            report,
+            entry_observations=entry_observations,
+            allow_reported_boundary_cash=True,
+        )
         if gross != Decimal(report["gross_pnl"]) + amount(precision["amount"]):
             raise ValueError("VENUE_LEDGER_ECONOMICS_MISMATCH")
         funding_total = sum((Decimal(f["amount"]) for f in funding), Decimal(0))

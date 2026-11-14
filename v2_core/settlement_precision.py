@@ -4,6 +4,10 @@ This is not an epsilon allowance or a claim about every Binance product. Only
 single-opening, fully closed linear episodes with no later increases qualify.
 The caller must ALSO prove income/fill and account-wallet equality. Unknown
 rounding conventions, reordered exposure and unrepresentable corrections fail.
+
+An explicit caller opt-in additionally permits one narrowly observed reported-
+cash discrepancy. It is a settlement candidate, not a verified venue algorithm:
+matched income and final exact wallet reconciliation remain required.
 """
 
 from decimal import Decimal
@@ -17,6 +21,7 @@ from v2_core.state import StateKey
 
 MODEL = "binance-usdt-per-fill-truncate-8-v1"
 OBSERVED_ENTRY_MODEL = "binance-usdt-observed-entry-truncate-8-v1"
+REPORTED_BOUNDARY_MODEL = "venue-reported-boundary-cash-adjustment-v1"
 
 
 def _observed_entry(trace, order, witness, *, entry, qty, opening, closing):
@@ -163,7 +168,45 @@ def _observed_entry(trace, order, witness, *, entry, qty, opening, closing):
     }
 
 
-def rounding_proof(trace, report, *, entry_observations=None):
+def _reported_boundary_match(
+    trace, report, *, opening, closing, qty, entry, recorded, exact, observed
+):
+    """Recognize the bounded cash shape, never infer how a venue computed it.
+
+    The caller has already validated the exact pre-close witness. Only a
+    positive, single-fill close one cash quantum below an exact grid boundary
+    qualifies; no neighboring-loss, multi-fill or total-error cancellation rule.
+    """
+    quantum = Fraction(1, 100_000_000)
+    scope = trace["scope"]
+    return (
+        (scope["exchange"], scope["environment"], scope["product"])
+        == ("BINANCE", "SANDBOX", "FUTURES")
+        and scope.get("producer") in {"s6", "s8"}
+        and trace["configuration"].get("mode") == "TESTNET_ADMISSION_ONLY"
+        and trace["request"]["symbol"].endswith("USDT")
+        and report["settlement_currency"] == "USDT"
+        and len(opening) == len(closing) == 1
+        and len(trace["orders"]) == 2
+        and {order["leg"] for order in trace["orders"]} == {"OPEN", "CLOSE"}
+        and all(
+            order["status"] == "FILLED"
+            and Fraction(amount(order["quantity"], positive=True)) == qty
+            for order in trace["orders"]
+        )
+        and recorded == entry
+        and exact > quantum
+        and (exact / quantum).denominator == 1
+        and Fraction(observed) == exact - quantum
+        and observed > 0
+    )
+
+
+def rounding_proof(
+    trace, report, *, entry_observations=None, allow_reported_boundary_cash=False
+):
+    if type(allow_reported_boundary_cash) is not bool:
+        raise ValueError("EXPLICIT_BOUNDARY_CASH_POLICY_REQUIRED")
     orders = {o["order_id"]: o for o in trace["orders"]}
     opening = [f for f in trace["fills"] if orders[f["order_id"]]["leg"] == "OPEN"]
     closing = [f for f in trace["fills"] if orders[f["order_id"]]["leg"] == "CLOSE"]
@@ -217,13 +260,34 @@ def rounding_proof(trace, report, *, entry_observations=None):
                 closing=closing,
             )
             recorded_pnl = quantity(fill) * (price(fill) - recorded) * sign
-            if Fraction(observed) != Fraction(
+            if Fraction(observed) == Fraction(
                 int(recorded_pnl * 100_000_000), 100_000_000
             ):
+                model = OBSERVED_ENTRY_MODEL
+                method = "OBSERVED_ENTRY_TRUNCATE_TOWARD_ZERO_8"
+            elif allow_reported_boundary_cash and _reported_boundary_match(
+                trace,
+                report,
+                opening=opening,
+                closing=closing,
+                qty=qty,
+                entry=entry,
+                recorded=recorded,
+                exact=exact,
+                observed=observed,
+            ):
+                model = REPORTED_BOUNDARY_MODEL
+                method = "VENUE_REPORTED_BOUNDARY_CASH_ADJUSTMENT"
+                witness_proof.update(
+                    cash_difference="-0.00000001",
+                    cash_quantum="0.00000001",
+                    algorithm_verified=False,
+                    requires_final_wallet_match=True,
+                    settlement_authorized=False,
+                )
+            else:
                 raise ValueError("UNEXPLAINED_FILL_PNL_PRECISION")
-            model = OBSERVED_ENTRY_MODEL
-            method = "OBSERVED_ENTRY_TRUNCATE_TOWARD_ZERO_8"
-            witness_proof = {"entry_observation": observation}
+            witness_proof["entry_observation"] = observation
         theoretical += exact
         venue += Fraction(observed)
         proofs.append(
@@ -244,9 +308,21 @@ def rounding_proof(trace, report, *, entry_observations=None):
     encoded = decimal_text(correction)
     if Fraction(amount(encoded)) != delta:
         raise ValueError("PNL_CORRECTION_NOT_EXACTLY_REPRESENTABLE")
-    return {
+    result = {
         "model": model,
         "amount": encoded,
         "theoretical_gross_pnl": report["gross_pnl"],
         "fills": proofs,
     }
+    if model == REPORTED_BOUNDARY_MODEL:
+        # This describes observed cash only. The caller must still prove the
+        # final wallet equality before applying this correction atomically.
+        with money_context():
+            reported = Decimal(venue.numerator) / Decimal(venue.denominator)
+        result.update(
+            venue_reported_gross_pnl=decimal_text(reported),
+            algorithm_verified=False,
+            requires_final_wallet_match=True,
+            settlement_authorized=False,
+        )
+    return result
