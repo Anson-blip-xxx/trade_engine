@@ -19,6 +19,7 @@ class SignalMaintenance:
         self.last_expiry = {}
         self.history_page_caps = {}
         self.history_page_reductions = {}
+        self.history_page_recovery = {}
         self.history_next_lane = {}
         self.thread = None
         self.failure = None
@@ -80,16 +81,81 @@ class SignalMaintenance:
             "effective_page_size",
             "page_reductions",
             "minimum_page_reached",
+            "page_recoveries",
+            "healthy_pages",
+            "recovery_probe",
+            "last_attempt",
         ):
             if name in previous:
                 page[name] = previous[name]
         report["history"][component] = page
 
     @staticmethod
-    def _page_timeout(exc):
-        return isinstance(exc, (QueryCanceled, LockNotAvailable)) or (
+    def _attempt(scheduler, component):
+        raw = getattr(scheduler, "last_history_diagnostics", None)
+        if not isinstance(raw, dict) or raw.get("component") != component:
+            return {"phase": "UNKNOWN"}
+        phases = {
+            "CONNECT_SETUP",
+            "PAGE_READ",
+            "ELIGIBILITY",
+            "RECEIPT_WRITE",
+            "TASK_WRITE",
+            "DISCOVERY_WRITE",
+            "COMMIT",
+            "COMPLETE",
+        }
+        phase, status = raw.get("phase"), raw.get("status")
+        result = {
+            "phase": phase if type(phase) is str and phase in phases else "UNKNOWN"
+        }
+        if type(status) is str and status in {"RUNNING", "FAILED", "COMPLETE"}:
+            result["status"] = raw["status"]
+        for name in (
+            "budget_ms",
+            "page_size",
+            "scanned",
+            "elapsed_ms",
+            "phase_elapsed_ms",
+            "setup_elapsed_ms",
+        ):
+            value = raw.get(name)
+            if type(value) is int and 0 <= value <= 2147483647:
+                result[name] = value
+        for name in ("cursor_advanced", "commit_confirmed"):
+            if type(raw.get(name)) is bool:
+                result[name] = raw[name]
+        return result
+
+    @staticmethod
+    def _failure_kind(exc, attempt):
+        if isinstance(exc, LockNotAvailable):
+            return "LOCK_CONTENTION"
+        timeout = isinstance(exc, QueryCanceled) or (
             type(exc) is TimeoutError and exc.args == ("HISTORY_PAGE_BUDGET_EXHAUSTED",)
         )
+        if not timeout:
+            return "DEPENDENCY_FAILURE"
+        phase = attempt.get("phase")
+        if phase == "CONNECT_SETUP":
+            return "CONNECT_SETUP_BUDGET"
+        if phase == "COMMIT":
+            return "COMMIT_TIMEOUT"
+        if attempt.get("status") == "FAILED" and phase in {
+            "PAGE_READ",
+            "ELIGIBILITY",
+            "RECEIPT_WRITE",
+            "TASK_WRITE",
+            "DISCOVERY_WRITE",
+        }:
+            if (
+                type(attempt.get("setup_elapsed_ms")) is int
+                and type(attempt.get("budget_ms")) is int
+                and attempt["setup_elapsed_ms"] * 2 <= attempt["budget_ms"]
+            ):
+                return "PAGE_CAPACITY_TIMEOUT"
+            return "SETUP_PRESSURE_OR_UNKNOWN"
+        return "UNCLASSIFIED_TIMEOUT"
 
     def _page_cap(self, scheduler, component, report, settings, *, reduce=False):
         identity = self.key(scheduler), component
@@ -99,21 +165,71 @@ class SignalMaintenance:
             settings["scheduler.expiry_batch"] if component == "cold_expiry" else 1000,
         )
         cap = min(ceiling, self.history_page_caps.get(identity, ceiling))
+        recovery = self.history_page_recovery.setdefault(
+            identity,
+            {"healthy_pages": 0, "changed_at": self.monotonic(), "recoveries": 0},
+        )
+        if cap != self.history_page_caps.get(identity, cap):
+            recovery.update(healthy_pages=0, changed_at=self.monotonic())
+            recovery.pop("probe_from", None)
         if reduce and cap > 1:
-            cap = max(1, cap // 2)
+            cap = min(cap, recovery.pop("probe_from", max(1, cap // 2)))
             self.history_page_reductions[identity] = (
                 self.history_page_reductions.get(identity, 0) + 1
             )
-        # Shrink only for this process lifetime. Successful pages must not
-        # immediately restore a known-too-large batch and oscillate forever.
+        if reduce:
+            recovery.update(healthy_pages=0, changed_at=self.monotonic())
         self.history_page_caps[identity] = cap
         report.setdefault("history", {}).setdefault(component, {}).update(
             configured_page_size=configured,
             effective_page_size=cap,
             page_reductions=self.history_page_reductions.get(identity, 0),
             minimum_page_reached=cap == 1,
+            page_recoveries=recovery["recoveries"],
+            healthy_pages=recovery["healthy_pages"],
+            recovery_probe="probe_from" in recovery,
         )
         return cap
+
+    def _page_success(self, scheduler, component, report, settings, attempt):
+        identity = self.key(scheduler), component
+        recovery = self.history_page_recovery[identity]
+        cap = self.history_page_caps[identity]
+        # Empty/partial pages do not prove capacity. Include connection and
+        # commit overhead in the headroom test; never buy recovery with a
+        # larger budget. Eight full healthy pages and a 30s-or-retry cooldown
+        # permit only a 25% probe, not a return to the original large batch.
+        healthy = (
+            attempt.get("status") == "COMPLETE"
+            and attempt.get("commit_confirmed") is True
+            and attempt.get("cursor_advanced") is True
+            and attempt.get("page_size") == cap
+            and attempt.get("scanned") == cap
+            and type(attempt.get("elapsed_ms")) is int
+            and type(attempt.get("budget_ms")) is int
+            and attempt["elapsed_ms"] * 2 <= attempt["budget_ms"]
+        )
+        recovery["healthy_pages"] = recovery["healthy_pages"] + 1 if healthy else 0
+        ceiling = min(
+            settings["scheduler.history_page_size"],
+            settings["scheduler.expiry_batch"] if component == "cold_expiry" else 1000,
+        )
+        if (
+            healthy
+            and recovery["healthy_pages"] >= 8
+            and self.monotonic() - recovery["changed_at"]
+            >= max(30, settings["scheduler.retry_seconds"])
+        ):
+            recovery.pop("probe_from", None)  # This size is now independently healthy.
+            if cap < ceiling:
+                recovery.update(
+                    probe_from=cap,
+                    healthy_pages=0,
+                    changed_at=self.monotonic(),
+                    recoveries=recovery["recoveries"] + 1,
+                )
+                self.history_page_caps[identity] = min(ceiling, cap + max(1, cap // 4))
+        self._page_cap(scheduler, component, report, settings)
 
     def _history(self, scheduler, report, failures, settings):
         """Advance finite pages, not repeated whole-history anti-joins/counts."""
@@ -143,6 +259,9 @@ class SignalMaintenance:
                     "discovery" if component == "cold_expiry" else "cold_expiry"
                 )
                 try:
+                    # A failed connection must not inherit a previous page's
+                    # successful or failed phase classification.
+                    scheduler.last_history_diagnostics = None
                     if component == "cold_expiry":
                         report["cold_expired"] = scheduler.expire_pending(
                             limit=settings["scheduler.expiry_batch"],
@@ -168,19 +287,31 @@ class SignalMaintenance:
                     self._record_page(
                         report, component, metrics, scheduler.worker.runtime._now()
                     )
+                    attempt = self._attempt(scheduler, component)
+                    report["history"][component]["last_attempt"] = attempt
+                    self._page_success(scheduler, component, report, settings, attempt)
                     progressed = True
                     failures.pop(component, None)
                     if metrics["history_page"]["sweep_complete"]:
                         completed.add(component)
                 except Exception as exc:  # noqa: BLE001 - no SQL/values in diagnostics
                     failures[component] = type(exc).__name__
-                    if self._page_timeout(exc):
+                    attempt = self._attempt(scheduler, component)
+                    attempt["failure_kind"] = self._failure_kind(exc, attempt)
+                    report["history"][component]["last_attempt"] = attempt
+                    recovery = self.history_page_recovery[
+                        self.key(scheduler), component
+                    ]
+                    recovery.update(healthy_pages=0, changed_at=self.monotonic())
+                    if attempt["failure_kind"] == "PAGE_CAPACITY_TIMEOUT":
                         # The failed transaction did not advance its cursor.
                         # Retry a smaller prefix next tick, with the same time
                         # budget; never skip the page or retry within this tick.
                         self._page_cap(
                             scheduler, component, report, settings, reduce=True
                         )
+                    else:
+                        self._page_cap(scheduler, component, report, settings)
                     completed.add(component)  # No same-tick failure retry burst.
             if len(completed) == 2:
                 break

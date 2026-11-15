@@ -6,6 +6,7 @@ StrategyWorker's immutable decision and idempotent admission are the authority.
 
 import re
 import time
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict
 from uuid import uuid4
@@ -197,6 +198,54 @@ class StrategyScheduler:
             "set_config('lock_timeout',%s,true)",
             (f"{remaining}ms", f"{min(remaining, 250)}ms"),
         )
+
+    @contextmanager
+    def _history_attempt(self, component, started, budget_ms, page_size):
+        """Safe phase evidence; never changes exceptions or transaction scope.
+
+        Connection/setup time counts against the existing page budget, but is
+        not evidence that fewer rows would help. Only fixed labels and bounded
+        numeric metrics leave this helper; SQL, cursor values and exception
+        messages do not.
+        """
+        if component is None:
+            yield lambda _phase, **_metrics: None
+            return
+        report = self.last_history_diagnostics = {
+            "version": 1,
+            "component": component,
+            "status": "RUNNING",
+            "phase": "CONNECT_SETUP",
+            "budget_ms": budget_ms,
+            "page_size": page_size,
+            "scanned": 0,
+            "cursor_advanced": False,
+            "commit_confirmed": False,
+        }
+        phase_started = started
+
+        def phase(name, **metrics):
+            nonlocal phase_started
+            phase_started = time.perf_counter()
+            report.update(phase=name, **metrics)
+            if name == "PAGE_READ":
+                report["setup_elapsed_ms"] = max(
+                    0, round((phase_started - started) * 1000)
+                )
+
+        try:
+            yield phase
+        except Exception:
+            report["status"] = "FAILED"
+            raise
+        else:
+            report.update(status="COMPLETE", phase="COMPLETE", commit_confirmed=True)
+        finally:
+            finished = time.perf_counter()
+            report["elapsed_ms"] = max(0, round((finished - started) * 1000))
+            report["phase_elapsed_ms"] = max(
+                0, round((finished - phase_started) * 1000)
+            )
 
     def _review_pending_once(
         self,
@@ -398,7 +447,12 @@ class StrategyScheduler:
                 self.last_expiry_metrics.update(history_metrics)
             return count
 
-        with self._connect() as conn:
+        with (
+            self._history_attempt(
+                "cold_expiry" if paged else None, started, budget_ms, page_size
+            ) as history_phase,
+            self._connect() as conn,
+        ):
             if budget_ms is not None:
                 conn.execute(
                     "SELECT set_config('statement_timeout',%s,true), "
@@ -408,6 +462,7 @@ class StrategyScheduler:
             conn.execute("SET LOCAL jit=off")
             if paged:
                 self._history_budget(conn, started, budget_ms)
+                history_phase("PAGE_READ")
             page = (
                 self._history_page(
                     conn, cursor=self._expiry_history_cursor, size=page_size
@@ -417,6 +472,7 @@ class StrategyScheduler:
             )
             if paged:
                 self._history_budget(conn, started, budget_ms)
+                history_phase("ELIGIBILITY", scanned=len(page))
                 pending = """SELECT p.signal_id FROM unnest(%s::uuid[]) p(signal_id)
                     WHERE NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
                         WHERE r.consumer=%s AND r.signal_id=p.signal_id OFFSET 0)"""
@@ -475,6 +531,7 @@ class StrategyScheduler:
             # a lease renewed/acquired during discovery is never overwritten.
             if paged and rows:
                 self._history_budget(conn, started, budget_ms)
+                history_phase("RECEIPT_WRITE")
             expired = (
                 conn.execute(
                     """INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason)
@@ -503,6 +560,7 @@ class StrategyScheduler:
             if expired:
                 if paged:
                     self._history_budget(conn, started, budget_ms)
+                    history_phase("TASK_WRITE")
                 conn.execute(
                     """INSERT INTO v2_strategy_tasks(consumer,signal_id,completed_at)
                     SELECT %s,unnest(%s::uuid[]),clock_timestamp()
@@ -510,12 +568,15 @@ class StrategyScheduler:
                         completed_at=EXCLUDED.completed_at,error_code=NULL""",
                     (consumer, [row[0] for row in expired]),
                 )
+            if paged:
+                history_phase("COMMIT")
         # A failed statement or commit must retry the same page. Never advance
         # inside the transaction, including pages containing no eligible rows.
         if paged:
             self._expiry_history_cursor, history_metrics = self._history_progress(
                 page, page_size, started
             )
+            self.last_history_diagnostics["cursor_advanced"] = True
             self._expiry_history_sweeps += int(
                 history_metrics["history_sweep_complete"]
             )
@@ -675,10 +736,16 @@ class StrategyScheduler:
         # No high-water mark: late commits and previously admitted-but-unprepared
         # intents remain discoverable. Previously scheduled tasks never starve
         # discovery of later signals, including when earlier tasks are failing.
-        with self._connect() as conn:
+        with (
+            self._history_attempt(
+                "discovery" if paged else None, started, budget_ms, page_size
+            ) as history_phase,
+            self._connect() as conn,
+        ):
+            conn.execute("SET LOCAL jit=off")
             if paged:
                 self._history_budget(conn, started, budget_ms)
-            conn.execute("SET LOCAL jit=off")
+                history_phase("PAGE_READ")
             page = (
                 self._history_page(
                     conn, cursor=self._discovery_history_cursor, size=page_size
@@ -688,6 +755,7 @@ class StrategyScheduler:
             )
             if paged:
                 self._history_budget(conn, started, budget_ms)
+                history_phase("DISCOVERY_WRITE", scanned=len(page))
                 pending = """SELECT p.signal_id FROM unnest(%s::uuid[]) p(signal_id)
                     WHERE NOT EXISTS (SELECT 1 FROM v2_strategy_tasks t
                         WHERE t.consumer=%s AND t.signal_id=p.signal_id OFFSET 0)"""
@@ -731,11 +799,14 @@ class StrategyScheduler:
                     limit,
                 ),
             )
+            if paged:
+                history_phase("COMMIT")
         history_metrics = None
         if paged:
             self._discovery_history_cursor, history_metrics = self._history_progress(
                 page, page_size, started
             )
+            self.last_history_diagnostics["cursor_advanced"] = True
             self._discovery_history_sweeps += int(
                 history_metrics["history_sweep_complete"]
             )

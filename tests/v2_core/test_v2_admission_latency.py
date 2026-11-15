@@ -220,7 +220,7 @@ def test_market_screen_avoids_account_calls_only_for_structural_rejection():
     assert calls == ["account"]
     # Market staleness is checked before potentially expensive account reads.
     market["valid_until_ms"] = 3
-    with pytest.raises(ValueError, match="market context"):
+    with pytest.raises(ValueError, match="^STALE_CONTEXT$"):
         provider(signal)
     assert calls == ["account"]
 

@@ -427,6 +427,135 @@ def test_page_sql_budget_is_set_before_read_and_rechecked_after_read(
     assert cursor(target, mode) is None
     assert not any(sql.startswith("WITH ") for sql, _ in captured)
     assert completed(database, target, mode) == set()
+    assert target.last_history_diagnostics["phase"] == "PAGE_READ"
+    assert target.last_history_diagnostics["status"] == "FAILED"
+    assert target.last_history_diagnostics["commit_confirmed"] is False
+    assert target.last_history_diagnostics["cursor_advanced"] is False
+
+
+@pytest.mark.parametrize("mode", ["expiry", "discovery"])
+def test_setup_budget_exhaustion_is_distinct_from_page_capacity(
+    database, monkeypatch, mode
+):
+    from v2_core import scheduling
+
+    target = scheduler(database)
+    scheduler_signal(database, "setup-budget", expires=2)
+    clock = [0.0]
+    statements = []
+    monkeypatch.setattr(scheduling.time, "perf_counter", lambda: clock[0])
+
+    class Connection:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def execute(self, sql, args=None):
+            statements.append(sql)
+            return self.conn.execute(sql, args)
+
+    @contextmanager
+    def slow_setup():
+        with database() as conn:
+            clock[0] = 0.6
+            yield Connection(conn)
+
+    target._connect = slow_setup
+    with pytest.raises(TimeoutError, match="HISTORY_PAGE_BUDGET_EXHAUSTED"):
+        step(target, mode, budget_ms=500)
+    assert not any(sql.startswith("SELECT signal_id,request_key") for sql in statements)
+    assert cursor(target, mode) is None
+    attempt = target.last_history_diagnostics
+    assert attempt["phase"] == "CONNECT_SETUP"
+    assert attempt["status"] == "FAILED"
+    assert attempt["elapsed_ms"] == 600
+    assert attempt["commit_confirmed"] is attempt["cursor_advanced"] is False
+    assert completed(database, target, mode) == set()
+
+
+@pytest.mark.parametrize(
+    "mode,prefix,phase",
+    [
+        ("expiry", "SELECT signal_id,request_key", "PAGE_READ"),
+        ("expiry", "WITH pending", "ELIGIBILITY"),
+        ("expiry", "INSERT INTO v2_signal_receipts", "RECEIPT_WRITE"),
+        ("expiry", "INSERT INTO v2_strategy_tasks", "TASK_WRITE"),
+        ("discovery", "SELECT signal_id,request_key", "PAGE_READ"),
+        ("discovery", "WITH undiscovered", "DISCOVERY_WRITE"),
+    ],
+)
+def test_page_failure_records_exact_phase_and_rolls_back_every_prior_write(
+    database, mode, prefix, phase
+):
+    from psycopg.errors import QueryCanceled
+
+    target = scheduler(database)
+    scheduler_signal(database, "phase-cancel", expires=2)
+
+    class Connection:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def execute(self, sql, args=None):
+            if sql.startswith(prefix):
+                raise QueryCanceled(
+                    "private SQL or credentials must never be published"
+                )
+            return self.conn.execute(sql, args)
+
+    @contextmanager
+    def cancel_phase():
+        with database() as conn:
+            yield Connection(conn)
+
+    target._connect = cancel_phase
+    with pytest.raises(QueryCanceled):
+        step(target, mode, budget_ms=5000)
+    attempt = target.last_history_diagnostics
+    assert attempt["phase"] == phase
+    assert attempt["status"] == "FAILED"
+    assert attempt["commit_confirmed"] is attempt["cursor_advanced"] is False
+    assert "private" not in str(attempt)
+    assert cursor(target, mode) is None
+    assert completed(database, target, "expiry") == set()
+    assert completed(database, target, "discovery") == set()
+
+
+@pytest.mark.parametrize("mode", ["expiry", "discovery"])
+def test_commit_failure_cannot_advance_cursor_or_be_reported_complete(database, mode):
+    from psycopg.errors import QueryCanceled
+
+    target = scheduler(database)
+    scheduler_signal(database, "commit-failure", expires=2)
+
+    @contextmanager
+    def failed_commit():
+        with database() as conn:
+            yield conn
+            raise QueryCanceled("private commit detail")
+
+    target._connect = failed_commit
+    with pytest.raises(QueryCanceled):
+        step(target, mode, budget_ms=5000)
+    attempt = target.last_history_diagnostics
+    assert attempt["phase"] == "COMMIT"
+    assert attempt["status"] == "FAILED"
+    assert attempt["commit_confirmed"] is attempt["cursor_advanced"] is False
+    assert cursor(target, mode) is None
+    assert completed(database, target, "expiry") == set()
+    assert completed(database, target, "discovery") == set()
+
+
+@pytest.mark.parametrize("mode", ["expiry", "discovery"])
+def test_success_diagnostics_prove_commit_before_cursor_advancement(database, mode):
+    target = scheduler(database)
+    scheduler_signal(database, "diagnostic-success", expires=2)
+    step(target, mode, size=1, budget_ms=5000)
+    attempt = target.last_history_diagnostics
+    assert attempt["status"] == attempt["phase"] == "COMPLETE"
+    assert attempt["scanned"] == attempt["page_size"] == 1
+    assert attempt["commit_confirmed"] is attempt["cursor_advanced"] is True
+    assert cursor(target, mode) == "diagnostic-success"
+    assert type(attempt["elapsed_ms"]) is type(attempt["setup_elapsed_ms"]) is int
 
 
 def test_real_pg_timeout_rolls_back_then_adaptive_pages_finish_old_backlog(database):

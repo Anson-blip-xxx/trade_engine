@@ -6,11 +6,13 @@ constructed; the pipeline fixture rejects every attempted order submission.
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import asdict
 
 import pytest
 from test_v2_trading_pipeline import case as pipeline_case
 
 from services.v2_directional_admission import create_directional_admission_scheduler
+from services.v2_directional_context import DirectionalContext
 from tests.support.v2_admission import database as database_fixture
 from v2_core.ingress import ContextProvider, IntakeRejected
 from v2_core.producer import market_envelope
@@ -142,6 +144,55 @@ def test_stale_tv_does_not_stop_fresh_tv_peer_in_same_batch(case, database):
     assert result == {first: "DEFERRED", second: "PREPARED"}
     assert scheduler.worker.decision(first) is None
     assert scheduler.worker.decision(second)["action"] == "OPEN"
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (1,)
+
+
+@pytest.mark.parametrize(
+    "expired", ["before-market", "before-signal", "after-market", "after-account", "after-signal"]
+)
+def test_assembled_context_expiry_does_not_stop_fresh_peer(case, database, expired):
+    pipeline, _, _, _, now = case
+    pipeline.market.run_once()
+    fresh = pipeline.schedulers[0].context_provider
+    first_clock = now + 60000 if expired == "before-signal" else now
+    second_clock = now + 60000 if expired == "after-signal" else now + 10
+    clocks = iter((first_clock, second_clock))
+    market_end = now if expired == "before-market" else (
+        now + 10 if expired == "after-market" else now + 90000
+    )
+    account_end = now + 10 if expired == "after-account" else now + 90000
+    expiring = DirectionalContext(
+        lambda signal: {
+            "environment": "SANDBOX",
+            "symbol": signal["symbol"],
+            "assembled_at": now - 1,
+            "valid_until_ms": market_end,
+        },
+        lambda signal: {
+            "account_scope": asdict(pipeline.scope),
+            "symbol": signal["symbol"],
+            "evidence": {"source": "QA"},
+            "observed_at_ms": now,
+            "valid_until_ms": account_end,
+        },
+        scope=pipeline.scope,
+        clock_ms=lambda: next(clocks),
+    )
+    scheduler = tv_schedulers(
+        pipeline, now,
+        lambda signal: expiring(signal) if signal["symbol"] == "ACUUSDT" else fresh(signal),
+    )[0]
+    first = tv_signal(pipeline, now, ttl=60000)
+    second = tv_signal(pipeline, now, symbol="BTCUSDT", ttl=90000)
+    assert scheduler.run_once(limit=2) == {first: "DEFERRED", second: "PREPARED"}
+    assert_no_signal_business(database, first)
+    assert scheduler.worker.decision(second)["action"] == "OPEN"
+    failure = scheduler.last_run_diagnostics["failures"][0]
+    assert failure["error_code"] == (
+        "SIGNAL_EXPIRED_DURING_CONTEXT" if expired.endswith("signal") else "STALE_CONTEXT"
+    )
+    assert failure["outcome"] == "DEFERRED"
     with database() as conn:
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (1,)
 

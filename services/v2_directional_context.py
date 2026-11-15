@@ -8,6 +8,35 @@ from copy import deepcopy
 from dataclasses import asdict
 
 
+def _require_current(now, signal, market, account=None):
+    """Only proven expiry is a candidate wait; malformed/future facts are not."""
+    intervals = [
+        (signal["observed_at"], signal["expires_at_ms"]),
+        (market["assembled_at"], market["valid_until_ms"]),
+    ]
+    if account is not None:
+        intervals.append((account["observed_at_ms"], account["valid_until_ms"]))
+    if (
+        type(now) is not int
+        or now < 0
+        or any(
+            type(value) is not int or value < 0
+            for interval in intervals
+            for value in interval
+        )
+        or any(start >= end for start, end in intervals)
+    ):
+        raise ValueError("INVALID_CONTEXT_TIMESTAMPS")
+    # Check every interval before expiry: an expired signal must not hide a
+    # future account observation or another invalid source.
+    if any(now < start for start, _ in intervals):
+        raise ValueError("FUTURE_CONTEXT")
+    if now >= signal["expires_at_ms"]:
+        raise ValueError("SIGNAL_EXPIRED_DURING_CONTEXT")
+    if any(now >= end for _, end in intervals[1:]):
+        raise ValueError("STALE_CONTEXT")
+
+
 class DirectionalContext:
     def __init__(
         self, market_context, account_context, *, scope, clock_ms, market_screen=None
@@ -47,14 +76,9 @@ class DirectionalContext:
         if (
             market["environment"] != self.scope.environment
             or market["symbol"] != signal["symbol"]
-            or any(
-                type(t) is not int or t < 0
-                for t in (now, market["assembled_at"], market["valid_until_ms"])
-            )
-            or not market["assembled_at"] <= now < market["valid_until_ms"]
-            or not signal["observed_at"] <= now < signal["expires_at_ms"]
         ):
-            raise ValueError("stale or invalid market context")
+            raise ValueError("CONTEXT_SCOPE_MISMATCH")
+        _require_current(now, signal, market)
         if self.market_screen is not None:
             windows = market["sources"]["s3"]["features"]
             screening = {
@@ -78,22 +102,11 @@ class DirectionalContext:
             or market["symbol"] != signal["symbol"]
             or account["account_scope"] != asdict(self.scope)
             or account["symbol"] != signal["symbol"]
-            or not isinstance(account["evidence"], dict)
-            or not account["evidence"]
         ):
-            raise ValueError("context source scope or evidence missing")
-        times = (
-            now,
-            market["assembled_at"],
-            market["valid_until_ms"],
-            account["observed_at_ms"],
-            account["valid_until_ms"],
-        )
-        if any(type(t) is not int or t < 0 for t in times) or not (
-            market["assembled_at"] <= now < market["valid_until_ms"]
-            and account["observed_at_ms"] <= now < account["valid_until_ms"]
-        ):
-            raise ValueError("stale or future pipeline context")
+            raise ValueError("CONTEXT_SCOPE_MISMATCH")
+        if not isinstance(account["evidence"], dict) or not account["evidence"]:
+            raise ValueError("ACCOUNT_CONTEXT_EVIDENCE_INVALID")
+        _require_current(now, signal, market, account)
         windows = market["sources"]["s3"]["features"]
         regime = market["sources"]["s0"]["features"]["regime"]
         return {

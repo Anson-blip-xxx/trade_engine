@@ -251,8 +251,26 @@ def failing_history_lane(maintenance, component, failure, *, threshold=0):
         if kwargs.get("hot_only"):
             return result
         size = kwargs["history_page_size"]
+        scheduler.last_history_diagnostics = {
+            "component": component,
+            "status": "FAILED",
+            "phase": "PAGE_READ",
+            "page_size": size,
+            "budget_ms": kwargs["budget_ms"],
+            "elapsed_ms": 20,
+            "setup_elapsed_ms": 0,
+            "scanned": size,
+            "commit_confirmed": False,
+            "cursor_advanced": False,
+        }
         if size > threshold:
             raise failure()
+        scheduler.last_history_diagnostics.update(
+            status="COMPLETE",
+            phase="COMPLETE",
+            commit_confirmed=True,
+            cursor_advanced=True,
+        )
         metrics = (
             scheduler.last_expiry_metrics
             if component == "cold_expiry"
@@ -283,7 +301,6 @@ def history_calls(calls, component):
     "failure",
     [
         lambda: QueryCanceled("QA query timeout"),
-        lambda: LockNotAvailable("QA lock timeout"),
         lambda: TimeoutError("HISTORY_PAGE_BUDGET_EXHAUSTED"),
     ],
 )
@@ -324,6 +341,7 @@ def test_budget_failures_shrink_independent_pages_to_one_without_widening_budget
         lambda: TimeoutError("unrelated transport timeout"),
         lambda: ValueError("HISTORY_PAGE_BUDGET_EXHAUSTED"),
         lambda: ConnectionError("QA connection failure"),
+        lambda: LockNotAvailable("QA lock timeout"),
     ],
 )
 def test_unrelated_errors_do_not_shrink_or_hide_dependency_failure(failure):

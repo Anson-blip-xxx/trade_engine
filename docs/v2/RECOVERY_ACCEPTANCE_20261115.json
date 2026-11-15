@@ -1,0 +1,107 @@
+{
+  "schema": "recovery-acceptance-v1",
+  "date": "2026-11-15",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "status": "DEPLOYED_INCIDENT_SETTLED_TRADING_RESUMED",
+  "incidents": {
+    "maintenance": {
+      "active_alarm_window_utc8": ["11:13:39", "11:15:33"],
+      "verified_defect": "Connection/setup, lock or page-budget failures all shrank the history page, with no recovery from a one-row cap.",
+      "underlying_database_jitter_proven": false
+    },
+    "close_race": {
+      "observed_during_investigation": true,
+      "symbol": "AINUSDT",
+      "first_blocked_cycle_utc8": "11:20:47",
+      "local_unknown_recorded_utc8": "11:21:06",
+      "original_durable_response": {"category": "EXCHANGE_RESPONSE_ERROR", "http_status": 400, "exchange_code": -2022},
+      "separate_native_stop_fill": true,
+      "local_remaining_quantity": "0",
+      "independent_get_query": {"outcome": "ABSENT", "exchange_code": -2013},
+      "blocking_reason": "LOCAL_ORDERS_NOT_FINAL",
+      "root_cause": "Synchronous reduce-only refusal was classified as UNKNOWN; query recovery recognized a different rejection code but not this one, leaving a known refusal nonterminal forever.",
+      "official_reference": "https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/error-code"
+    },
+    "context_expiry": {
+      "reproduced_defect": "Expired market or signal context was converted into generic ValueError/UNAVAILABLE, stopping the peer batch instead of terminating or retrying only the affected candidate.",
+      "historical_hana_trigger_proven": false
+    }
+  },
+  "changes": {
+    "close_rejection": "Exact CLOSE/reduce-only HTTP400/-2022 is REJECTED. Old UNKNOWN additionally needs matching durable original refusal and explicit current order absence. Found/bound/filled orders retain their normal reconciliation path. Lock-time evidence checks and exact terminal idempotency protect concurrent recovery.",
+    "no_unknown_order_resubmission": true,
+    "no_flatness_based_rejection": true,
+    "no_historical_fact_rewrite": true,
+    "context": "Validated expiry maps to existing candidate-level waits; malformed/future/scope/evidence failures still fail closed. Signal deadline is rechecked after account reads.",
+    "history": "Fixed-stage safe diagnostics distinguish setup, locks and commit from page processing. Eight full committed low-cost pages plus cooldown permit conservative 25-percent capacity probes; failed probes revert to the last stable cap.",
+    "risk_and_trading_policy_changed": false,
+    "maintenance_budget_increased": false,
+    "maintenance_query_eligibility_or_transaction_contract_changed": false
+  },
+  "prior_cash_release_acceptance": {
+    "observed_at_utc8": "2026-11-15 11:29",
+    "natural_settlements_since_activation": 37,
+    "versioned_cash_basis_settlements": 37,
+    "new_precision_failure_found": false
+  },
+  "release": {
+    "prior": "/opt/trade-engine-v2/releases/venue-cash-controller-20261114-v1",
+    "candidate": "/opt/trade-engine-v2/releases/recovery-controller-20261115-v1",
+    "runtime_changed_files": 5,
+    "script": "scripts/v2_recovery_release_20261115.py",
+    "preflight_dry_run": "PASSED",
+    "pre_restart_venue_positions": ["MEGAUSDT"],
+    "pre_restart_native_stops": 1,
+    "pre_restart_ordinary_orders": 0,
+    "pre_restart_coverage_blockers": ["LOCAL_ORDERS_NOT_FINAL"],
+    "policy_version_before": 12,
+    "cash_basis_version": 2,
+    "restart_completed": true,
+    "started_at_utc8": "2026-11-15 11:33:34",
+    "graceful_stop_forced": false,
+    "fresh_manage_only_coverage_verified": true,
+    "route_after": "ACTIVE",
+    "epoch_after": 27,
+    "same_binding_preserved": true,
+    "policy_unchanged": true,
+    "policy_version_after": 12,
+    "post_restart_get_only_coverage": "CLEAR",
+    "post_restart_positions": ["MEGAUSDT"],
+    "post_restart_native_stops": 1,
+    "post_restart_ordinary_orders": 0,
+    "incident_unknown_order": "REJECTED_FROM_DURABLE_ORIGINAL_REFUSAL",
+    "incident_reconciled_at_utc8": "2026-11-15 11:33:36",
+    "incident_episode": "SETTLED",
+    "incident_settled_at_utc8": "2026-11-15 11:33:51",
+    "incident_original_orders_and_submission_events_unchanged": true,
+    "post_restart_cycles_through_113600_utc8": {"complete": 9, "blocked_during_manage_only": 1},
+    "latest_protection_exits_settlement": "CLEAR",
+    "latest_signal_consumption_lag": "CLEAR",
+    "active_health_alarms_at_check": [],
+    "background_history_retry_observed": true,
+    "background_history_retry_evidence": "After restart, setup consumed 150-205ms of a 250ms page budget on two observed failed pages. These were classified SETUP_PRESSURE_OR_UNKNOWN and did not shrink the page. Later pages committed and advanced; caps remained 250-1000, not one row. Underlying setup jitter remains unproven.",
+    "background_auto_growth_observed_in_runtime": false,
+    "background_auto_growth_covered_in_tests": true,
+    "forced_close": false,
+    "live_changes": false
+  },
+  "qa": {
+    "context_workspace": {"passed": 189, "log": "/tmp/v2-data-qa.iTvVQ6/pytest.log"},
+    "rejection_workspace_before_terminal_idempotency_delta": {"passed": 236, "log": "/tmp/v2-data-qa.MYqoyg/pytest.log"},
+    "maintenance_workspace": {"passed": 126, "log": "/tmp/v2-data-qa.1dIGFO/pytest.log"},
+    "release_guard_pure": {"passed": 59},
+    "counts_are_unique_additive": false,
+    "exact_candidate": {"status": "PASSED", "passed": 676, "failed": 0, "seconds": 150.61, "verified_candidate_imports": 109, "log": "/tmp/v2-data-qa.JaD3sF/pytest.log", "disposable_database_removed": true},
+    "review_fixes": [
+      "Import-verifier output contract corrected before deployment; covered by an executing verifier-contract unit test.",
+      "Identical concurrent rejection recovery now verifies the committed terminal proof and returns idempotently instead of reporting a false conflict."
+    ]
+  },
+  "boundaries": [
+    "No guarantee that every future venue/network/database exception disappears.",
+    "Unknown submission outcomes without original conclusive refusal still require reconciliation and explicit alerts, never blind resubmission.",
+    "Maintenance timeout category is a bounded-control diagnostic, not proof of database capacity shortage.",
+    "No claim of improved profitability or LIVE acceptance."
+  ]
+}

@@ -337,6 +337,57 @@ class ExecutionRunner:
             "UNKNOWN",
         }:
             raise ValueError("unsupported exchange observation")
+        if (observation.evidence or {}).get("reason") == (
+            "DURABLE_REDUCE_ONLY_REJECT_CONFIRMED"
+        ):
+            # The query runs outside the order lock. An intervening recovery
+            # may bind a real venue order; a stale absence result must not
+            # overwrite it. The transition below separately rejects any
+            # durable fill under this same episode/order transaction lock.
+            proof = observation.evidence
+            if (
+                current["status"] == "REJECTED"
+                and current["leg"] == "CLOSE"
+                and current["reduce_only"] is True
+                and current["exchange_order_id"] is None
+                and observation.exchange_order_id is None
+                and observation.status == "REJECTED"
+                and not observation.fills
+            ):
+                # Two readers can observe the same UNKNOWN before either
+                # commits. Only an identical, already-committed rejection is
+                # an idempotent replay; altered proof is still a conflict.
+                committed = conn.execute(
+                    "SELECT evidence FROM v2_order_events WHERE order_id=%s "
+                    "AND version=%s AND status='REJECTED'",
+                    (order_id, current["version"]),
+                ).fetchone()
+                has_fills = conn.execute(
+                    "SELECT 1 FROM v2_fills WHERE order_id=%s LIMIT 1", (order_id,)
+                ).fetchone()
+                if committed == (proof,) and not has_fills:
+                    return "REJECTED"
+            if (
+                current["status"] != "UNKNOWN"
+                or current["leg"] != "CLOSE"
+                or current["reduce_only"] is not True
+                or current["exchange_order_id"] is not None
+                or observation.exchange_order_id is not None
+                or observation.status != "REJECTED"
+                or observation.fills
+                or proof.get("source") != "binance-recovery"
+                or proof.get("query_code") != -2013
+                or current.get("submission_failure") != proof.get("submission_failure")
+                or current.get("submission_failure", {}).get("reason")
+                != "submission response unavailable"
+                or current.get("submission_failure", {}).get("transport")
+                != {
+                    "category": "EXCHANGE_RESPONSE_ERROR",
+                    "http_status": 400,
+                    "exchange_code": -2022,
+                }
+            ):
+                raise ValueError("DURABLE_REDUCE_ONLY_REJECT_CONFLICT")
         if (
             current["status"] in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
             and current["status"] != observation.status

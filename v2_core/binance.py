@@ -30,6 +30,23 @@ def wire_amount(value):
     return result.rstrip("0").rstrip(".") if "." in result else result
 
 
+def _reduce_only_reject(order, diagnostic):
+    """A synchronous refusal, never inferred from flatness or missing orders."""
+    return (
+        order.get("leg") == "CLOSE"
+        and order.get("reduce_only") is True
+        and type(diagnostic) is dict
+        and type(diagnostic.get("http_status")) is int
+        and type(diagnostic.get("exchange_code")) is int
+        and diagnostic
+        == {
+            "category": "EXCHANGE_RESPONSE_ERROR",
+            "http_status": 400,
+            "exchange_code": -2022,
+        }
+    )
+
+
 def _receipt_time(value):
     # Bounded Unix milliseconds, representable through 9999-12-31. A receipt
     # timestamp is venue evidence, not a local clock or freshness assertion.
@@ -202,6 +219,21 @@ class BinanceFutures:
             # Only these transport gates are guaranteed to precede any write.
             if str(exc) in {"ENDPOINT_OR_WRITE_DISABLED", "QUOTA_DENIED"}:
                 raise SubmissionNotSent(str(exc)) from None
+            # A native stop may win the race against our reduction. Binance's
+            # synchronous REDUCE_ONLY_REJECT is a refusal, not a lost receipt.
+            # Keep this scoped to the exact durable CLOSE request; no retry or
+            # cancellation is authorized by classifying the response.
+            if _reduce_only_reject(order, exc.diagnostic_evidence()):
+                return ExchangeObservation(
+                    order["client_order_id"],
+                    "REJECTED",
+                    evidence={
+                        "source": "binance-submit",
+                        "reason": "VENUE_REDUCE_ONLY_REJECTED",
+                        "submission_sent": True,
+                        "transport": exc.diagnostic_evidence(),
+                    },
+                )
             # Exact synchronous parameter/auth validation failures only. Never
             # infer rejection from 5xx, timeout, duplicate IDs or query -2013.
             if (
@@ -320,6 +352,23 @@ class BinanceFutures:
             # Repair old UNKNOWN classification only from the original durable
             # synchronous reject, never from absence or a later query failure.
             failure = order.get("submission_failure", {})
+            if (
+                order.get("status") == "UNKNOWN"
+                and order.get("exchange_order_id") is None
+                and isinstance(failure, dict)
+                and failure.get("reason") == "submission response unavailable"
+                and _reduce_only_reject(order, failure.get("transport"))
+            ):
+                return ExchangeObservation(
+                    order["client_order_id"],
+                    "REJECTED",
+                    evidence={
+                        "source": "binance-recovery",
+                        "reason": "DURABLE_REDUCE_ONLY_REJECT_CONFIRMED",
+                        "submission_failure": failure,
+                        "query_code": -2013,
+                    },
+                )
             if (
                 order.get("status") == "UNKNOWN"
                 and order.get("exchange_order_id") is None
