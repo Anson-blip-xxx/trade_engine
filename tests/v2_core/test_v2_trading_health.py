@@ -316,6 +316,7 @@ def test_background_maintenance_fault_is_visible_not_position_blockage(database)
     report = json.loads(store.read(health.key).payload_json)
     assert report["findings"]["SIGNAL_MAINTENANCE_DEGRADED"]["consumers"] == ["s6:s3"]
     payload["phases"]["signal_maintenance"]["s6:s3"] = {"status": "CURRENT"}
+    payload["finished_at_ms"] = now[0]
     store.change(key, expected_version=1, request_key="2", payload=payload, reason="QA")
     assert health() == frozenset()
 

@@ -112,6 +112,148 @@ def entry_blocking_stages(phases, *, settlement_clear=False):
     ]
 
 
+def maintenance_health_projection(maintenance, previous, now, observed_at_ms=None):
+    """Keep fault continuity per consumer/lane, never per aggregate alert code.
+
+    The lane's observed_at_ms is written only after its transaction commits.
+    A later failed attempt may coexist with that evidence: it starts a new
+    failure interval, not an uninterrupted failure since before the commit.
+    Consumer-wide progress cannot recover an unrelated lane or a dead worker.
+    An explicit CURRENT report must also have a strictly newer observation to
+    prove recovery. Missing evidence is not recovery. This projection grants
+    no trading permission.
+    """
+    previous = previous if isinstance(previous, dict) else {}
+    maintenance = (
+        maintenance
+        if isinstance(maintenance, dict)
+        else {"unknown": {"status": "UNAVAILABLE"}}
+    )
+    lanes, errors = {}, {}
+
+    def timestamp(value):
+        return value if type(value) is int and 0 <= value <= now else None
+
+    observation = timestamp(observed_at_ms)
+    for consumer in sorted(set(maintenance) | set(previous)):
+        value = maintenance.get(consumer)
+        old = previous.get(consumer, {})
+        old = old if isinstance(old, dict) else {}
+        snapshot = value if isinstance(value, dict) else {}
+        legacy_success = type(value) is int and value >= 0
+        components = snapshot.get("component_failures", {})
+        components = components if isinstance(components, dict) else {}
+        failing = {
+            name if name in {"cold_expiry", "discovery", "expiry"} else "unknown": error
+            for name, error in components.items()
+            if error
+        }
+        if (value is not None and failed(value) and not failing) or (
+            consumer in maintenance
+            and not isinstance(value, dict)
+            and not legacy_success
+        ):
+            failing["worker"] = "MAINTENANCE_WORKER_UNAVAILABLE"
+        # A thread-level failure can overlay cached component state. Only an
+        # exact component error explains the consumer-level failure_type.
+        if (
+            snapshot.get("status") == "UNAVAILABLE"
+            and snapshot.get("failure_type")
+            and snapshot["failure_type"] not in components.values()
+        ):
+            failing["worker"] = "MAINTENANCE_WORKER_UNAVAILABLE"
+        recovered = legacy_success or (
+            snapshot.get("status") == "CURRENT" and not failed(snapshot)
+        )
+        history = snapshot.get("history", {})
+        history = history if isinstance(history, dict) else {}
+        for lane in sorted(set(failing) | set(old)):
+            prior = old.get(lane, {})
+            prior = prior if isinstance(prior, dict) else {}
+            old_first = timestamp(prior.get("first_seen_ms"))
+            old_observation = timestamp(prior.get("last_observed_at_ms"))
+            watermark = old_observation if old_observation is not None else old_first
+            fresh_report = observation is not None and (
+                watermark is None or observation > watermark
+            )
+            detail = history.get(lane, {})
+            detail = detail if isinstance(detail, dict) else {}
+            committed = timestamp(
+                snapshot.get("expiry_observed_at_ms")
+                if lane == "expiry"
+                else detail.get("observed_at_ms")
+                if lane in {"cold_expiry", "discovery"}
+                else None
+            )
+            if (
+                committed is not None
+                and observation is not None
+                and committed > observation
+            ):
+                committed = None
+            old_commit = timestamp(prior.get("last_committed_at_ms"))
+            progressed = (
+                fresh_report
+                and committed is not None
+                and (old_commit is None or committed > old_commit)
+            )
+            if lane not in failing and (
+                (recovered and fresh_report)
+                or (progressed and old_first is not None and committed >= old_first)
+            ):
+                continue
+            if lane not in failing and old_first is None:
+                continue
+            first = (
+                now
+                if old_first is None
+                or (lane in failing and progressed and committed >= old_first)
+                else old_first
+            )
+            entry = {
+                "first_seen_ms": first,
+                "last_committed_at_ms": committed if progressed else old_commit,
+                "last_observed_at_ms": observation if fresh_report else old_observation,
+                "status": "FAILING" if lane in failing else "RECOVERY_UNPROVEN",
+            }
+            lanes.setdefault(consumer, {})[lane] = entry
+            errors.setdefault(consumer, {})[lane] = {
+                **entry,
+                "failure_type": (
+                    failing[lane]
+                    if isinstance(failing.get(lane), str)
+                    and failing[lane]
+                    in {
+                        "TimeoutError",
+                        "QueryCanceled",
+                        "LockNotAvailable",
+                        "ConnectionError",
+                        "OperationalError",
+                        "ValueError",
+                        "KeyError",
+                        "MAINTENANCE_WORKER_UNAVAILABLE",
+                    }
+                    else "UNKNOWN_MAINTENANCE_FAILURE"
+                ),
+            }
+    if not lanes:
+        return None, {}, None
+    first = min(
+        entry["first_seen_ms"]
+        for consumers in lanes.values()
+        for entry in consumers.values()
+    )
+    return (
+        {
+            "observed_at_ms": observation,
+            "consumers": sorted(lanes),
+            "lanes": errors,
+        },
+        lanes,
+        first,
+    )
+
+
 def rejected_residual_closes(conn, scope, now, safety_seconds):
     """Read owned active episodes, then indexed order/fill children only.
 
@@ -757,17 +899,6 @@ class TradingHealth:
             settlement_clear, analysis_finding = settlement_health_projection(latest[0])
             if analysis_finding is not None:
                 findings["SETTLEMENT_ANALYSIS_DEGRADED"] = analysis_finding
-            maintenance = latest[0].get("phases", {}).get("signal_maintenance", {})
-            if failed(maintenance):
-                # Bookkeeping is not opening authority, but failure must remain
-                # visible even when the trading cycle can safely continue.
-                findings["SIGNAL_MAINTENANCE_DEGRADED"] = {
-                    "cycle_id": latest[0].get("cycle_id"),
-                    "observed_at_ms": latest[0].get("finished_at_ms"),
-                    "consumers": sorted(k for k, v in maintenance.items() if failed(v))
-                    if isinstance(maintenance, dict)
-                    else [],
-                }
         if latest and latest[0].get("status") == "ENTRY_BLOCKED":
             phases = latest[0].get("phases", {})
             blocked = entry_blocking_stages(phases, settlement_clear=settlement_clear)
@@ -816,6 +947,26 @@ class TradingHealth:
             if previous and not previous.deleted
             else {}
         )
+        # A cycle can finish while these DB reads are in flight. Validate its
+        # maintenance evidence against an actual post-read clock sample, not
+        # the older queue-query boundary; never trust a source timestamp as
+        # our clock. Other health clocks and thresholds remain unchanged.
+        maintenance_now = self.clock()
+        maintenance_finding, maintenance_lanes, maintenance_first = (
+            maintenance_health_projection(
+                latest[0].get("phases", {}).get("signal_maintenance", {})
+                if latest
+                else {},
+                old.get("maintenance_lanes", {}),
+                maintenance_now,
+                latest[0].get("finished_at_ms") if latest else None,
+            )
+        )
+        if maintenance_finding is not None:
+            findings["SIGNAL_MAINTENANCE_DEGRADED"] = {
+                **maintenance_finding,
+                "cycle_id": latest[0].get("cycle_id") if latest else None,
+            }
         jev_budget = read_budget_health(self.connect, self.scope)
         jev_budget = apply_budget_health(findings, old, jev_budget)
         opening_incidents = retain_opening_incidents(
@@ -823,6 +974,8 @@ class TradingHealth:
         )
         timers = old.get("first_seen_ms", {})
         first = {code: min(now, timers.get(code, now)) for code in findings}
+        if maintenance_first is not None:
+            first["SIGNAL_MAINTENANCE_DEGRADED"] = maintenance_first
         if rejected_closes:
             # Already aged from the durable rejection event: no second debounce
             # or restart reset. Never infer a venue position from the local sum.
@@ -839,7 +992,11 @@ class TradingHealth:
             "POSITION_SAFETY_BLOCKED": settings["health.safety_seconds"] * 1000,
         }
         active = sorted(
-            code for code in findings if now - first[code] >= delays.get(code, 0)
+            code
+            for code in findings
+            if (maintenance_now if code == "SIGNAL_MAINTENANCE_DEGRADED" else now)
+            - first[code]
+            >= delays.get(code, 0)
         )
         # Signals arrive in minute-sized batches. A single empty queue between
         # batches is not a confirmed recovery; otherwise TG alternates alarm /
@@ -871,6 +1028,8 @@ class TradingHealth:
                 "findings": findings,
                 "expected_waits": expected_waits,
                 "queue_diagnostics": queue_diagnostics,
+                "maintenance_lanes": maintenance_lanes,
+                "maintenance_observed_at_ms": maintenance_now,
                 "signal_lag_state": signal_lag_state(
                     findings, active, clear_since, expected_waits, now, settings
                 ),
