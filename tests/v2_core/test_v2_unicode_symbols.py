@@ -202,7 +202,7 @@ def test_generated_incremental_frame_and_risk_reader_agree_on_unicode_id(monkeyp
     source = IncrementalCandles(
         public,
         SimpleNamespace(hget=lambda *_: None),
-        SimpleNamespace(read=lambda *_: []),
+        SimpleNamespace(environment="SANDBOX", read=lambda *_: []),
     )
     prepared = source.prepare(TARGET, observed)
     frame = prepared["frame"]

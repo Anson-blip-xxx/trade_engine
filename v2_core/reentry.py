@@ -19,6 +19,10 @@ _FAILED_EXITS = {
     "TIME_STOP",
 }
 _STAGNANT_EXITS = {"LOW_YIELD_STAGNATION"}
+# Proven close and known flatness do not prove why it closed or whether the
+# prior trade worked. Only trade-cycle v2 opts into a repair-only treatment.
+# Legacy research/CHASE_ONLY keep their existing unsupported-exit behaviour.
+_UNATTRIBUTED_EXITS = {"RECONCILED_EXTERNAL_CLOSE"}
 
 
 @dataclass(frozen=True)

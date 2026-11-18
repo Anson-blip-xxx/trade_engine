@@ -1,0 +1,114 @@
+{
+  "schema": "live-market-foundation-acceptance-v1",
+  "date": "2026-11-18",
+  "timezone": "Asia/Shanghai",
+  "status": "FOUNDATION_QA_PASSED_NOT_DEPLOYED",
+  "base_revision": "2fbb1fd",
+  "scope": "Public market source separation foundation and structural reentry correctness before activation",
+  "runtime": {
+    "release": "recovery-controller-20261115-v3",
+    "environment": "SANDBOX",
+    "changed": false,
+    "restart_performed": false,
+    "policy_changed": false,
+    "private_exchange_requests_performed": false,
+    "orders_submitted": false,
+    "read_only_health_checked_at_ms": 1794968180712,
+    "route_phase": "ACTIVE",
+    "cycle_status": "CYCLE_COMPLETE",
+    "signal_consumption_lag": "CLEAR",
+    "protection": "CLEAR",
+    "exits": "CLEAR",
+    "settlement": "CLEAR",
+    "local_unsettled_episodes": 0,
+    "venue_flatness_independently_verified_this_change": false
+  },
+  "completed": {
+    "archive_scope_guard": "IncrementalCandles refuses transport/archive environment mismatch before I/O. Regression fixtures now declare their archive scope explicitly.",
+    "public_shadow": "Explicit --live-public-shadow collector uses LIVE host budget, advisory lock, archive partition, catalog, heads and Redis namespaces. Reads SANDBOX priority demand only; never grants execution eligibility. No ProducerPublisher, S3 lifecycle, inbound signals, QuantResearch or order transport in shadow mode.",
+    "default_preserved": "Without the explicit shadow flag, existing SANDBOX producer behavior remains. Shadow startup requires explicit V2_MARKET_FEATURE_VERSION, not the legacy default.",
+    "publication_freshness": "After durable candle archival, recheck original observation time before either S3 or S0 shadow projection. Slow archival and future timestamps cannot publish CURRENT context; no fallback to Demo.",
+    "paired_comparator": "Pure exact-symbol, exact-closed-minute, exact-feature-version and indicator-contract comparison of frozen LIVE/SANDBOX S3 envelopes. Decimal metrics, original source identities, UNKNOWN/PARTIAL on missing or invalid evidence; observed zero flow differs from zero-volume fallback. Does not claim raw-candle digest verification, execution permission or PnL.",
+    "read_only_comparison_entry": "services.v2_market_source_compare reads at most 20 requested symbols from existing Redis observations. Individual malformed sources become UNKNOWN without exposing payloads or aborting other symbols. No network price fetch, state write, automatic collector startup or fallback.",
+    "external_close_attribution": "Exact BINANCE_EXTERNAL_CLOSE plus EXTERNAL_REDUCE_ONLY is recorded as RECONCILED_EXTERNAL_CLOSE after existing settlement/flatness checks; liquidation and ambiguous bindings remain distinct.",
+    "structural_reentry_v2": "A verified external close of unknown cause must form and confirm a new post-exit structure, even when its recorded net is positive. It cannot use a profit-exit direct-breakout exemption. Unresolved/ambiguous previous orders remain ineligible. Default reentry OFF and legacy CHASE_ONLY remain unchanged.",
+    "historical_replay": "Explicit trade-cycle-structure-v1 recomputation preserves prior fixed-vector canonical digests. Opportunity validation binds rule version, parameters and token; relabelling a v1 proof cannot grant v2 permissions. No fixed cooldown was added."
+  },
+  "root_cause_limits": {
+    "source_scope_defect_reproduced_in_tests": true,
+    "historical_archive_cross_environment_corruption_proven": false,
+    "external_close_reentry_defect_reproduced_in_tests": true,
+    "external_close_reentry_is_current_queue_lag_root_cause": false,
+    "current_reentry_mode": "OFF",
+    "profitability_improvement_proven": false
+  },
+  "qa": {
+    "boundary": "Dedicated disposable PostgreSQL/Redis/ClickHouse QA paths; TCP/UDP venue access prohibited by test audit hook; venue writes are fakes only.",
+    "earlier_market_regression": {"passed": 156, "failed": 0},
+    "earlier_combined_regression": {"passed": 511, "failed": 0, "skipped": 0},
+    "final_regression": {
+      "runner": "scripts/qa_v2_data_core.sh",
+      "passed": 690,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": "82.61",
+      "diagnostics": "/tmp/v2-data-qa.2U7Z1R",
+      "disposable_databases_retained": false,
+      "scope": "19 targeted V2 suites: market source/shadow/producer, indicator and unicode compatibility, research provenance, entry history/control, reentry/checkpoints, trade-cycle context and simulated fullflow",
+      "whole_repository_suite": false,
+      "real_exchange_order_acceptance": false,
+      "ruff": "PASSED",
+      "git_diff_check": "PASSED"
+    },
+    "counts_are_separate_runs_not_additive": true,
+    "independent_reviews": [
+      "Source/execution scope, archive binding, no-signal publication, quota and catalog isolation",
+      "Post-archive freshness issue found and fixed with delayed-archive/future-time regression",
+      "Missing indicator contracts and zero-volume derived fallbacks found and fixed with adversarial tests",
+      "v1/v2 rule identity and frozen-proof compatibility"
+    ]
+  },
+  "read_only_runtime_comparison": {
+    "symbols": ["BTCUSDT", "ETHUSDT"],
+    "comparable": 0,
+    "unknown": 2,
+    "reason": "LIVE shadow is not installed; missing LIVE observations correctly remain UNKNOWN while current SANDBOX envelopes validate.",
+    "comparison_evaluated_at_ms": 1794968205732
+  },
+  "not_completed_or_claimed": [
+    "Independent LIVE shadow service installation, continuous coverage and health acceptance",
+    "Migration of actual signal/entry decisions from Demo to LIVE public market observations",
+    "LIVE signed execution, credentials, protective orders, cancellation, reconciliation or account switch",
+    "Activation of TRADE_CYCLE SHADOW or ENFORCE on the running account",
+    "Prospective profitability, TV/JEV incremental benefit or production readiness"
+  ],
+  "ordered_next_gates": [
+    {
+      "gate": "SHADOW_RESOURCE_ROLLOUT",
+      "requirements": [
+        "Budget LIVE collection alongside existing LIVE sentiment/depth/research consumers; HostBudget market reserve and rate-limit cooldown remain authoritative.",
+        "Measure cold-start and steady coverage, database latency, CPU, memory and exchange 429 responses. At 650 symbols the current request contract implies approximately 6500 cold-start weight and 730 weight/minute for steady candles plus tickers, excluding other traffic; these are estimates, not measured acceptance.",
+        "Add independent LIVE shadow freshness/coverage health checks; existing SANDBOX health cannot certify it.",
+        "Verify bounded ClickHouse LIVE retention before continuous collection; base incremental table has no automatic TTL.",
+        "Keep SANDBOX mark prices, exchange rules, sizing, native stop execution and risk references unchanged. Stop only the shadow service if it degrades shared resources."
+      ]
+    },
+    {
+      "gate": "SOURCE_PROMOTION",
+      "requirements": [
+        "Collect aligned prospective pairs with identical algorithm versions and original observation identities.",
+        "Define explicit source-environment versus execution-environment evidence and separate catalog/quote basis checks; never relabel LIVE envelopes as SANDBOX.",
+        "Refactor and test producer queue scope, ContextProvider, DirectionalContext, replay, risk reference and reentry archive consistently before changing active signal inputs.",
+        "Do not combine LIVE price paths with Testnet fills as executable profit."
+      ]
+    },
+    {
+      "gate": "STRUCTURAL_REENTRY_PROMOTION",
+      "requirements": [
+        "Start explicit TRADE_CYCLE plus SHADOW for both sides; OFF to ENFORCE with CHASE_ONLY is not equivalent.",
+        "Review missing archive/history rates, per-candidate terminal receipts, recovery after verified flatness and new-structure qualification.",
+        "Freeze parameters for prospective evaluation before ENFORCE; no thresholds fitted to one ARIA loss sequence."
+      ]
+    }
+  ]
+}

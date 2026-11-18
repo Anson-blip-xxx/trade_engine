@@ -15,6 +15,7 @@ from v2_core.reentry import (
     _FAILED_EXITS,
     _PROFIT_EXITS,
     _STAGNANT_EXITS,
+    _UNATTRIBUTED_EXITS,
     VERSION,
     ReentryPolicy,
 )
@@ -68,7 +69,7 @@ def _bars(bars, *, start, end, width):
         raise ValueError("REENTRY_CHECKPOINT_HISTORY_GAP")
 
 
-def seed(previous, bars, *, policy=None):
+def seed(previous, bars, *, policy=None, allow_unattributed_exit=False):
     policy = policy or ReentryPolicy()
     width = policy.timeframe_minutes * 60000
     exited = previous["exit_known_ms"]
@@ -80,7 +81,12 @@ def seed(previous, bars, *, policy=None):
         or not previous["previous_episode"]
     ):
         raise ValueError("REENTRY_CHECKPOINT_IDENTITY")
-    if previous["exit_reason"] not in _PROFIT_EXITS | _FAILED_EXITS | _STAGNANT_EXITS:
+    if type(allow_unattributed_exit) is not bool:
+        raise ValueError("REENTRY_UNATTRIBUTED_MODE_INVALID")
+    supported = _PROFIT_EXITS | _FAILED_EXITS | _STAGNANT_EXITS
+    if allow_unattributed_exit:
+        supported = supported | _UNATTRIBUTED_EXITS
+    if previous["exit_reason"] not in supported:
         raise ValueError("EXIT_REASON_UNSUPPORTED")
     end = ((exited + width - 1) // width) * width
     _bars(bars, start=bars[0].t if bars else end, end=end, width=width)

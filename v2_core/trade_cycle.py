@@ -15,13 +15,35 @@ from v2_core.reentry import (
     _FAILED_EXITS,
     _PROFIT_EXITS,
     _STAGNANT_EXITS,
+    _UNATTRIBUTED_EXITS,
     ReentryPolicy,
 )
 from v2_core.reentry_checkpoint import advance, assess, seal, seed
 
-VERSION = "trade-cycle-structure-v1"
+VERSION = "trade-cycle-structure-v2"
+LEGACY_VERSION = "trade-cycle-structure-v1"
 MAX_BARS = 1440
 MAX_TIME = 2**53 - 1
+
+
+def opportunity_token(result):
+    """Version-bound identity; callers must still validate scope and evidence."""
+    return digest(
+        canonical(
+            {
+                "version": result["version"],
+                "previous_episode": result["previous_episode"],
+                "previous_side": result["previous_side"],
+                "side": result["side"],
+                "policy_digest": result["policy_digest"],
+                "anchor_basis": result["anchor_basis"],
+                "anchor_start_ms": result["anchor_start_ms"],
+                "break_closed_ms": result["break_closed_ms"],
+                "trigger_closed_ms": result["trigger_closed_ms"],
+                "path": result["path"],
+            }
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -144,7 +166,12 @@ def _same_side(anchor, previous, signal, as_of, cutoff, policy, cycle_policy):
         "exit_known_ms": anchor["effective_anchor_ms"],
         "exit_price": anchor["effective_price"],
     }
-    checkpoint = seed(effective, anchor["seed_bars"], policy=policy)
+    checkpoint = seed(
+        effective,
+        anchor["seed_bars"],
+        policy=policy,
+        allow_unattributed_exit=True,
+    )
     # A profitable-looking exit reason is not proof of a profitable trade.
     direct_break = (
         previous["exit_reason"] in _PROFIT_EXITS
@@ -353,6 +380,7 @@ def assess_trade_cycle(
     bar_cutoff_ms,
     policy,
     cycle_policy,
+    rule_version=VERSION,
 ):
     """Assess an opportunity using only facts available by ``as_of_ms``.
 
@@ -360,6 +388,11 @@ def assess_trade_cycle(
     UNKNOWN; a valid but unconfirmed structure returns WAIT. Neither may be
     represented as READY. Caller-owned scopes/locks still control admission.
     """
+    if not isinstance(rule_version, str) or rule_version not in {
+        LEGACY_VERSION,
+        VERSION,
+    }:
+        raise ValueError("TRADE_CYCLE_VERSION_UNSUPPORTED")
     if not isinstance(policy, ReentryPolicy) or not isinstance(
         cycle_policy, CyclePolicy
     ):
@@ -381,7 +414,7 @@ def assess_trade_cycle(
     prior = _previous(previous, as_of)
     _validate_bars(bars, width, cutoff)
     result = {
-        "version": VERSION,
+        "version": rule_version,
         "previous_episode": prior["previous_episode"],
         "previous_side": prior["side"],
         "side": side,
@@ -417,8 +450,13 @@ def assess_trade_cycle(
 
     if signal <= prior["exit_known_ms"]:
         return verdict("WAIT", "SIGNAL_PREDATES_EXIT")
-    if prior["exit_reason"] not in _PROFIT_EXITS | _FAILED_EXITS | _STAGNANT_EXITS:
+    supported_exits = _PROFIT_EXITS | _FAILED_EXITS | _STAGNANT_EXITS
+    if rule_version == VERSION:
+        supported_exits = supported_exits | _UNATTRIBUTED_EXITS
+    if prior["exit_reason"] not in supported_exits:
         return verdict("UNKNOWN", "EXIT_REASON_UNSUPPORTED")
+    if prior["exit_reason"] in _UNATTRIBUTED_EXITS:
+        result["unattributed_exit_treatment"] = "POST_EXIT_STRUCTURE_REQUIRED"
     needed = max(policy.anchor_bars, policy.atr_period + 1, policy.volume_period)
     anchor = _anchors(bars, prior, width, needed)
     if anchor is None:
@@ -446,20 +484,5 @@ def assess_trade_cycle(
         assessment = _reverse(anchor, side, signal, cutoff, policy, cycle_policy)
     result.update(assessment)
     if result["status"] == "READY":
-        result["opportunity_token"] = digest(
-            canonical(
-                {
-                    "version": VERSION,
-                    "previous_episode": prior["previous_episode"],
-                    "previous_side": prior["side"],
-                    "side": side,
-                    "policy_digest": result["policy_digest"],
-                    "anchor_basis": result["anchor_basis"],
-                    "anchor_start_ms": result["anchor_start_ms"],
-                    "break_closed_ms": result["break_closed_ms"],
-                    "trigger_closed_ms": result["trigger_closed_ms"],
-                    "path": result["path"],
-                }
-            )
-        )
+        result["opportunity_token"] = opportunity_token(result)
     return result

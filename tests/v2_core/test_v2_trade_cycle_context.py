@@ -193,3 +193,61 @@ def test_positive_exit_cannot_be_replaced_with_loss_for_direct_breakout():
     proof["previous_exit"]["exit_net_pnl"] = "-1"
     with pytest.raises(ValueError, match="PROFIT_BREAKOUT_INVALID"):
         check(seal(proof))
+
+
+def test_existing_v1_proof_for_supported_exit_remains_valid():
+    from v2_core.trade_cycle import opportunity_token
+
+    wrapper, signal, *_ = setup(changes=cycle(), mutate_bars=ready_bars)
+    proof = wrapper(signal)["entry_structure"]
+    assert proof["assessment"]["status"] == "READY"
+    proof["assessment"]["version"] = "trade-cycle-structure-v1"
+    proof["assessment"]["opportunity_token"] = opportunity_token(proof["assessment"])
+    assert check(seal(proof)) is None
+
+
+def test_existing_ready_proof_cannot_change_version_by_relabelling_alone():
+    wrapper, signal, *_ = setup(changes=cycle(), mutate_bars=ready_bars)
+    proof = wrapper(signal)["entry_structure"]
+    proof["assessment"]["version"] = "trade-cycle-structure-v1"
+    with pytest.raises(ValueError, match="CYCLE_CONFIRMATION_INVALID"):
+        check(seal(proof))
+
+
+@pytest.mark.parametrize("token", [None, "", "a" * 64])
+def test_ready_proof_requires_version_and_policy_bound_opportunity_identity(token):
+    wrapper, signal, *_ = setup(changes=cycle(), mutate_bars=ready_bars)
+    proof = wrapper(signal)["entry_structure"]
+    proof["assessment"]["opportunity_token"] = token
+    with pytest.raises(ValueError, match="CYCLE_CONFIRMATION_INVALID"):
+        check(seal(proof))
+
+
+def test_external_repair_requires_v2_proof_and_cannot_be_backdated_to_v1():
+    def repaired(bars):
+        data = flat(bars)
+        for b in data:
+            if b["t"] == 25 * 60000:
+                b.update(h="100", l="98", c="98.5")
+            elif b["t"] == 26 * 60000:
+                b.update(o="98.5", h="101", l="98.4", c="100.5", v="20")
+            elif b["t"] == 27 * 60000:
+                b.update(o="100.5", h="101", l="100.3", c="100.6")
+        return data
+
+    wrapper, signal, *_ = setup(
+        now=28 * 60000 + 1000,
+        changes=cycle(),
+        mutate_bars=repaired,
+        previous=row(
+            origin="BINANCE_EXTERNAL_CLOSE", kind="EXTERNAL_REDUCE_ONLY", reason=None
+        ),
+    )
+    proof = wrapper(signal)["entry_structure"]
+    assert proof["assessment"]["status"] == "READY"
+    assert proof["assessment"]["path"] == "PULLBACK_RESTART"
+    assert proof["previous_exit"]["exit_reason"] == "RECONCILED_EXTERNAL_CLOSE"
+    assert check(proof) is None
+    proof["assessment"]["version"] = "trade-cycle-structure-v1"
+    with pytest.raises(ValueError, match="CYCLE_CONFIRMATION_INVALID"):
+        check(seal(proof))

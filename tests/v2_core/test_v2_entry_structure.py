@@ -31,6 +31,8 @@ def row(**changes):
         "reason": "PEAK_DRAWDOWN",
         "pending": False,
         "net": "1",
+        "origin": None,
+        "kind": None,
     }
     values.update(changes)
     return tuple(values.values())

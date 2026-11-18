@@ -7,6 +7,25 @@ does not read market archives, change policy or perform execution/state writes.
 from dataclasses import asdict
 
 
+def close_reason(reason, origin, kind):
+    """Separate a verified external close's provenance from its unknown cause.
+
+    The adoption path records no strategy ``reason``. Only its exact
+    EXTERNAL_REDUCE_ONLY binding is eligible for structural repair; liquidation
+    and malformed/unrecognised bindings must not inherit a profit-exit label.
+    Settlement/flatness are independently checked by ``prior_close`` below.
+    """
+    if origin == "BINANCE_ALGO_CHILD":
+        return "VENUE_PROTECTION_CHILD"
+    if origin == "BINANCE_EXTERNAL_CLOSE":
+        if kind == "EXTERNAL_REDUCE_ONLY":
+            return "RECONCILED_EXTERNAL_CLOSE"
+        if kind == "LIQUIDATION":
+            return "EXCHANGE_LIQUIDATION"
+        return None
+    return reason
+
+
 def prior_close(conn, scope, target, now):
     """Latest actually filled episode, scoped exactly, not an OPEN decision.
 
@@ -17,11 +36,11 @@ def prior_close(conn, scope, target, now):
     row = conn.execute(
         """SELECT i.intent_id::text,i.payload->>'side',ep.status,f.oq,f.cq,
           f.closed_ms,f.known_ms,terminal.price,terminal.orders,
-          CASE WHEN cl.request_evidence->>'origin'='BINANCE_ALGO_CHILD'
-            THEN 'VENUE_PROTECTION_CHILD' ELSE cl.request_evidence->>'reason' END,
+          cl.request_evidence->>'reason',
           EXISTS(SELECT 1 FROM v2_orders o WHERE o.episode_id=i.intent_id
             AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED')),
-          settled.evidence->>'net_pnl'
+          settled.evidence->>'net_pnl',cl.request_evidence->>'origin',
+          cl.request_evidence->>'kind'
         FROM v2_trade_intents i JOIN v2_episodes ep ON ep.episode_id=i.intent_id
         LEFT JOIN v2_settlements settled ON settled.episode_id=i.intent_id
           AND settled.revision=ep.accounting_revision AND settled.currency='USDT'
@@ -66,6 +85,8 @@ def prior_close(conn, scope, target, now):
         reason,
         pending,
         net,
+        origin,
+        kind,
     ) = row
     if (
         status != "SETTLED"
@@ -81,7 +102,7 @@ def prior_close(conn, scope, target, now):
     return {
         "previous_episode": identity,
         "side": side,
-        "exit_reason": reason,
+        "exit_reason": close_reason(reason, origin, kind),
         "exit_known_ms": max(closed, known),
         "exit_price": price,
         "exit_net_pnl": net,

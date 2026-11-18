@@ -20,11 +20,11 @@ NOW = 1_000_000
 EXPECTED_QUERY = """
 SELECT i.intent_id::text,i.payload->>'side',ep.status,f.oq,f.cq,
   f.closed_ms,f.known_ms,terminal.price,terminal.orders,
-  CASE WHEN cl.request_evidence->>'origin'='BINANCE_ALGO_CHILD'
-    THEN 'VENUE_PROTECTION_CHILD' ELSE cl.request_evidence->>'reason' END,
+  cl.request_evidence->>'reason',
   EXISTS(SELECT 1 FROM v2_orders o WHERE o.episode_id=i.intent_id
     AND o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED')),
-  settled.evidence->>'net_pnl'
+  settled.evidence->>'net_pnl',cl.request_evidence->>'origin',
+  cl.request_evidence->>'kind'
 FROM v2_trade_intents i JOIN v2_episodes ep ON ep.episode_id=i.intent_id
 LEFT JOIN v2_settlements settled ON settled.episode_id=i.intent_id
   AND settled.revision=ep.accounting_revision AND settled.currency='USDT'
@@ -69,6 +69,8 @@ def row(**changes):
         "reason": "PEAK_DRAWDOWN",
         "pending": False,
         "net": "-1.23456789",
+        "origin": None,
+        "kind": None,
     }
     values.update(changes)
     return tuple(values.values())
@@ -190,6 +192,63 @@ def test_nullable_settlement_pnl_and_exit_reason_are_not_invented(reason):
     assert issue is None
     assert result["exit_reason"] == reason
     assert result["exit_net_pnl"] is None
+
+
+@pytest.mark.parametrize(
+    "origin,kind,reason,expected",
+    [
+        (
+            "BINANCE_EXTERNAL_CLOSE",
+            "EXTERNAL_REDUCE_ONLY",
+            None,
+            "RECONCILED_EXTERNAL_CLOSE",
+        ),
+        (
+            "BINANCE_EXTERNAL_CLOSE",
+            "EXTERNAL_REDUCE_ONLY",
+            "PEAK_DRAWDOWN",
+            "RECONCILED_EXTERNAL_CLOSE",
+        ),
+        ("BINANCE_EXTERNAL_CLOSE", "LIQUIDATION", None, "EXCHANGE_LIQUIDATION"),
+        (
+            "BINANCE_EXTERNAL_CLOSE",
+            "LIQUIDATION",
+            "PEAK_DRAWDOWN",
+            "EXCHANGE_LIQUIDATION",
+        ),
+        ("BINANCE_EXTERNAL_CLOSE", None, "PEAK_DRAWDOWN", None),
+        ("BINANCE_EXTERNAL_CLOSE", "UNKNOWN", "PEAK_DRAWDOWN", None),
+        ("BINANCE_ALGO_CHILD", None, None, "VENUE_PROTECTION_CHILD"),
+        (None, None, "PEAK_DRAWDOWN", "PEAK_DRAWDOWN"),
+        ("OTHER_EXTERNAL_SOURCE", "EXTERNAL_REDUCE_ONLY", None, None),
+    ],
+)
+def test_verified_close_provenance_does_not_invent_strategy_cause(
+    origin, kind, reason, expected
+):
+    conn = Connection(row(origin=origin, kind=kind, reason=reason))
+    result, issue = entry_history.prior_close(conn, SCOPE, "QUSDT", NOW)
+    assert issue is None
+    assert result["exit_reason"] == expected
+    assert result["exit_net_pnl"] == "-1.23456789"
+
+
+@pytest.mark.parametrize(
+    "changes", [{"status": "ACTIVE"}, {"pending": True}, {"cq": Decimal(0)}]
+)
+def test_external_close_binding_never_bypasses_settlement_or_flatness(changes):
+    conn = Connection(
+        row(
+            origin="BINANCE_EXTERNAL_CLOSE",
+            kind="EXTERNAL_REDUCE_ONLY",
+            reason=None,
+            **changes,
+        )
+    )
+    assert entry_history.prior_close(conn, SCOPE, "QUSDT", NOW) == (
+        None,
+        "PREVIOUS_EPISODE_UNRESOLVED",
+    )
 
 
 def test_read_failure_propagates_to_the_callers_existing_fence():

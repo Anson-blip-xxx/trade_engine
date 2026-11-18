@@ -386,7 +386,12 @@ def seed(database, sample):
                     sample.get(
                         "order_updated_at_ms", sample["latest_fill_known_at_ms"]
                     ),
-                    canonical({"reason": sample.get("close_reason", "QA_CLOSE")})
+                    canonical(
+                        sample.get(
+                            "close_evidence",
+                            {"reason": sample.get("close_reason", "QA_CLOSE")},
+                        )
+                    )
                     if leg == "CLOSE"
                     else "{}",
                 ),

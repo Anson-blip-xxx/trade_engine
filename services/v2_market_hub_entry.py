@@ -1,4 +1,8 @@
-"""Standalone Testnet-only market daemon: public GET endpoints, no credentials."""
+"""Public GET-only collector: Testnet signals or independent LIVE shadow data.
+
+LIVE shadow is explicit, never routes orders/signals and never replaces the
+Testnet execution quote client. Installing it is a separate rollout action.
+"""
 
 import json
 import os
@@ -29,11 +33,49 @@ def configured_feature_version(environ=None):
     return version
 
 
-def main():
+def create_hub(connect, cache, archive, *, feature_version, public_shadow=False):
+    if type(public_shadow) is not bool:
+        raise ValueError("MARKET_PUBLIC_SHADOW_MODE_INVALID")
+    environment = "LIVE" if public_shadow else "SANDBOX"
+    return SharedMarketHub(
+        connect,
+        transport=BinancePublicMarket(
+            environment=environment,
+            budget=HostBudget(connect, environment=environment, lane="market"),
+            enabled=True,
+            incremental=True,
+            timeout=3,
+        ),
+        cache=cache,
+        archive=IncrementalArchive(archive, environment),
+        clock_ms=lambda: time.time_ns() // 1000000,
+        monotonic_ms=lambda: time.monotonic_ns() // 1000000,
+        feature_version=feature_version,
+        publish_signals=not public_shadow,
+        # Priorities are read only, and still intersect the LIVE catalog. This
+        # does not grant Testnet tradability to a LIVE-only listed contract.
+        priority_environment="SANDBOX",
+        quant_research=None
+        if public_shadow
+        else QuantResearch(
+            connect,
+            archive=IncrementalArchive(archive, environment),
+            environment=environment,
+            clock_ms=lambda: time.time_ns() // 1000000,
+        ),
+    )
+
+
+def main(*, public_shadow=False):
     import clickhouse_connect
     import redis
 
     feature_version = configured_feature_version()
+    if type(public_shadow) is not bool:
+        raise ValueError("MARKET_PUBLIC_SHADOW_MODE_INVALID")
+    if public_shadow and "V2_MARKET_FEATURE_VERSION" not in os.environ:
+        raise ValueError("MARKET_PUBLIC_SHADOW_FEATURE_VERSION_REQUIRED")
+    environment = "LIVE" if public_shadow else "SANDBOX"
     connect = deployment_database()
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -55,42 +97,29 @@ def main():
             lock.commit()
             lock.autocommit = True
             if not lock.execute(
-                "SELECT pg_try_advisory_lock(hashtextextended('v2-market-hub:SANDBOX',0))"
+                "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
+                ("v2-market-hub:" + environment,),
             ).fetchone()[0]:
                 raise ValueError("MARKET_HUB_ALREADY_RUNNING")
-            hub = SharedMarketHub(
+            hub = create_hub(
                 connect,
-                transport=BinancePublicMarket(
-                    environment="SANDBOX",
-                    budget=HostBudget(connect, environment="SANDBOX", lane="market"),
-                    enabled=True,
-                    incremental=True,
-                    timeout=3,
-                ),
-                cache=cache,
-                archive=IncrementalArchive(archive, "SANDBOX"),
-                clock_ms=lambda: time.time_ns() // 1000000,
-                monotonic_ms=lambda: time.monotonic_ns() // 1000000,
+                cache,
+                archive,
                 feature_version=feature_version,
-                quant_research=QuantResearch(
-                    connect,
-                    archive=IncrementalArchive(archive, "SANDBOX"),
-                    environment="SANDBOX",
-                    clock_ms=lambda: time.time_ns() // 1000000,
-                ),
+                public_shadow=public_shadow,
             )
             while not stop.is_set():
                 # Loss of this session fences the writer; do not reconnect it.
                 lock.execute("SELECT 1")
                 try:
-                    policy = MarketPolicy.read(connect, "SANDBOX")
+                    policy = MarketPolicy.read(connect, environment)
                     if (
                         shutil.disk_usage("/var/lib/trade-engine-v2").free
                         < policy.minimum_free_disk_gib * 1024**3
                     ):
                         raise ValueError("MARKET_DISK_RESERVE_REQUIRED")
                     result = hub.run_once()
-                    interval = MarketPolicy.read(connect, "SANDBOX").interval_ms
+                    interval = MarketPolicy.read(connect, environment).interval_ms
                 except Exception as exc:  # noqa: BLE001 - safe diagnostic code only
                     result = {"status": "RETRY", "reason": diagnostic_code(exc)}
                     interval = 5000
@@ -102,4 +131,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--live-public-shadow", action="store_true")
+    main(public_shadow=parser.parse_args().live_public_shadow)

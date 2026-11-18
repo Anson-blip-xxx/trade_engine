@@ -38,7 +38,14 @@ CYCLE = {
 
 
 def build_cycle(
-    database, monkeypatch, *, mode="ENFORCE", seeded=True, shape="flat", strategy="S6"
+    database,
+    monkeypatch,
+    *,
+    mode="ENFORCE",
+    seeded=True,
+    shape="flat",
+    strategy="S6",
+    close_evidence=None,
 ):
     """Extend an existing real-PG fixture, never fabricate a sealed assessment."""
     captured = {}
@@ -71,6 +78,8 @@ def build_cycle(
         # This is a synthetic profit exit, not a test of outcome attribution.
         sample["net_pnl"] = history_row(net="2")["net_pnl"]
         sample["settlement_evidence"]["net_pnl"] = "2"
+        if close_evidence is not None:
+            sample["close_evidence"] = close_evidence
         seed_history(connect, sample)
 
     def structure(connect, delegate, **kwargs):
@@ -110,6 +119,13 @@ def build_cycle(
                             l=str(Decimal(200) - Decimal(bar["h"])),
                             c=str(Decimal(200) - Decimal(bar["c"])),
                         )
+                if shape == "repaired":
+                    if opened == CUTOFF - 180000:
+                        bar.update(h="100", l="98", c="98.5")
+                    elif opened == CUTOFF - 120000:
+                        bar.update(o="98.5", h="101", l="98.4", c="100.5", v="20")
+                    elif opened == CUTOFF - 60000:
+                        bar.update(o="100.5", h="101", l="100.3", c="100.6")
                 bars.append(bar)
             if shape == "gap":
                 bars.pop(len(bars) // 2)
@@ -517,3 +533,44 @@ def test_full_cycle_entry_controls_cannot_intercept_reduceonly_exit(
     assert len(venue.order_writes) == 1
     assert venue.order_writes[0]["reduceOnly"] == "true"
     assert venue.order_writes[0]["side"] == ("SELL" if strategy == "S6" else "BUY")
+
+
+@pytest.mark.parametrize(
+    "shape,kind,status",
+    [
+        ("flat", "EXTERNAL_REDUCE_ONLY", "WAIT"),
+        ("confirmed", "EXTERNAL_REDUCE_ONLY", "WAIT"),
+        ("repaired", "EXTERNAL_REDUCE_ONLY", "READY"),
+        ("repaired", "LIQUIDATION", "UNKNOWN"),
+        ("repaired", "UNRECOGNISED_KIND", "UNKNOWN"),
+    ],
+)
+def test_external_close_repair_uses_actual_pg_anchor_without_global_queue_block(
+    database, monkeypatch, shape, kind, status
+):
+    _, _, worker, signal_id, context, _, _, captured = build_cycle(
+        database,
+        monkeypatch,
+        shape=shape,
+        close_evidence={"origin": "BINANCE_EXTERNAL_CLOSE", "kind": kind},
+    )
+    proof = context["entry_structure"]
+    assert proof["assessment"]["status"] == status, proof["assessment"]
+    if kind == "EXTERNAL_REDUCE_ONLY":
+        assert proof["previous_exit"]["exit_reason"] == "RECONCILED_EXTERNAL_CLOSE"
+    scheduler = StrategyScheduler(worker, context_provider=captured["provider"])
+    outcome = scheduler.run_once(limit=1)
+    if status != "READY":
+        assert outcome == {signal_id: "IGNORED"}
+        assert not failed(outcome)
+        assert_consumed_rejection(database, worker, signal_id)
+        assert scheduler.run_once(limit=1) == {}
+    else:
+        assert proof["assessment"]["path"] == "PULLBACK_RESTART"
+        assert outcome == {signal_id: "PREPARED"}
+        prepared = worker.consume(signal_id, context=context)
+        result, sent, readiness = existing.fake_dispatch(
+            database, worker, signal_id, prepared["order_id"]
+        )
+        assert result == "ACKNOWLEDGED" and len(sent) == 1
+        assert readiness["blockers"] == []

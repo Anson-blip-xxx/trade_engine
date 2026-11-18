@@ -656,3 +656,123 @@ def test_post_exit_rolling_breakout_requires_second_closed_confirmation():
     assert result["anchor_basis"] == "POST_EXIT_ROLLING_BASE"
     assert result["reason"] == "STRUCTURE_CONFIRMATION_PENDING"
     assert result["trigger_closed_ms"] is None
+
+
+@pytest.mark.parametrize("net", [None, "-2", "0", "2"])
+def test_external_close_cannot_inherit_profitable_breakout_even_if_net_positive(net):
+    result = evaluate(
+        prior=previous(exit_reason="RECONCILED_EXTERNAL_CLOSE", exit_net_pnl=net)
+    )
+    assert result["version"] == "trade-cycle-structure-v2"
+    assert result["status"] == "WAIT"
+    assert result["reason"] == "STRUCTURE_NOT_REARMED"
+    assert result["exit_reason"] == "RECONCILED_EXTERNAL_CLOSE"
+    assert result["direct_breakout_eligible"] is False
+    assert result["unattributed_exit_treatment"] == "POST_EXIT_STRUCTURE_REQUIRED"
+    assert result["opportunity_token"] is None
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_external_close_can_rearm_only_after_post_exit_repair_and_confirmation(side):
+    rows = base() + [
+        bar(5, h="100", l="98", c="98.5"),
+        bar(6, o="98.5", h="101", l="98.4", c="100.5", v="20"),
+        bar(7, o="100.5", h="101", l="100.3", c="100.6"),
+    ]
+    if side == "SELL":
+        rows = mirror(rows)
+    prior = previous(
+        side=side, exit_reason="RECONCILED_EXTERNAL_CLOSE", exit_net_pnl="-2"
+    )
+    pending = evaluate(rows[:-1], side=side, prior=prior)
+    assert pending["reason"] == "STRUCTURE_CONFIRMATION_PENDING"
+    assert pending["opportunity_token"] is None
+    result = evaluate(rows, side=side, prior=prior)
+    assert result["status"] == "READY"
+    assert result["path"] == "PULLBACK_RESTART"
+    assert result["reset_closed_ms"] == 6 * MINUTE
+    assert result["trigger_closed_ms"] == 8 * MINUTE
+    assert result["exit_reason"] == "RECONCILED_EXTERNAL_CLOSE"
+    assert result["execution_authorized"] is False
+
+
+def test_external_close_reversal_still_requires_complete_range_break_confirmation():
+    prior = previous(exit_reason="RECONCILED_EXTERNAL_CLOSE")
+    assert evaluate(reversal()[:-1], side="SELL", prior=prior)["status"] == "WAIT"
+    result = evaluate(reversal(), side="SELL", prior=prior)
+    assert result["status"] == "READY"
+    assert result["path"] == "REVERSAL_BREAK_CONFIRM"
+    assert result["exit_reason"] == "RECONCILED_EXTERNAL_CLOSE"
+
+
+@pytest.mark.parametrize("reason", ["EXCHANGE_LIQUIDATION", "UNEXPLAINED_CLOSE"])
+def test_liquidation_and_unknown_closes_do_not_gain_external_repair_exception(reason):
+    result = evaluate(prior=previous(exit_reason=reason))
+    assert result["status"] == "UNKNOWN"
+    assert result["reason"] == "EXIT_REASON_UNSUPPORTED"
+    assert result["opportunity_token"] is None
+
+
+def test_legacy_checkpoint_and_reentry_paths_do_not_implicitly_opt_into_external_closes():
+    from v2_core.reentry import assess_reentry
+    from v2_core.reentry_checkpoint import seed
+
+    prior = previous(exit_reason="RECONCILED_EXTERNAL_CLOSE")
+    with pytest.raises(ValueError, match="EXIT_REASON_UNSUPPORTED"):
+        seed(prior, base(), policy=POLICY)
+    result = assess_reentry(
+        bars=breakout(),
+        side="BUY",
+        previous_episode=prior["previous_episode"],
+        exit_reason=prior["exit_reason"],
+        exit_known_ms=prior["exit_known_ms"],
+        exit_price=prior["exit_price"],
+        signal_observed_ms=7 * MINUTE,
+        as_of_ms=7 * MINUTE,
+        policy=POLICY,
+    )
+    assert result["status"] == "UNKNOWN"
+    assert result["reason"] == "EXIT_REASON_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    "side,rows,expected_digest",
+    [
+        (
+            "BUY",
+            breakout,
+            "8c770d3b785a5de57d008d39c0729697559faa48d73cbe36470bc6a4ce696cc9",
+        ),
+        (
+            "SELL",
+            reversal,
+            "8df016a55308b8630f2c38b03c98c686bb91c8374f0c9cec61050ae4a0f4b6d3",
+        ),
+    ],
+)
+def test_explicit_v1_replay_preserves_frozen_result_byte_digest(
+    side, rows, expected_digest
+):
+    from v2_core.evidence import canonical, digest
+
+    # Fixed vectors captured from pre-change v1, not a moving Git expectation.
+    result = evaluate(rows(), side=side, rule_version="trade-cycle-structure-v1")
+    assert digest(canonical(result)) == expected_digest
+    assert "unattributed_exit_treatment" not in result
+
+
+def test_v1_replay_does_not_reinterpret_external_close_as_v2():
+    result = evaluate(
+        prior=previous(exit_reason="RECONCILED_EXTERNAL_CLOSE"),
+        rule_version="trade-cycle-structure-v1",
+    )
+    assert result["version"] == "trade-cycle-structure-v1"
+    assert result["status"] == "UNKNOWN"
+    assert result["reason"] == "EXIT_REASON_UNSUPPORTED"
+    assert "unattributed_exit_treatment" not in result
+
+
+@pytest.mark.parametrize("version", [None, [], True, "trade-cycle-structure-v3"])
+def test_unknown_rule_version_is_a_contract_error_not_an_implicit_upgrade(version):
+    with pytest.raises(ValueError, match="TRADE_CYCLE_VERSION_UNSUPPORTED"):
+        evaluate(rule_version=version)

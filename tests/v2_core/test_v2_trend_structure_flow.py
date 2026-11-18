@@ -28,7 +28,9 @@ def test_feature_version_is_opt_in_and_source_reference_rebuilds_exact_frame():
     )
     source = batch()
     at = source["closed_at"]
-    archive = SimpleNamespace(read=lambda *_: source["candles"]["BTCUSDT"])
+    archive = SimpleNamespace(
+        environment="SANDBOX", read=lambda *_: source["candles"]["BTCUSDT"]
+    )
     producer = IncrementalCandles(
         SimpleNamespace(environment="SANDBOX"),
         SimpleNamespace(hget=lambda *_: None),

@@ -42,7 +42,9 @@ def test_daemon_rejects_unknown_or_unqualified_feature_versions(version):
 def test_corrected_incremental_producer_and_attested_shared_reference_agree():
     source = batch()
     at = source["closed_at"]
-    archive = SimpleNamespace(read=lambda *_: source["candles"]["BTCUSDT"])
+    archive = SimpleNamespace(
+        environment="SANDBOX", read=lambda *_: source["candles"]["BTCUSDT"]
+    )
     cache = SimpleNamespace(hget=lambda *_: None)
     transport = SimpleNamespace(environment="SANDBOX")
     producer = IncrementalCandles(

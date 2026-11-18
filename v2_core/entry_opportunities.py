@@ -115,8 +115,13 @@ def validate(
         from dataclasses import asdict
         from decimal import Decimal, InvalidOperation
 
-        from v2_core.reentry import _PROFIT_EXITS, ReentryPolicy
-        from v2_core.trade_cycle import VERSION, CyclePolicy
+        from v2_core.reentry import _PROFIT_EXITS, _UNATTRIBUTED_EXITS, ReentryPolicy
+        from v2_core.trade_cycle import (
+            LEGACY_VERSION,
+            VERSION,
+            CyclePolicy,
+            opportunity_token,
+        )
 
         try:
             cycle = CyclePolicy(**proof["cycle_policy"])
@@ -146,8 +151,26 @@ def validate(
                 if same
                 else {"REVERSAL_BREAK_CONFIRM"}
             )
+            try:
+                token_valid = (
+                    result["opportunity_token"] == opportunity_token(result)
+                    and result["policy"] == proof["policy"]
+                    and result["cycle_policy"] == proof["cycle_policy"]
+                    and result["policy_digest"]
+                    == digest(
+                        canonical(
+                            {
+                                "structure": proof["policy"],
+                                "cycle": proof["cycle_policy"],
+                            }
+                        )
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                token_valid = False
             if (
-                result.get("previous_episode") != proof.get("previous_episode")
+                not token_valid
+                or result.get("previous_episode") != proof.get("previous_episode")
                 or result.get("previous_side") != previous["side"]
                 or result.get("side") != side
                 or type(trigger) is not int
@@ -167,7 +190,17 @@ def validate(
                     and (proof["market_cutoff_ms"] - trigger) // width
                     > cycle.max_trigger_age_bars
                 )
-                or result.get("version") != VERSION
+                or result.get("version") not in {LEGACY_VERSION, VERSION}
+                # v1 never supported repair after a provenance-only external
+                # close. Preserve old valid proofs, not a backdated new rule.
+                or (
+                    previous["exit_reason"] in _UNATTRIBUTED_EXITS
+                    and (
+                        result.get("version") != VERSION
+                        or result.get("unattributed_exit_treatment")
+                        != "POST_EXIT_STRUCTURE_REQUIRED"
+                    )
+                )
                 or result.get("execution_authorized") is not False
                 or result.get("transition")
                 != ("SAME_SIDE_REENTRY" if same else "OPPOSITE_SIDE_REVERSAL")

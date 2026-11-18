@@ -8,7 +8,7 @@ The process owner must hold the environment advisory lock for its lifetime.
 import json
 from decimal import Decimal
 
-from services.v2_market_publishers import S0Publisher
+from services.v2_market_publishers import S0Publisher, feature_values
 from services.v2_s0_regime import build_s0_state
 from services.v2_s3_candles import (
     BREAKOUT_VERSION,
@@ -21,7 +21,7 @@ from services.v2_s3_candles import (
 from services.v2_s3_runtime import S3Runtime
 from v2_core.evidence import canonical, digest
 from v2_core.ingress import milliseconds, symbol
-from v2_core.producer import ProducerPublisher, RedisMarketContext
+from v2_core.producer import ProducerPublisher, RedisMarketContext, market_envelope
 from v2_core.projections import RedisProjection
 from v2_core.scheduling import diagnostic_code
 from v2_core.shared_market import Catalog, MarketPolicy
@@ -129,6 +129,13 @@ class IncrementalArchive:
 
 class IncrementalCandles:
     def __init__(self, transport, cache, archive, *, feature_version=PRICE_VERSION):
+        # The HTTP host, archive partition and cache namespace must describe
+        # the same market. Never relabel LIVE observations as Testnet candles.
+        if (
+            getattr(transport, "environment", None) not in {"LIVE", "SANDBOX"}
+            or getattr(archive, "environment", None) != transport.environment
+        ):
+            raise ValueError("CANDLE_SOURCE_ARCHIVE_SCOPE_MISMATCH")
         if feature_version not in (
             PRICE_VERSION,
             ROLLING_VERSION,
@@ -307,7 +314,24 @@ class SharedMarketHub:
         monotonic_ms,
         quant_research=None,
         feature_version=PRICE_VERSION,
+        publish_signals=True,
+        priority_environment=None,
     ):
+        environment = getattr(transport, "environment", None)
+        priority_environment = (
+            environment if priority_environment is None else priority_environment
+        )
+        if (
+            type(publish_signals) is not bool
+            or environment not in {"LIVE", "SANDBOX"}
+            or priority_environment not in {"LIVE", "SANDBOX"}
+            or (publish_signals and priority_environment != environment)
+            or (
+                not publish_signals
+                and (environment != "LIVE" or quant_research is not None)
+            )
+        ):
+            raise ValueError("MARKET_PUBLIC_SHADOW_BINDING_INVALID")
         self.connect, self.transport, self.cache, self.clock, self.monotonic = (
             connect,
             transport,
@@ -316,31 +340,41 @@ class SharedMarketHub:
             monotonic_ms,
         )
         self.environment = transport.environment
+        self.publish_signals = publish_signals
+        self.priority_environment = priority_environment
         self.quant_research = quant_research
         self.catalog = Catalog(connect, self.environment, clock_ms)
         self.candles = IncrementalCandles(
             transport, cache, archive, feature_version=feature_version
         )
         self.context = RedisMarketContext(cache, environment=self.environment)
-        self.publisher = ProducerPublisher(
-            connect,
-            source="s3",
-            environment=self.environment,
-            market=self.context,
-            clock_ms=clock_ms,
-            max_age_ms=90000,
-            lifetime_ms=90000,
-        )
-        self.regime = S0Publisher(
+        self.publisher = (
             ProducerPublisher(
                 connect,
-                source="s0",
+                source="s3",
                 environment=self.environment,
                 market=self.context,
                 clock_ms=clock_ms,
                 max_age_ms=90000,
-                lifetime_ms=120000,
+                lifetime_ms=90000,
             )
+            if publish_signals
+            else None
+        )
+        self.regime = (
+            S0Publisher(
+                ProducerPublisher(
+                    connect,
+                    source="s0",
+                    environment=self.environment,
+                    market=self.context,
+                    clock_ms=clock_ms,
+                    max_age_ms=90000,
+                    lifetime_ms=120000,
+                )
+            )
+            if publish_signals
+            else None
         )
         self.catalog_at = self.ticker_at = self.time_at = 0
         self.offset = 0
@@ -370,16 +404,16 @@ class SharedMarketHub:
                 "SELECT DISTINCT snapshot->>'symbol' FROM v2_inbound_signals WHERE source='tv_bridge' "
                 "AND environment=%s AND received_at>clock_timestamp()-interval '5 minutes' "
                 "AND (snapshot->>'observed_at')::bigint<=%s AND (snapshot->>'expires_at_ms')::bigint>%s",
-                (self.environment, now, now),
+                (self.priority_environment, now, now),
             ).fetchall()
             held = c.execute(
                 "SELECT DISTINCT i.payload->>'symbol' FROM v2_risk_reservations r "
                 "JOIN v2_trade_intents i ON i.intent_id=r.episode_id WHERE r.status='HELD' AND i.environment=%s",
-                (self.environment,),
+                (self.priority_environment,),
             ).fetchall()
             requested = c.execute(
                 "SELECT symbol FROM v2_market_demands WHERE environment=%s AND expires_at_ms>%s",
-                (self.environment, now),
+                (self.priority_environment, now),
             ).fetchall()
         return [r[0] for r in (*held, *tv, *requested)]
 
@@ -398,10 +432,38 @@ class SharedMarketHub:
             s3_input_digest=fingerprint,
         )
         state["evidence"]["breadth_scope"] = "CONFIGURED_BENCHMARK_BASKET"
+        if not self.publish_signals:
+            return self._project_shadow(
+                "s0", "*", observed, state, max_age_ms=policy.context_max_age_ms
+            )
         result = self.regime.publish_state(
             state, frame_id="s0-shared:" + fingerprint, observed_at=observed
         )
         return result["market_status"]
+
+    def _project_shadow(self, source, target, observed, features, *, max_age_ms=90000):
+        """Public observations only: no producer batches, lifecycle or ingress.
+
+        Candles have already been durably archived by run_once. Redis remains
+        reconstructible; a restart never invents a signal or a trade receipt.
+        """
+        if self.publish_signals or self.environment != "LIVE":
+            raise ValueError("MARKET_PUBLIC_SHADOW_BINDING_INVALID")
+        # The normal publisher checks age after durable storage, not merely at
+        # collection start. Shadow must preserve that barrier too: a slow CH
+        # insert or clock jump cannot make stale/future data appear CURRENT.
+        if not 0 <= milliseconds(self.clock()) - milliseconds(observed) < max_age_ms:
+            raise ValueError("MARKET_PUBLIC_SHADOW_STALE_OR_FUTURE")
+        if (
+            self.context.put(
+                market_envelope(
+                    source, self.environment, target, observed, feature_values(features)
+                )
+            )
+            is not True
+        ):
+            raise ValueError("MARKET_PROJECTION_UNCONFIRMED")
+        return "PROJECTED"
 
     def run_once(self):
         policy = MarketPolicy.read(self.connect, self.environment)
@@ -468,9 +530,21 @@ class SharedMarketHub:
             target = item["target"]
             try:
                 frame = self.candles.cache_prepared(item)
-                result = S3Runtime(self.publisher, state_partition=target).process(
-                    **frame
-                )
+                if self.publish_signals:
+                    result = S3Runtime(self.publisher, state_partition=target).process(
+                        **frame
+                    )
+                else:
+                    result = {
+                        "status": "RECORDED",
+                        "market_status": self._project_shadow(
+                            "s3",
+                            target,
+                            observed,
+                            frame["windows"][target],
+                            max_age_ms=policy.context_max_age_ms,
+                        ),
+                    }
                 if (
                     result["status"] != "RECORDED"
                     or result["market_status"] != "PROJECTED"
@@ -508,6 +582,10 @@ class SharedMarketHub:
             <= policy.context_max_age_ms
         )
         report = {
+            "market_environment": self.environment,
+            "priority_environment": self.priority_environment,
+            "publication_mode": "SIGNALS" if self.publish_signals else "PUBLIC_SHADOW",
+            "publishes_signals": self.publish_signals,
             "status": "CURRENT" if regime == "PROJECTED" else "WARMING",
             "regime": regime,
             "universe": len(universe),

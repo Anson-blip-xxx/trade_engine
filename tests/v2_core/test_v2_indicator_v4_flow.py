@@ -30,7 +30,9 @@ def test_incremental_source_builds_explicit_version_without_changing_default(
     version, prefix
 ):
     source = batch()
-    archive = SimpleNamespace(read=lambda *_: source["candles"]["BTCUSDT"])
+    archive = SimpleNamespace(
+        environment="SANDBOX", read=lambda *_: source["candles"]["BTCUSDT"]
+    )
     cache = SimpleNamespace(hget=lambda *_: None)
     transport = SimpleNamespace(environment="SANDBOX")
     producer = IncrementalCandles(transport, cache, archive, feature_version=version)
