@@ -11,12 +11,22 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from uuid import UUID, uuid5
 
-from v2_core.evidence import DecisionEvidence, EvidenceStore, canonical
+from v2_core.evidence import DecisionEvidence, EvidenceStore, canonical, digest
 from v2_core.intents import OpenIntent
 from v2_core.ledger import amount
 from v2_core.state import normalized
 
 _NAMESPACE = UUID("e1871725-a730-45d8-9c79-7d4044c9e530")
+_SHADOW_RECEIPT_STATUSES = {
+    "SUBMITTED_NOT_DURABLE",
+    "DISABLED",
+    "STOPPED",
+    "QUEUE_BUSY",
+    "QUEUE_FULL",
+    "INVALID_CANDIDATE",
+    "SUBMISSION_UNAVAILABLE",
+    "OBSERVER_UNAVAILABLE",
+}
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,7 @@ class StrategyWorker:
         decide,
         max_delay_ms,
         entry_filter=None,
+        entry_observer=None,
     ):
         if not isinstance(scope, StrategyScope):
             raise TypeError("typed strategy scope required")
@@ -108,6 +119,12 @@ class StrategyWorker:
         ):
             raise TypeError("explicit entry filter required")
         self.entry_filter = entry_filter
+        if entry_observer is not None and (
+            entry_filter is not None
+            or not callable(getattr(entry_observer, "submit", None))
+        ):
+            raise TypeError("independent observer cannot coexist with entry filter")
+        self.entry_observer = entry_observer
 
     def _read(self, conn, signal_id):
         signal = conn.execute(
@@ -590,6 +607,63 @@ class StrategyWorker:
                     )
                 except Exception:  # noqa: BLE001 - isolate model/reference failure to this signal
                     result = StrategyDecision("IGNORED", "JEV_GATE_UNAVAILABLE")
+            observer_baseline = None
+            if result.action == "OPEN" and self.entry_observer is not None:
+                # Research is explicitly non-authoritative. Its disposable
+                # queue cannot defer, reject, resize, or extend this decision.
+                # Freeze missing coverage even if optional submission fails.
+                observer_baseline = result
+                observer_identity = {
+                    "schema": "jev-shadow-receipt-v1",
+                    "signal_id": signal_id,
+                    "consumer": self.scope.consumer,
+                    "candidate_digest": digest(canonical(asdict(result))),
+                    "decision_effect": "NONE",
+                    "execution_authorized": False,
+                    "risk_override": False,
+                    "admission_authorized": False,
+                }
+                observation = {
+                    **observer_identity,
+                    "status": "OBSERVER_UNAVAILABLE",
+                    "coverage": "MISSING",
+                }
+                try:
+                    submitted = self.entry_observer.submit(
+                        decision=result,
+                        signal_id=signal_id,
+                        signal=deepcopy(signal),
+                        context=json.loads(context_json),
+                        config=json.loads(self.config_json),
+                        consumer=self.scope.consumer,
+                        now_ms=now,
+                        strategy_version=self.strategy_version,
+                    )
+                    if (
+                        type(submitted) is not dict
+                        or any(
+                            type(submitted.get(key)) is not type(value)
+                            or submitted.get(key) != value
+                            for key, value in observer_identity.items()
+                        )
+                        or submitted.get("coverage")
+                        not in {"MISSING", "MISSING_UNTIL_DURABLE_RESULT"}
+                        or submitted.get("status") not in _SHADOW_RECEIPT_STATUSES
+                        or len(canonical(submitted).encode()) > 16384
+                    ):
+                        raise ValueError("NONAUTHORITATIVE_OBSERVER_RECEIPT_REQUIRED")
+                    observation = submitted
+                except Exception:  # noqa: BLE001, S110 - missing research is already recorded, never blocks entry
+                    pass
+                result = StrategyDecision(
+                    result.action,
+                    result.rationale,
+                    side=result.side,
+                    quantity=result.quantity,
+                    features_json=canonical(
+                        {**json.loads(result.features_json), "jev_shadow": observation}
+                    ),
+                )
             snapshot = {
                 "signal_id": signal_id,
                 "observed_at": signal["observed_at"],
@@ -612,6 +686,18 @@ class StrategyWorker:
             proof = DecisionEvidence(
                 self.strategy_version, self.config_json, canonical(snapshot)
             )
+            if (
+                observer_baseline is not None
+                and len((proof.config_json + proof.snapshot_json).encode()) > 1_000_000
+            ):
+                # Optional research must not push an otherwise-valid baseline
+                # over the evidence limit. SHADOW configuration without a
+                # receipt remains unknown/missing coverage, never a model pass.
+                result = observer_baseline
+                snapshot["features"]["evaluation"] = json.loads(result.features_json)
+                proof = DecisionEvidence(
+                    self.strategy_version, self.config_json, canonical(snapshot)
+                )
             if len((proof.config_json + proof.snapshot_json).encode()) > 1_000_000:
                 raise ValueError("decision evidence exceeds size limit")
             identity = str(uuid5(_NAMESPACE, self.scope.consumer + ":" + signal_id))

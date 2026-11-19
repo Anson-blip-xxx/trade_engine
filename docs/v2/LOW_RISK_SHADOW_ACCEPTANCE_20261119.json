@@ -1,0 +1,129 @@
+{
+  "schema": "low-risk-shadow-acceptance-v1",
+  "date": "2026-11-19",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "status": "SANDBOX_LOW_RISK_SHADOW_DEPLOYED_PROSPECTIVE_VALIDATION_PENDING",
+  "scope": "Phase 1: lower new-entry sampling risk and separate optional JEV research from admission. Not a claim of repaired profitability or LIVE acceptance.",
+  "risk_activation": {
+    "before_version": 12,
+    "after_version": 13,
+    "before_digest": "d81e52848b682db60604f904b3ced88f5f16d369753379a2e18ee961543079fa",
+    "after_digest": "b4f804b3cf19c5095f0315a7b2863a0e4e711fb2d82494b9a28dac7656b26c85",
+    "changes": {
+      "sizing.risk_fraction": {"before": "0.02", "after": "0.0025"},
+      "portfolio_risk.max_fraction": {"before": "0.03", "after": "0.01"}
+    },
+    "margin_pool_fraction_unchanged": "0.70",
+    "cash_basis_version_unchanged": 2,
+    "other_policy_digest_unchanged": "75a3188339196134f88d18368006e53083f7d256becbffd74db5adba01d42ac9",
+    "atomicity": "Exact account, registry, binding and ACTIVE epoch under existing protocol/route locks; existing control role borrowed and restored on same transaction before policy CAS. No production privilege grants.",
+    "bounded_lock_conflicts_before_success": 2,
+    "existing_reservations": "Preserve original risk; remaining entry budget clamps to zero when existing risk exceeds the new ceiling. CLOSE remains available.",
+    "risk_meaning": "Planned stop-loss risk, not margin allocation and not a guaranteed maximum realized loss under slippage, gaps or venue failure."
+  },
+  "observer_contract": {
+    "activation": "Exact account selector outside repository; default and other accounts retain existing gate. SANDBOX futures only.",
+    "submission_point": "After strategy admission, before final durable opportunity/account-risk dispatch. Observer cannot authorize or prove an order.",
+    "main_path_external_io": false,
+    "queue_capacity": 8,
+    "research_deadline_ms": 2000,
+    "receipt": "Non-durable submission or explicit missing coverage. Separate immutable binding/result records prove actual background observation.",
+    "budget": "Existing shared coordinator and provider quota; no second allowance.",
+    "failure_effect": "No veto, resize, defer or deadline extension. Oversized optional receipt is dropped before it can reject valid baseline evidence.",
+    "frozen_identity": ["signal", "source", "consumer", "original candidate", "config", "policy version and digest", "strategy version", "original decision and model clocks"],
+    "trade_link": "NOT_PROVEN_EXECUTED until exact original decision linkage; later model results never become historical authorization."
+  },
+  "shadow_quote_contract": {
+    "contract": "binance-sandbox-futures-premium-index-v1",
+    "source": "Original durable directional-account-context public premiumIndex response, not a subsequent quote fetch.",
+    "clocks": "Separate original mark, closed 1m candle and closed 15m indicator clocks; never re-clock stale candles.",
+    "verification": "Background exact state_id PK/version/scope/symbol/price/time/public-response-digest validation before model access; private payload stays local.",
+    "quote_max_age_at_submit_ms": 15000,
+    "research_candle_max_age_ms": 90000,
+    "original_context_deadline_preserved": true,
+    "shared_model_control_unchanged": true,
+    "legacy_gate_requests_and_cache_keys_unchanged": true,
+    "real_input_readonly_replay": [
+      {"symbol": "BMTUSDT", "candle_age_ms": 63710, "quote_age_ms": 710, "candidate_digest_unchanged": true, "durable_source": "VERIFIED"},
+      {"symbol": "IDOLUSDT", "candle_age_ms": 63325, "quote_age_ms": 1325, "candidate_digest_unchanged": true, "durable_source": "VERIFIED"}
+    ],
+    "replay_provider_calls": 0
+  },
+  "reporting": {
+    "classification": "SHADOW_ONLY",
+    "label": "影子模式（不参与下单；模型评估另计）",
+    "legacy_projection_columns": 13,
+    "new_projection_columns": 14,
+    "backward_compatible": true,
+    "model_approval_or_fallback_claim_from_shadow_receipt": false,
+    "new_database_joins": 0
+  },
+  "release_v1": {
+    "controller_prior": "/opt/trade-engine-v2/releases/recovery-controller-20261115-v3",
+    "controller_candidate": "/opt/trade-engine-v2/releases/sampling-shadow-controller-20261119-v1",
+    "controller_changed_files": 4,
+    "report_prior": "/opt/trade-engine-v2/releases/weekly-correctness-movers-20261111-v1",
+    "report_candidate": "/opt/trade-engine-v2/releases/sampling-shadow-movers-20261119-v1",
+    "report_changed_files": 2,
+    "unrelated_workspace_changes_deployed": false,
+    "managed_stop_forced": false,
+    "fresh_manage_only_coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "same_binding_resumed": true,
+    "route_epoch_after": 30,
+    "policy_unchanged_during_restart": true,
+    "manual_closes_or_order_submissions": false,
+    "post_release_natural_entry": {
+      "symbol": "BMTUSDT",
+      "status": "FILLED",
+      "policy_version": 13,
+      "entry_risk_fraction": "0.0025",
+      "get_only_native_protection_verified": true,
+      "observer_status": "INVALID_CANDIDATE",
+      "observer_acceptance": "FAILED_REAL_INPUT_VALIDATION; correction required, trading continued"
+    },
+    "subsequent_natural_entry": {
+      "symbol": "USELESSUSDT",
+      "status": "FILLED",
+      "policy_version": 13,
+      "entry_risk_fraction": "0.0025",
+      "observer_receipt": "SUBMITTED_NOT_DURABLE",
+      "durable_observer_result": "OBSERVED",
+      "decision_effect": "NONE",
+      "execution_authorized_by_model": false,
+      "qualification": "Natural legacy-clock shadow sample before the quote correction, not acceptance of the new quote contract or profitability proof."
+    }
+  },
+  "release_v2": {
+    "controller_prior": "/opt/trade-engine-v2/releases/sampling-shadow-controller-20261119-v1",
+    "controller_candidate": "/opt/trade-engine-v2/releases/sampling-shadow-controller-20261119-v2",
+    "controller_changed_files": 2,
+    "managed_stop_forced": false,
+    "fresh_manage_only_coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "same_binding_resumed": true,
+    "route_epoch_after": 31,
+    "policy_unchanged_during_restart": true,
+    "get_only_post_restart_coverage": "CLEAR",
+    "held_positions_preserved": 2,
+    "native_protection_orders_verified": 2,
+    "manual_closes_or_order_submissions": false,
+    "natural_dual_clock_provider_acceptance": "PENDING",
+    "profitability_verified": false
+  },
+  "qa": {
+    "initial_workspace": {"passed": 384, "diagnostics": "/tmp/v2-data-qa.wyEQI5"},
+    "expanded_shadow_and_reports": {"passed": 346, "diagnostics": "/tmp/v2-data-qa.C92gBs"},
+    "restricted_role_risk_final": {"passed": 26, "diagnostics": "/tmp/v2-data-qa.gaXurK"},
+    "exact_controller_v1": {"passed": 207, "diagnostics": "/tmp/v2-data-qa.MuJiLJ"},
+    "exact_controller_v2": {"passed": 576, "diagnostics": "/tmp/v2-data-qa.0bga0p"},
+    "exact_report_candidate": {"passed": 287, "diagnostics": "/tmp/v2-data-qa.qtVzWe"},
+    "counts_additive": false,
+    "disposable_databases_removed": true,
+    "venue_acceptance_is_separate_from_offline_tests": true
+  },
+  "remaining_evidence": [
+    "Natural dual-clock provider results and representative shadow coverage after runtime correction; one prior OBSERVED result is not effectiveness evidence.",
+    "Prospective post-change settlements, costs and loss-tail comparison; no fabricated win-rate or profitability claim.",
+    "Intermittent signal-maintenance and lag evidence pre-exists this release. Latest CLEAR is not proof that its root causes are gone."
+  ]
+}

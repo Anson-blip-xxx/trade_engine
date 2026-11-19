@@ -56,6 +56,7 @@ def test_process_config_is_explicit_public_and_never_accepts_environment_secrets
         "enable_quant_signals": False,
         "tv_admission_start_ms": None,
         "notifications": True,
+        "jev_entry_mode": "GATE",
     }
     enabled = TestnetProcessConfig.from_mapping(
         settings(V2_ENABLE_TV_SIGNALS="true", V2_TV_ADMISSION_START_MS="1790245000000")

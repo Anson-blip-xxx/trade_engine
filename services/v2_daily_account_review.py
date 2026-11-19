@@ -7,6 +7,7 @@ an unavailable or capped query is not an empty account or a complete day.
 
 import hashlib
 import json
+import re
 import time
 from collections import Counter
 from dataclasses import asdict
@@ -66,8 +67,19 @@ _JEV_GROUPS = (
     "FALLBACK",
     "DISABLED",
     "NOT_MODEL_EVALUATED",
+    "SHADOW_ONLY",
     "UNKNOWN",
 )
+_JEV_SHADOW_STATUSES = {
+    "SUBMITTED_NOT_DURABLE",
+    "SUBMISSION_UNAVAILABLE",
+    "OBSERVER_UNAVAILABLE",
+    "INVALID_CANDIDATE",
+    "DISABLED",
+    "STOPPED",
+    "QUEUE_BUSY",
+    "QUEUE_FULL",
+}
 _JEV_SKIP_REASONS = {
     "JEV_RESULT_UNAVAILABLE",
     "JEV_BASELINE_CONTEXT_EXPIRED",
@@ -208,7 +220,23 @@ _JEV_SQL = """SELECT i.intent_id::text,e.evidence_ref IS NOT NULL,
   e.snapshot#>>'{features,evaluation,jev_entry_gate,hypotheses,trend_supported}',
   e.snapshot#>>'{features,evaluation,jev_entry_gate,hypotheses,chase_risk}',
   e.snapshot#>>'{features,evaluation,jev_entry_gate,policy,min_trend_support}',
-  e.snapshot#>>'{features,evaluation,jev_entry_gate,policy,max_chase_risk}'
+  e.snapshot#>>'{features,evaluation,jev_entry_gate,policy,max_chase_risk}',
+  jsonb_build_object(
+    'shadow_present',coalesce(e.snapshot#>'{features,evaluation}' ? 'jev_shadow',false),
+    'gate_present',coalesce(e.snapshot#>'{features,evaluation}' ? 'jev_entry_gate',false),
+    'signal_id',i.signal_id::text,
+    'consumer_scope',jsonb_build_array(i.exchange,i.account_id,i.environment,i.product,i.producer),
+    'receipt',jsonb_build_object(
+      'schema',e.snapshot#>'{features,evaluation,jev_shadow,schema}',
+      'status',e.snapshot#>'{features,evaluation,jev_shadow,status}',
+      'coverage',e.snapshot#>'{features,evaluation,jev_shadow,coverage}',
+      'decision_effect',e.snapshot#>'{features,evaluation,jev_shadow,decision_effect}',
+      'execution_authorized',e.snapshot#>'{features,evaluation,jev_shadow,execution_authorized}',
+      'risk_override',e.snapshot#>'{features,evaluation,jev_shadow,risk_override}',
+      'admission_authorized',e.snapshot#>'{features,evaluation,jev_shadow,admission_authorized}',
+      'signal_id',e.snapshot#>'{features,evaluation,jev_shadow,signal_id}',
+      'consumer',e.snapshot#>'{features,evaluation,jev_shadow,consumer}',
+      'candidate_digest',e.snapshot#>'{features,evaluation,jev_shadow,candidate_digest}'))
 FROM v2_trade_intents i
 LEFT JOIN v2_decision_evidence e
   ON (e.evidence_ref,e.config_digest,e.strategy_version)=
@@ -360,6 +388,7 @@ def _empty_jev(result):
             "ONLY_VERIFIED_SETTLED_TRADES_NOT_ALL_CANDIDATES_OR_MODEL_REQUESTS",
             "REJECTED_UNFILLED_CANDIDATES_OUTSIDE_THIS_DENOMINATOR",
             "FALLBACK_AND_DISABLED_ARE_NOT_MODEL_APPROVAL",
+            "SHADOW_ONLY_IS_NOT_ADMISSION_OR_MODEL_EVALUATION_PROOF",
             "MISSING_OR_UNRECOGNIZED_ENTRY_EVIDENCE_IS_UNKNOWN",
             "GROUP_NET_COMPARISON_DOES_NOT_PROVE_MODEL_INCREMENTAL_PROFIT",
             "PRIMARY_SIGNAL_SOURCE_NOT_ALL_CONTRIBUTING_SIGNALS",
@@ -517,7 +546,60 @@ def _normalize(row, label, *, start, end, cutoff, scope_key):
     }
 
 
+def _jev_shadow_classification(projection):
+    """A frozen observer receipt proves mode only, never model completion."""
+    if not isinstance(projection, dict):
+        return "UNKNOWN"
+    if projection.get("shadow_present") is False:
+        return None  # Existing gate classification retains its historical semantics.
+    receipt, scope = projection.get("receipt"), projection.get("consumer_scope")
+    if (
+        projection.get("shadow_present") is not True
+        or projection.get("gate_present") is not False
+        or not isinstance(receipt, dict)
+        or not isinstance(scope, list)
+        or len(scope) != 5
+        or not all(type(value) is str for value in scope)
+        or scope[0] != "BINANCE"
+        or scope[2:4] != ["SANDBOX", "FUTURES"]
+        or scope[4] not in {"s6", "s8"}
+        or receipt.get("schema") != "jev-shadow-receipt-v1"
+        or type(receipt.get("status")) is not str
+        or receipt["status"] not in _JEV_SHADOW_STATUSES
+        or receipt.get("decision_effect") != "NONE"
+        or any(
+            receipt.get(key) is not False
+            for key in ("execution_authorized", "risk_override", "admission_authorized")
+        )
+        or receipt.get("consumer") != json.dumps(scope, separators=(",", ":"))
+        or type(receipt.get("candidate_digest")) is not str
+        or not re.fullmatch(r"[0-9a-f]{64}", receipt["candidate_digest"])
+        or receipt.get("coverage")
+        != (
+            "MISSING_UNTIL_DURABLE_RESULT"
+            if receipt["status"] == "SUBMITTED_NOT_DURABLE"
+            else "MISSING"
+        )
+    ):
+        return "UNKNOWN"
+    signal = projection.get("signal_id")
+    try:
+        if type(signal) is not str or str(UUID(signal)) != signal:
+            return "UNKNOWN"
+    except ValueError:
+        return "UNKNOWN"
+    return "SHADOW_ONLY" if receipt.get("signal_id") == signal else "UNKNOWN"
+
+
 def _jev_classification(row):
+    if len(row) == 14:
+        category = _jev_shadow_classification(row[13])
+        if category is not None:
+            return (
+                category
+                if row[1] is True and all(value is None for value in row[3:13])
+                else "UNKNOWN"
+            )
     (
         _identity,
         present,
@@ -532,7 +614,7 @@ def _jev_classification(row):
         chase,
         minimum,
         maximum,
-    ) = row
+    ) = row[:13]
     if present is not True or schema not in {
         "jev-entry-gate-v1",
         "jev-fixed-entry-check-v1",
@@ -607,7 +689,9 @@ def _load_jev_participation(conn, deadline, scope_values, result, verified):
     records = {}
     if not error:
         try:
-            if len(rows) > len(identities) or any(len(row) != 13 for row in rows):
+            if len(rows) > len(identities) or any(
+                len(row) not in {13, 14} for row in rows
+            ):
                 raise ValueError("INVALID_PROJECTION")
             records = {row[0]: row for row in rows}
             if len(records) != len(rows) or not set(records).issubset(verified):

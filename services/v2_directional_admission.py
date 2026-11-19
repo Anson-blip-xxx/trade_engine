@@ -166,6 +166,7 @@ def create_directional_admission_worker(
     tv_start_ms=None,
     dynamic_universe=False,
     entry_filter=None,
+    entry_observer=None,
 ):
     # Fail at construction instead of consuming formal signals while disabled.
     if type(enable_admission) is not bool or not enable_admission:
@@ -206,6 +207,7 @@ def create_directional_admission_worker(
             "mode": "TESTNET_ADMISSION_ONLY",
             "account_scope": account,
             "source": source,
+            **({"jev_mode": "SHADOW"} if entry_observer is not None else {}),
             **({"dynamic_universe": True} if dynamic_universe else {}),
             **(
                 {"allowed_symbols": list(allowed_symbols), "tv_start_ms": tv_start_ms}
@@ -216,6 +218,7 @@ def create_directional_admission_worker(
         decide=admission_decision,
         max_delay_ms=max_delay_ms,
         entry_filter=entry_filter,
+        entry_observer=entry_observer,
     )
 
 

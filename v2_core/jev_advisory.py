@@ -36,6 +36,21 @@ _INDICATOR_FIELDS = {
     "indicator_closed_at_ms",
 }
 _INDICATOR_WIDTH_MS = 900000
+# Explicit research-only projection: the fresh mark is not a refreshed candle.
+# Absent these fields, legacy/v6 state, questions and request hashes are unchanged.
+SHADOW_QUOTE_CONTRACT = "binance-sandbox-futures-premium-index-v1"
+SHADOW_CANDLE_MAX_AGE_MS = 90000
+_SHADOW_QUOTE_FIELDS = {
+    "public_quote_contract",
+    "candle_observed_at_ms",
+    "candle_price",
+}
+_SHADOW_QUOTE_INSTRUCTIONS = (
+    " Shadow research: price is a public Binance SANDBOX FUTURES premiumIndex mark at observed_at_ms."
+    " candle_price and rolling 1m returns retain candle_observed_at_ms (age under 90s)."
+    " ATR14, EMA20 gap, taker flow and relative volume retain true UTC-closed 15m indicator_closed_at_ms;"
+    " volume compares prior 20 bars. RSI15m and EMA1h unknown. Clocks differ; never refresh candle facts with mark time."
+)
 _STRUCTURE_INSTRUCTIONS = (
     " V6 units: price is the latest closed 1m price and returns are rolling 1m lookbacks at observed_at_ms."
     " ATR14, close/EMA20 gap, taker flow and relative volume use true UTC-closed 15m bars at indicator_closed_at_ms;"
@@ -113,6 +128,7 @@ def _features(features):
         | _NUMBERS.keys()
         | _OBSERVATION_TIMES.keys()
         | _INDICATOR_FIELDS
+        | _SHADOW_QUOTE_FIELDS
         or not isinstance(features["symbol"], str)
         or not is_supported_symbol(features["symbol"], quote_assets=("USDT",))
         or features["timeframe"] not in {"15m", "1h", "4h"}
@@ -131,20 +147,34 @@ def _features(features):
             if cleaned[field] is None:
                 raise ValueError("JEV_OBSERVATION_VALUE_REQUIRED")
         cleaned[stamp] = value
+    candle_at = features["observed_at_ms"]
+    if _SHADOW_QUOTE_FIELDS & features.keys():
+        if (
+            not _SHADOW_QUOTE_FIELDS <= features.keys()
+            or not _INDICATOR_FIELDS <= features.keys()
+            or features["public_quote_contract"] != SHADOW_QUOTE_CONTRACT
+            or cleaned["price"] is None
+        ):
+            raise ValueError("JEV_SHADOW_QUOTE_CONTRACT_INVALID")
+        candle_at = _integer(features["candle_observed_at_ms"], 0, 2**53 - 1)
+        if candle_at > features["observed_at_ms"]:
+            raise ValueError("JEV_SHADOW_QUOTE_CONTRACT_INVALID")
+        cleaned.update(
+            public_quote_contract=SHADOW_QUOTE_CONTRACT,
+            candle_observed_at_ms=candle_at,
+            candle_price=_decimal(features["candle_price"], *_NUMBERS["price"]),
+        )
     if _INDICATOR_FIELDS & features.keys():
         if (
             not _INDICATOR_FIELDS <= features.keys()
             or features["indicator_contract"] != STRUCTURE_INDICATOR_CONTRACT
             or features["indicator_version"] != STRUCTURE_INDICATOR_VERSION
             or features["timeframe"] != "15m"
-            or features["observed_at_ms"] % 60000
+            or candle_at % 60000
         ):
             raise ValueError("JEV_INDICATOR_CONTRACT_INVALID")
         closed = _integer(features["indicator_closed_at_ms"], 0, 2**53 - 1)
-        if (
-            closed
-            != features["observed_at_ms"] // _INDICATOR_WIDTH_MS * _INDICATOR_WIDTH_MS
-        ):
+        if closed != candle_at // _INDICATOR_WIDTH_MS * _INDICATOR_WIDTH_MS:
             raise ValueError("JEV_INDICATOR_TIME_INVALID")
         if cleaned["rsi_15m"] is not None or cleaned["ema_gap_1h_pct"] is not None:
             raise ValueError("JEV_INDICATOR_UNAVAILABLE_FIELD")
@@ -166,7 +196,11 @@ def _request(features):
     }
     if "indicator_contract" in result["state"]:
         for question in result["questions"].values():
-            question["instructions"] += _STRUCTURE_INSTRUCTIONS
+            question["instructions"] += (
+                _SHADOW_QUOTE_INSTRUCTIONS
+                if "public_quote_contract" in result["state"]
+                else _STRUCTURE_INSTRUCTIONS
+            )
     if len(_json(result).encode()) > MAX_REQUEST_BYTES:
         raise ValueError("JEV_REQUEST_TOO_LARGE")
     return result
@@ -180,6 +214,9 @@ def prepare_request(features, *, now_ms, max_age_ms):
     observed = request["state"]["observed_at_ms"]
     if not 0 <= now_ms - observed < max_age_ms:
         raise ValueError("JEV_MARKET_SNAPSHOT_EXPIRED")
+    candle_at = request["state"].get("candle_observed_at_ms")
+    if candle_at is not None and not 0 <= now_ms - candle_at < SHADOW_CANDLE_MAX_AGE_MS:
+        raise ValueError("JEV_SHADOW_CANDLE_SNAPSHOT_EXPIRED")
     for field in _OBSERVATION_TIMES:
         stamp = request["state"][field]
         if stamp is not None and not 0 <= now_ms - stamp < max_age_ms:
@@ -201,6 +238,16 @@ def prepare_request(features, *, now_ms, max_age_ms):
         "valid_until_ms": min(
             [
                 observed + max_age_ms,
+                *(
+                    [candle_at + SHADOW_CANDLE_MAX_AGE_MS]
+                    if candle_at is not None
+                    else []
+                ),
+                *(
+                    [indicator_closed + _INDICATOR_WIDTH_MS + max_age_ms]
+                    if candle_at is not None
+                    else []
+                ),
                 *(
                     request["state"][field] + max_age_ms
                     for field in _OBSERVATION_TIMES

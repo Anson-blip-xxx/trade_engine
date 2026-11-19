@@ -36,7 +36,8 @@ def jev_report(*, groups=None, dense=False, setup=False):
     value = (setup_report_fixture if setup else report_fixture)(dense=dense)
     account = value["account_day_review"]
     groups = groups or {"FALLBACK": (51, "-14.31353779")}
-    groups = {name: groups.get(name, (0, "0")) for name in GROUPS}
+    names = (*GROUPS, "SHADOW_ONLY") if "SHADOW_ONLY" in groups else GROUPS
+    groups = {name: groups.get(name, (0, "0")) for name in names}
     total = aggregate(list(groups.values()))
     count = total["settled_count"]
     account["totals"] = {
@@ -51,7 +52,11 @@ def jev_report(*, groups=None, dense=False, setup=False):
     jev = _empty_jev(account)
     unknown = groups["UNKNOWN"][0]
     jev.update(
-        status="UNKNOWN" if unknown and unknown == count else "PARTIAL" if unknown else "AVAILABLE",
+        status="UNKNOWN"
+        if unknown and unknown == count
+        else "PARTIAL"
+        if unknown
+        else "AVAILABLE",
         reason="JEV_ENTRY_EVIDENCE_INCOMPLETE" if unknown else None,
         denominator_settled_count=count,
         denominator_net_usdt=total["net_usdt"],
@@ -77,6 +82,47 @@ def jev_report(*, groups=None, dense=False, setup=False):
 def reseal(value):
     value["account_day_review"] = seal(value["account_day_review"])
     return value
+
+
+def test_shadow_is_separate_from_admission_model_results_and_fallback():
+    value = jev_report(
+        groups={"SHADOW_ONLY": (4, "-1.2"), "MODEL_APPROVED": (1, "0.2")}
+    )
+    text = "\n".join(_jev_participation_digest(value))
+    assert "已结算成交子集5笔" in text
+    assert "准入模型实评1笔（通过1）" in text
+    assert "影子模式（不参与下单；模型评估另计）4笔" in text
+    assert "回退" not in text and "未实评4笔" not in text
+    assert "模型收益" not in text.replace("非模型收益证明", "")
+
+
+def test_zero_shadow_extension_keeps_legacy_digest_identical():
+    value = jev_report()
+    legacy = _jev_participation_digest(value)
+    value["account_day_review"]["jev_participation"]["by_participation"][
+        "SHADOW_ONLY"
+    ] = aggregate([(0, "0")])
+    assert _jev_participation_digest(reseal(value)) == legacy
+
+
+def test_shadow_must_reconcile_in_account_partition_and_stay_out_of_model_total():
+    value = jev_report(groups={"SHADOW_ONLY": (4, "-1.2")})
+    assert "影子模式（不参与下单；模型评估另计）4笔" in format_digest(value)
+    jev = value["account_day_review"]["jev_participation"]
+    jev["model_evaluated"] = aggregate([(4, "-1.2")])
+    assert "JEV参与尚未核验" in format_digest(reseal(value))
+
+
+def test_dense_shadow_report_fits_utf16_limit_with_all_symbols():
+    value = jev_report(
+        groups={name: (70, "1") for name in (*GROUPS, "SHADOW_ONLY")},
+        dense=True,
+        setup=True,
+    )
+    text = format_digest(value, account_alias="𠮷" * 40)
+    assert len(text.encode("utf-16-le")) // 2 <= 3500
+    assert all(row["symbol"] in text for row in value["rows"])
+    assert "影子模式（不参与下单；模型评估另计）70笔" in text
 
 
 def test_all_51_fallbacks_show_zero_verified_model_participation_and_budget_causes():
@@ -142,7 +188,11 @@ def test_unknown_or_failed_query_keeps_account_totals_without_claiming_zero(fail
         jev["reason"] = "private-account-id secret transport exception"
     text = format_digest(reseal(value))
     assert "JEV参与尚未核验" in text and "未知不等于未参与" in text
-    assert "模型实评0" not in text and "private-account" not in text and "secret" not in text
+    assert (
+        "模型实评0" not in text
+        and "private-account" not in text
+        and "secret" not in text
+    )
     assert "账户已结算交易（库内）51笔，净收益-14.31" in text
 
 
@@ -244,7 +294,10 @@ def test_unsigned_child_change_invalidates_outer_digest():
 
 
 @pytest.mark.parametrize("bad", [None, [], "raw-secret-error", 1])
-@pytest.mark.parametrize("field", ["by_participation", "by_source", "fallback_causes", "coverage", "model_evaluated"])
+@pytest.mark.parametrize(
+    "field",
+    ["by_participation", "by_source", "fallback_causes", "coverage", "model_evaluated"],
+)
 def test_malformed_child_sections_cannot_break_account_summary(field, bad):
     value = jev_report()
     value["account_day_review"]["jev_participation"][field] = bad
@@ -268,14 +321,19 @@ def test_unrecognized_raw_cause_and_reason_are_never_echoed():
 def test_net_partitions_remain_exact_under_low_precision_and_large_cancellation():
     value = jev_report(
         groups={
-            "MODEL_APPROVED": (1, "10000000000000000000000000000000000000000.0000000000000000000000000000000000000001"),
+            "MODEL_APPROVED": (
+                1,
+                "10000000000000000000000000000000000000000.0000000000000000000000000000000000000001",
+            ),
             "MODEL_REJECTED": (1, "-1e40"),
         }
     )
     with localcontext() as context:
         context.prec = 3
         assert "模型实评2笔" in "\n".join(_jev_participation_digest(value))
-    value["account_day_review"]["jev_participation"]["model_evaluated"]["net_usdt"] = "0"
+    value["account_day_review"]["jev_participation"]["model_evaluated"]["net_usdt"] = (
+        "0"
+    )
     assert "JEV参与尚未核验" in "\n".join(_jev_participation_digest(reseal(value)))
 
 
@@ -290,7 +348,9 @@ def test_twenty_dense_unicode_rows_and_other_reviews_fit_utf16_budget(setup, mix
     assert all(row["symbol"] in text for row in value["rows"])
     assert ("已确认模型实评160笔" if mixed else "模型实评0笔") in text
     assert ("回退80笔" if mixed else "回退51笔") in text
-    assert ("账户已结算交易（库内）480笔" if mixed else "账户已结算交易（库内）51笔") in text
+    assert (
+        "账户已结算交易（库内）480笔" if mixed else "账户已结算交易（库内）51笔"
+    ) in text
     assert "冻结输入重算97条" in text
     if setup:
         assert "分层量能研究" in text

@@ -67,6 +67,7 @@ class TestnetProcessConfig:
     tv_admission_start_ms: int | None = None
     shared_market: bool = False
     enable_quant_signals: bool = False
+    jev_shadow_account_id: str | None = None
 
     @classmethod
     def from_mapping(cls, values):
@@ -131,6 +132,13 @@ class TestnetProcessConfig:
             tv_start = int(tv_start)
         elif tv_start is not None:
             raise ValueError("TV start timestamp requires TV signals enabled")
+        shadow_account = values.get("V2_JEV_SHADOW_ACCOUNT_ID")
+        if shadow_account is not None:
+            from v2_core.state import normalized
+
+            normalized(shadow_account)
+            if len(shadow_account) > 128:
+                raise ValueError("BOUNDED_SHADOW_ACCOUNT_REQUIRED")
         return cls(
             daemon,
             targets,
@@ -140,6 +148,7 @@ class TestnetProcessConfig:
             tv_start,
             mode == "true",
             quant == "true",
+            shadow_account,
         )
 
     def public_summary(self):
@@ -153,6 +162,9 @@ class TestnetProcessConfig:
             "enable_quant_signals": self.enable_quant_signals,
             "tv_admission_start_ms": self.tv_admission_start_ms,
             "notifications": True,
+            "jev_entry_mode": "SHADOW"
+            if self.jev_shadow_account_id == self.daemon.account_id
+            else "GATE",
         }
 
 
@@ -648,12 +660,25 @@ def create_testnet_process(
     from services.v2_jev_reference import JevReference
 
     jev_reference = JevReference(connect, clock_ms=clock_ms, stop=stop)
-    jev_filter = JevEntryContext(
-        connect,
-        jev_reference,
-        scope=scope,
-        interval_seconds=daemon_cfg.interval_seconds,
-    )
+    jev_filter, jev_observer = None, None
+    if config.jev_shadow_account_id == scope.account_id:
+        from services.v2_jev_shadow import JevShadow
+
+        jev_observer = JevShadow(
+            connect,
+            jev_reference,
+            scope=scope,
+            clock_ms=clock_ms,
+            stop=stop,
+            enabled=True,
+        )
+    else:
+        jev_filter = JevEntryContext(
+            connect,
+            jev_reference,
+            scope=scope,
+            interval_seconds=daemon_cfg.interval_seconds,
+        )
     schedulers = []
     from services.v2_liquidity_context import LiquidityContext, LiveDepth
 
@@ -776,6 +801,7 @@ def create_testnet_process(
                 runtime,
                 context_provider=context,
                 entry_filter=jev_filter,
+                entry_observer=jev_observer,
                 strategy=strategy,
                 analysis_mode="hard",
                 max_delay_ms=30000,

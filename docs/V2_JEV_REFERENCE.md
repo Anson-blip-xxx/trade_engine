@@ -1,5 +1,47 @@
 # JEV market reference
 
+## 2026-11-19 independent low-risk sampling mode
+
+An exact SANDBOX account can opt into `V2_JEV_SHADOW_ACCOUNT_ID` through protected
+deployment configuration. No account identity or credential belongs in source.
+Only that account replaces the JEV admission gate with a non-authoritative
+observer; absent or nonmatching configuration retains the existing gate.
+
+The observer freezes the original strategy candidate without synchronous model
+or database calls, then attempts a bounded background evaluation using the
+existing shared quota. It cannot veto, authorize, resize, defer or extend an
+entry. Final account/venue risk checks, native protection and exits still run.
+Queue failure, stale evidence and missing results are coverage failures, never
+model approval. Separate immutable `jev-shadow-binding-v1` and
+`jev-shadow-result-v1` records preserve the source, configuration, original
+decision and model clocks. A receipt alone proves neither durable evaluation
+nor execution; late research is not retrospectively available at decision time.
+
+Shadow v6 requests distinguish the already-persisted public SANDBOX
+`premiumIndex` mark and its exchange timestamp from the original closed 1m
+candle price/time and closed 15m indicator time. They never re-clock a candle.
+The background worker verifies the immutable account-context reference before
+using its public projection; balances, positions and account identity are not
+sent to the model. Public marks must be less than 15 seconds old at submission;
+the existing shared model freshness limit still applies. The separate candle
+research bound is 90 seconds, consistent with the input context contract.
+Requests have distinct hashes/prompts, and legacy gate requests remain unchanged.
+
+The reviewed sampling profile changes only new-entry planned stop-risk budgets:
+0.25% per trade and 1% aggregate. The 70% margin-pool ceiling, capital anchor,
+settlement basis and existing reservations remain unchanged. Planned loss is not
+a guarantee against slippage or gaps. The separate CAS tool
+`services.v2_sampling_risk_policy` defaults to dry run and requires exact active
+route/binding and policy identities to apply; existing positions are not closed
+or resized. Deployment/real-input findings and QA boundaries are recorded in
+`docs/v2/LOW_RISK_SHADOW_ACCEPTANCE_20261119.json`.
+
+Daily reports classify these entries as `SHADOW_ONLY`, not model approvals or
+fallbacks. Existing historical reports keep their original gate interpretation.
+Do not promote a model based on raw PASS-versus-fallback PnL: compare prospective
+matched opportunities, record missing coverage and costs, and distinguish model
+completion time from the original decision time.
+
 ## 2026-10-23 TV fusion, availability and effectiveness
 
 This section supersedes the older rule that every JEV availability failure

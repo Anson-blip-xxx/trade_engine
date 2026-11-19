@@ -1700,7 +1700,7 @@ def _jev_participation_digest(report):
     )
     if (
         not isinstance(groups, dict)
-        or set(groups) != names
+        or set(groups) not in (names, names | {"SHADOW_ONLY"})
         or not isinstance(sources, dict)
         or not set(sources) <= {"s2", "s3", "tv_bridge", "quant", "UNKNOWN"}
         or not isinstance(causes, dict)
@@ -1709,6 +1709,7 @@ def _jev_participation_digest(report):
     ):
         return unknown
     groups = {name: _jev_financial_summary(value) for name, value in groups.items()}
+    groups.setdefault("SHADOW_ONLY", {"settled_count": 0, "net": Decimal(0)})
     causes = {name: _jev_financial_summary(value) for name, value in causes.items()}
     model = _jev_financial_summary(jev.get("model_evaluated"))
     if (
@@ -1758,6 +1759,8 @@ def _jev_participation_digest(report):
         else ("已确认" if proof["unknown_count"] else "")
         + f"模型实评{model['settled_count']}笔"
     )
+    if groups["SHADOW_ONLY"]["settled_count"]:
+        model_text = "准入" + model_text
     if groups["MODEL_APPROVED"]["settled_count"]:
         model_text += f"（通过{groups['MODEL_APPROVED']['settled_count']}）"
     lines = [
@@ -1769,6 +1772,7 @@ def _jev_participation_digest(report):
         ("FALLBACK", "回退"),
         ("DISABLED", "禁用"),
         ("NOT_MODEL_EVALUATED", "未实评"),
+        ("SHADOW_ONLY", "影子模式（不参与下单；模型评估另计）"),
         ("UNKNOWN", "未知"),
     ):
         if groups[key]["settled_count"]:
