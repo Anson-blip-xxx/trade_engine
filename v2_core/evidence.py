@@ -3,6 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from uuid import UUID
 
 _CREDENTIAL_FIELDS = {
@@ -18,6 +19,24 @@ _CREDENTIAL_FIELDS = {
 }
 
 
+def _credential_field_uncached(key):
+    return "".join(c for c in key.lower() if c.isalnum()) in _CREDENTIAL_FIELDS
+
+
+@lru_cache(maxsize=1024)
+def _credential_field_cached(key):
+    return _credential_field_uncached(key)
+
+
+def _credential_field(key):
+    # Only ordinary, short field names enter this bounded performance cache.
+    # Never retain values/containers or skip their recursive validation. Long
+    # names and str subclasses keep the original algorithm (including lower()).
+    if type(key) is str and len(key) <= 128:
+        return _credential_field_cached(key)
+    return _credential_field_uncached(key)
+
+
 def canonical(value):
     def validate(item):
         if item is None or type(item) in (str, int, bool):
@@ -27,10 +46,7 @@ def canonical(value):
                 validate(child)
             return
         if isinstance(item, dict) and all(isinstance(k, str) for k in item):
-            if any(
-                "".join(c for c in key.lower() if c.isalnum()) in _CREDENTIAL_FIELDS
-                for key in item
-            ):
+            if any(_credential_field(key) for key in item):
                 raise ValueError("credential secrets must not enter business records")
             for child in item.values():
                 validate(child)

@@ -9,12 +9,12 @@ import json
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from services.v2_settlement_entry import settled_result_valid, settlement_result_valid
 from v2_core.evidence import canonical
 from v2_core.runtime_policy import PolicyStore, resolve
-from v2_core.scheduling import drain_requested
+from v2_core.scheduling import candidate_wait_reason, drain_requested
 from v2_core.state import BusinessState, StateKey
 from v2_core.venue_readiness import GuardedOpeningSubmit
 
@@ -31,6 +31,74 @@ def failed(value):
         if isinstance(value, str)
         else False
     )
+
+
+def _reclaim_failures_are_expected(diagnostic, results):
+    """Permit more queue work, never promote a waiting candidate to an order.
+
+    Scheduling retains real exceptions in ``failures`` even for established
+    candidate-local waits. Require its matching, non-authorizing wait proof
+    and exact deferred result; unknown/ACK/dependency failures stay ineligible.
+    No lease, retry, risk, receipt or admission disposition is changed here.
+    """
+    failures = diagnostic.get("failures", [])
+    if not isinstance(failures, list):
+        return False
+    if not failures:
+        return True
+    waits = diagnostic.get("candidate_waits")
+    if not isinstance(waits, list):
+        return False
+    for failure in failures:
+        if not isinstance(failure, dict):
+            return False
+        identifier, code, stage = (
+            failure.get("signal_id"),
+            failure.get("error_code"),
+            failure.get("stage"),
+        )
+        if (
+            not isinstance(identifier, str)
+            or not isinstance(code, str)
+            or not isinstance(stage, str)
+            or stage not in {"CONTEXT", "CONSUME"}
+            or type(failure.get("attempt")) is not int
+            or failure["attempt"] < 1
+            or failure.get("outcome") != "DEFERRED"
+            or results.get(identifier) != "DEFERRED"
+        ):
+            return False
+        try:
+            if str(UUID(identifier)) != identifier:
+                return False
+        except ValueError:
+            return False
+        reason = candidate_wait_reason(ValueError(code), stage=stage)
+        if reason is None:
+            return False
+        matching = [
+            wait
+            for wait in waits
+            if isinstance(wait, dict)
+            and wait.get("signal_id") == identifier
+            and wait.get("error_code") == code
+        ]
+        if len(matching) != 1:
+            return False
+        wait = matching[0]
+        if (
+            wait.get("scope") != "CANDIDATE"
+            or wait.get("execution_authorized") is not False
+            or wait.get("reason") != reason
+            or not isinstance(wait.get("symbol"), str)
+            or not wait["symbol"]
+            or type(wait.get("retry_seconds")) is not int
+            or not 1 <= wait["retry_seconds"] <= 3600
+            or type(wait.get("signal_expires_at_ms")) is not int
+            or wait["signal_expires_at_ms"] <= 0
+        ):
+            return False
+    return True
 
 
 def _stage_clear(name, stage, result):
@@ -602,7 +670,17 @@ class TradingPipeline:
                         "weight": weights[-1],
                         "error_code": demand_error,
                     }
-                for index, scheduler in enumerate(schedulers):
+                # Append at most one reclaim turn behind ALL first turns. The
+                # original deadline, priority groups and next-cycle rotation
+                # remain authoritative; an empty/failed lane is never polled.
+                turns = [
+                    (index, target, False) for index, target in enumerate(schedulers)
+                ]
+                prepared_observed = False
+                for turn_index, (index, scheduler, reclaim) in enumerate(turns):
+                    if reclaim and prepared_observed:
+                        journal["scheduler_reclaim_skipped"] = "PREPARED_OBSERVED"
+                        break
                     if draining():
                         can_admit = False
                         break
@@ -615,16 +693,21 @@ class TradingPipeline:
                     # source cannot repeatedly spend its whole tiny share on
                     # discovery while the high-volume source always progresses.
                     # Unused time is automatically redistributed to later peers.
+                    pending_weights = (
+                        [weights[position] for position, _, _ in turns[turn_index:]]
+                        if reclaim
+                        else weights[index:]
+                    )
                     allowance = max(
                         1,
                         (
-                            remaining // (len(schedulers) - index)
-                            + remaining * weights[index] // sum(weights[index:])
+                            remaining // len(pending_weights)
+                            + remaining * weights[index] // sum(pending_weights)
                         )
                         // 2,
                     )
                     group = plan[index][0]
-                    if group not in advanced_groups:
+                    if not reclaim and group not in advanced_groups:
                         peers = [target for key, target in plan if key == group]
                         next_worker = peers[1 % len(peers)].worker
                         self._scheduler_heads[group] = (
@@ -635,21 +718,56 @@ class TradingPipeline:
                     allocation = scheduling[
                         scheduler.worker.scope.producer + ":" + scheduler.worker.source
                     ]
-                    allocation.update(status="STARTED", budget_ms=allowance)
+                    previous_budget = allocation.get("budget_ms", 0) if reclaim else 0
+                    allocation.update(
+                        status="STARTED", budget_ms=previous_budget + allowance
+                    )
+                    if reclaim:
+                        journal.setdefault("scheduler_reclaim_order", []).append(
+                            scheduler.worker.scope.producer
+                            + ":"
+                            + scheduler.worker.source
+                        )
 
-                    def schedule_and_measure(target=scheduler, budget=allowance):
+                    def schedule_and_measure(
+                        target=scheduler, budget=allowance, end=None
+                    ):
+                        # Saving the phase journal can itself use the final
+                        # milliseconds. Do not launch a new run after expiry.
+                        if end is not None:
+                            budget = min(budget, int((end - time.monotonic()) * 1000))
+                        requested = draining()
+                        if requested:
+                            budget = 0
+                        if budget <= 0:
+                            target.last_run_metrics = {"processed": 0, "elapsed_ms": 0}
+                            target.last_run_diagnostics = {
+                                "stage": "COMPLETE",
+                                "stop_reason": (
+                                    "STOP_REQUESTED"
+                                    if requested
+                                    else "BUDGET_EXHAUSTED"
+                                ),
+                                "failures": [],
+                            }
                         try:
-                            processed = target.run_once(
-                                limit=settings["scheduler.signal_batch"],
-                                hot_only=self.background_maintenance is not None,
-                                interval_seconds=settings["scheduler.retry_seconds"],
-                                lease_seconds=settings["scheduler.lease_seconds"],
-                                budget_ms=budget,
-                                stop_on_prepared=self.enable_entries,
-                                reconcile_seconds=settings[
-                                    "scheduler.discovery_reconcile_seconds"
-                                ],
-                                stop_requested=stop_requested,
+                            processed = (
+                                {}
+                                if budget <= 0
+                                else target.run_once(
+                                    limit=settings["scheduler.signal_batch"],
+                                    hot_only=self.background_maintenance is not None,
+                                    interval_seconds=settings[
+                                        "scheduler.retry_seconds"
+                                    ],
+                                    lease_seconds=settings["scheduler.lease_seconds"],
+                                    budget_ms=budget,
+                                    stop_on_prepared=self.enable_entries,
+                                    reconcile_seconds=settings[
+                                        "scheduler.discovery_reconcile_seconds"
+                                    ],
+                                    stop_requested=stop_requested,
+                                )
                             )
                         finally:
                             target_name = (
@@ -683,20 +801,30 @@ class TradingPipeline:
                     scheduler_deadline = min(
                         deadline, time.monotonic() + allowance / 1000
                     )
-                    combined, totals, elapsed, passes = {}, {}, 0, 0
+                    metric_key = (
+                        scheduler.worker.scope.producer + ":" + scheduler.worker.source
+                    )
+                    combined = dict(journal["phases"].get(name, {})) if reclaim else {}
+                    totals = (
+                        dict(journal.get("scheduler_metrics", {}).get(metric_key, {}))
+                        if reclaim
+                        else {}
+                    )
+                    elapsed = journal["phase_elapsed_ms"].get(name, 0) if reclaim else 0
+                    passes = allocation.get("passes", 0) if reclaim else 0
                     while True:
                         result = phase(
                             name,
                             lambda end=scheduler_deadline: schedule_and_measure(
-                                budget=max(
-                                    1,
-                                    int((end - time.monotonic()) * 1000),
-                                )
+                                end=end,
                             ),
                         )
                         passes += 1
                         if isinstance(result, dict):
                             combined.update(result)
+                            prepared_observed = (
+                                prepared_observed or "PREPARED" in result.values()
+                            )
                         elapsed += journal["phase_elapsed_ms"][name]
                         metric_key = (
                             scheduler.worker.scope.producer
@@ -707,6 +835,19 @@ class TradingPipeline:
                             metric_key
                         ].items():
                             totals[metric] = totals.get(metric, 0) + value
+                        journal.setdefault("scheduler_passes", {}).setdefault(
+                            metric_key, []
+                        ).append(
+                            {
+                                "round": "RECLAIM" if reclaim else "FIRST",
+                                "metrics": dict(
+                                    journal["scheduler_metrics"][metric_key]
+                                ),
+                                "diagnostics": dict(
+                                    journal["scheduler_diagnostics"][metric_key]
+                                ),
+                            }
+                        )
                         can_admit = can_admit and not failed(result) and not draining()
                         declines_before = len(journal.get("capacity_declines", {}))
                         proceed = can_admit and dispatch_prepared()
@@ -717,6 +858,7 @@ class TradingPipeline:
                         # still stop immediately; dispatch enforces attempt caps.
                         if (
                             not proceed
+                            or reclaim
                             or len(journal.get("capacity_declines", {}))
                             == declines_before
                             or time.monotonic() >= scheduler_deadline
@@ -728,14 +870,15 @@ class TradingPipeline:
                     allocation.update(
                         status="FAILED" if not can_admit else "FINISHED",
                         elapsed_ms=elapsed,
-                        overrun_ms=max(0, elapsed - allowance),
+                        overrun_ms=max(0, elapsed - allocation["budget_ms"]),
                         passes=passes,
                         processed=totals.get("processed", 0),
                         work_status=(
                             "PROCESSED" if totals.get("processed", 0) else "NO_PROGRESS"
                         ),
                     )
-                    measured.append((name, scheduler))
+                    if not reclaim:
+                        measured.append((name, scheduler))
                     if not proceed:
                         journal["evaluation_stop_reason"] = (
                             "STOP_REQUESTED"
@@ -745,6 +888,17 @@ class TradingPipeline:
                             )
                         )
                         break
+                    diagnostic = journal["scheduler_diagnostics"][metric_key]
+                    if (
+                        not reclaim
+                        and totals.get("processed", 0) > 0
+                        and diagnostic.get("stage") == "COMPLETE"
+                        and diagnostic.get("stop_reason")
+                        in {"BUDGET_EXHAUSTED", "BATCH_LIMIT"}
+                        and _reclaim_failures_are_expected(diagnostic, combined)
+                        and "PREPARED" not in combined.values()
+                    ):
+                        turns.append((index, scheduler, True))
                 for allocation in scheduling.values():
                     if allocation["status"] == "NOT_ATTEMPTED":
                         allocation["reason"] = journal.get(

@@ -1,0 +1,700 @@
+{
+  "schema": "recent-trade-review-v1",
+  "status": "VERIFIED_DESCRIPTIVE_REVIEW_NOT_STRATEGY_PROFIT_PROOF",
+  "generated_for": "2026-11-23",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "window": {
+    "start_inclusive_utc8": "2026-11-19T00:00:00+08:00",
+    "end_exclusive_utc8": "2026-11-23T16:23:52.439000+08:00",
+    "complete_days": [
+      "2026-11-19",
+      "2026-11-20",
+      "2026-11-21",
+      "2026-11-22"
+    ],
+    "partial_day": "2026-11-23"
+  },
+  "scope": {
+    "account": "CURRENT_EXECUTION_ACCOUNT_REDACTED",
+    "exchange": "BINANCE",
+    "product": "FUTURES",
+    "producer_scope": [
+      "s6",
+      "s8"
+    ],
+    "financial_basis": "WHOLE_EPISODE_ATTRIBUTED_TO_LAST_CLOSE_DAY_NOT_ACCOUNT_EQUITY_RETURN"
+  },
+  "read_verification": {
+    "transaction": "REPEATABLE READ READ ONLY",
+    "statement_timeout_ms": 5000,
+    "lock_timeout_ms": 100,
+    "episode_batch_size": 25,
+    "maximum_close_candidates": 500,
+    "maximum_open_candidates": 500,
+    "close_candidates": 213,
+    "open_candidates": 216,
+    "active_episodes": 3,
+    "verified_settlements": 213,
+    "unknown_closed_count": 0,
+    "settlement_checks": [
+      "Opening and closing quantities equal; chronological fill balance never negative.",
+      "All orders terminal and known by cutoff.",
+      "Current episode accounting revision matches latest immutable settlement revision.",
+      "Settlement confirms exchange flat, fills complete, cash complete, orders terminal.",
+      "Decision, intent, signal, evidence and execution account scope bound exactly."
+    ],
+    "read_notes": [
+      "One exploratory 100-episode batch hit the 5-second query timeout; the final 25-episode-batch snapshot completed without incomplete results.",
+      "No service restart, venue call, order, policy, ledger or database mutation was performed by this review."
+    ]
+  },
+  "total": {
+    "settled_count": 213,
+    "wins": 89,
+    "losses": 124,
+    "breakeven": 0,
+    "win_rate_pct": "41.784038",
+    "profit_factor": "0.8391843456",
+    "held_minutes_median": "71.735533",
+    "actual_gross_usdt": "-11.17414188",
+    "fees_expense_usdt": "12.35212484",
+    "funding_usdt": "3.02345627",
+    "net_usdt": "-20.50281045"
+  },
+  "cash_reconciliation": {
+    "identity": "actual_gross_usdt - fees_expense_usdt + funding_usdt = net_usdt",
+    "funding_adjustment_count": 63,
+    "adjustment_types": [
+      "FUNDING"
+    ],
+    "other_adjustments_count": 0,
+    "theoretical_fill_gross_usdt": "-11.17414190",
+    "venue_actual_gross_usdt": "-11.17414188",
+    "venue_minus_theoretical_gross_usdt": "0.00000002",
+    "net_basis": "CURRENT_VERIFIED_VENUE_CASH_SETTLEMENT"
+  },
+  "daily": {
+    "2026-11-19": {
+      "settled_count": 29,
+      "wins": 16,
+      "losses": 13,
+      "breakeven": 0,
+      "win_rate_pct": "55.172414",
+      "profit_factor": "1.6229917482",
+      "held_minutes_median": "79.932533",
+      "actual_gross_usdt": "10.98543003",
+      "fees_expense_usdt": "1.85887228",
+      "funding_usdt": "0.04453561",
+      "net_usdt": "9.17109336",
+      "new_open_count": 32,
+      "partial_day": false,
+      "by_side": {
+        "BUY": {
+          "settled_count": 21,
+          "wins": 12,
+          "losses": 9,
+          "breakeven": 0,
+          "win_rate_pct": "57.142857",
+          "profit_factor": "1.4870546496",
+          "held_minutes_median": "60.285067",
+          "actual_gross_usdt": "7.44066003",
+          "fees_expense_usdt": "1.45605619",
+          "funding_usdt": "0.04170731",
+          "net_usdt": "6.02631115"
+        },
+        "SELL": {
+          "settled_count": 8,
+          "wins": 4,
+          "losses": 4,
+          "breakeven": 0,
+          "win_rate_pct": "50.000000",
+          "profit_factor": "2.3392971447",
+          "held_minutes_median": "94.136850",
+          "actual_gross_usdt": "3.54477",
+          "fees_expense_usdt": "0.40281609",
+          "funding_usdt": "0.0028283",
+          "net_usdt": "3.14478221"
+        }
+      }
+    },
+    "2026-11-20": {
+      "settled_count": 57,
+      "wins": 23,
+      "losses": 34,
+      "breakeven": 0,
+      "win_rate_pct": "40.350877",
+      "profit_factor": "1.0760705248",
+      "held_minutes_median": "80.201067",
+      "actual_gross_usdt": "4.1250909",
+      "fees_expense_usdt": "3.4594298",
+      "funding_usdt": "1.66843133",
+      "net_usdt": "2.33409243",
+      "new_open_count": 58,
+      "partial_day": false,
+      "by_side": {
+        "BUY": {
+          "settled_count": 20,
+          "wins": 8,
+          "losses": 12,
+          "breakeven": 0,
+          "win_rate_pct": "40.000000",
+          "profit_factor": "1.6993235812",
+          "held_minutes_median": "43.9133335",
+          "actual_gross_usdt": "7.3344779",
+          "fees_expense_usdt": "1.13847851",
+          "funding_usdt": "1.58574867",
+          "net_usdt": "7.78174806"
+        },
+        "SELL": {
+          "settled_count": 37,
+          "wins": 15,
+          "losses": 22,
+          "breakeven": 0,
+          "win_rate_pct": "40.540541",
+          "profit_factor": "0.7214292441",
+          "held_minutes_median": "90.123867",
+          "actual_gross_usdt": "-3.209387",
+          "fees_expense_usdt": "2.32095129",
+          "funding_usdt": "0.08268266",
+          "net_usdt": "-5.44765563"
+        }
+      }
+    },
+    "2026-11-21": {
+      "settled_count": 63,
+      "wins": 29,
+      "losses": 34,
+      "breakeven": 0,
+      "win_rate_pct": "46.031746",
+      "profit_factor": "0.7389929217",
+      "held_minutes_median": "78.339333",
+      "actual_gross_usdt": "-6.2920348",
+      "fees_expense_usdt": "3.47258809",
+      "funding_usdt": "0.19392493",
+      "net_usdt": "-9.57069796",
+      "new_open_count": 62,
+      "partial_day": false,
+      "by_side": {
+        "BUY": {
+          "settled_count": 23,
+          "wins": 9,
+          "losses": 14,
+          "breakeven": 0,
+          "win_rate_pct": "39.130435",
+          "profit_factor": "0.3791072975",
+          "held_minutes_median": "84.086350",
+          "actual_gross_usdt": "-7.702014",
+          "fees_expense_usdt": "1.30745713",
+          "funding_usdt": "-0.0229149",
+          "net_usdt": "-9.03238603"
+        },
+        "SELL": {
+          "settled_count": 40,
+          "wins": 20,
+          "losses": 20,
+          "breakeven": 0,
+          "win_rate_pct": "50.000000",
+          "profit_factor": "0.9756650384",
+          "held_minutes_median": "75.037433",
+          "actual_gross_usdt": "1.4099792",
+          "fees_expense_usdt": "2.16513096",
+          "funding_usdt": "0.21683983",
+          "net_usdt": "-0.53831193"
+        }
+      }
+    },
+    "2026-11-22": {
+      "settled_count": 38,
+      "wins": 11,
+      "losses": 27,
+      "breakeven": 0,
+      "win_rate_pct": "28.947368",
+      "profit_factor": "0.4580960993",
+      "held_minutes_median": "77.3758165",
+      "actual_gross_usdt": "-14.25589601",
+      "fees_expense_usdt": "2.08056004",
+      "funding_usdt": "0.99147012",
+      "net_usdt": "-15.34498593",
+      "new_open_count": 39,
+      "partial_day": false,
+      "by_side": {
+        "BUY": {
+          "settled_count": 24,
+          "wins": 8,
+          "losses": 16,
+          "breakeven": 0,
+          "win_rate_pct": "33.333333",
+          "profit_factor": "0.6343938001",
+          "held_minutes_median": "59.8551665",
+          "actual_gross_usdt": "-5.99127001",
+          "fees_expense_usdt": "1.23480378",
+          "funding_usdt": "0.82737973",
+          "net_usdt": "-6.39869406"
+        },
+        "SELL": {
+          "settled_count": 14,
+          "wins": 3,
+          "losses": 11,
+          "breakeven": 0,
+          "win_rate_pct": "21.428571",
+          "profit_factor": "0.1728039393",
+          "held_minutes_median": "92.407775",
+          "actual_gross_usdt": "-8.264626",
+          "fees_expense_usdt": "0.84575626",
+          "funding_usdt": "0.16409039",
+          "net_usdt": "-8.94629187"
+        }
+      }
+    },
+    "2026-11-23": {
+      "settled_count": 26,
+      "wins": 10,
+      "losses": 16,
+      "breakeven": 0,
+      "win_rate_pct": "38.461538",
+      "profit_factor": "0.5853214788",
+      "held_minutes_median": "49.971067",
+      "actual_gross_usdt": "-5.736732",
+      "fees_expense_usdt": "1.48067463",
+      "funding_usdt": "0.12509428",
+      "net_usdt": "-7.09231235",
+      "new_open_count": 25,
+      "partial_day": true,
+      "by_side": {
+        "BUY": {
+          "settled_count": 21,
+          "wins": 8,
+          "losses": 13,
+          "breakeven": 0,
+          "win_rate_pct": "38.095238",
+          "profit_factor": "0.5920237719",
+          "held_minutes_median": "44.869667",
+          "actual_gross_usdt": "-4.607812",
+          "fees_expense_usdt": "1.23778044",
+          "funding_usdt": "0.16559543",
+          "net_usdt": "-5.67999701"
+        },
+        "SELL": {
+          "settled_count": 5,
+          "wins": 2,
+          "losses": 3,
+          "breakeven": 0,
+          "win_rate_pct": "40.000000",
+          "profit_factor": "0.5559853872",
+          "held_minutes_median": "87.302200",
+          "actual_gross_usdt": "-1.12892",
+          "fees_expense_usdt": "0.24289419",
+          "funding_usdt": "-0.04050115",
+          "net_usdt": "-1.41231534"
+        }
+      }
+    }
+  },
+  "by_frozen_per_trade_risk_fraction": {
+    "0.0025": {
+      "settled_count": 205,
+      "wins": 85,
+      "losses": 120,
+      "breakeven": 0,
+      "win_rate_pct": "41.463415",
+      "profit_factor": "0.8162801406",
+      "held_minutes_median": "71.735533",
+      "actual_gross_usdt": "-13.8150119",
+      "fees_expense_usdt": "11.52135969",
+      "funding_usdt": "3.08588584",
+      "net_usdt": "-22.25048575"
+    },
+    "0.02": {
+      "settled_count": 8,
+      "wins": 4,
+      "losses": 4,
+      "breakeven": 0,
+      "win_rate_pct": "50.000000",
+      "profit_factor": "1.2738580358",
+      "held_minutes_median": "75.365600",
+      "actual_gross_usdt": "2.64087002",
+      "fees_expense_usdt": "0.83076515",
+      "funding_usdt": "-0.06242957",
+      "net_usdt": "1.7476753"
+    }
+  },
+  "low_risk_findings": {
+    "risk_fraction": "0.0025",
+    "portfolio_risk_fraction": "0.01",
+    "policy_version": 13,
+    "margin_pool_fraction_preserved": "0.70",
+    "settled_count": 205,
+    "wins": 85,
+    "losses": 120,
+    "average_winning_net_usdt_rounded": "1.1630642244",
+    "average_losing_net_magnitude_usdt_rounded": "1.0092578735",
+    "observed_leverage_values": [
+      "2"
+    ],
+    "settled_losses_exceeding_original_budgeted_stop_risk": 0,
+    "largest_observed_net_loss_usdt": "-1.89996827",
+    "that_trade_planned_stop_risk_usdt": "2.41229031680",
+    "interpretation": "风险金额收敛已有样本支持，但净期望仍为负；不能据此扩大杠杆。旧2%仅8笔且非同时段对照，不能归因风险下调或JEV模式变化造成亏损。",
+    "future_loss_limit_guaranteed": false
+  },
+  "by_side": {
+    "BUY": {
+      "settled_count": 109,
+      "wins": 45,
+      "losses": 64,
+      "breakeven": 0,
+      "win_rate_pct": "41.284404",
+      "profit_factor": "0.8948780964",
+      "held_minutes_median": "57.899933",
+      "actual_gross_usdt": "-3.52595808",
+      "fees_expense_usdt": "6.37457605",
+      "funding_usdt": "2.59751624",
+      "net_usdt": "-7.30301789"
+    },
+    "SELL": {
+      "settled_count": 104,
+      "wins": 44,
+      "losses": 60,
+      "breakeven": 0,
+      "win_rate_pct": "42.307692",
+      "profit_factor": "0.7724986932",
+      "held_minutes_median": "90.165367",
+      "actual_gross_usdt": "-7.6481838",
+      "fees_expense_usdt": "5.97754879",
+      "funding_usdt": "0.42594003",
+      "net_usdt": "-13.19979256"
+    }
+  },
+  "by_source": {
+    "s3": {
+      "settled_count": 210,
+      "wins": 87,
+      "losses": 123,
+      "breakeven": 0,
+      "win_rate_pct": "41.428571",
+      "profit_factor": "0.8284558177",
+      "held_minutes_median": "73.415858",
+      "actual_gross_usdt": "-12.50670188",
+      "fees_expense_usdt": "12.16882003",
+      "funding_usdt": "3.02142974",
+      "net_usdt": "-21.65409217"
+    },
+    "tv_bridge": {
+      "settled_count": 3,
+      "wins": 2,
+      "losses": 1,
+      "breakeven": 0,
+      "win_rate_pct": "66.666667",
+      "profit_factor": "1.9121086023",
+      "held_minutes_median": "61.951900",
+      "actual_gross_usdt": "1.33256",
+      "fees_expense_usdt": "0.18330481",
+      "funding_usdt": "0.00202653",
+      "net_usdt": "1.15128172"
+    }
+  },
+  "by_entry_mode": {
+    "TREND_BREAKOUT": {
+      "settled_count": 196,
+      "wins": 80,
+      "losses": 116,
+      "breakeven": 0,
+      "win_rate_pct": "40.816327",
+      "profit_factor": "0.8502727797",
+      "held_minutes_median": "70.9624335",
+      "actual_gross_usdt": "-8.95267188",
+      "fees_expense_usdt": "11.50784696",
+      "funding_usdt": "2.93756462",
+      "net_usdt": "-17.52295422"
+    },
+    "TREND_PULLBACK_RESUME": {
+      "settled_count": 17,
+      "wins": 9,
+      "losses": 8,
+      "breakeven": 0,
+      "win_rate_pct": "52.941176",
+      "profit_factor": "0.7151217983",
+      "held_minutes_median": "89.584200",
+      "actual_gross_usdt": "-2.22147",
+      "fees_expense_usdt": "0.84427788",
+      "funding_usdt": "0.08589165",
+      "net_usdt": "-2.97985623"
+    }
+  },
+  "posthoc_exit_groups": {
+    "basis": "FINAL_FILLED_CLOSE_REQUEST_REASON",
+    "warning": "退出原因是交易路径的结果，不是可独立选择的策略；不能把盈利退出保留、亏损止损删除后当成反事实回测。",
+    "groups": {
+      "EARLY_LOSS_MOMENTUM_WEAK": {
+        "settled_count": 28,
+        "wins": 0,
+        "losses": 28,
+        "breakeven": 0,
+        "win_rate_pct": "0",
+        "profit_factor": "0",
+        "held_minutes_median": "57.678767",
+        "actual_gross_usdt": "-34.83154197",
+        "fees_expense_usdt": "1.38754798",
+        "funding_usdt": "1.00440051",
+        "net_usdt": "-35.21468944"
+      },
+      "EMERGENCY_LOSS": {
+        "settled_count": 3,
+        "wins": 0,
+        "losses": 3,
+        "breakeven": 0,
+        "win_rate_pct": "0",
+        "profit_factor": "0",
+        "held_minutes_median": "14.867400",
+        "actual_gross_usdt": "-4.470724",
+        "fees_expense_usdt": "0.08338902",
+        "funding_usdt": "0",
+        "net_usdt": "-4.55411302"
+      },
+      "LOW_YIELD_STAGNATION": {
+        "settled_count": 50,
+        "wins": 31,
+        "losses": 19,
+        "breakeven": 0,
+        "win_rate_pct": "62.000000",
+        "profit_factor": "1.9598443126",
+        "held_minutes_median": "92.417900",
+        "actual_gross_usdt": "6.29610662",
+        "fees_expense_usdt": "3.04808433",
+        "funding_usdt": "0.48719614",
+        "net_usdt": "3.73521843"
+      },
+      "ONE_HOUR_REVERSAL": {
+        "settled_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "breakeven": 0,
+        "win_rate_pct": "100.000000",
+        "profit_factor": null,
+        "held_minutes_median": "60.344450",
+        "actual_gross_usdt": "0.2976",
+        "fees_expense_usdt": "0.0421352",
+        "funding_usdt": "0",
+        "net_usdt": "0.2554648"
+      },
+      "PEAK_DRAWDOWN": {
+        "settled_count": 59,
+        "wins": 54,
+        "losses": 5,
+        "breakeven": 0,
+        "win_rate_pct": "91.525424",
+        "profit_factor": "41.4111072824",
+        "held_minutes_median": "56.991683",
+        "actual_gross_usdt": "97.30913116",
+        "fees_expense_usdt": "3.35274505",
+        "funding_usdt": "0.06794121",
+        "net_usdt": "94.02432732"
+      },
+      "RECONCILED_EXTERNAL_CLOSE": {
+        "settled_count": 6,
+        "wins": 0,
+        "losses": 6,
+        "breakeven": 0,
+        "win_rate_pct": "0",
+        "profit_factor": "0",
+        "held_minutes_median": "39.1253835",
+        "actual_gross_usdt": "-6.07771399",
+        "fees_expense_usdt": "0.38056928",
+        "funding_usdt": "0.05786183",
+        "net_usdt": "-6.40042144"
+      },
+      "TIME_STOP": {
+        "settled_count": 9,
+        "wins": 3,
+        "losses": 6,
+        "breakeven": 0,
+        "win_rate_pct": "33.333333",
+        "profit_factor": "0.8215857003",
+        "held_minutes_median": "120.366033",
+        "actual_gross_usdt": "-0.55266",
+        "fees_expense_usdt": "0.58900117",
+        "funding_usdt": "0.54303592",
+        "net_usdt": "-0.59862525"
+      },
+      "VENUE_PROTECTION_CHILD": {
+        "settled_count": 57,
+        "wins": 0,
+        "losses": 57,
+        "breakeven": 0,
+        "win_rate_pct": "0",
+        "profit_factor": "0",
+        "held_minutes_median": "42.048417",
+        "actual_gross_usdt": "-69.1443397",
+        "fees_expense_usdt": "3.46865281",
+        "funding_usdt": "0.86302066",
+        "net_usdt": "-71.74997185"
+      }
+    }
+  },
+  "transient_settlement_incident": {
+    "symbol": "PROMUSDT",
+    "side": "SELL",
+    "incident_window_utc8": [
+      "2026-11-23T16:03:00+08:00",
+      "2026-11-23T16:05:12.761642+08:00"
+    ],
+    "verified_settlement_net_usdt": "-1.25059083",
+    "settlement_revision": 3,
+    "early_status": "WAITING_INCOME_LAG",
+    "early_status_recorded_utc8": "2026-11-23T16:03:35.756013+08:00",
+    "cash_matched_observations_utc8": [
+      "2026-11-23T16:04:10.278624+08:00",
+      "2026-11-23T16:04:30.548952+08:00",
+      "2026-11-23T16:04:51.459093+08:00",
+      "2026-11-23T16:05:10.924282+08:00"
+    ],
+    "venue_cash_anomaly_status": "EXACT",
+    "actual_gross_usdt": "-1.1481",
+    "theoretical_gross_usdt": "-1.1481",
+    "fees_expense_usdt": "0.05724375",
+    "own_funding_usdt": "-0.04524708",
+    "stable_wallet_delta_usdt": "-1.25675663",
+    "final_external_income_sum_usdt": "-0.00616580",
+    "final_attributed_wallet_delta_usdt": "-1.25059083",
+    "blocked_reason": "WALLET_CASH_MISMATCH",
+    "cross_symbol_late_income": [
+      {
+        "symbol": "HUSDT",
+        "type": "FUNDING_FEE",
+        "economic_time_utc8": "2026-11-23T16:00:00+08:00",
+        "amount_usdt": "-0.04310680",
+        "first_ingested_utc8": "2026-11-23T16:05:10.870357+08:00"
+      },
+      {
+        "symbol": "POWERUSDT",
+        "type": "FUNDING_FEE",
+        "economic_time_utc8": "2026-11-23T16:00:00+08:00",
+        "amount_usdt": "-0.00349766",
+        "first_ingested_utc8": "2026-11-23T16:05:10.870980+08:00"
+      }
+    ],
+    "late_income_total_usdt": "-0.04660446",
+    "successful_settlement_utc8": "2026-11-23T16:05:12.761642+08:00",
+    "finding": "钱包数额在16:04:10至16:05:11多轮观测保持不变；PROM成交及自身现金证明已经精确匹配，但其他持仓资金费晚进入系统，导致全账户钱包归因暂时不相等。两笔补齐后结算恢复，不是PROM成交小数精度问题。",
+    "provenance": "Episode, settlement and cash-history reads by primary key; 16:03–16:06 ACCOUNT_INVENTORY notifications read through (scope_id,event_type,created_at) index then history primary keys; late income rows read by primary keys.",
+    "limitation": "首次入库时间是本系统首次取得该事实的证据，不是交易所最初发布时刻的直接测量。恢复证明属于此事件，不等于全部消费阻塞已解决。",
+    "unsafe_workaround_rejected": "不能放宽金额相等校验或制造现金调整去抹去0.04660446真实差额。"
+  },
+  "negative_peak_exit_cases": {
+    "population_count": 59,
+    "negative_count": 5,
+    "negative_net_usdt": "-2.32669515",
+    "price_basis": "RECORDED_SANDBOX_MARK_PRICE_NOT_EXECUTABLE_BID_ASK",
+    "cases": [
+      {
+        "symbol": "PIPPINUSDT",
+        "side": "BUY",
+        "risk_fraction": "0.02",
+        "net_usdt": "-0.17364399",
+        "peak_return_pct": "3.066900749063670412",
+        "prior_observation_utc8": "2026-11-19T02:36:22+08:00",
+        "prior_return_pct": "2.198970037453183521",
+        "exit_observation_utc8": "2026-11-19T02:36:44+08:00",
+        "exit_return_pct": "0.071535580524344569",
+        "observation_gap_seconds": 22
+      },
+      {
+        "symbol": "ESPORTSUSDT",
+        "side": "BUY",
+        "risk_fraction": "0.0025",
+        "net_usdt": "-0.05957642",
+        "peak_return_pct": "3.059654178674351585",
+        "prior_observation_utc8": "2026-11-19T21:18:16+08:00",
+        "prior_return_pct": "1.30297790585975024",
+        "exit_observation_utc8": "2026-11-19T21:18:41+08:00",
+        "exit_return_pct": "0.09606147934678194",
+        "observation_gap_seconds": 25
+      },
+      {
+        "symbol": "PROMUSDT",
+        "side": "SELL",
+        "risk_fraction": "0.0025",
+        "net_usdt": "-0.17431360",
+        "peak_return_pct": "4.054297546012269939",
+        "prior_observation_utc8": "2026-11-21T02:27:28+08:00",
+        "prior_return_pct": "2.33969829097283085",
+        "exit_observation_utc8": "2026-11-21T02:28:00+08:00",
+        "exit_return_pct": "-0.421239482909728309",
+        "observation_gap_seconds": 32
+      },
+      {
+        "symbol": "BULLAUSDT",
+        "side": "BUY",
+        "risk_fraction": "0.0025",
+        "net_usdt": "-0.38877748",
+        "peak_return_pct": "3.008962868117797695",
+        "prior_observation_utc8": "2026-11-22T03:47:44+08:00",
+        "prior_return_pct": "2.663060179257362356",
+        "exit_observation_utc8": "2026-11-22T03:48:16+08:00",
+        "exit_return_pct": "-1.329321382842509603",
+        "observation_gap_seconds": 32
+      },
+      {
+        "symbol": "MAGMAUSDT",
+        "side": "BUY",
+        "risk_fraction": "0.0025",
+        "net_usdt": "-1.53038366",
+        "peak_return_pct": "4.170080091533180778",
+        "prior_observation_utc8": "2026-11-22T19:18:52+08:00",
+        "prior_return_pct": "3.434233409610983982",
+        "exit_observation_utc8": "2026-11-22T19:19:26+08:00",
+        "exit_return_pct": "-2.306647597254004577",
+        "observation_gap_seconds": 34
+      }
+    ],
+    "interpretation": "本地轮询峰值保护存在22–34秒观测间隔；其中三例下一次观测已经穿过盈亏平衡点。不能把mark峰值当作可兑现利润，也不能证明统一延长持仓可以改善结果。",
+    "causal_claim": "NOT_PROVEN_WITHOUT_EXECUTABLE_QUOTE_PATH_AND_NATIVE_ORDER_COUNTERFACTUAL"
+  },
+  "next_hypotheses": [
+    {
+      "id": "ACCOUNT_CASH_VISIBILITY_LAG",
+      "hypothesis": "其他持仓的资金费晚到造成单笔已平仓结算暂缓，并被错误放大为整个账户入场阻塞。",
+      "next_evidence": "记录每次资金核对的wallet采集时点、各income首次观测时点、差额与未知风险保留量；保持精确对账，验证已知平仓事实能否与其余保护/退出及安全入场隔离。",
+      "falsified_if": "在全部相关income已到且观测先后序成立后，差额仍不收敛；或事实缺口涉及未明持仓/未终态订单而不只是现金发布延迟。",
+      "automatic_policy_change": false
+    },
+    {
+      "id": "LOCAL_PROFIT_PROTECTION_CADENCE",
+      "hypothesis": "约30秒本地轮询在快速跳变中迟于可执行的保护机会。",
+      "next_evidence": "前瞻收集同环境逐时mark与可执行买卖报价、退出决定/提交/成交时钟；用冻结候选规则与原生条件单可用性对照，计成本和未成交风险。",
+      "falsified_if": "可成交价在间隔开始时已不可实现，或原生保护也只能以同等/更差价格成交，或更快保护对正常波动误触损失抵消全部收益。",
+      "automatic_policy_change": false
+    },
+    {
+      "id": "ENTRY_EXPECTANCY_NOT_POSITION_SIZE",
+      "hypothesis": "目前主要经济问题是弱入场/缺乏延续产生过多小亏，而非单笔资金暴露失控。",
+      "next_evidence": "固定入场前结构特征和当前版本，按时间留出后续机会；分别评估趋势突破/回踩、多空、市场状态，比较净R、尾部、成本及信号覆盖，禁止同窗口挑赢的阈值。",
+      "falsified_if": "后续样本显示亏损主要由执行偏差/延迟或少数超预算尾部驱动，且相同冻结入场在同步可执行报价对照中具正期望。",
+      "automatic_policy_change": false
+    },
+    {
+      "id": "JEV_FILTER_INCREMENTAL_VALUE",
+      "hypothesis": "恢复旧JEV阈值为硬闸门未必改善收益。",
+      "next_evidence": "保持异步影子，冻结比较标准并把模型结果可用时点与原决定分开，做未来样本比较；模型分数不当胜率。",
+      "falsified_if": "独立后续样本中，决策前可得且完成校准的模型分组在成本后净R/回撤/覆盖上稳定优于同口径无模型基线。",
+      "automatic_policy_change": false
+    }
+  ],
+  "limitations": [
+    "SANDBOX执行与价格不证明LIVE成交、流动性、容量或收益。",
+    "不是全账户权益收益；未平仓浮盈亏、充值/转出未并入此整笔结算口径。",
+    "11/23为截至16:23:52.439的部分自然日；3笔当时未平仓不按零盈亏处理。",
+    "11/19同时包含旧2%门控与新0.25%影子阶段；必须按冻结风险/发布时点区分，不能把不同时间市场环境当随机对照。",
+    "同合约和同市场时段交易相关，213笔不等于213个独立样本。",
+    "TV源仅3笔已结算，正收益不证明TV优于S3；来源标签也不等于是否受到TV融合影响。",
+    "退出分组与峰值样本为事后描述，不能当替代策略回测或可兑现收益。",
+    "历史receipt和晚到模型结果可用于研究，不代表在原决定时已经可得或授权开仓。",
+    "未修改策略、杠杆、风险、止盈止损或服务；本报告不宣称本次阻塞修复已经发布。"
+  ],
+  "privacy": {
+    "account_and_tenant_ids_included": false,
+    "order_and_episode_ids_included": false,
+    "secrets_or_credentials_included": false
+  }
+}

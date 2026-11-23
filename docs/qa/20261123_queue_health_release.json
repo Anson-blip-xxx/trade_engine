@@ -1,0 +1,245 @@
+{
+  "schema": "bounded-signal-health-release-v1",
+  "date": "2026-11-23",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "status": "DEPLOYED_HOT_PATH_RECOVERED_COLD_MAINTENANCE_FOLLOWUP_OPEN",
+  "root_cause": {
+    "confirmed": "Frequent business health observation materialized all unreceipted historical inbox signals, bypassing the bounded ready projection.",
+    "inbox_estimated_rows": 8110000,
+    "ready_relation_size_observed": "816 KiB",
+    "slow_observation": {
+      "active_parallel_workers": 3,
+      "elapsed_seconds": "27.3",
+      "wait_event": "DataFileRead",
+      "host_read_rate_approx_mib_per_second": 185,
+      "host_iowait_pct_observed": 38,
+      "limitation": "Concurrent observational snapshot, not an isolated performance benchmark or attribution of every historical expiry."
+    },
+    "separate_transient_safety_stop": "PROM settlement awaited cross-symbol funding cash; exact wallet reconciliation passed after late income ingestion. This was not rounding error and no cash guard was bypassed."
+  },
+  "implementation": {
+    "changed_runtime_files": [
+      "services/v2_trading_health.py",
+      "services/v2_signal_queue_health.py",
+      "v2_core/telegram.py"
+    ],
+    "observation_scope": "Validated unfinished-task projection of any age, bounded recent received-at index range, and bounded tracked previous lag keys.",
+    "per_source_limit": 1000,
+    "tracked_key_limit": 2002,
+    "sql_work_budget_ms_per_lane": 1000,
+    "parallel_query_workers": 0,
+    "unbounded_historical_fallback": false,
+    "incomplete_observation": "UNKNOWN; capped counts labeled LOWER_BOUND; known lag retained and recovery timer not aged through unknown intervals.",
+    "historical_gap": "Legacy unkeyed alarms and tracking overflow require both cold lanes to pass two distinct post-baseline sweep completion watermarks; no manual alarm reset.",
+    "trade_authority": "Observation only. Does not authorize orders, alter admission gates, mutate receipts or change risk policy."
+  },
+  "known_limits": [
+    "The 1000ms SQL work budget is not a hard wall-clock deadline: connection establishment and startup may consume the existing factory timeout before the helper can enforce its remaining budget.",
+    "Health runs in the parent supervisor; extreme database outages may still delay its control loop. The trading child remains a separate process.",
+    "Cold maintenance still cyclically audits retained history. Its non-covering request-key index causes heap reads; this release removes the competing full-history health scan, not all maintenance I/O.",
+    "An empty hot observation is not proof that every retained undiscovered historical signal has a receipt. Historical coverage remains explicitly delegated to cold maintenance.",
+    "A short post-release observation cannot establish multi-day stability or strategy profitability."
+  ],
+  "validation": {
+    "workspace_initial_regression": {"passed": 200, "failed": 0, "seconds": "189.35"},
+    "exact_candidate_broad_regression": {
+      "passed": 270,
+      "initial_failure_count": 1,
+      "initial_failure": "Existing test spy did not forward the new observation_unknown keyword argument.",
+      "resolution": "Updated the test adapter to forward keyword arguments while retaining the original clock assertions. No production relaxation."
+    },
+    "exact_candidate_final_targeted_regression": {"passed": 134, "failed": 0, "seconds": "37.10"},
+    "release_protocol_and_monitor_pure_tests": {"passed": 67, "skipped_database_cases": 2},
+    "legacy_migration_pure_and_postgres_cas_tests": {"passed": 85, "failed": 0, "seconds": "1.31"},
+    "skipped_cases_in_pure_run": "Managed-health PostgreSQL cases were subsequently included in the final isolated database regression.",
+    "counts_overlap": true,
+    "isolation": "Disposable PostgreSQL/Redis/ClickHouse QA environment; external network blocked by V2 test boundary; QA databases removed after completion.",
+    "exact_candidate_source_comparison": "services, v2_core, s0 and s3 source files matched the candidate used by QA.",
+    "read_only_real_database_benchmark_ms": {"s6:s3": 155, "s8:s3": 145, "s6:tv_bridge": 27, "s8:tv_bridge": 23},
+    "preflight": "PASSED; SANDBOX epoch31; policy unchanged",
+    "pre_release_get_only_inventory": {"positions": 3, "native_protection_orders": 3, "ordinary_orders": 0, "coverage": "CLEAR"}
+  },
+  "deployment": {
+    "prior": "/opt/trade-engine-v2/releases/sampling-shadow-controller-20261119-v2",
+    "candidate": "/opt/trade-engine-v2/releases/queue-health-controller-20261123-v1",
+    "protocol": "Exact reviewed manifest, graceful stop proof, empty execution cgroups, management-only fresh account coverage, same-binding resume.",
+    "strategy_or_risk_change": false,
+    "synthetic_order_or_forced_close": false,
+    "history_or_ledger_deletion": false,
+    "live_switch": false
+  },
+  "post_release": {
+    "verified_at_utc8": "2026-11-23T16:57:39+08:00",
+    "route_phase": "ACTIVE",
+    "epoch_before": 31,
+    "epoch_after": 32,
+    "same_binding": true,
+    "policy_version": 13,
+    "policy_unchanged": true,
+    "graceful_stop_proved": true,
+    "forced_stop": false,
+    "manage_only_account_coverage": "ACCOUNT_COVERAGE_CLEAR",
+    "latest_15_cycles": {"CYCLE_COMPLETE": 15, "ENTRY_BLOCKED": 0},
+    "latest_cycle_duration_ms": 27570,
+    "safety_phases": {"market": "CURRENT", "protection": "CLEAR", "exits": "CLEAR", "settlement": "CLEAR"},
+    "queue_status": "COMPLETE_ALL_FOUR_LANES",
+    "query_ms_per_lane": {"s6:s3": 19, "s8:s3": 24, "s6:tv_bridge": 15, "s8:tv_bridge": 17},
+    "valid_and_expired_lag": 0,
+    "health_age_ms": 5924,
+    "health_finding_codes": [],
+    "signal_lag_state": "RECOVERY_PENDING",
+    "post_release_get_only_inventory": {"positions": 3, "native_protection_orders": 3, "ordinary_orders": 0, "coverage": "CLEAR"},
+    "inventory_note": "An existing position was partially reduced by the normal running strategy after resume; this maintenance did not submit an order or force a close.",
+    "legacy_alarm_identity_migration": {
+      "original_health_version": 188323,
+      "original_lag_count": 3,
+      "proof_received_rows": 119,
+      "proof_window_from_ms": 1795423582012,
+      "proof_window_through_ms": 1795423614012,
+      "remaining_unreceipted_inputs": 0,
+      "proof_query_ms_on_apply": 58,
+      "read_isolation": "REPEATABLE READ READ ONLY",
+      "write": "Health-diagnostics-only CAS, with immutable history source version/hash and complete bounded window proof.",
+      "alarm_flags_and_timers_changed": false,
+      "orders_receipts_policy_or_ledger_changed": false,
+      "normal_monitor_followup": "Removed UNKNOWN on its own; retained the existing 120-second recovery confirmation interval."
+    }
+  },
+  "related_reports": [
+    "20261123_recent_trade_review.json",
+    "20261123_jev_tv_review.json"
+  ],
+  "followup_throughput": {
+    "why_work_continued": "The first clear observation was not sustained. A bounded later cohort contained 248 S6-actionable inputs, 141 expired receipts including 138 with zero attempts. Later windows varied; these are not whole-day totals.",
+    "root_causes": [
+      "Protection witnesses included 919 episode records, 1933 order records and 862 protection records. Repeated credential-field normalization in recursive canonical serialization dominated CPU work.",
+      "Five observed protection inventories took only 312-366ms of venue acquisition, but repeated evidence processing consumed the unchanged five-second reuse fence. Every observed exit stage performed another complete audit.",
+      "The first high-volume scheduler could exhaust its allocated slice while later light lanes left part of the existing cycle evaluation budget unused. No second pass reclaimed that remainder."
+    ],
+    "old_cycle_observations": {
+      "cycle_duration_approx_seconds": [27, 34],
+      "protection_stage_ms": [5413, 5737],
+      "exit_stage_ms": [8475, 9190],
+      "same_cycle_coverage_reused": false
+    },
+    "independent_ingress_delay": {
+      "bounded_actionable_inputs": 369,
+      "signal_ttl_ms": 90000,
+      "received_minus_observed_median_ms": 24767,
+      "received_minus_observed_max_ms": 65098,
+      "interpretation": "Producer arrival already consumes part of the original validity window. Neither signal timestamps nor validity are refreshed by this fix. This remains an independent latency contributor."
+    },
+    "implementation": {
+      "credential_field_cache": "At most 1024 ordinary string field names of length at most 128 map to booleans. No account values, balances, source timestamps, venue observations, policy decisions or complete validation results are cached.",
+      "canonical_compatibility": "All values still recursively validated; serialization bytes and evidence hashes unchanged. Long keys and str subclasses keep the original uncached behavior.",
+      "scheduler_budget_reclaim": "First-round TV priority, fairness and rotation retained. At most one reclaim turn per productive budget/batch-limited lane, after all first turns, within the same deadline. Prepared/uncertain dispatch, unexpected failure and drain stop further reclaim.",
+      "expected_candidate_wait_followup": "Runtime acceptance found that a legitimate existing-position DEFERRED wait prevented reuse of unused peer budget. The final patch accepts only existing-whitelist candidate waits with matching signal identity, result, reason and candidate-local non-authorizing evidence. Unknown errors, ACK failure, incomplete/mismatched evidence and malformed stages still stop reclamation; retry and order authority are unchanged.",
+      "observation_gap_boundaries": "Recent inbox cap and first unknown legacy observation persist coverage gaps, preventing false recovery when unknown identities slide out of the recent window.",
+      "policy_or_risk_changes": false,
+      "freshness_fence_change": false,
+      "historical_signal_replay": false,
+      "repo_only_optimization_not_deployed": "StructuralReentryContext market-only fast path; this wrapper is not present in the current controller runtime. It is not credited with any live throughput improvement."
+    },
+    "read_only_real_payload_benchmark": {
+      "encoded_bytes": 22895935,
+      "samples_running_ms": [1929, 2112, 1812],
+      "samples_candidate_ms": [759, 847, 770],
+      "median_running_ms": 1929,
+      "median_candidate_ms": 770,
+      "bytes_equal": true,
+      "digest_equal": true,
+      "cache_entries": 136,
+      "limitations": "Same retained evidence, three interleaved encoder trials in a read-only process. Not a full trading-cycle throughput benchmark. Profiling itself adds overhead; cProfile timings are not used as production latency."
+    },
+    "validation": {
+      "exact_candidate_regression": {"passed": 555, "failed": 0, "deselected": 3, "seconds": "194.38"},
+      "final_expected_wait_candidate_regression": {"passed": 162, "failed": 0, "deselected": 2, "seconds": "74.00", "scope": "Pipeline, budget reclaim, fairness, advisory isolation, capacity decline and managed-health tests against exact v3 runtime-shaped sources."},
+      "final_expected_wait_pure_regression": {"passed": 46, "failed": 0},
+      "repository_pipeline_including_quant_regression": {"passed": 164, "failed": 0, "deselected": 0, "seconds": "75.52", "scope": "Same six-file regression against repository sources, including the two quant cases deliberately absent from the running release."},
+      "counts_overlap": true,
+      "deselection_reason": "Quant-only cases target a source not present in this controller runtime. Its existing source support was deliberately not broadened.",
+      "coverage": ["Canonical byte/error/hash equivalence", "Credential and invalid-value rejection", "Bounded cache and concurrent use", "Coverage storage identity", "Same-cycle freshness and fallback", "Fresh inventory before actual reduction", "Settlement clearance and cash checks", "Scheduler fairness, capacity denial and advisory isolation", "Budget reclaim, deadline, drain and prepared-order stops", "Bounded queue health, observation gaps, legacy CAS and managed health"],
+      "test_harness": "Production modules match the candidate; two additional repository operations helpers were provided only to the isolated QA harness for coverage-compaction and legacy-migration tests. They were not added to the runtime.",
+      "initial_collection_failure": "Two QA-only operations helpers were absent from the runtime-shaped test copy. Added them to the isolated test harness; reran the complete selected regression to 555 passed.",
+      "external_network": "BLOCKED_BY_TEST_BOUNDARY",
+      "qa_database": "DISPOSABLE_AND_REMOVED",
+      "independent_code_review": "No release-blocking issue found in budget reclaim or bounded key cache; two queue-observation false-recovery boundaries were corrected and included in this regression."
+    },
+    "deployment": {
+      "candidate": "/opt/trade-engine-v2/releases/queue-health-controller-20261123-v3",
+      "status": "MANAGED_RESTART_VERIFIED_HOT_QUEUE_RECOVERY_OBSERVED",
+      "intermediate_candidate": "/opt/trade-engine-v2/releases/queue-health-controller-20261123-v2",
+      "final_pipeline_sha256": "35f80c92e407cc027636944b6b235848745be13b0e34c1f48aa5e10f501b803c",
+      "repository_runtime_difference": "Runtime deliberately retains its pre-existing two/four-lane support. The repository already supports additional quant lanes; only the reviewed repair hunks were backported. Final source comparison differs only in this pre-existing quant constructor and lane-name wiring.",
+      "epoch_before_final_patch": 33,
+      "epoch_after_final_patch": 34,
+      "graceful_stop_proved": true,
+      "forced_stop": false,
+      "same_binding": true,
+      "manage_only_account_coverage": "ACCOUNT_COVERAGE_CLEAR",
+      "policy_unchanged": true,
+      "risk_policy_version": 13,
+      "strategy_gates_changed": false,
+      "fresh_native_protection_before_release": {"positions": 3, "native_stops": 3, "ordinary_orders": 0, "coverage": "CLEAR"}
+    },
+    "final_runtime_acceptance": {
+      "verified_at_utc8": "2026-11-23T17:30:58.841000+08:00",
+      "controller_started_at_utc8": "2026-11-23T17:26:19+08:00",
+      "route_phase": "ACTIVE",
+      "epoch": 34,
+      "policy_version": 13,
+      "controller_unexpected_restarts": 0,
+      "required_services": "Controller, market hub, TradingView ingress, dashboard, PostgreSQL, Redis and ClickHouse active/running.",
+      "health_age_ms": 7649,
+      "health_active_alerts": [],
+      "signal_lag_state": "CLEAR",
+      "signal_lag_alarm_cleared_by": "Existing monitor recovery confirmation, not a manual reset or threshold change.",
+      "queue_observation": "COMPLETE_ALL_FOUR_LANES",
+      "query_ms": {"s6:s3": 25, "s8:s3": 33, "s6:tv_bridge": 17, "s8:tv_bridge": 17},
+      "valid_and_expired_lag": 0,
+      "latest_cycle_duration_ms": 16253,
+      "latest_safety_phases": {"market": "CURRENT", "protection": "CLEAR", "exits": "CLEAR", "settlement": "CLEAR"},
+      "venue_get_only_check": {"positions": 3, "native_protection_orders": 3, "ordinary_orders": 0, "coverage": "CLEAR", "local_ledger_unchanged": true},
+      "natural_new_intents_since_final_restart": 0,
+      "acceptance_boundary": "Natural queue consumption and existing-position protection verified. No new order was forced; this short final-patch window did not contain a new natural intent, so it is not evidence of a newly completed order round trip.",
+      "bounded_throughput_observation_approximately_1729": {
+        "new_cycles": 7,
+        "cycle_complete": 6,
+        "entry_blocked": 1,
+        "blocked_reason": "STOP_REQUESTED at managed release boundary; the six subsequent sampled cycles completed.",
+        "unused_budget_reclaim_cycles": 2,
+        "same_cycle_coverage_reused": 4,
+        "same_cycle_coverage_fresh_fallback": 3,
+        "s6_new_observed": 266,
+        "s6_completed": 235,
+        "s6_pending_not_expired": 31,
+        "s6_received_to_receipt_ms": {"p50": 17640, "p90": 22371, "max": 26017},
+        "s6_matured": 121,
+        "s6_matured_receipted": 121,
+        "s8_new_observed": 14,
+        "s8_completed": 12,
+        "s8_pending_not_expired": 2,
+        "s8_received_to_receipt_ms": {"p50": 10352, "p90": 25011, "max": 34695},
+        "s8_matured": 8,
+        "s8_matured_receipted": 8,
+        "zero_attempt_expired_after_new_observation": 0,
+        "expired_without_receipt": 0,
+        "limitations": "Latest bounded 501-input selection, not the entire release cohort or all-day totals. Matured means original validity has ended by observation time, not that a trade was opened; all 129 matured receipts in this sample were IGNORED by existing admission rules. Restart-crossing input observations excluded."
+      },
+      "cold_maintenance": {
+        "trade_blocked_now": false,
+        "intermittent_failure": "QueryCanceled during bounded adaptive discovery/cold-expiry page work remains observable. All four lanes recovered CURRENT in an intermediate check; the final check had one S8 cold-expiry page retry, while the trading cycle and safety phases completed.",
+        "self_recovery_evidence": "Successful reduced pages of 250/312 entries completed in 103-193ms with commit confirmation and cursor advancement.",
+        "remaining_design_issue": "Historical discovery/expiry cursors and adaptive page caps remain process-local. Restarts begin the cold anti-entropy sweep again and relearn page capacity. Retained history still grows.",
+        "followup_required": "Persist account/consumer/version-bound, commit-confirmed sweep cursors and generation proofs without losing late-commit anti-entropy; separately bound historical coverage witness materialization. Requires dedicated regression, not an alarm suppression or timeout increase."
+      }
+    },
+    "known_limits": [
+      "Scheduling budgets are cooperative; an individual external or database operation may overrun, after which no further lane starts.",
+      "Processed counters count attempts, not necessarily distinct signals across passes.",
+      "The exact full historical coverage facts remain preserved. This optimization reduces repeated normalization cost; it does not claim constant-time processing as retained history grows indefinitely.",
+      "Short-window recovery cannot demonstrate multi-day reliability or a profitable strategy."
+    ]
+  }
+}

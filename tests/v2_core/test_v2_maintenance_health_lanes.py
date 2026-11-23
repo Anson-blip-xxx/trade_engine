@@ -277,11 +277,11 @@ def test_health_slow_read_uses_post_read_clock_only_for_maintenance(
     lag_times = []
 
     def lag_projection(
-        findings, active, clear_since, expected_waits, observed, settings
+        findings, active, clear_since, expected_waits, observed, settings, **kwargs
     ):
         lag_times.append(observed)
         return original(
-            findings, active, clear_since, expected_waits, observed, settings
+            findings, active, clear_since, expected_waits, observed, settings, **kwargs
         )
 
     monkeypatch.setattr(module, "signal_lag_state", lag_projection)

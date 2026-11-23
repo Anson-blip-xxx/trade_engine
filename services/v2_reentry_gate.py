@@ -188,12 +188,16 @@ class StructuralReentryContext:
 
     def __call__(self, signal):
         context = deepcopy(self.delegate(signal))
-        profile = PolicyStore(self.connect, self.scope).read()
+        # A definitive upstream rejection needs no structural qualification.
+        # Keep this path independent of policy/history storage availability;
+        # eligible candidates still read the current policy on every call.
         if (
-            not profile.values["entry.reentry_enabled"]
-            or context.get("market_only")
+            context.get("market_only")
             or context.get("universe_admission", {}).get("eligible") is False
         ):
+            return context
+        profile = PolicyStore(self.connect, self.scope).read()
+        if not profile.values["entry.reentry_enabled"]:
             return context
         now = self.clock()
         market_time = context.get("sources", {}).get("s3", {}).get("observed_at", now)

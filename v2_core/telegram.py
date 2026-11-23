@@ -166,6 +166,7 @@ BUSINESS_HEALTH_MESSAGES = {
     "SETTLEMENT_OVERDUE": "已平仓但超过配置时限仍未完成结算。请核对成交、手续费、资金费及账户现金对账。",
     "SIGNAL_CONSUMPTION_LAG": "存在超过配置时限仍未消费的信号。请检查安全阻塞、消费队列与处理速度；过期信号不会追单。",
     "SIGNAL_MAINTENANCE_DEGRADED": "信号后台清理或审计持续异常，请检查数据库查询与维护线程。此告警不等于开仓链路堵塞；过期信号仍禁止追单。",
+    "SIGNAL_QUEUE_OBSERVATION_UNAVAILABLE": "信号队列检查超时、达到采样上限或缺少有效队列证明，当前状态未知，不能视为零积压或已恢复。既有告警保留；请检查数据库负载及队列投影。此检查不会授予下单权限。",
     "SETTLEMENT_ANALYSIS_DEGRADED": "交易现金已完成核验结算，但结算后的复盘记录持续失败。请检查复盘证据与存储；原始结算保持有效。本告警不授予开仓权限，资金与持仓安全检查照常执行。",
     "PIPELINE_ENTRY_BLOCKED": "开仓链路持续阻塞超过配置时限。请检查 PostgreSQL 交易健康记录中的阻塞阶段，不要直接放宽风控。",
     "POSITION_SAFETY_BLOCKED": "保护单或退出环节持续阻塞超过配置时限。请优先核实持仓、止损保护和退出回执。",

@@ -52,12 +52,15 @@ def test_valid_and_expired_queue_both_alert_with_distinct_cause(database, expire
     assert saved["signal_lag_state"]["status"] == "CURRENT_LAG"
     assert saved["signal_lag_state"]["current_lag_observed"] is True
     with database() as conn:
-        assert conn.execute("SELECT count(*) FROM v2_signal_receipts").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM v2_signal_receipts").fetchone() == (
+            0,
+        )
         assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
 
 
 @pytest.mark.parametrize(
-    "code", ["SHORT_RATIO_STALE", "SHORT_RATIO_MISSING", "ENTRY_RESEARCH_CONTEXT_EXPIRED"]
+    "code",
+    ["SHORT_RATIO_STALE", "SHORT_RATIO_MISSING", "ENTRY_RESEARCH_CONTEXT_EXPIRED"],
 )
 def test_candidate_dependency_remains_lag_with_precise_safe_reason(database, code):
     now = time.time_ns() // 1000000 + 31000
@@ -173,3 +176,70 @@ def test_alarm_state_classification_does_not_change_alarm_authority(
     )
     assert result["status"] == expected
     assert result["alarm_active"] is (LAG in active)
+
+
+def test_unknown_queue_cannot_clear_alarm_or_age_recovery_timer(database):
+    now = time.time_ns() // 1000000 + 31000
+    signal = pending(database, "uncertain-recovery", expiry=now + 60000)
+    _, saved = report(database, now)
+    assert LAG in saved["active"]
+    tracked = saved["queue_diagnostics"]["s6:tv_bridge"]["lag_signal_ids"]
+    assert tracked == [str(signal)]
+    with database() as conn:
+        conn.execute("UPDATE v2_strategy_ready_control SET enabled=false")
+    _, unknown = report(database, now + 300000)
+    assert unknown["signal_lag_state"]["status"] == "UNKNOWN"
+    assert unknown["signal_lag_state"]["current_lag_observed"] is None
+    assert LAG in unknown["active"]
+    assert LAG not in unknown["clear_since_ms"]
+    assert "SIGNAL_QUEUE_OBSERVATION_UNAVAILABLE" in unknown["findings"]
+    assert unknown["queue_diagnostics"]["s6:tv_bridge"]["lag_signal_ids"] == tracked
+    # A normal receipt, not deleting the input or muting the monitor, proves
+    # recovery once the validated projection is available again.
+    with database() as conn:
+        for producer in ("s6", "s8"):
+            consumer = StrategyScope(
+                "BINANCE", "test-account", "SANDBOX", "FUTURES", producer
+            ).consumer
+            conn.execute(
+                "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason) "
+                "VALUES (%s,%s,'IGNORED','QA')",
+                (consumer, signal),
+            )
+        conn.execute("SELECT v2_strategy_ready_enable()")
+    _, recovered = report(database, now + 300001)
+    assert "SIGNAL_QUEUE_OBSERVATION_UNAVAILABLE" not in recovered["findings"]
+    assert LAG not in recovered["findings"]
+    assert recovered["queue_diagnostics"]["s6:tv_bridge"]["lag_signal_ids"] == []
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_orders").fetchone() == (0,)
+
+
+def test_unknown_queue_does_not_hide_independent_position_safety(database):
+    from dataclasses import asdict
+
+    from v2_core.state import StateKey
+
+    now = time.time_ns() // 1000000
+    health = TradingHealth(database, account_id="test-account", clock_ms=lambda: now)
+    health.store.change(
+        StateKey(
+            **asdict(health.scope), namespace="trading-pipeline-cycle-v1", key="qa"
+        ),
+        expected_version=0,
+        request_key="qa",
+        reason="QA",
+        payload={
+            "started_at_ms": now,
+            "finished_at_ms": now,
+            "status": "ENTRY_BLOCKED",
+            "phases": {"protection": {"status": "BLOCKED"}},
+        },
+    )
+    with database() as conn:
+        conn.execute("UPDATE v2_strategy_ready_control SET enabled=false")
+    health()
+    saved = json.loads(health.store.read(health.key).payload_json)
+    assert saved["signal_lag_state"]["status"] == "UNKNOWN"
+    assert saved["findings"]["PIPELINE_ENTRY_BLOCKED"]["stages"] == ["protection"]
+    assert "POSITION_SAFETY_BLOCKED" in saved["findings"]

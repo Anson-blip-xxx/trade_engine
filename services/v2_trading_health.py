@@ -21,6 +21,7 @@ from services.v2_jev_budget_health import (
     read_budget_health,
 )
 from services.v2_settlement_entry import settled_result_valid, settlement_result_valid
+from services.v2_signal_queue_health import read_signal_queue
 from services.v2_trading_pipeline import failed
 from v2_core.account_risk import AccountScope
 from v2_core.directional import directional_events
@@ -398,10 +399,165 @@ def pipeline_position_details(connect, scope, cycle, now):
     )
 
 
-def signal_lag_state(findings, active, clear_since, expected_waits, now, settings):
+def retain_unknown_queue(diagnostics, old, findings, now, maintenance):
+    """An unavailable or narrower observation is not evidence of recovery.
+
+    Exact pending keys are carried by bounded observations. Legacy full-history
+    alarms without those identities need a provably new complete cold sweep
+    before a hot empty result can clear them. A first completion can belong to
+    an in-flight request-key sweep which already passed a missing signal. With
+    no sweep-start clock, require two new distinct completion watermarks after
+    the first observation's baseline. No historical query is issued here.
+    """
+    unknown = {}
+    old_findings = old.get("findings", {}).get("SIGNAL_CONSUMPTION_LAG", {})
+    for lane, entry in diagnostics.items():
+        prior = old.get("queue_diagnostics", {}).get(lane, {})
+        prior_lag = old_findings.get(lane)
+        hot_complete = entry.get("status") == "COMPLETE"
+        limit = entry.get("limit_per_source", 1000)
+        tracking_limit = (
+            2 * limit + 2 if type(limit) is int and 1 <= limit <= 10000 else 2002
+        )
+        retained = []
+        seen = set()
+        invalid_keys = False
+        # COMPLETE has rechecked and may prune exact known IDs, even if a
+        # separate legacy-history gap later makes the overall status UNKNOWN.
+        sources = [entry.get("lag_signal_ids", [])]
+        if not hot_complete:
+            sources.insert(0, prior.get("lag_signal_ids", []))
+        for values in sources:
+            if not isinstance(values, (list, tuple)):
+                invalid_keys = True
+                continue
+            for value in values:
+                try:
+                    valid = type(value) is str and str(UUID(value)) == value
+                except (ValueError, AttributeError):
+                    valid = False
+                if not valid:
+                    invalid_keys = True
+                elif value not in seen:
+                    retained.append(value)
+                    seen.add(value)
+        tracking_gap = (
+            invalid_keys
+            or len(retained) > tracking_limit
+            or entry.get("tracking_overflow") is True
+        )
+        entry["lag_signal_ids"] = retained[:tracking_limit]
+        gap_since = prior.get("historical_recovery_unproven_since_ms")
+        if (
+            gap_since is None
+            and isinstance(prior_lag, dict)
+            and "lag_signal_ids" not in prior
+            and type(prior_lag.get("oldest_received_at_ms")) is int
+            and (
+                not hot_complete
+                or prior_lag["oldest_received_at_ms"] < entry["recent_from_ms"]
+            )
+        ):
+            # Merely selecting a recent window does not cover a legacy alarm:
+            # an unavailable read never obtained the old signal identities.
+            # Pin that loss now, before the next window can move past them.
+            gap_since = old.get("observed_at_ms", now)
+        if tracking_gap:
+            entry["tracking_gap_reason"] = (
+                "QUEUE_TRACKING_KEYS_INVALID"
+                if invalid_keys
+                else "QUEUE_TRACKING_LIMIT_REACHED"
+            )
+            # Newly dropped identities require new proof. Older completion
+            # watermarks cannot justify recovery from this later information loss.
+            gap_since = now
+        if gap_since is not None:
+            history = maintenance.get(lane, {}).get("history", {})
+            progress = {}
+            previous_progress = (
+                {} if tracking_gap else prior.get("historical_recovery_sweeps", {})
+            )
+            for component in ("cold_expiry", "discovery"):
+                completed = history.get(component, {}).get("last_sweep_completed_at_ms")
+                completed = (
+                    completed
+                    if type(completed) is int and 0 <= completed <= now
+                    else None
+                )
+                before = previous_progress.get(component)
+                if not isinstance(before, dict):
+                    # Even a completion after gap_since is only a baseline on
+                    # first sight: that sweep may have started before the gap.
+                    progress[component] = {
+                        "baseline_completed_at_ms": completed,
+                        "first_new_completed_at_ms": None,
+                        "second_new_completed_at_ms": None,
+                    }
+                    continue
+                baseline = before.get("baseline_completed_at_ms")
+                baseline = (
+                    baseline if type(baseline) is int and 0 <= baseline <= now else None
+                )
+                floor = max(gap_since, (baseline + 1) if baseline is not None else 0)
+                first = before.get("first_new_completed_at_ms")
+                first = first if type(first) is int and floor <= first <= now else None
+                second = before.get("second_new_completed_at_ms")
+                second = (
+                    second
+                    if first is not None
+                    and type(second) is int
+                    and first < second <= now
+                    else None
+                )
+                if completed is not None and completed >= floor:
+                    if first is None:
+                        first = completed
+                    elif second is None and completed > first:
+                        second = completed
+                progress[component] = {
+                    "baseline_completed_at_ms": baseline,
+                    "first_new_completed_at_ms": first,
+                    "second_new_completed_at_ms": second,
+                }
+            covered = not tracking_gap and all(
+                item["second_new_completed_at_ms"] is not None
+                for item in progress.values()
+            )
+            entry["historical_recovery_sweeps"] = progress
+            if not covered:
+                entry["historical_recovery_unproven_since_ms"] = gap_since
+                entry["status"] = "UNKNOWN"
+                entry["reason"] = "HISTORICAL_RECOVERY_NOT_PROVEN"
+        if entry.get("status") != "COMPLETE":
+            unknown[lane] = {"reason": entry.get("reason", "UNKNOWN")}
+            if isinstance(prior_lag, dict):
+                findings.setdefault("SIGNAL_CONSUMPTION_LAG", {}).setdefault(
+                    lane, {**prior_lag, "observation_status": "UNKNOWN"}
+                )
+    if unknown:
+        findings["SIGNAL_QUEUE_OBSERVATION_UNAVAILABLE"] = {
+            "lanes": unknown,
+            "status": "UNKNOWN",
+            "execution_authorized": False,
+        }
+    return bool(unknown)
+
+
+def signal_lag_state(
+    findings,
+    active,
+    clear_since,
+    expected_waits,
+    now,
+    settings,
+    *,
+    observation_unknown=False,
+):
     """Explain an alarm's latch without reporting a quiet queue as new lag."""
     code = "SIGNAL_CONSUMPTION_LAG"
-    if code in findings:
+    if observation_unknown:
+        status = "UNKNOWN"
+    elif code in findings:
         status = "CURRENT_LAG" if code in active else "CONFIRMATION_PENDING"
     elif "signals_waiting_for_safety" in expected_waits:
         status = "UPSTREAM_SAFETY_WAIT"
@@ -412,7 +568,7 @@ def signal_lag_state(findings, active, clear_since, expected_waits, now, setting
     quiet_since = clear_since.get(code)
     return {
         "status": status,
-        "current_lag_observed": code in findings,
+        "current_lag_observed": None if observation_unknown else code in findings,
         "alarm_active": code in active,
         "recovery_started_at_ms": quiet_since,
         "recovery_remaining_ms": max(
@@ -640,6 +796,12 @@ class TradingHealth:
         now = self.clock()
         policy = PolicyStore(self.connect, self.scope).read()
         settings = policy.values
+        previous = self.store.read(self.key)
+        old = (
+            json.loads(previous.payload_json)
+            if previous and not previous.deleted
+            else {}
+        )
         findings = {}
         expected_waits = {}
         queue_diagnostics = {}
@@ -755,76 +917,34 @@ class TradingHealth:
             for source in self.sources:
                 for producer in ("s6", "s8"):
                     consumer = StrategyScope(*scope, producer).consumer
-                    query_started = time.perf_counter()
-                    row = conn.execute(
-                        """WITH unreceipted AS MATERIALIZED (
-                        SELECT s.signal_id FROM v2_inbound_signals s
-                        WHERE s.environment=%s AND s.source=%s
-                        AND NOT EXISTS (SELECT 1 FROM v2_signal_receipts r
-                            WHERE r.consumer=%s AND r.signal_id=s.signal_id)
-                        AND s.received_at<=to_timestamp(%s/1000.0)),
-                        pending AS (
-                        SELECT s.received_at,s.snapshot,t.error_code,t.lease_until,t.next_attempt_at,
-                            (s.snapshot->>'signal'=ANY(%s::text[])
-                             OR t.error_code IS NOT NULL
-                             OR EXISTS (SELECT 1 FROM v2_strategy_decisions d
-                                 WHERE d.consumer=%s AND d.signal_id=s.signal_id OFFSET 0)) AS actionable
-                        FROM unreceipted p CROSS JOIN LATERAL (
-                            SELECT i.signal_id,i.received_at,i.snapshot FROM v2_inbound_signals i
-                            WHERE i.signal_id=p.signal_id OFFSET 0) s
-                        LEFT JOIN LATERAL (
-                            SELECT t.error_code,t.lease_until,t.next_attempt_at FROM v2_strategy_tasks t
-                            WHERE t.signal_id=s.signal_id AND t.consumer=%s OFFSET 0) t ON true)
-                        SELECT count(*) FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)),
-                        min(floor(extract(epoch FROM s.received_at)*1000)::bigint)
-                            FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)),
-                        count(*) FILTER(WHERE error_code=ANY(%s)),
-                        count(*) FILTER(WHERE NOT actionable),
-                        count(*) FILTER(WHERE actionable AND (snapshot->>'expires_at_ms')::bigint>%s),
-                        count(*) FILTER(WHERE actionable AND (snapshot->>'expires_at_ms')::bigint<=%s),
-                        count(*) FILTER(WHERE actionable AND lease_until>=statement_timestamp()),
-                        count(*) FILTER(WHERE actionable AND next_attempt_at>statement_timestamp()
-                            AND (lease_until IS NULL OR lease_until<statement_timestamp())),
-                        count(*) FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)
-                            AND (snapshot->>'expires_at_ms')::bigint>%s),
-                        count(*) FILTER(WHERE actionable AND COALESCE(error_code,'')<>ALL(%s)
-                            AND (snapshot->>'expires_at_ms')::bigint<=%s),
-                        count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
-                        count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
-                        count(*) FILTER(WHERE actionable AND error_code=ANY(%s)),
-                        COALESCE((SELECT jsonb_object_agg(reason_code,reason_count) FROM (
-                            SELECT CASE WHEN error_code=ANY(%s) THEN error_code
-                                ELSE 'UNCLASSIFIED_TASK_ERROR' END AS reason_code,
-                                count(*) AS reason_count FROM pending
-                            WHERE actionable AND error_code IS NOT NULL GROUP BY 1
-                        ) reasons),'{}'::jsonb)
-                        FROM pending s""",
-                        (
-                            self.scope.environment,
-                            source,
-                            consumer,
-                            now - settings["health.queue_seconds"] * 1000,
-                            list(directional_events(producer.upper())),
-                            consumer,
-                            consumer,
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            now,
-                            now,
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            now,
-                            sorted(EXPECTED_ADMISSION_WAITS),
-                            now,
-                            sorted(ADMISSION_READ_QUOTA_CODES),
-                            sorted(_CAPACITY_WAIT_CODES),
-                            sorted(_CANDIDATE_DEPENDENCY_CODES),
-                            sorted(_QUEUE_REASON_CODES),
-                        ),
-                    ).fetchone()
+                    observation = read_signal_queue(
+                        self.connect,
+                        environment=self.scope.environment,
+                        source=source,
+                        consumer=consumer,
+                        now_ms=now,
+                        queue_seconds=settings["health.queue_seconds"],
+                        reconcile_seconds=settings[
+                            "scheduler.discovery_reconcile_seconds"
+                        ],
+                        actionable_events=directional_events(producer.upper()),
+                        expected_waits=EXPECTED_ADMISSION_WAITS,
+                        admission_quota_codes=ADMISSION_READ_QUOTA_CODES,
+                        capacity_codes=_CAPACITY_WAIT_CODES,
+                        dependency_codes=_CANDIDATE_DEPENDENCY_CODES,
+                        reason_codes=_QUEUE_REASON_CODES,
+                        previous_signal_ids=old.get("queue_diagnostics", {})
+                        .get(producer + ":" + source, {})
+                        .get("lag_signal_ids", []),
+                    )
+                    row = observation["row"]
+                    queue_diagnostics[producer + ":" + source] = observation[
+                        "diagnostics"
+                    ]
+                    if row is None:
+                        continue
                     queue_diagnostics[producer + ":" + source] = {
-                        "query_ms": round((time.perf_counter() - query_started) * 1000),
-                        "scope": "OVER_LAG_THRESHOLD_UNRECEIPTED",
+                        **observation["diagnostics"],
                         "valid_actionable": row[4],
                         "expired_actionable": row[5],
                         "leased_actionable": row[6],
@@ -841,6 +961,10 @@ class TradingHealth:
                             producer + ":" + source
                         ] = {
                             "count": row[0],
+                            "count_scope": "OBSERVED_HOT_QUEUE"
+                            if observation["diagnostics"]["status"] == "COMPLETE"
+                            else "LOWER_BOUND",
+                            "observation_status": observation["diagnostics"]["status"],
                             "oldest_received_at_ms": row[1],
                             "classification": "VALID_SIGNAL_LAG"
                             if row[8]
@@ -941,11 +1065,12 @@ class TradingHealth:
             finding["details"] = health_notification_details(
                 "POSITION_SAFETY_BLOCKED", details
             )
-        previous = self.store.read(self.key)
-        old = (
-            json.loads(previous.payload_json)
-            if previous and not previous.deleted
-            else {}
+        queue_observation_unknown = retain_unknown_queue(
+            queue_diagnostics,
+            old,
+            findings,
+            now,
+            latest[0].get("phases", {}).get("signal_maintenance", {}) if latest else {},
         )
         # A cycle can finish while these DB reads are in flight. Validate its
         # maintenance evidence against an actual post-read clock sample, not
@@ -987,6 +1112,8 @@ class TradingHealth:
         delays = {
             "SIGNAL_CONSUMPTION_LAG": settings["health.signal_confirm_seconds"] * 1000,
             "SIGNAL_MAINTENANCE_DEGRADED": settings["health.pipeline_seconds"] * 1000,
+            "SIGNAL_QUEUE_OBSERVATION_UNAVAILABLE": settings["health.pipeline_seconds"]
+            * 1000,
             "SETTLEMENT_ANALYSIS_DEGRADED": settings["health.pipeline_seconds"] * 1000,
             "PIPELINE_ENTRY_BLOCKED": settings["health.pipeline_seconds"] * 1000,
             "POSITION_SAFETY_BLOCKED": settings["health.safety_seconds"] * 1000,
@@ -1003,7 +1130,12 @@ class TradingHealth:
         # recovery every minute. Persist the quiet timer across process restarts.
         clear_since = {}
         code = "SIGNAL_CONSUMPTION_LAG"
-        if code in old.get("active", []) and code not in findings:
+        if queue_observation_unknown and code in old.get("active", []):
+            # A capped/unavailable observation cannot prove a quiet recovery.
+            # Do not age an old clear timer through an unobserved interval.
+            if code not in active:
+                active.append(code)
+        elif code in old.get("active", []) and code not in findings:
             clear_since[code] = min(now, old.get("clear_since_ms", {}).get(code, now))
             if (
                 now - clear_since[code]
@@ -1031,7 +1163,13 @@ class TradingHealth:
                 "maintenance_lanes": maintenance_lanes,
                 "maintenance_observed_at_ms": maintenance_now,
                 "signal_lag_state": signal_lag_state(
-                    findings, active, clear_since, expected_waits, now, settings
+                    findings,
+                    active,
+                    clear_since,
+                    expected_waits,
+                    now,
+                    settings,
+                    observation_unknown=queue_observation_unknown,
                 ),
                 "capital": capital,
                 "opening": opening,

@@ -1,0 +1,202 @@
+{
+  "schema": "jev-tv-descriptive-review-v1",
+  "status": "OBSERVED_RUNTIME_COVERAGE_NOT_PREDICTIVE_ADVANTAGE_PROOF",
+  "generated_for": "2026-11-23",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "scope": {
+    "account": "CURRENT_EXECUTION_ACCOUNT_REDACTED",
+    "exchange": "BINANCE",
+    "product": "FUTURES",
+    "producers": ["s6", "s8"],
+    "start_inclusive_utc8": "2026-11-19T15:10:00+08:00",
+    "intent_snapshot_end_exclusive_utc8": "2026-11-23T16:22:01.987707+08:00",
+    "tv_snapshot_end_exclusive_utc8": "2026-11-23T16:23:37.845121+08:00",
+    "verified_settlement_cutoff_utc8": "2026-11-23T16:23:52.439000+08:00",
+    "partial_days": ["2026-11-19", "2026-11-23"],
+    "population_note": "Intent coverage includes generated natural entry intents, not every evaluated or rejected strategy candidate. Settlement comparison selects actually opened and verified settled episodes after the start time. These denominators are not interchangeable."
+  },
+  "read_verification": {
+    "transactions": "REPEATABLE READ READ ONLY",
+    "statement_timeout_ms": 3000,
+    "lock_timeout_ms": 100,
+    "intent_limit_plus_one": 501,
+    "intent_limit_reached": false,
+    "state_primary_key_batch_size": 100,
+    "tv_limit_plus_one": 10001,
+    "tv_limit_reached": false,
+    "joins": [
+      "Intent and evidence references, configuration digests, strategy versions and signal identities match.",
+      "Shadow binding and result records are read by exact receipt state IDs; retained result signal IDs and candidate digests match their immutable decision receipt.",
+      "Public quote verification is the runtime's recorded VERIFIED result, not a new provider call or a reconstruction of private account evidence.",
+      "TV receipt statistics select only the consumer whose directional event set supports the signal; opposite-direction expiry bookkeeping is excluded.",
+      "Settlement comparison reuses the independent verified ledger snapshot documented in 20261123_recent_trade_review.json."
+    ],
+    "writes_or_external_model_calls": false,
+    "venue_calls": false,
+    "secret_or_account_or_order_identifiers_in_report": false
+  },
+  "runtime_configuration_observed": {
+    "release": "sampling-shadow-controller-20261119-v2",
+    "route_phase": "ACTIVE",
+    "route_epoch": 31,
+    "runtime_policy_version": 13,
+    "entry_planned_stop_risk_fraction": "0.0025",
+    "aggregate_planned_stop_risk_fraction": "0.01",
+    "margin_pool_fraction": "0.70",
+    "settlement_cash_basis_version": 2,
+    "jev_mode": "SHADOW",
+    "authority": "NO_ADMISSION_VETO_OR_EXECUTION_AUTHORITY",
+    "risk_note": "Planned stop-risk limits do not guarantee realized loss limits during gaps or adverse execution."
+  },
+  "natural_intents": {
+    "count": 218,
+    "status": {"FILLED": 206, "REJECTED": 11, "CANCELLED": 1},
+    "source": {"s3": 214, "tv_bridge": 4},
+    "policy_13_risk_0_0025_shadow_count": 218,
+    "entry_receipt": {"SUBMITTED_NOT_DURABLE": 217, "INVALID_CANDIDATE": 1},
+    "durable_shadow_result": {"OBSERVED": 211, "MISSING": 6, "NO_DURABLE_RESULT": 1},
+    "reason": {
+      "MODEL_OBSERVED": 211,
+      "MODEL_TIMEOUT": 6,
+      "JEV_SUPPLEMENTAL_SNAPSHOT_EXPIRED": 1
+    },
+    "public_quote_contract": "binance-sandbox-futures-premium-index-v1",
+    "public_quote_recorded_verified_count": 217,
+    "observed_coverage_numerator": 211,
+    "observed_coverage_denominator": 218,
+    "budget_throttled_or_exhausted_count": 0,
+    "durable_result_delay_median_ms": 1111,
+    "durable_result_delay_denominator": 217,
+    "available_at_original_decision_count": 0,
+    "unavailable_at_original_decision_count": 217,
+    "availability_unknown_no_binding_count": 1,
+    "timing_note": "All durable outcomes were recorded after the original entry decision; none is historical entry authorization. SUBMITTED_NOT_DURABLE is the immutable original receipt, not evidence that a later durable result is absent.",
+    "daily": {
+      "2026-11-19": {"intents": 24, "filled": 22, "rejected": 2, "observed": 24, "timeout": 0, "invalid": 0},
+      "2026-11-20": {"intents": 59, "filled": 58, "rejected": 1, "observed": 57, "timeout": 2, "invalid": 0},
+      "2026-11-21": {"intents": 69, "filled": 62, "rejected": 7, "observed": 68, "timeout": 0, "invalid": 1},
+      "2026-11-22": {"intents": 41, "filled": 39, "rejected": 1, "cancelled": 1, "observed": 38, "timeout": 3, "invalid": 0},
+      "2026-11-23": {"intents": 25, "filled": 25, "rejected": 0, "observed": 24, "timeout": 1, "invalid": 0}
+    }
+  },
+  "score_description": {
+    "denominator_observed_intents": 211,
+    "trend_supported": {"min": "0.22", "median": "0.49", "max": "0.8"},
+    "chase_risk": {"min": "0.38", "median": "0.56", "max": "0.66"},
+    "liquidity_fragile": {"min": "0.25", "median": "0.39", "max": "0.59"},
+    "semantics": "UNCALIBRATED_MARKET_HYPOTHESES_NOT_TRADE_WIN_PROBABILITIES",
+    "comparison_thresholds": {
+      "basis": "EXISTING_LEGACY_DEFAULTS_FOR_DESCRIPTION_ONLY_NOT_AN_ACTIVE_GATE",
+      "min_trend_support": "0.6",
+      "max_chase_risk": "0.7",
+      "meets_thresholds": 9,
+      "below_trend_threshold": 202,
+      "above_chase_threshold_after_trend_pass": 0,
+      "missing_scores": 7
+    },
+    "tv_confounding": {
+      "fusion_confirms_intents": 7,
+      "fusion_absent_intents": 211,
+      "confirms_and_model_observed": 6,
+      "confirms_and_model_missing": 1,
+      "confirms_observed_meeting_thresholds": 6,
+      "confirms_observed_trend_score_range": ["0.77", "0.80"],
+      "absent_and_model_observed": 205,
+      "absent_observed_meeting_thresholds": 3,
+      "interpretation": "TV availability and model scores are strongly associated in this selected sample. The prompt itself includes TV confirmation. This does not establish independent model value, TV causality, or score calibration."
+    }
+  },
+  "verified_settlement_comparison": {
+    "financial_basis": "NET_WHOLE_EPISODE_SETTLEMENT_INCLUDING_RECORDED_COSTS_NOT_ACCOUNT_EQUITY_RETURN",
+    "population": "Opened on or after 2026-11-19 15:10 UTC+8 and fully settled by the independent ledger cutoff; not all 218 intents and not the full 213-settlement day-based report.",
+    "all": {
+      "count": 203,
+      "wins": 83,
+      "losses": 120,
+      "net_usdt": "-23.62814376",
+      "profit_factor": "0.8049049671",
+      "held_minutes_median": "71.027200"
+    },
+    "meets_legacy_thresholds": {
+      "count": 9,
+      "wins": 4,
+      "losses": 5,
+      "net_usdt": "-2.23880860",
+      "profit_factor": "0.6209096102",
+      "net_per_trade_usdt": "-0.2487565111"
+    },
+    "trend_below_0_6": {
+      "count": 191,
+      "wins": 79,
+      "losses": 112,
+      "net_usdt": "-17.55209817",
+      "profit_factor": "0.8423954551",
+      "net_per_trade_usdt": "-0.0918958019"
+    },
+    "missing_result": {
+      "count": 3,
+      "wins": 0,
+      "losses": 3,
+      "net_usdt": "-3.83723699"
+    },
+    "source": {
+      "s3": {"count": 200, "wins": 81, "losses": 119, "net_usdt": "-24.77942548"},
+      "tv_bridge": {"count": 3, "wins": 2, "losses": 1, "net_usdt": "1.15128172"}
+    },
+    "limitations": [
+      "Scores arrived after original decisions. Grouped realized returns are descriptive, not replayable counterfactual strategy returns.",
+      "Rejecting trades changes future exposure, capacity, re-entry opportunities and execution. Summing removed trade PnL would not measure causal avoided losses.",
+      "Nine score-qualified and three directly TV-sourced settled trades are small, selected samples.",
+      "This sample does not support restoring JEV as a hard gate or claiming that JEV/TV improved expected returns."
+    ]
+  },
+  "tradingview_ingress_and_consumption": {
+    "received_signals": 777,
+    "unique_symbols": 51,
+    "latest_received_utc8": "2026-11-23T16:15:16.643158+08:00",
+    "expired_at_receipt": 0,
+    "observed_to_receipt_age_median_ms": 8208,
+    "observed_to_receipt_age_max_ms": 60929,
+    "matching_direction_receipts": 777,
+    "outcome": {"IGNORED": 735, "EXPIRED": 38, "INTENT": 4},
+    "reason": {
+      "TREND_ENTRY_MOVED": 152,
+      "SYMBOL_NOT_TRADING": 134,
+      "PRICE_ENVELOPE_CROSSES_STOP": 119,
+      "TREND_VOLUME_UNCONFIRMED": 84,
+      "regime_conflict": 80,
+      "TREND_NO_FRESH_SETUP": 43,
+      "TREND_NOT_ALIGNED": 43,
+      "signal expired before scheduling": 37,
+      "TREND_FLOW_UNCONFIRMED": 34,
+      "TREND_COUNTERMOVE": 30,
+      "TREND_PLANNED_REWARD_RISK_TOO_LOW": 6,
+      "INSUFFICIENT_BUDGET": 5,
+      "BAD_FOLLOW": 4,
+      "signal admitted": 4,
+      "signal expired before evaluation": 1,
+      "ADVERSE_FUNDING": 1
+    },
+    "daily": {
+      "2026-11-19": {"received": 75, "ignored": 74, "expired": 1, "intent": 0},
+      "2026-11-20": {"received": 252, "ignored": 234, "expired": 17, "intent": 1},
+      "2026-11-21": {"received": 179, "ignored": 168, "expired": 8, "intent": 3},
+      "2026-11-22": {"received": 157, "ignored": 155, "expired": 2, "intent": 0},
+      "2026-11-23": {"received": 114, "ignored": 104, "expired": 10, "intent": 0}
+    },
+    "interpretation": [
+      "Ingress remained active; lack of recent TV entries is not explained by a total failure to receive signals.",
+      "Most matching-direction signals ended in recorded filters. Thirty-eight also expired after receipt; the review does not attribute every expiry to the same scheduler or infrastructure cause.",
+      "Testnet symbol availability is not inferred to equal LIVE availability.",
+      "Filter frequency does not prove removing a filter would create profitable executable trades."
+    ]
+  },
+  "conclusions": [
+    "Reduced planned risk and non-blocking JEV shadow mode actually ran on natural intents.",
+    "The new dual-clock public-quote contract now has real durable model observations; the earlier unverified runtime acceptance gap is resolved for these observed samples.",
+    "Retain shadow-only model authority until prospective comparisons demonstrate incremental value; do not promote the current nine-trade score-qualified group into a profitability rule.",
+    "Investigate TV price-envelope/entry-distance rejections with frozen timing and quotes, separately from the measured consumption expiries.",
+    "Continue using verified settlement economics rather than model approval rates as the outcome criterion."
+  ]
+}
