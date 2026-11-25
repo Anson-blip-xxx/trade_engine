@@ -1,4 +1,4 @@
-"""Durable S6/S8 Testnet exit supervision and reduce-only dispatch.
+"""Durable legacy/immutable-plan Testnet exits and reduce-only dispatch.
 
 Every decision is derived from immutable entry evidence, reconciled fills and a
 fresh injected market observation.  The native close-all stop remains installed
@@ -21,9 +21,13 @@ from v2_core.ledger import amount
 from v2_core.opening_halt import halt_opening
 from v2_core.precision import derived_amount, money_context
 from v2_core.protection import TestnetProtection
+from v2_core.scheduling import diagnostic_code
 from v2_core.service import TradingData
 from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey, StateSnapshot
+from v2_core.strategy_exit import StrategyExitFacts, evaluate_strategy_exit
+from v2_core.strategy_plan import TradePlan
+from v2_core.strategy_plan_store import read_trade_plan
 from v2_core.symbol_reduction import symbol_reduction_proof
 
 _TERMINAL = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
@@ -231,27 +235,46 @@ class DirectionalExitStage:
 
     def _trace(self, episode):
         trace = self.data.trace(str(UUID(episode)))
-        if (
-            trace is None
-            or any(trace["scope"].get(k) != v for k, v in asdict(self.scope).items())
-            or trace["scope"]["producer"] not in {"s6", "s8"}
-            or trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY"
-            or trace["configuration"].get("account_scope") != asdict(self.scope)
+        if trace is None or any(
+            trace["scope"].get(k) != v for k, v in asdict(self.scope).items()
         ):
             raise ValueError("DIRECTIONAL_EXIT_SCOPE_MISMATCH")
-        evaluation = trace["decision"]["features"]["evaluation"]
-        plan, sizing = evaluation["market_plan"], evaluation["sizing"]
-        if (
-            evaluation.get("admission_authorized") is not True
-            or evaluation.get("execution_market_gate") != "MARKET_GATES_PASSED"
-            or plan.get("system_tag") not in {"S6A", "S6B", "S8"}
-            or sizing.get("reason") != "SIZED"
-        ):
-            raise ValueError("DIRECTIONAL_EXIT_EVIDENCE_REQUIRED")
+        with self.connect() as conn:
+            plan = read_trade_plan(conn, episode)
+        if plan is not None:
+            if plan.scope != self.scope:
+                raise ValueError("STRATEGY_EXIT_SCOPE_MISMATCH")
+            sizing = {
+                "stop_price": plan.stop_price,
+                "planned_loss": plan.planned_loss,
+                "quantity_step": plan.quantity_step,
+            }
+        else:
+            if (
+                trace["scope"]["producer"] not in {"s6", "s8"}
+                or trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY"
+                or trace["configuration"].get("account_scope") != asdict(self.scope)
+            ):
+                raise ValueError("DIRECTIONAL_EXIT_SCOPE_MISMATCH")
+            evaluation = trace["decision"]["features"]["evaluation"]
+            plan, sizing = evaluation["market_plan"], evaluation["sizing"]
+            if (
+                evaluation.get("admission_authorized") is not True
+                or evaluation.get("execution_market_gate") != "MARKET_GATES_PASSED"
+                or plan.get("system_tag") not in {"S6A", "S6B", "S8"}
+                or sizing.get("reason") != "SIZED"
+            ):
+                raise ValueError("DIRECTIONAL_EXIT_EVIDENCE_REQUIRED")
         orders = {row["order_id"]: row for row in trace["orders"]}
         opening = [row for row in trace["orders"] if row["leg"] == "OPEN"]
         if len(opening) != 1:
             raise ValueError("SINGLE_OPENING_ORDER_REQUIRED")
+        if isinstance(plan, TradePlan) and (
+            amount(opening[0]["quantity"], positive=True) != amount(plan.quantity)
+            or trace["request"]["symbol"] != plan.symbol
+            or trace["request"]["side"] != plan.side
+        ):
+            raise ValueError("STRATEGY_EXIT_OPENING_MISMATCH")
         quantities, value, opened, closed, first = (
             {},
             Decimal(0),
@@ -283,7 +306,15 @@ class DirectionalExitStage:
             if opened <= 0 or remaining <= 0 or first is None:
                 raise ValueError("ACTIVE_LEDGER_EXPOSURE_REQUIRED")
             entry = value / opened
-            planned = amount(sizing["planned_loss"], positive=True) * remaining / opened
+            if isinstance(plan, TradePlan) and (
+                opened > amount(plan.quantity) or closed < 0
+            ):
+                raise ValueError("STRATEGY_EXIT_LEDGER_MISMATCH")
+            planned = (
+                amount(sizing["planned_loss"], positive=True)
+                * remaining
+                / (amount(plan.quantity) if isinstance(plan, TradePlan) else opened)
+            )
             # Division can repeat even though every original fill is exact.
             # Normalize only derived decision inputs, never fills or quantity.
             # Round remaining risk upward so a positive dust exposure cannot
@@ -317,7 +348,7 @@ class DirectionalExitStage:
             pending,
         )
 
-    def _observation(self, symbol):
+    def _observation(self, symbol, *, strategy=False):
         raw = self.observe(symbol)
         now = self.clock()
         if (
@@ -327,20 +358,34 @@ class DirectionalExitStage:
             or type(raw.get("observed_at_ms")) is not int
             or type(now) is not int
             or not 0 <= now - raw["observed_at_ms"] < 10000
-            or not isinstance(raw.get("momentum_closes_15m"), (list, tuple))
-            or len(raw["momentum_closes_15m"]) != 4
+            or (
+                not strategy
+                and (
+                    not isinstance(raw.get("momentum_closes_15m"), (list, tuple))
+                    or len(raw["momentum_closes_15m"]) != 4
+                )
+            )
         ):
             raise ValueError("STALE_OR_INVALID_EXIT_OBSERVATION")
-        for field in (
-            "mark_price",
-            "funding_rate",
-            "ema9_1h",
-            "ema20_1h",
-            "exit_fee_rate",
-        ):
+        fields = (
+            ("mark_price", "exit_fee_rate")
+            if strategy
+            else (
+                "mark_price",
+                "funding_rate",
+                "ema9_1h",
+                "ema20_1h",
+                "exit_fee_rate",
+            )
+        )
+        for field in fields:
             if field not in raw:
                 raise ValueError("INCOMPLETE_EXIT_OBSERVATION")
-        return {**raw, "momentum_closes_15m": list(raw["momentum_closes_15m"])}, now
+        return (
+            dict(raw)
+            if strategy
+            else {**raw, "momentum_closes_15m": list(raw["momentum_closes_15m"])}
+        ), now
 
     def evaluate(self, episode):
         (
@@ -370,7 +415,9 @@ class DirectionalExitStage:
                 "status": "WAITING_NATIVE_PROTECTION",
                 "parent_status": protection["status"],
             }
-        observation, now = self._observation(trace["request"]["symbol"])
+        observation, now = self._observation(
+            trace["request"]["symbol"], strategy=isinstance(plan, TradePlan)
+        )
         # Private transport rows never alter the executing observation/digest.
         # Only the bounded, validated research projection below is persisted.
         research_hourly = observation.pop("_research_hourly", None)
@@ -387,31 +434,49 @@ class DirectionalExitStage:
             }
         saved = self.store.read(self._key(episode))
         prior = json.loads(saved.payload_json) if saved else {}
-        facts = ExitFacts(
-            system_tag=plan["system_tag"],
-            side=trace["request"]["side"],
-            entry_price=str(entry),
-            mark_price=observation["mark_price"],
-            stop_price=sizing["stop_price"],
-            remaining_quantity=str(remaining),
-            planned_loss=str(planned),
-            held_ms=now - first,
-            funding_rate=observation["funding_rate"],
-            ema9_1h=observation["ema9_1h"],
-            ema20_1h=observation["ema20_1h"],
-            momentum_closes_15m=tuple(observation["momentum_closes_15m"]),
-            peak_return_pct=prior.get("peak_return_pct", "0"),
-            partial_done=partial_done,
-            exit_fee_rate=observation["exit_fee_rate"],
+        strategy_plan = plan if isinstance(plan, TradePlan) else None
+        if strategy_plan is not None and prior:
+            from v2_core.strategy_lifecycle import plan_provenance
+
+            if prior.get("strategy_plan") != plan_provenance(strategy_plan):
+                raise ValueError("STRATEGY_EXIT_STATE_MISMATCH")
+        facts_common = {
+            "side": trace["request"]["side"],
+            "entry_price": str(entry),
+            "mark_price": observation["mark_price"],
+            "stop_price": sizing["stop_price"],
+            "remaining_quantity": str(remaining),
+            "planned_loss": str(planned),
+            "held_ms": now - first,
+            "peak_return_pct": prior.get("peak_return_pct", "0"),
+            "partial_done": partial_done,
+            "exit_fee_rate": observation["exit_fee_rate"],
+        }
+        facts = (
+            StrategyExitFacts(**facts_common)
+            if strategy_plan is not None
+            else ExitFacts(
+                **facts_common,
+                system_tag=plan["system_tag"],
+                funding_rate=observation["funding_rate"],
+                ema9_1h=observation["ema9_1h"],
+                ema20_1h=observation["ema20_1h"],
+                momentum_closes_15m=tuple(observation["momentum_closes_15m"]),
+            )
         )
         from v2_core.runtime_policy import PolicyStore
 
         policy = PolicyStore(self.connect, self.scope).read()
-        decision = evaluate_directional_exit(facts, policy=policy.values)
+        decision = (
+            evaluate_strategy_exit(strategy_plan, facts)
+            if strategy_plan is not None
+            else evaluate_directional_exit(facts, policy=policy.values)
+        )
         quant = prior.get("quant_exit")
         quant_failure = None
         if (
-            trace["decision"].get("source") == "quant"
+            strategy_plan is None
+            and trace["decision"].get("source") == "quant"
             and policy.values["quant.trailing_exit_enabled"]
         ):
             try:
@@ -440,12 +505,17 @@ class DirectionalExitStage:
                     )
             except Exception as exc:  # noqa: BLE001 - keep emergency/native exits alive
                 quant_failure = type(exc).__name__
-        quantity_step = trace["decision"]["features"]["context"]["directional"][
-            "sizing"
-        ]["quantity_step"]
+        quantity_step = (
+            strategy_plan.quantity_step
+            if strategy_plan is not None
+            else trace["decision"]["features"]["context"]["directional"]["sizing"][
+                "quantity_step"
+            ]
+        )
         amount(quantity_step, positive=True)
         encoded_facts = asdict(facts)
-        encoded_facts["momentum_closes_15m"] = list(facts.momentum_closes_15m)
+        if strategy_plan is None:
+            encoded_facts["momentum_closes_15m"] = list(facts.momentum_closes_15m)
         encoded_facts["peak_return_pct"] = decision.peak_return_pct
         from v2_core.strategy_observations import observe_excursions
 
@@ -461,7 +531,9 @@ class DirectionalExitStage:
         payload = {
             "episode": episode,
             "account_scope": asdict(self.scope),
-            "strategy_version": "directional-admission-v2-1",
+            "strategy_version": strategy_plan.code_version
+            if strategy_plan
+            else "directional-admission-v2-1",
             "entry_decision_digest": digest(canonical(trace["decision"])),
             "opening_order_id": opening["order_id"],
             "target_ledger_digest": _ledger_digest(trace),
@@ -479,7 +551,17 @@ class DirectionalExitStage:
             "excursions": excursions,
             "excursions_error": excursions_error,
         }
-        if decision.reason == "LOW_YIELD_STAGNATION":
+        if strategy_plan is not None:
+            from v2_core.strategy_lifecycle import plan_provenance
+
+            payload.update(
+                source="strategy-exit-v1",
+                strategy_plan=plan_provenance(strategy_plan),
+                exit_handler=strategy_plan.exit_handler,
+                exit_version=strategy_plan.exit_version,
+                exit_config=strategy_plan.exit_config,
+            )
+        if strategy_plan is None and decision.reason == "LOW_YIELD_STAGNATION":
             try:
                 research_quantity = self.audit.research_position(
                     trace["request"]["symbol"]
@@ -695,7 +777,12 @@ class DirectionalExitStage:
                 quantity=str(quantity),
                 request_key=request_key,
                 evidence={
-                    "source": "directional-exit-v1",
+                    "source": payload.get("source", "directional-exit-v1"),
+                    **(
+                        {"strategy_plan": payload["strategy_plan"]}
+                        if "strategy_plan" in payload
+                        else {}
+                    ),
                     "observed_at_ms": observation["observed_at_ms"],
                     "reason": decision.reason,
                     "state_id": key.identity,
@@ -836,13 +923,15 @@ class DirectionalExitStage:
                 # all real account/target checks; PG read failures above still
                 # propagate. Replace only after a successfully attempted slice.
             with self.connect() as conn:
+                from v2_core.strategy_lifecycle import LIFECYCLE_EPISODE_SQL
+
                 rows = conn.execute(
-                    """SELECT i.intent_id::text FROM v2_trade_intents i
+                    f"""SELECT i.intent_id::text FROM v2_trade_intents i
                     JOIN v2_episodes e ON e.episode_id=i.intent_id
                     JOIN v2_orders o ON o.episode_id=i.intent_id
                     LEFT JOIN v2_fills f USING(order_id)
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                    AND {LIFECYCLE_EPISODE_SQL}
                     AND e.status='ACTIVE' GROUP BY i.intent_id
                     HAVING COALESCE(sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)>0
                     ORDER BY (i.intent_id::text<=%s),i.intent_id LIMIT %s""",
@@ -921,7 +1010,7 @@ class DirectionalExitStage:
                 except Exception as exc:  # noqa: BLE001 - poison episode blocks admission
                     recovering[episode] = {
                         "status": "BLOCKED",
-                        "error_code": type(exc).__name__,
+                        "error_code": diagnostic_code(exc),
                     }
                     held[episode] = recovering[episode]
             recovery_pending = bool(held)
@@ -967,7 +1056,7 @@ class DirectionalExitStage:
                         except Exception as exc:  # noqa: BLE001 - no secret-bearing exception text
                             emergency[episode] = {
                                 "status": "BLOCKED",
-                                "error_code": type(exc).__name__,
+                                "error_code": diagnostic_code(exc),
                             }
                 if not (
                     isolated
@@ -1005,7 +1094,7 @@ class DirectionalExitStage:
                 except Exception as exc:  # noqa: BLE001 - isolate and sanitize one episode
                     results[episode] = {
                         "status": "BLOCKED",
-                        "error_code": type(exc).__name__,
+                        "error_code": diagnostic_code(exc),
                     }
             blocked = (
                 recovery_pending
@@ -1032,7 +1121,7 @@ class DirectionalExitStage:
             )
 
     def _unprotected_exit(self, episode):
-        """Close only a proven-owned naked residual; no strategy data required.
+        """Close a proven-owned naked residual without strategy evaluation.
 
         An UNKNOWN stop is never resubmitted. Native stops that may exist are
         left untouched. The account lock, exact ledger/venue comparison and
@@ -1052,7 +1141,7 @@ class DirectionalExitStage:
         ) as acquired:
             if not acquired:
                 return {"status": "BLOCKED", "reason": "ACCOUNT_BUSY"}
-            trace, opening, _, _, _, remaining, _, first, _, pending = self._trace(
+            trace, opening, plan, _, _, remaining, _, first, _, pending = self._trace(
                 episode
             )
             if pending:
@@ -1101,7 +1190,9 @@ class DirectionalExitStage:
             if type(finish) is not int or not 0 <= checked - finish < 10000:
                 raise ValueError("STALE_EMERGENCY_INVENTORY")
             step = amount(
-                trace["decision"]["features"]["context"]["directional"]["sizing"][
+                plan.quantity_step
+                if isinstance(plan, TradePlan)
+                else trace["decision"]["features"]["context"]["directional"]["sizing"][
                     "quantity_step"
                 ],
                 positive=True,

@@ -543,6 +543,17 @@ class Ledger:
                 or not contract[2].endswith(currency)
             ):
                 raise ValueError("linear quote-settled futures settlement only")
+            from v2_core.strategy_lifecycle import validate_settlement_provenance
+            from v2_core.strategy_plan_store import read_trade_plan
+
+            strategy_plan = read_trade_plan(conn, episode_id)
+            if (
+                strategy_plan is not None
+                or "cash_basis" in evidence
+                or "strategy_plan" in evidence
+                or evidence.get("source") == "strategy-settlement-v1"
+            ):
+                validate_settlement_provenance(strategy_plan, evidence)
             orders = conn.execute(
                 """SELECT order_id, status FROM v2_orders
                 WHERE episode_id=%s ORDER BY order_id FOR UPDATE""",
@@ -620,8 +631,7 @@ class Ledger:
                     expected_income_digest=evidence.get("income_digest"),
                 )
                 if (
-                    evidence.get("source") != "directional-settlement-v1"
-                    or evidence.get("account_scope") != inputs["scope"]
+                    evidence.get("account_scope") != inputs["scope"]
                     or evidence.get("income_digest") != basis["income_digest"]
                     or Decimal(evidence["net_pnl"]) != Decimal(valued["net_pnl"])
                     or Decimal(evidence["attributed_wallet_delta"])

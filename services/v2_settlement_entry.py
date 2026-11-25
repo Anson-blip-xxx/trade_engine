@@ -18,6 +18,8 @@ from v2_core.directional_outcomes import settlement_amount
 from v2_core.evidence import canonical, digest
 from v2_core.precision import amount
 from v2_core.state import BusinessState, StateKey
+from v2_core.strategy_lifecycle import LIFECYCLE_EPISODE_SQL, STRATEGY_OUTCOME_SCHEMA
+from v2_core.strategy_plan_store import read_trade_plan
 
 
 def policy_key(scope):
@@ -33,7 +35,13 @@ def settled_result_valid(episode, record):
             str(UUID(episode)) == episode
             and isinstance(record, dict)
             and set(record)
-            == {"status", "episode", "net_pnl", "final_inventory", "settlement_authorized"}
+            == {
+                "status",
+                "episode",
+                "net_pnl",
+                "final_inventory",
+                "settlement_authorized",
+            }
             and record["status"] == "SETTLED"
             and record["episode"] == episode
             and record["settlement_authorized"] is False
@@ -44,7 +52,32 @@ def settled_result_valid(episode, record):
         return False
 
 
-def settlement_result_valid(result, *, status):
+def _outcome_plan_valid(episode, record, *, connect, scope):
+    """A digest-shaped string is not proof of a persisted strategy plan.
+
+    Legacy standalone diagnostic callers keep their original shape checks.
+    A typed outcome requires the bound database reader, including when an
+    archived cycle is rendered by the independent health monitor.
+    """
+    typed = "outcome_schema" in record or "plan_digest" in record
+    if connect is None or scope is None:
+        return not typed
+    try:
+        with connect() as conn:
+            plan = read_trade_plan(conn, episode)
+        if plan is None:
+            return not typed
+        return (
+            typed
+            and plan.scope == scope
+            and record["outcome_schema"] == STRATEGY_OUTCOME_SCHEMA
+            and record["plan_digest"] == plan.plan_digest
+        )
+    except Exception:  # noqa: BLE001 - missing/corrupt/unavailable evidence is not clear
+        return False
+
+
+def settlement_result_valid(result, *, status, connect=None, scope=None):
     """Keep isolated analysis diagnostics inside their exact known contract."""
     if (
         not isinstance(result, dict)
@@ -63,21 +96,30 @@ def settlement_result_valid(result, *, status):
                 if (
                     record["status"] != "BLOCKED"
                     or not isinstance(record["error_code"], str)
-                    or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,127}", record["error_code"])
+                    or re.fullmatch(
+                        r"[A-Za-z][A-Za-z0-9_]{0,127}", record["error_code"]
+                    )
                     is None
                 ):
                     return False
-            elif (
-                set(record)
-                != {"episode_id", "closed_at_ms", "return_pct", "quality_score", "closing_price"}
-                or record["episode_id"] != episode
-                or type(record["closed_at_ms"]) is not int
-                or record["closed_at_ms"] < 0
-                or not amount(record["return_pct"]).is_finite()
-                or not 0 <= amount(record["quality_score"]) <= 100
-                or amount(record["closing_price"], positive=True) <= 0
-            ):
-                return False
+            else:
+                common = {"episode_id", "closed_at_ms", "return_pct", "closing_price"}
+                typed = set(record) == common | {"plan_digest", "outcome_schema"}
+                legacy = set(record) == common | {"quality_score"}
+                if (
+                    not (typed or legacy)
+                    or record["episode_id"] != episode
+                    or type(record["closed_at_ms"]) is not int
+                    or record["closed_at_ms"] < 0
+                    or not amount(record["return_pct"]).is_finite()
+                    or amount(record["closing_price"], positive=True) <= 0
+                    or (legacy and not 0 <= amount(record["quality_score"]) <= 100)
+                    or (typed and record["outcome_schema"] != STRATEGY_OUTCOME_SCHEMA)
+                    or not _outcome_plan_valid(
+                        episode, record, connect=connect, scope=scope
+                    )
+                ):
+                    return False
         except (ValueError, TypeError, AttributeError):
             return False
     return True
@@ -148,7 +190,7 @@ def _refresh_coverage(stage):
 
 def _checked(stage, result, protection_coverage, *, allow_refresh=True):
     if stage.scope.environment != "SANDBOX" or not settlement_result_valid(
-        result, status="BLOCKED"
+        result, status="BLOCKED", connect=stage.connect, scope=stage.scope
     ):
         return None
     outcomes, settlements = result["outcomes"], result["settlements"]
@@ -194,22 +236,23 @@ def _checked(stage, result, protection_coverage, *, allow_refresh=True):
             # An error is ignorable only for an already committed settlement in
             # this account and current revision, never for a lagging episode.
             settled = conn.execute(
-                """SELECT i.intent_id::text FROM v2_trade_intents i
+                f"""SELECT i.intent_id::text FROM v2_trade_intents i
                 JOIN v2_episodes e ON e.episode_id=i.intent_id
                 JOIN v2_settlements s ON s.episode_id=e.episode_id
                     AND s.revision=e.accounting_revision
                 WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                AND {LIFECYCLE_EPISODE_SQL}
                 AND e.status='SETTLED' AND s.currency='USDT'
                 AND i.intent_id=ANY(%s::uuid[])""",
                 (*asdict(stage.scope).values(), list(outcomes)),
             ).fetchall()
             if {row[0] for row in settled} != set(outcomes):
                 return None
-        # All closed, unsettled directional episodes, not just a caller-selected
-        # subset. LIMIT+1 makes a truncated batch a denial, never a clearance.
+        # All closed, unsettled managed episodes, not just a caller-selected
+        # subset. A malformed new marker remains visible to this scan. LIMIT+1
+        # makes a truncated batch a denial, never a clearance.
         rows = conn.execute(
-            """SELECT i.intent_id::text,i.payload->>'symbol',i.data_revision,
+            f"""SELECT i.intent_id::text,i.payload->>'symbol',i.data_revision,
             sum(f.quantity) FILTER (WHERE o.leg='OPEN'),
             sum(f.quantity) FILTER (WHERE o.leg='CLOSE'),max(f.occurred_at_ms),
             r.scope,r.status,r.notional::text,r.policy_version,
@@ -219,7 +262,7 @@ def _checked(stage, result, protection_coverage, *, allow_refresh=True):
             JOIN v2_orders o ON o.episode_id=i.intent_id JOIN v2_fills f USING(order_id)
             LEFT JOIN v2_risk_reservations r ON r.episode_id=i.intent_id
             WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-            AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+            AND {LIFECYCLE_EPISODE_SQL}
             AND e.status<>'SETTLED'
             GROUP BY i.intent_id,r.scope,r.status,r.notional,r.policy_version
             HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0

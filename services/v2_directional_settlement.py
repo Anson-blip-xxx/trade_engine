@@ -19,6 +19,14 @@ from v2_core.runtime_policy import PolicyStore
 from v2_core.scheduling import diagnostic_code
 from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
+from v2_core.strategy_lifecycle import (
+    LIFECYCLE_EPISODE_SQL,
+    cash_namespace,
+    plan_provenance,
+    settlement_source,
+)
+from v2_core.strategy_outcomes import StrategyOutcomeJournal
+from v2_core.strategy_plan_store import read_trade_plan
 
 
 class DirectionalSettlementStage:
@@ -55,6 +63,25 @@ class DirectionalSettlementStage:
             excluded_position_symbols=excluded_position_symbols,
         )
         self.outcomes = DirectionalOutcomeJournal(connect, scope=scope)
+        self.strategy_outcomes = StrategyOutcomeJournal(connect, scope=scope)
+        # Scheduling hint only: no financial fact or completed-work proof lives
+        # here. Restart safely rescans from the beginning. A poison analysis
+        # record must not monopolize every bounded batch or require a cursor DB
+        # write whose failure could interfere with actual financial settlement.
+        self._outcome_after = ""
+
+    def _plan(self, episode):
+        with self.connect() as conn:
+            plan = read_trade_plan(conn, episode)
+        if plan is not None and plan.scope != self.scope:
+            raise ValueError("CASH_SCOPE_MISMATCH")
+        return plan
+
+    def _record_outcome(self, episode):
+        journal = (
+            self.strategy_outcomes if self._plan(episode) is not None else self.outcomes
+        )
+        return journal.record(episode)
 
     def _state(self, namespace, key):
         value = BusinessState(self.connect).read(
@@ -149,7 +176,7 @@ class DirectionalSettlementStage:
             # analysis failure cannot turn that financial fact back into a
             # blocked settlement; run_once retries missing outcomes separately.
             try:
-                result["outcome"] = self.outcomes.record(episode)
+                result["outcome"] = self._record_outcome(episode)
             except Exception as exc:  # noqa: BLE001 - retain safe analysis diagnostics
                 result["outcome"] = {
                     "status": "BLOCKED",
@@ -226,7 +253,14 @@ class DirectionalSettlementStage:
         return external, run["run_id"]
 
     def _settle_locked(self, episode, cash):
+        plan = self._plan(episode)
         venue_basis = cash.get("cash_basis_version", 1) == 2
+        if plan is not None and (
+            not venue_basis
+            or cash.get("source") != cash_namespace(plan)
+            or cash.get("strategy_plan") != plan_provenance(plan)
+        ):
+            raise ValueError("STRATEGY_CASH_PROVENANCE_MISMATCH")
         if venue_basis and cash["venue_cash_analysis"]["anomaly"]["status"] not in {
             "EXACT",
             "WITHIN_POLICY",
@@ -288,7 +322,7 @@ class DirectionalSettlementStage:
             attributed_wallet_delta = wallet_delta - external_amount
         if attributed_wallet_delta != provisional:
             raise ValueError("WALLET_CASH_MISMATCH")
-        cash_saved, cash_version = self._state("directional-cash-audit-v1", episode)
+        cash_saved, cash_version = self._state(cash_namespace(plan), episode)
         if cash_saved != cash:
             raise ValueError("CASH_OBSERVATION_SUPERSEDED")
         with self.connect() as conn:
@@ -297,6 +331,8 @@ class DirectionalSettlementStage:
                 "SELECT intent_id FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE",
                 (episode,),
             )
+            if read_trade_plan(conn, episode) != plan:
+                raise ValueError("STRATEGY_LIFECYCLE_PLAN_MISMATCH")
             state = BusinessState(lambda: nullcontext(conn))
             baseline_current = state.read(
                 StateKey(
@@ -323,7 +359,7 @@ class DirectionalSettlementStage:
             current = state.read(
                 StateKey(
                     **asdict(self.scope),
-                    namespace="directional-cash-audit-v1",
+                    namespace=cash_namespace(plan),
                     key=episode,
                 )
             )
@@ -351,7 +387,12 @@ class DirectionalSettlementStage:
                     episode,
                     expected_revision=revision,
                     evidence={
-                        "source": "directional-settlement-v1",
+                        "source": settlement_source(plan),
+                        **(
+                            {"strategy_plan": plan_provenance(plan)}
+                            if plan is not None
+                            else {}
+                        ),
                         "fills_complete": True,
                         "cash_audit_digest": digest(canonical(cash)),
                         "baseline_digest": digest(canonical(baseline_proof)),
@@ -366,7 +407,12 @@ class DirectionalSettlementStage:
                     episode,
                     expected_revision=revision,
                     evidence={
-                        "source": "directional-settlement-v1",
+                        "source": settlement_source(plan),
+                        **(
+                            {"strategy_plan": plan_provenance(plan)}
+                            if plan is not None
+                            else {}
+                        ),
                         "fills_complete": True,
                         "cash_audit_digest": digest(canonical(cash)),
                         "baseline_digest": digest(canonical(baseline_proof)),
@@ -414,7 +460,10 @@ class DirectionalSettlementStage:
             ):
                 raise ValueError("FINAL_LEDGER_CASH_MISMATCH")
             proof = {
-                "source": "directional-settlement-v1",
+                "source": settlement_source(plan),
+                **(
+                    {"strategy_plan": plan_provenance(plan)} if plan is not None else {}
+                ),
                 "observed_at_ms": final["finished_at_ms"],
                 "ledger_revision": revision,
                 "exchange_flat": True,
@@ -471,32 +520,73 @@ class DirectionalSettlementStage:
                 return {"status": "BLOCKED", "reason": "BUSY"}
             with self.connect() as conn:
                 pending = conn.execute(
-                    """SELECT i.intent_id::text FROM v2_trade_intents i
+                    f"""SELECT i.intent_id::text FROM v2_trade_intents i
                     JOIN v2_episodes e ON e.episode_id=i.intent_id
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND i.producer IN ('s6','s8')
-                    AND i.strategy_version='directional-admission-v2-1'
-                    AND e.status='SETTLED' AND NOT EXISTS (
-                        SELECT 1 FROM v2_directional_outcomes d WHERE d.episode_id=i.intent_id)
-                    ORDER BY i.intent_id LIMIT %s""",
-                    (*asdict(self.scope).values(), self.limit),
+                    AND {LIFECYCLE_EPISODE_SQL}
+                    AND e.status='SETTLED' AND CASE WHEN EXISTS (
+                        SELECT 1 FROM v2_decision_evidence de WHERE de.evidence_ref=i.evidence_ref
+                        AND de.snapshot ? 'strategy_plan') THEN NOT EXISTS (
+                          SELECT 1 FROM v2_business_state outcome
+                          JOIN v2_state_history outcome_original
+                            ON outcome_original.state_id=outcome.state_id
+                            AND outcome_original.version=1
+                          JOIN v2_decision_evidence outcome_decision
+                            ON outcome_decision.evidence_ref=i.evidence_ref
+                          JOIN v2_settlements outcome_settlement
+                            ON outcome_settlement.episode_id=i.intent_id
+                            AND outcome_settlement.revision=e.accounting_revision
+                          WHERE outcome.scope->>'namespace'='strategy-outcome-v1'
+                          AND outcome.scope->>'key'=i.intent_id::text
+                          AND (outcome.scope->>'exchange',outcome.scope->>'account_id',
+                               outcome.scope->>'environment',outcome.scope->>'product')
+                            =(i.exchange,i.account_id,i.environment,i.product)
+                          AND outcome.version=1 AND NOT outcome.deleted
+                          AND NOT outcome_original.deleted
+                          AND outcome_original.reason='VERIFIED_STRATEGY_OUTCOME'
+                          AND outcome_original.payload=outcome.payload
+                          AND outcome.payload->>'source'='strategy-outcome-v1'
+                          AND outcome.payload->>'outcome_schema'='strategy-outcome-v1'
+                          AND outcome.payload->>'episode_id'=i.intent_id::text
+                          AND outcome.payload->>'settlement_revision'=e.accounting_revision::text
+                          AND outcome_settlement.currency='USDT'
+                          AND outcome_settlement.evidence->>'source'='strategy-settlement-v1'
+                          AND outcome_settlement.evidence->'strategy_plan'
+                            =outcome.payload->'strategy_plan'
+                          AND outcome.payload->>'plan_digest' ~ '^[0-9a-f]{{64}}$'
+                          AND outcome.payload->'strategy_plan'->>'plan_digest'
+                            =outcome.payload->>'plan_digest'
+                          AND outcome.payload->'strategy_plan'->>'schema'='strategy-plan-provenance-v1'
+                          AND outcome.payload->'strategy_plan'->>'instance_id'=i.producer
+                          AND outcome.payload->'strategy_plan'->>'code_version'=i.strategy_version
+                          AND outcome.payload->'strategy_plan'->>'config_digest'=i.config_digest
+                          AND outcome.payload->'strategy_plan'->'deployment_generation'
+                            =outcome_decision.snapshot->'strategy_plan'->'deployment_generation'
+                          AND outcome.payload->'strategy_plan'->'strategy_id'
+                            =outcome_decision.snapshot->'strategy_plan'->'strategy_id')
+                        ELSE NOT EXISTS (SELECT 1 FROM v2_directional_outcomes d
+                          WHERE d.episode_id=i.intent_id) END
+                    ORDER BY (i.intent_id::text<=%s),i.intent_id LIMIT %s""",
+                    (*asdict(self.scope).values(), self._outcome_after, self.limit),
                 ).fetchall()
             outcomes = {}
             for (episode,) in pending:
                 try:
-                    outcomes[episode] = self.outcomes.record(episode)
+                    outcomes[episode] = self._record_outcome(episode)
                 except Exception as exc:  # noqa: BLE001 - isolate corrupt analysis evidence
                     outcomes[episode] = {
                         "status": "BLOCKED",
                         "error_code": diagnostic_code(exc),
                     }
+                finally:
+                    self._outcome_after = episode
             with self.connect() as conn:
                 rows = conn.execute(
-                    """SELECT i.intent_id::text FROM v2_trade_intents i JOIN v2_episodes e
+                    f"""SELECT i.intent_id::text FROM v2_trade_intents i JOIN v2_episodes e
                     ON e.episode_id=i.intent_id JOIN v2_orders o ON o.episode_id=i.intent_id
                     JOIN v2_fills f USING(order_id)
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                    AND {LIFECYCLE_EPISODE_SQL}
                     AND e.status<>'SETTLED' GROUP BY i.intent_id
                     HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0
                     AND sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE 0 END)>0

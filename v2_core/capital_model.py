@@ -141,27 +141,57 @@ def health(
         )
 
 
+def verified_settled_outcomes(connect, scope, since_ms):
+    """Latest verified old/new settlements, with exact new-plan provenance.
+
+    Batch-load compact immutable bindings, not historical market feature blobs.
+    Unknown settlement sources never become reinvestable profits. A forged or
+    corrupt recognized source fails closed instead of silently changing capital.
+    """
+    from v2_core.strategy_capital import STRATEGY_CAPITAL_RECORD_SQL
+    from v2_core.strategy_lifecycle import validate_settlement_provenance
+    from v2_core.strategy_plan_store import read_trade_plan_record
+
+    with connect() as conn:
+        rows = conn.execute(
+            f"""SELECT s.evidence,{STRATEGY_CAPITAL_RECORD_SQL}
+            FROM v2_settlements s JOIN v2_trade_intents i ON i.intent_id=s.episode_id
+            JOIN v2_episodes ep ON ep.episode_id=i.intent_id
+            JOIN v2_decision_evidence e USING(evidence_ref)
+            WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+            AND i.created_at>=to_timestamp(%s/1000.0)
+            AND s.currency='USDT'
+            AND ep.status='SETTLED' AND s.revision=ep.accounting_revision
+            AND s.evidence->>'source' IN ('directional-settlement-v1','strategy-settlement-v1')
+            AND s.revision=(SELECT max(t.revision) FROM v2_settlements t WHERE t.episode_id=s.episode_id)""",
+            (*asdict(scope).values(), since_ms),
+        ).fetchall()
+    outcomes = []
+    for evidence, record in rows:
+        plan = read_trade_plan_record(record) if record is not None else None
+        validate_settlement_provenance(plan, evidence)
+        if plan is not None and plan.scope != scope:
+            raise ValueError("STRATEGY_SETTLEMENT_PROVENANCE_MISMATCH")
+        value = evidence.get("net_pnl")
+        report_amount(value)
+        outcomes.append(value)
+    return tuple(outcomes)
+
+
 def current_health(connect, scope, account, settings, *, now_ms=None):
     from v2_core.drawdown_observation import control
 
     enabled, control_version = control(connect, scope)
     settings = {**settings, "capital.drawdown_guard_enabled": enabled}
     if settings["capital.model_enabled"]:
-        with connect() as conn:
-            rows = conn.execute(
-                """SELECT s.evidence->>'net_pnl'
-                FROM v2_settlements s JOIN v2_trade_intents i ON i.intent_id=s.episode_id
-                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                AND i.created_at>=to_timestamp(%s/1000.0)
-                AND s.currency='USDT' AND s.evidence->>'source'='directional-settlement-v1'
-                AND s.revision=(SELECT max(t.revision) FROM v2_settlements t WHERE t.episode_id=s.episode_id)""",
-                (*asdict(scope).values(), settings["capital.started_at_ms"]),
-            ).fetchall()
+        rows = verified_settled_outcomes(
+            connect, scope, settings["capital.started_at_ms"]
+        )
         with money_context():
             account = {
                 **account,
                 "verified_net_pnl": str(
-                    sum((report_amount(row[0]) for row in rows), Decimal(0)).quantize(
+                    sum((report_amount(row) for row in rows), Decimal(0)).quantize(
                         Decimal("1e-18"), rounding=ROUND_FLOOR
                     )
                 ),
@@ -177,19 +207,9 @@ def current_health(connect, scope, account, settings, *, now_ms=None):
     outcomes = ()
     recovery = (previous or {}).get("recovery", {})
     if recovery.get("mode") == "PROBE":
-        with connect() as conn:
-            outcomes = tuple(
-                row[0]
-                for row in conn.execute(
-                    """SELECT s.evidence->>'net_pnl'
-                FROM v2_settlements s JOIN v2_trade_intents i ON i.intent_id=s.episode_id
-                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                AND i.created_at>=to_timestamp(%s/1000.0)
-                AND s.currency='USDT' AND s.evidence->>'source'='directional-settlement-v1'
-                AND s.revision=(SELECT max(t.revision) FROM v2_settlements t WHERE t.episode_id=s.episode_id)""",
-                    (*asdict(scope).values(), recovery["probe_started_at_ms"]),
-                ).fetchall()
-            )
+        outcomes = verified_settled_outcomes(
+            connect, scope, recovery["probe_started_at_ms"]
+        )
     result = health(
         account,
         settings,

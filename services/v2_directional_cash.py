@@ -24,6 +24,14 @@ from v2_core.service import TradingData
 from v2_core.session_lock import session_advisory_lock
 from v2_core.settlement_precision import rounding_proof
 from v2_core.state import BusinessState, StateKey
+from v2_core.strategy_lifecycle import (
+    LIFECYCLE_EPISODE_SQL,
+    cash_namespace,
+    plan_provenance,
+    require_cash_subject,
+    strategy_plan_from_trace,
+)
+from v2_core.strategy_plan_store import read_trade_plan
 from v2_core.venue_cash import CashDifferencePolicy, analyze_venue_cash
 
 
@@ -114,6 +122,7 @@ def _entry_observations(conn, scope, trace):
             continue
         if request.get("source") not in {
             "directional-exit-v1",
+            "strategy-exit-v1",
             "unprotected-emergency-v1",
         }:
             continue
@@ -126,7 +135,7 @@ def _entry_observations(conn, scope, trace):
         if row is None or row[0] != asdict(key) or row[1] != 1 or row[3]:
             raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
         witness = {"inventory": row[2]}
-        if request["source"] == "directional-exit-v1":
+        if request["source"] in {"directional-exit-v1", "strategy-exit-v1"}:
             key = StateKey(
                 **asdict(scope), namespace="directional-exit-v1", key=trace["intent_id"]
             )
@@ -144,6 +153,20 @@ def _entry_observations(conn, scope, trace):
             ).fetchone()
             if row is None or row[0] != asdict(key) or row[2]:
                 raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
+            if request["source"] == "strategy-exit-v1":
+                plan = strategy_plan_from_trace(trace)
+                if (
+                    plan is None
+                    or row[1].get("source") != "strategy-exit-v1"
+                    or row[1].get("strategy_plan") != plan_provenance(plan)
+                    or request.get("strategy_plan") != plan_provenance(plan)
+                    or row[1].get("account_scope") != asdict(scope)
+                    or row[1].get("episode") != trace["intent_id"]
+                    or row[1].get("preflight_inventory") != identity
+                    or row[1].get("preflight_digest")
+                    != digest(canonical(witness["inventory"]))
+                ):
+                    raise ValueError("PNL_ENTRY_OBSERVATION_INVALID")
             witness["exit_state"] = row[1]
         result[order["order_id"]] = witness
     return result
@@ -169,10 +192,9 @@ def reconcile_cash(
     )
     if any(trace["scope"].get(k) != v for k, v in asdict(scope).items()):
         raise ValueError("CASH_SCOPE_MISMATCH")
-    if trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY" or trace["scope"][
-        "producer"
-    ] not in {"s6", "s8"}:
-        raise ValueError("DIRECTIONAL_EVIDENCE_REQUIRED")
+    plan = require_cash_subject(trace)
+    if plan is not None and cash_basis_version != 2:
+        raise ValueError("STRATEGY_CASH_BASIS_V2_REQUIRED")
     orders = {o["order_id"]: o for o in trace["orders"]}
     if not orders or any(
         o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
@@ -394,28 +416,33 @@ class DirectionalCashAudit:
             trace["scope"].get(k) != v for k, v in asdict(self.scope).items()
         ):
             raise ValueError("CASH_SCOPE_MISMATCH")
+        plan = require_cash_subject(trace)
+        with self.connect() as conn:
+            if read_trade_plan(conn, episode) != plan:
+                raise ValueError("STRATEGY_LIFECYCLE_PLAN_MISMATCH")
+        namespace = cash_namespace(plan)
         with session_advisory_lock(
             self.connect, "testnet-protocol-account:" + self.scope.key
         ) as acquired:
             if not acquired:
                 return {"status": "BUSY", "settlement_authorized": False}
             # A crash during the new import must not leave a stale positive head.
-            self._pending(episode, {"status": "AUDITING"})
+            self._pending(episode, {"status": "AUDITING"}, namespace=namespace)
             try:
                 result = self._audit(episode)
             except Exception as exc:
                 self._pending(
-                    episode, {"status": "BLOCKED", "error_code": diagnostic_code(exc)}
+                    episode,
+                    {"status": "BLOCKED", "error_code": diagnostic_code(exc)},
+                    namespace=namespace,
                 )
                 raise
             if result["status"] != "CASH_MATCHED":
-                self._pending(episode, result)
+                self._pending(episode, result, namespace=namespace)
             return result
 
-    def _pending(self, episode, result):
-        key = StateKey(
-            **asdict(self.scope), namespace="directional-cash-audit-v1", key=episode
-        )
+    def _pending(self, episode, result, *, namespace="directional-cash-audit-v1"):
+        key = StateKey(**asdict(self.scope), namespace=namespace, key=episode)
         store = BusinessState(self.connect)
         previous = store.read(key)
         result = store.change(
@@ -423,7 +450,11 @@ class DirectionalCashAudit:
             expected_version=previous.version if previous else 0,
             request_key=str(uuid4()),
             payload={**result, "episode": episode, "settlement_authorized": False},
-            reason="DIRECTIONAL_CASH_NOT_VERIFIED",
+            reason=(
+                "STRATEGY_CASH_NOT_VERIFIED"
+                if namespace == "strategy-cash-audit-v1"
+                else "DIRECTIONAL_CASH_NOT_VERIFIED"
+            ),
         )
         if result.code != "APPLIED":
             raise ValueError("CASH_AUDIT_CONFLICT")
@@ -451,11 +482,11 @@ class DirectionalCashAudit:
             after = json.loads(cursor.payload_json)["after"] if cursor else ""
             with self.connect() as conn:
                 rows = conn.execute(
-                    """SELECT i.intent_id::text FROM v2_trade_intents i
+                    f"""SELECT i.intent_id::text FROM v2_trade_intents i
                     JOIN v2_episodes e ON e.episode_id=i.intent_id
                     JOIN v2_orders o ON o.episode_id=i.intent_id JOIN v2_fills f USING(order_id)
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                    AND {LIFECYCLE_EPISODE_SQL}
                     AND e.status<>'SETTLED' GROUP BY i.intent_id
                     HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0
                     AND sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE 0 END)>0
@@ -499,8 +530,7 @@ class DirectionalCashAudit:
             trace["scope"].get(k) != v for k, v in asdict(self.scope).items()
         ):
             raise ValueError("CASH_SCOPE_MISMATCH")
-        if trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY":
-            raise ValueError("DIRECTIONAL_EVIDENCE_REQUIRED")
+        plan = require_cash_subject(trace)
         if not trace["fills"] or any(
             o["status"] not in {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
             for o in trace["orders"]
@@ -532,6 +562,8 @@ class DirectionalCashAudit:
             current = data.trace(episode, connection=conn)
             if current != trace:
                 raise ValueError("CASH_FACTS_CHANGED")
+            if read_trade_plan(conn, episode) != plan:
+                raise ValueError("STRATEGY_LIFECYCLE_PLAN_MISMATCH")
             rows = conn.execute(
                 """SELECT income_id::text,income_type,source_id,symbol,amount::text,currency,occurred_at_ms,evidence
                 FROM v2_exchange_income WHERE (exchange,account_id,environment,product)=(%s,%s,%s,%s)
@@ -626,10 +658,12 @@ class DirectionalCashAudit:
                 excluded_income_ids=[row["income_id"] for row in external_rows],
                 income_run=run["run_id"],
                 observed_at_ms=self.clock(),
-                source="directional-cash-audit-v1",
+                source=cash_namespace(plan),
             )
+            if plan is not None:
+                proof["strategy_plan"] = plan_provenance(plan)
             key = StateKey(
-                **asdict(self.scope), namespace="directional-cash-audit-v1", key=episode
+                **asdict(self.scope), namespace=cash_namespace(plan), key=episode
             )
             store = BusinessState(lambda: nullcontext(conn))
             previous = store.read(key)
@@ -639,7 +673,9 @@ class DirectionalCashAudit:
                 expected_version=version,
                 request_key=run["run_id"],
                 payload=proof,
-                reason="DIRECTIONAL_CASH_AUDIT",
+                reason="STRATEGY_CASH_AUDIT"
+                if plan is not None
+                else "DIRECTIONAL_CASH_AUDIT",
             )
             if result.code != "APPLIED":
                 raise ValueError("CASH_AUDIT_CONFLICT")

@@ -13,9 +13,11 @@ from services.v2_directional_protection import DirectionalStopRecovery
 from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.evidence import canonical
 from v2_core.external_close_recovery import ExternalCloseRecovery
+from v2_core.precision import money_context
 from v2_core.protection_supervisor import ProtectionSupervisor
 from v2_core.session_lock import session_advisory_lock
 from v2_core.state import BusinessState, StateKey
+from v2_core.strategy_lifecycle import LIFECYCLE_EPISODE_SQL
 
 
 class DirectionalProtectionStage:
@@ -102,22 +104,23 @@ class DirectionalProtectionStage:
                 for o in orders.values()
             ):
                 raise ValueError("FLAT_PROTECTION_ORDERS_UNCONFIRMED")
-            opened = sum(
-                (
-                    Decimal(f["quantity"])
-                    for f in trace["fills"]
-                    if orders[f["order_id"]]["leg"] == "OPEN"
-                ),
-                Decimal(0),
-            )
-            closed = sum(
-                (
-                    Decimal(f["quantity"])
-                    for f in trace["fills"]
-                    if orders[f["order_id"]]["leg"] == "CLOSE"
-                ),
-                Decimal(0),
-            )
+            with money_context():
+                opened = sum(
+                    (
+                        Decimal(f["quantity"])
+                        for f in trace["fills"]
+                        if orders[f["order_id"]]["leg"] == "OPEN"
+                    ),
+                    Decimal(0),
+                )
+                closed = sum(
+                    (
+                        Decimal(f["quantity"])
+                        for f in trace["fills"]
+                        if orders[f["order_id"]]["leg"] == "CLOSE"
+                    ),
+                    Decimal(0),
+                )
             if opened <= 0 or opened != closed:
                 raise ValueError("FLAT_PROTECTION_LEDGER_REQUIRED")
             opening = [o for o in orders.values() if o["leg"] == "OPEN"]
@@ -194,10 +197,10 @@ class DirectionalProtectionStage:
             after = json.loads(cursor.payload_json)["after"] if cursor else ""
             with self.connect() as conn:
                 rows = conn.execute(
-                    """SELECT o.order_id::text FROM v2_orders o
+                    f"""SELECT o.order_id::text FROM v2_orders o
                     JOIN v2_trade_intents i ON i.intent_id=o.episode_id
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND i.producer IN ('s6','s8') AND i.strategy_version='directional-admission-v2-1'
+                    AND {LIFECYCLE_EPISODE_SQL}
                     AND o.leg='OPEN' AND o.status<>'PREPARED'
                     AND (o.status NOT IN ('FILLED','CANCELLED','REJECTED','RECONCILED') OR
                         (SELECT COALESCE(sum(CASE WHEN x.leg='OPEN' THEN f.quantity ELSE -f.quantity END),0)

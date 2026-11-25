@@ -1,5 +1,6 @@
 """Derived exit inputs must fit the ledger domain without changing raw fills."""
 
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import asdict
 from decimal import Decimal, localcontext
@@ -59,6 +60,28 @@ def trace_case(fills, closed="0", planned="4.840396"):
     service = object.__new__(DirectionalExitStage)
     service.scope = SCOPE
     service.data = SimpleNamespace(trace=lambda _: deepcopy(trace))
+
+    class PlanConnection:
+        def execute(self, statement, params):
+            # Keep the real immutable-plan reader in the path. This precision
+            # fixture is a legacy episode, whose evidence has no typed marker.
+            assert "JOIN v2_decision_evidence e USING(evidence_ref)" in statement
+            assert params == (EPISODE,)
+            return SimpleNamespace(
+                fetchone=lambda: (
+                    *asdict(SCOPE).values(),
+                    "s8",
+                    "directional-admission-v2-1",
+                    "legacy-config",
+                    {},
+                    "directional-admission-v2-1",
+                    "legacy-config",
+                    deepcopy(trace["configuration"]),
+                    deepcopy(trace["decision"]),
+                )
+            )
+
+    service.connect = lambda: nullcontext(PlanConnection())
     return service, trace
 
 

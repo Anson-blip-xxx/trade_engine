@@ -107,7 +107,12 @@ def _stage_clear(name, stage, result):
     if name == "settlement" and isinstance(stage, DirectionalSettlementStage):
         # Only this concrete stage separates committed cash from derived
         # analysis. No other stage or arbitrary nested error is exempted.
-        return settlement_result_valid(result, status="CLEAR") and all(
+        return settlement_result_valid(
+            result,
+            status="CLEAR",
+            connect=getattr(stage, "connect", None),
+            scope=getattr(stage, "scope", None),
+        ) and all(
             settled_result_valid(episode, record)
             for episode, record in result["settlements"].items()
         )

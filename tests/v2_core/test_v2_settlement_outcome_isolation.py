@@ -1,12 +1,14 @@
 """Post-settlement analysis failures preserve committed financial facts."""
 
 from contextlib import nullcontext
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
 
 from services import v2_directional_settlement as module
 from v2_core.account_risk import AccountScope
+from v2_core.evidence import canonical, digest
 
 EPISODE = "11111111-1111-4111-8111-111111111111"
 OTHER = "22222222-2222-4222-8222-222222222222"
@@ -15,6 +17,10 @@ OTHER = "22222222-2222-4222-8222-222222222222"
 @pytest.fixture
 def stage_case(monkeypatch):
     """Inject only storage/commit boundaries; exercise actual stage orchestration."""
+    scope = AccountScope("BINANCE", "qa-outcome-isolation", "SANDBOX", "FUTURES")
+    version = "directional-admission-v2-1"
+    configuration = {"mode": "TESTNET_ADMISSION_ONLY"}
+    config_digest = digest(canonical(configuration))
     state = SimpleNamespace(
         episodes={EPISODE: "CLOSED"},
         recorded=set(),
@@ -31,11 +37,40 @@ def stage_case(monkeypatch):
         def execute(self, statement, params):
             if state.read_error is not None:
                 raise state.read_error
+            if statement.startswith("SELECT i.exchange,i.account_id"):
+                assert params[0] in state.episodes
+                # Exercise the real immutable-plan reader's legacy branch,
+                # with the same joined intent/evidence columns as PostgreSQL.
+                row = (
+                    *asdict(scope).values(),
+                    "s6",
+                    version,
+                    config_digest,
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "quantity": "1",
+                        "strategy_version": version,
+                        "config_digest": config_digest,
+                    },
+                    version,
+                    config_digest,
+                    configuration,
+                    {"symbol": "BTCUSDT", "features": {}},
+                )
+                return SimpleNamespace(fetchone=lambda: row)
             if "AND e.status='SETTLED'" in statement:
+                after, limit = params[-2:]
                 values = [
                     (episode,)
-                    for episode, status in state.episodes.items()
-                    if status == "SETTLED" and episode not in state.recorded
+                    for episode in sorted(
+                        (
+                            episode
+                            for episode, status in state.episodes.items()
+                            if status == "SETTLED" and episode not in state.recorded
+                        ),
+                        key=lambda episode: (episode <= after, episode),
+                    )[:limit]
                 ]
                 return SimpleNamespace(fetchall=lambda: values)
             if "AND e.status<>'SETTLED'" in statement:
@@ -77,9 +112,13 @@ def stage_case(monkeypatch):
 
     stage = object.__new__(module.DirectionalSettlementStage)
     stage.connect = lambda: nullcontext(Connection())
-    stage.scope = AccountScope("BINANCE", "qa-outcome-isolation", "SANDBOX", "FUTURES")
+    stage.scope = scope
     stage.limit = 10
+    stage._outcome_after = ""
     stage.outcomes = SimpleNamespace(record=record)
+    stage.strategy_outcomes = SimpleNamespace(
+        record=lambda _: pytest.fail("legacy outcome must not use the new-plan journal")
+    )
     stage.cash = SimpleNamespace(audit=audit)
     stage._settle_locked = settle_locked
     monkeypatch.setattr(module, "session_advisory_lock", lambda *_: nullcontext(True))
@@ -146,7 +185,9 @@ def test_previously_settled_analysis_failure_does_not_block_financial_stage(stag
 
 
 @pytest.mark.parametrize("boundary", ["cash_error", "settlement_error"])
-def test_financial_failure_still_blocks_without_attempting_analysis(stage_case, boundary):
+def test_financial_failure_still_blocks_without_attempting_analysis(
+    stage_case, boundary
+):
     stage, state = stage_case
     setattr(state, boundary, ValueError("WALLET_CASH_MISMATCH"))
 
@@ -172,7 +213,9 @@ def test_analysis_isolation_never_masks_another_episodes_cash_failure(stage_case
 
     assert result["status"] == "BLOCKED"
     assert result["settlements"][EPISODE]["error_code"] == "INCOME_FILL_MISMATCH"
-    assert result["outcomes"][OTHER]["error_code"] == "DIRECTIONAL_DECISION_FACT_MISMATCH"
+    assert (
+        result["outcomes"][OTHER]["error_code"] == "DIRECTIONAL_DECISION_FACT_MISMATCH"
+    )
     assert not state.commits
 
 

@@ -1,7 +1,7 @@
 """Read an immutable plan through its committed intent, never current policy.
 
 This is not an entry permit. Historical plans remain readable after expiry or
-deployment withdrawal so a future management consumer can use the original
+deployment withdrawal so management consumers can use the original
 exit contract. A present but malformed plan never falls back to legacy fields.
 """
 

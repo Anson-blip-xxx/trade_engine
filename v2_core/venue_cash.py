@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 from v2_core.precision import amount
+from v2_core.strategy_lifecycle import require_cash_subject
 
 MODEL = "venue-cash-facts-v1"
 _FINAL = {"FILLED", "CANCELLED", "REJECTED", "RECONCILED"}
@@ -92,12 +93,14 @@ def analyze_venue_cash(trace, report, *, policy=None):
     if policy is not None and type(policy) is not CashDifferencePolicy:
         raise ValueError("EXPLICIT_CASH_DIFFERENCE_POLICY_REQUIRED")
     scope, request = trace["scope"], trace["request"]
+    try:
+        require_cash_subject(trace)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise ValueError("UNSUPPORTED_VENUE_CASH_SCOPE") from None
     if (
         (scope.get("exchange"), scope.get("environment"), scope.get("product"))
         != ("BINANCE", "SANDBOX", "FUTURES")
         or not _identity(scope.get("account_id"))
-        or scope.get("producer") not in {"s6", "s8"}
-        or trace["configuration"].get("mode") != "TESTNET_ADMISSION_ONLY"
         or not _identity(request.get("symbol"))
         or not request["symbol"].endswith("USDT")
         or request.get("side") not in {"BUY", "SELL"}

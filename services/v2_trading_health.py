@@ -72,11 +72,13 @@ _QUEUE_REASON_CODES = (
 _DETAIL_MAX_AGE_MS = 120000
 
 
-def settlement_health_projection(cycle):
+def settlement_health_projection(cycle, *, connect=None, scope=None):
     """Separate derived-analysis health only for a verified result contract."""
     phases = cycle.get("phases", {})
     result = phases.get("settlement") if isinstance(phases, dict) else None
-    clear = settlement_result_valid(result, status="CLEAR") and all(
+    clear = settlement_result_valid(
+        result, status="CLEAR", connect=connect, scope=scope
+    ) and all(
         settled_result_valid(episode, record)
         for episode, record in result["settlements"].items()
     )
@@ -1020,7 +1022,9 @@ class TradingHealth:
             # or a safety failure in the same cycle.
         settlement_clear = False
         if latest:
-            settlement_clear, analysis_finding = settlement_health_projection(latest[0])
+            settlement_clear, analysis_finding = settlement_health_projection(
+                latest[0], connect=self.connect, scope=self.scope
+            )
             if analysis_finding is not None:
                 findings["SETTLEMENT_ANALYSIS_DEGRADED"] = analysis_finding
         if latest and latest[0].get("status") == "ENTRY_BLOCKED":
