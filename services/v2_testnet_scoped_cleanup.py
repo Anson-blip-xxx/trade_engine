@@ -102,6 +102,45 @@ class ScopedCleanup(Cleanup):
             raise ValueError("REDUCTION_ONLY")
         return True
 
+    def verify(self, action):
+        if action["kind"] != "CANCEL":
+            return super().verify(action)
+        raw = self.request("GET", "/fapi/v1/algoOrder", action["params"])
+        if (raw.get("algoId"), raw.get("symbol"), raw.get("algoStatus")) == (
+            action["params"]["algoId"],
+            action["symbol"],
+            "CANCELED",
+        ):
+            return {"order": raw}  # Preserve the existing cancellation proof.
+        # A reduce-only close may make its old protection expire automatically.
+        # This confirms a real non-executed terminal state, not a DELETE result.
+        # UNKNOWN actions still reach here only through the original query path.
+        if raw.get("algoStatus") not in {"EXPIRED", "REJECTED"}:
+            raise ValueError("CANCEL_UNCONFIRMED")
+        child = raw.get("actualOrderId")
+        no_child = "actualOrderId" in raw and (
+            (type(child) is str and child in {"", "0"})
+            or (type(child) is int and child == 0)
+        )
+        if (
+            action["symbol"] != self.symbol
+            or action["params"]["algoId"] not in self.approved_algos
+            or type(raw.get("algoId")) is not int
+            or raw["algoId"] != action["params"]["algoId"]
+            or raw.get("symbol") != self.symbol
+            or raw.get("closePosition") is not True
+            or raw.get("positionSide") != "BOTH"
+            or not no_child
+        ):
+            raise ValueError("ALGO_REQUIRES_RECONCILIATION")
+        self.flat()
+        return {
+            "order": raw,
+            "terminal_protection_status": raw["algoStatus"],
+            "cancellation_confirmed": False,
+            "target_flat_verified": True,
+        }
+
     def plan(self):
         key = self.key({"key": "plan"})
         saved = self.store.read(key)

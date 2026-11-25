@@ -1,0 +1,68 @@
+{
+  "recorded_at": "2026-11-25T11:08:24+08:00",
+  "baseline_commit": "df41a2e353fa0d4835e98b5bef34a03e9a6f5184",
+  "authorization": "USER_REQUESTED_PAUSE_NEW_ENTRIES_AND_CLOSE_EXISTING_POSITIONS",
+  "environment": "SANDBOX",
+  "campaign_id": "818fbe14-3921-449f-bf5f-c38c978bc743",
+  "scope": "Current acknowledged execution account only; no LIVE operations or other-account writes",
+  "operation": {
+    "entry_route_before_maintenance": "DRAINING",
+    "trading_runners_stopped_before_writes": true,
+    "closed_symbols": ["0GUSDT", "AIOTUSDT", "ATUSDT", "INXUSDT"],
+    "reduce_only_market_closes_confirmed": 4,
+    "venue_positions_remaining": 0,
+    "venue_ordinary_orders_remaining": 0,
+    "venue_protective_orders_remaining": 0,
+    "full_empty_inventory_checks": "Repeated before and during read-only reconciliation and settlement",
+    "ledger_remaining_quantity": "0",
+    "episodes_settled": 4,
+    "local_pending_orders": 0,
+    "held_risk_reservations": 0,
+    "final_route_phase": "STOPPED",
+    "final_route_epoch": 34,
+    "worker_token_revoked": true,
+    "latest_requested_epoch": 34,
+    "automatic_entry_resume_authorized": false,
+    "market_hub_tradingview_and_dashboard_preserved": true,
+    "history_deleted": false,
+    "persistent_evidence": "PostgreSQL scoped-cleanup journals, original venue fills, external-close bindings, cash settlements and strategy-redesign-pause-v1 audit"
+  },
+  "settlement": {
+    "basis": "Entire four episodes, including recorded costs; not just the last maintenance fills and not account daily equity PnL",
+    "net_usdt": {
+      "0GUSDT": "4.25208015",
+      "AIOTUSDT": "-0.40922930",
+      "ATUSDT": "-0.20101010",
+      "INXUSDT": "-0.19666362"
+    },
+    "combined_net_usdt": "3.44517713",
+    "exit_attribution": "USER_REQUESTED_STRATEGY_REDESIGN_MAINTENANCE",
+    "strategy_exit_effectiveness_proven": false
+  },
+  "encountered_and_handled": [
+    "0G close filled, then venue protection automatically expired. Old cancellation verification accepted only CANCELED and stopped the batch.",
+    "Scoped verification now accepts observed EXPIRED/REJECTED only with exact approved identity, close-all one-way protection, an explicitly present empty child-order field and a flat target. It records the true terminal status, not a successful DELETE claim.",
+    "Resumed the same campaign and original persisted symbol plans. No ambiguous write was resubmitted. Remaining positions then closed and all venue orders cleared.",
+    "An initial read-only adoption check and a later read-only transport attempt failed transiently; their detailed causes were not established. Subsequent bounded reads succeeded without additional exchange writes.",
+    "Three settlements initially waited for the existing income-publication delay. Rechecked after the delay; all four episodes settled with risk reservations released."
+  ],
+  "implementation": [
+    "Explicit account, registry, route epoch and symbol bindings; existing stopped-runner, route and controller locks",
+    "Deterministic distinct per-symbol case IDs; exact immutable one-attempt reduce-only write whitelist",
+    "Persist all plans before first write; restart reads original approvals, never rebuilds them from changed venue state",
+    "UNKNOWN operations retain existing query-only recovery and do not trigger new POST or DELETE attempts",
+    "Credentials resolved through encrypted systemd credentials and the existing vault; no plaintext credentials in repository"
+  ],
+  "qa": {
+    "command": "V2_QA_PYTHON=/opt/trade-engine-v2/venvs/py312-system-v1/bin/python bash scripts/qa_v2_data_core.sh -q tests/v2_core/test_v2_scoped_cleanup.py tests/v2_core/test_v2_testnet_cleanup.py tests/v2_core/test_v2_external_close_recovery.py tests/v2_core/test_v2_sandbox_scoped_flatten.py tests/v2_core/test_v2_directional_settlement.py tests/v2_core/test_v2_venue_cash_settlement.py tests/v2_core/test_v2_multi_cash_settlement.py",
+    "passed": 188,
+    "duration_seconds": 77.31,
+    "isolated_database_removed_by_harness": true,
+    "exchange_in_tests": "Fake responses; isolated test harness blocks external TCP",
+    "ruff_check": "PASS",
+    "ruff_format_check": "PASS",
+    "git_diff_check": "PASS",
+    "live_strategy_acceptance_claimed": false
+  },
+  "next_work": "Continue the strategy-layer redesign and isolated end-to-end QA. New strategy is not activated; paused entries are not automatically resumed by development or service restart."
+}
