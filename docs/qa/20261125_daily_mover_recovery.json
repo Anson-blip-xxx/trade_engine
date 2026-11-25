@@ -1,0 +1,623 @@
+{
+  "version": "daily-mover-recovery-acceptance-v1",
+  "date": "2026-11-25",
+  "timezone": "Asia/Shanghai",
+  "scope": "Independent research repair; no admission, sizing, leverage or exit-policy change.",
+  "root_causes": [
+    "Deployed research schema had 195 keys; frozen execution policies had 198. Three settlement fields were rejected before market evaluation.",
+    "prior() transferred and decoded up to 30 complete multi-megabyte reports; independent service hit its 384 MiB cgroup limit."
+  ],
+  "changes": [
+    "Explicit immutable 193/195/198-key source contracts targeting the pinned 198-key market evaluator; fixed legacy values documented separately; original inputs and hashes unchanged.",
+    "SQL-side accumulation-only projection; 30-day, 1 MiB/day and 8 MiB cumulative transfer bounds; corrupted/overlimit latest revision is explicitly unknown, never replaced by an older success.",
+    "Missing/null metric values and array counts preserve the old accumulation algorithm for valid history."
+  ],
+  "qa": {
+    "isolated_tests_passed": 2074,
+    "isolated_tests_failed": 0,
+    "seconds": 141.33,
+    "command": "V2_QA_PYTHON=/opt/trade-engine-v2/venvs/py312-system-v1/bin/python bash scripts/qa_v2_data_core.sh -q tests/v2_core/test_v2_daily_mover*.py tests/v2_core/test_v2_mover*.py tests/v2_core/test_v2_setup_shadow*.py tests/v2_core/test_v2_daily_account_review.py tests/v2_core/test_v2_daily_review_digest.py",
+    "network": "External TCP disabled; disposable local PG/Redis/ClickHouse only.",
+    "database_retained": false,
+    "lint": "passed",
+    "diff_check": "passed",
+    "runtime_shape_check": "Old research package with only five-file overlay; LONG/SHORT x 193/195/198 schemas passed both pure entrypoints."
+  },
+  "readonly_profile": {
+    "initial_guard_check": "An initial run refused a PARTIAL catalog before analysis. The accepted run explicitly reused the retained ranking without claiming collection completeness or refreshing public data; the temporary failed QA unit was cleared after verification.",
+    "day": "2026-11-24",
+    "public_collection": "Retained partial catalog, prices and cached flow review; no external refresh.",
+    "history_days_read": 30,
+    "history_projected_json_bytes": 4094317,
+    "full_report_json_bytes": 4704862,
+    "rss_peak_kib": 133476,
+    "elapsed_seconds": 31.311,
+    "database_writes": 0,
+    "notifications": 0,
+    "orders_submitted": 0,
+    "model_calls": 0
+  },
+  "deployment": {
+    "release": "/opt/trade-engine-v2/releases/research-recovery-movers-20261125-v1",
+    "previous_release": "/opt/trade-engine-v2/releases/sampling-shadow-movers-20261119-v1",
+    "pointer": "/opt/trade-engine-v2/daily-movers",
+    "changed_service": "trade-v2-daily-movers.service",
+    "actual_job_result": "success",
+    "actual_job_exit": 0,
+    "actual_job_started_at": "2026-11-25 09:42:24 UTC+8",
+    "actual_job_finished_at": "2026-11-25 09:43:36 UTC+8",
+    "actual_job_memory_peak_bytes": 115970048,
+    "memory_max_bytes": 402653184,
+    "memory_limit_increased": false,
+    "latest_report_created_at": "2026-11-25 09:43:35.695190+08:00",
+    "day": "2026-11-24",
+    "day_delivery": "ALREADY_HANDLED_OR_DELIVERY_UNKNOWN",
+    "historical_DM_resent": false,
+    "timer_enabled": true,
+    "timer_active": true,
+    "execution_controller_pid_before_and_after": 4014220,
+    "execution_controller_started_at": "2026-11-23 17:26:19 UTC+8",
+    "execution_controller_restarted": false,
+    "route_digest_before_and_after": "40287aa134c13b7064c206ba3d6f893e",
+    "policy_version_before_and_after": 13,
+    "policy_digest_before_and_after": "a415e2c85a4f5302415d4abd789d6d08",
+    "rollback": "Restore only daily-movers symlink to the retained parent; do not restart execution-controller or delete appended research revisions."
+  },
+  "deployed_report": {
+    "created_at": "2026-11-25 09:43:35.695190+08:00",
+    "components": {
+      "report": "daily-mover-report-v1",
+      "coverage": "mover-coverage-review-v1",
+      "pipeline": "daily-mover-review-pipeline-v5",
+      "execution": "daily-mover-execution-review-v1",
+      "account_day": "daily-account-review-v1",
+      "gate_shadow": "mover-gate-shadow-v1",
+      "setup_paths": "setup-shadow-observed-paths-v1",
+      "setup_study": "setup-shadow-study-v1",
+      "frozen_replay": "daily-mover-frozen-replay-v1",
+      "classification": "directional-entry-events-v2",
+      "market_sources": "research-market-sources-v1",
+      "jev_participation": "daily-account-jev-participation-v1",
+      "settlement_refresh": "daily-mover-settlement-refresh-v1",
+      "execution_cost_evidence": "execution-cost-evidence-v1",
+      "frozen_policy_compatibility": "frozen-policy-compatibility-20261125-v2"
+    },
+    "replay": {
+      "unknown_count": 0,
+      "replayed_count": 100,
+      "requested_count": 100,
+      "baseline_matched_count": 100,
+      "baseline_mismatch_count": 0,
+      "volume_gate_changed_count": 8,
+      "new_market_candidate_count": 1,
+      "other_gate_still_failed_count": 71
+    },
+    "replay_unknown": {},
+    "setup": {
+      "alternatives": {
+        "BREAKOUT_VOLUME075": {
+          "market_candidate_count": 20,
+          "new_market_candidate_count": 2
+        },
+        "PULLBACK_VOLUME075": {
+          "market_candidate_count": 18,
+          "new_market_candidate_count": 0
+        }
+      },
+      "unknown_count": 2,
+      "selected_count": 96,
+      "baseline_matched_count": 94,
+      "baseline_mismatch_count": 0,
+      "baseline_market_candidates": 18
+    },
+    "setup_unknown": {
+      "MISSING_FROZEN_FLOW": 2
+    },
+    "account_totals": {
+      "wins": 26,
+      "losses": 26,
+      "net_usdt": "-5.91127446",
+      "breakeven": 0,
+      "gross_usdt": "-2.960329300000000000000000000000000000",
+      "funding_usdt": null,
+      "win_rate_pct": "50.000000",
+      "profit_factor": "0.7960087667",
+      "settled_count": 52,
+      "funding_status": "NOT_SEPARATELY_LOADED",
+      "recorded_fees_usdt": "2.878480570000000000",
+      "held_minutes_median": "90.268350",
+      "profit_factor_status": "AVAILABLE",
+      "gross_losing_net_usdt": "28.97808089",
+      "gross_winning_net_usdt": "23.06680643",
+      "recorded_fees_known_count": 52,
+      "recorded_fees_known_subtotal_usdt": "2.878480570000000000"
+    },
+    "history_coverage": {
+      "status": "READ_COMPLETE",
+      "unknown_reasons": {},
+      "statistics_basis": "OBSERVED_USABLE_DAYS_ONLY_NOT_IMPUTED",
+      "unusable_revisions": 0,
+      "latest_revision_fallback": false,
+      "prior_revisions_observed": 30,
+      "historical_retention_completeness": "NOT_PROVEN"
+    },
+    "account_coverage": {
+      "retryable": false,
+      "truncated": false,
+      "query_complete": true,
+      "candidate_count": 52,
+      "candidate_limit": 500,
+      "excluded_reasons": {},
+      "carry_in_settled_count": 4,
+      "verified_settled_count": 52,
+      "full_closed_settlement_population_proven": true
+    },
+    "route_digest": "40287aa134c13b7064c206ba3d6f893e",
+    "policy_version": 13,
+    "policy_digest": "a415e2c85a4f5302415d4abd789d6d08"
+  },
+  "retained_checks": [
+    {
+      "day": "2026-11-19",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 100,
+        "baseline_matched_count": 100,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "volume_gate_changed_count": 15,
+        "new_market_candidate_count": 1,
+        "other_gate_still_failed_count": 73
+      },
+      "replay_unknown_reasons": {},
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 95,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 1,
+        "baseline_market_candidates": 7,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 7,
+            "new_market_candidate_count": 0
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 7,
+            "new_market_candidate_count": 0
+          }
+        }
+      },
+      "setup_unknown_reasons": {
+        "MISSING_FROZEN_FLOW": 1
+      },
+      "account_totals": {
+        "wins": 16,
+        "losses": 13,
+        "net_usdt": "9.17109336",
+        "breakeven": 0,
+        "gross_usdt": "10.985430000000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "55.172414",
+        "profit_factor": "1.6229917482",
+        "settled_count": 29,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "1.858872280000000000",
+        "held_minutes_median": "79.932533",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "14.72105110",
+        "gross_winning_net_usdt": "23.89214446",
+        "recorded_fees_known_count": 29,
+        "recorded_fees_known_subtotal_usdt": "1.858872280000000000"
+      },
+      "rss_peak_kib": 64764,
+      "database_writes": 0,
+      "orders_submitted": 0
+    },
+    {
+      "day": "2026-11-20",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 100,
+        "baseline_matched_count": 100,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "volume_gate_changed_count": 6,
+        "new_market_candidate_count": 3,
+        "other_gate_still_failed_count": 75
+      },
+      "replay_unknown_reasons": {},
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 96,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "baseline_market_candidates": 9,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 9,
+            "new_market_candidate_count": 0
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 10,
+            "new_market_candidate_count": 1
+          }
+        }
+      },
+      "setup_unknown_reasons": {},
+      "account_totals": {
+        "wins": 23,
+        "losses": 34,
+        "net_usdt": "2.33409243",
+        "breakeven": 0,
+        "gross_usdt": "4.125090900000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "40.350877",
+        "profit_factor": "1.0760705248",
+        "settled_count": 57,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "3.459429800000000000",
+        "held_minutes_median": "80.201067",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "30.68326972",
+        "gross_winning_net_usdt": "33.01736215",
+        "recorded_fees_known_count": 57,
+        "recorded_fees_known_subtotal_usdt": "3.459429800000000000"
+      },
+      "rss_peak_kib": 75312,
+      "database_writes": 0,
+      "orders_submitted": 0
+    },
+    {
+      "day": "2026-11-21",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 100,
+        "baseline_matched_count": 100,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "volume_gate_changed_count": 10,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 71
+      },
+      "replay_unknown_reasons": {},
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 96,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "baseline_market_candidates": 8,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 9,
+            "new_market_candidate_count": 1
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 9,
+            "new_market_candidate_count": 1
+          }
+        }
+      },
+      "setup_unknown_reasons": {},
+      "account_totals": {
+        "wins": 29,
+        "losses": 34,
+        "net_usdt": "-9.57069796",
+        "breakeven": 0,
+        "gross_usdt": "-6.292034800000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "46.031746",
+        "profit_factor": "0.7389929217",
+        "settled_count": 63,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "3.472588090000000000",
+        "held_minutes_median": "78.339333",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "36.66834640",
+        "gross_winning_net_usdt": "27.09764844",
+        "recorded_fees_known_count": 63,
+        "recorded_fees_known_subtotal_usdt": "3.472588090000000000"
+      },
+      "rss_peak_kib": 86288,
+      "database_writes": 0,
+      "orders_submitted": 0
+    },
+    {
+      "day": "2026-11-22",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 94,
+        "baseline_matched_count": 94,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 6,
+        "volume_gate_changed_count": 14,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 68
+      },
+      "replay_unknown_reasons": {
+        "FROZEN_CONTEXT_BINDING_MISMATCH": 6
+      },
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 95,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 1,
+        "baseline_market_candidates": 8,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 8,
+            "new_market_candidate_count": 0
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 8,
+            "new_market_candidate_count": 0
+          }
+        }
+      },
+      "setup_unknown_reasons": {
+        "MISSING_FROZEN_FLOW": 1
+      },
+      "account_totals": {
+        "wins": 11,
+        "losses": 27,
+        "net_usdt": "-15.34498593",
+        "breakeven": 0,
+        "gross_usdt": "-14.255896000000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "28.947368",
+        "profit_factor": "0.4580960993",
+        "settled_count": 38,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "2.080560040000000000",
+        "held_minutes_median": "77.3758165",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "28.31680287",
+        "gross_winning_net_usdt": "12.97181694",
+        "recorded_fees_known_count": 38,
+        "recorded_fees_known_subtotal_usdt": "2.080560040000000000"
+      },
+      "rss_peak_kib": 86288,
+      "database_writes": 0,
+      "orders_submitted": 0
+    },
+    {
+      "day": "2026-11-23",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 97,
+        "baseline_matched_count": 97,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 3,
+        "volume_gate_changed_count": 14,
+        "new_market_candidate_count": 1,
+        "other_gate_still_failed_count": 74
+      },
+      "replay_unknown_reasons": {
+        "FROZEN_CONTEXT_BINDING_MISMATCH": 3
+      },
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 96,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "baseline_market_candidates": 8,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 10,
+            "new_market_candidate_count": 2
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 8,
+            "new_market_candidate_count": 0
+          }
+        }
+      },
+      "setup_unknown_reasons": {},
+      "account_totals": {
+        "wins": 21,
+        "losses": 26,
+        "net_usdt": "3.16767661",
+        "breakeven": 0,
+        "gross_usdt": "5.718025600000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "44.680851",
+        "profit_factor": "1.1116974647",
+        "settled_count": 47,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "2.700029920000000000",
+        "held_minutes_median": "44.869667",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "28.35943161",
+        "gross_winning_net_usdt": "31.52710822",
+        "recorded_fees_known_count": 47,
+        "recorded_fees_known_subtotal_usdt": "2.700029920000000000"
+      },
+      "rss_peak_kib": 86288,
+      "database_writes": 0,
+      "orders_submitted": 0
+    },
+    {
+      "day": "2026-11-24",
+      "original_report_unchanged": true,
+      "original_selection_unchanged": true,
+      "replay_before": {
+        "unknown_count": 100,
+        "replayed_count": 0,
+        "requested_count": 100,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "volume_gate_changed_count": 0,
+        "new_market_candidate_count": 0,
+        "other_gate_still_failed_count": 0
+      },
+      "replay_after": {
+        "requested_count": 100,
+        "replayed_count": 100,
+        "baseline_matched_count": 100,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 0,
+        "volume_gate_changed_count": 8,
+        "new_market_candidate_count": 1,
+        "other_gate_still_failed_count": 71
+      },
+      "replay_unknown_reasons": {},
+      "setup_before": {
+        "alternatives": {},
+        "unknown_count": 96,
+        "selected_count": 96,
+        "baseline_matched_count": 0,
+        "baseline_mismatch_count": 0,
+        "baseline_market_candidates": 0
+      },
+      "setup_after": {
+        "selected_count": 96,
+        "baseline_matched_count": 94,
+        "baseline_mismatch_count": 0,
+        "unknown_count": 2,
+        "baseline_market_candidates": 18,
+        "alternatives": {
+          "BREAKOUT_VOLUME075": {
+            "market_candidate_count": 20,
+            "new_market_candidate_count": 2
+          },
+          "PULLBACK_VOLUME075": {
+            "market_candidate_count": 18,
+            "new_market_candidate_count": 0
+          }
+        }
+      },
+      "setup_unknown_reasons": {
+        "MISSING_FROZEN_FLOW": 2
+      },
+      "account_totals": {
+        "wins": 26,
+        "losses": 26,
+        "net_usdt": "-5.91127446",
+        "breakeven": 0,
+        "gross_usdt": "-2.960329300000000000000000000000000000",
+        "funding_usdt": null,
+        "win_rate_pct": "50.000000",
+        "profit_factor": "0.7960087667",
+        "settled_count": 52,
+        "funding_status": "NOT_SEPARATELY_LOADED",
+        "recorded_fees_usdt": "2.878480570000000000",
+        "held_minutes_median": "90.268350",
+        "profit_factor_status": "AVAILABLE",
+        "gross_losing_net_usdt": "28.97808089",
+        "gross_winning_net_usdt": "23.06680643",
+        "recorded_fees_known_count": 52,
+        "recorded_fees_known_subtotal_usdt": "2.878480570000000000"
+      },
+      "rss_peak_kib": 87656,
+      "database_writes": 0,
+      "orders_submitted": 0
+    }
+  ],
+  "limits": [
+    "Only the 2026-11-24 daily report received a new stored revision; checks for 2026-11-19..23 were read-only.",
+    "Nine retained frozen contexts remain unbound and four setup records lack frozen flow; they are unknown, not failed trades or zero return.",
+    "The serialized history cap is not an RSS guarantee. The full job was separately verified under the original cgroup limit.",
+    "Current evaluator on authenticated frozen inputs is not historical-code identity or a complete execution backtest.",
+    "Restored research does not prove strategy improvement. The 2026-11-24 settled net remains -5.91127446 USDT; funding is not separately loaded.",
+    "The alternative volume threshold is research-only; changed gates and new market candidates do not prove executable profitable trades."
+  ]
+}

@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation, localcontext
 from statistics import median
 from zoneinfo import ZoneInfo
 
+from services.v2_daily_mover_history import ERROR_KEY
 from v2_core.evidence import canonical, digest
 
 VERSION = "daily-mover-report-v1"
@@ -984,15 +985,70 @@ def _summary(rows):
     return result
 
 
+def _accumulation_shape_valid(report):
+    """A bad archived day must not abort today's factual account report."""
+    if (
+        not isinstance(report.get("window"), dict)
+        or type(report["window"].get("start_ms")) is not int
+        or type(report.get("as_of_ms")) is not int
+        or not isinstance(report.get("market_source"), str)
+        or not isinstance(report.get("scope_key"), str)
+        or not isinstance(report.get("market_digest", ""), str)
+        or not isinstance(report.get("market_comparison"), dict)
+        or not isinstance(report.get("rows"), list)
+        or len(report["rows"]) > 3000
+    ):
+        return False
+    for field in ("selected_samples", "control_samples"):
+        rows = report["market_comparison"].get(field)
+        if not isinstance(rows, list) or len(rows) > 3000:
+            return False
+        for row in rows:
+            if not isinstance(row, dict):
+                return False
+            try:
+                for metric in (
+                    "return_pct",
+                    "range_pct_of_open",
+                    "close_location_in_range_pct",
+                ):
+                    _number(row.get(metric))
+            except (ValueError, ArithmeticError):
+                return False
+    for row in report["rows"]:
+        if not isinstance(row, dict) or not isinstance(row.get("evidence", {}), dict):
+            return False
+        reason = row.get("evidence", {}).get("primary_reason", "EVIDENCE_UNAVAILABLE")
+        if not isinstance(reason, str) or len(reason) > 256:
+            return False
+    return True
+
+
 def _accumulate(current, prior_reports):
     if not isinstance(prior_reports, (list, tuple)) or len(prior_reports) > 300:
         raise ValueError("DAILY_REPORT_HISTORY_BOUND")
     earliest = current["window"]["start_ms"] - 29 * DAY
     market_days, account_days = {}, {}
-    ignored = Counter()
+    ignored, unknown = Counter(), Counter()
     for report in (*prior_reports, current):
+        if isinstance(report, dict) and ERROR_KEY in report:
+            reason = report[ERROR_KEY]
+            if not isinstance(reason, str) or reason not in {
+                "HISTORY_DAY_TOO_LARGE",
+                "HISTORY_TOTAL_TOO_LARGE",
+                "HISTORY_PROJECTION_INVALID",
+            }:
+                reason = "HISTORY_PROJECTION_INVALID"
+            ignored[reason] += 1
+            unknown[reason] += 1
+            continue
         if not isinstance(report, dict) or report.get("version") != VERSION:
             ignored["INCOMPATIBLE_VERSION"] += 1
+            unknown["INCOMPATIBLE_VERSION"] += 1
+            continue
+        if not _accumulation_shape_valid(report):
+            ignored["HISTORY_PROJECTION_INVALID"] += 1
+            unknown["HISTORY_PROJECTION_INVALID"] += 1
             continue
         start = report.get("window", {}).get("start_ms")
         known = report.get("as_of_ms")
@@ -1041,6 +1097,15 @@ def _accumulate(current, prior_reports):
         "controls": _summary(controls),
         "account_symbol_day_reason_counts": dict(sorted(reasons.items())),
         "ignored_reports": dict(ignored),
+        "history_coverage": {
+            "status": "PARTIAL_UNKNOWN" if unknown else "READ_COMPLETE",
+            "prior_revisions_observed": len(prior_reports),
+            "unusable_revisions": sum(unknown.values()),
+            "unknown_reasons": dict(sorted(unknown.items())),
+            "statistics_basis": "OBSERVED_USABLE_DAYS_ONLY_NOT_IMPUTED",
+            "historical_retention_completeness": "NOT_PROVEN",
+            "latest_revision_fallback": False,
+        },
         "sample_status": "DESCRIPTIVE_COMPARISON_ONLY"
         if ready
         else "INSUFFICIENT_SAMPLE",
@@ -2044,6 +2109,10 @@ def format_digest(
         "复盘重点：信号覆盖 → 过滤/JEV 理由 → 成交与退出；每项假设均记录下一步证据和推翻条件。",
         "榜单/盘中极值是事后观察，不是可实现利润；测试成交不与实盘价格拼接算收益。不会自动改风控或下单。",
     ]
+    if accumulation.get("history_coverage", {}).get("status") == "PARTIAL_UNKNOWN":
+        lines.append(
+            "累计历史不完整：部分最新日报不可用，仅统计可核验日；缺失不按零计，也不回退旧修订。"
+        )
     lines += replay_lines
     flow = report.get("flow_review")
     if (

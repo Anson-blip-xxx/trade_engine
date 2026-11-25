@@ -1068,7 +1068,7 @@ def test_pg_account_separation_and_prior_latest_revision(daily_store):
     third = store.save_report(other, "2026-10-01", {"revision": 3})
     assert len({first, second, third}) == 3
     assert store.existing(SCOPE, "2026-10-01")[1] == {"revision": 2}
-    assert store.prior(SCOPE, "2026-10-02") == [{"revision": 2}]
+    assert store.prior(SCOPE, "2026-10-02") == [{}]
     assert store.scope_key(SCOPE) == digest(canonical(asdict(SCOPE)))
 
 

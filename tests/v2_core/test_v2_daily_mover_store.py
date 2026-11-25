@@ -107,7 +107,9 @@ def test_reports_are_idempotent_revisable_and_account_scoped(store, database):
         assert (
             c.execute("SELECT count(*) FROM v2_daily_mover_reports").fetchone()[0] == 3
         )
-    assert store.prior(SCOPE, "2026-10-26") == [payload(2)]
+    # prior is an accumulation projection, never a full-report reader.
+    # This deliberately non-report fixture retains no compatible fields.
+    assert store.prior(SCOPE, "2026-10-26") == [{}]
 
 
 def test_prior_uses_latest_revision_same_method_only_and_bounded_history(
@@ -130,7 +132,7 @@ def test_prior_uses_latest_revision_same_method_only_and_bounded_history(
                 Jsonb({"day": DAY, "wrong_method": True}),
             ),
         )
-    assert store.prior(SCOPE, "2026-10-26") == [payload(2)]
+    assert store.prior(SCOPE, "2026-10-26") == [{}]
 
 
 def test_one_worker_claims_delivery_and_sent_never_retries(store, database):

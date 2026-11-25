@@ -171,6 +171,9 @@ def test_legacy_policy_study_reuses_prior_selection_and_exposes_adapter(monkeypa
     for key in (
         "trend.breakout_body_guard_enabled",
         "trend.entry_quality_shadow_enabled",
+        "settlement.cash_basis_version",
+        "settlement.max_difference_per_fill_usdt",
+        "settlement.max_difference_episode_usdt",
     ):
         row[10]["policy"].pop(key)
     rehash(row)

@@ -2,8 +2,8 @@
 
 The one registered volume alternative is 0.75 versus a frozen baseline of 1.
 Full replay requires a complete supported frozen policy schema, signal and
-bound market context; current defaults never fill a historical policy. The one
-registered legacy schema has an explicit, reported semantics-preserving adapter.
+bound market context; current defaults never fill a historical policy. Registered
+historical schemas have explicit, reported pure-market compatibility adapters.
 A metric-only projection can compare that one inequality, but cannot replay
 the strategy.
 Regime alternatives require separate research: this module never changes the
@@ -21,7 +21,7 @@ from v2_core.research_market_sources import frozen_source_review
 from v2_core.runtime_policy import SCHEMA, resolve
 
 VERSION = "mover-gate-shadow-v1"
-POLICY_COMPATIBILITY_VERSION = "frozen-policy-compatibility-20261108-v1"
+POLICY_COMPATIBILITY_VERSION = "frozen-policy-compatibility-20261125-v2"
 # Recorded from the 193-key deployed pre-entry-quality schema. Do not derive
 # this allowlist from today's SCHEMA: another missing/added key must fail closed.
 _PRE_ENTRY_QUALITY_SCHEMA_DIGEST = (
@@ -30,6 +30,22 @@ _PRE_ENTRY_QUALITY_SCHEMA_DIGEST = (
 _LEGACY_DISABLED_FEATURES = {
     "trend.breakout_body_guard_enabled": False,
     "trend.entry_quality_shadow_enabled": False,
+}
+# Recorded key-set identities, not a subset inferred from a mutable SCHEMA.
+_PRE_CASH_SCHEMA_DIGEST = (
+    "c973c0abf5c486112b6a3d83002903259e9d9eba5c60ae9ad3448cd38266ed75"
+)
+_CASH_SCHEMA_DIGEST = "1c2dd3ff0dd19ad1b7f59b1e0a1088c6a652bad22baa4d20b152dc05971dffcb"
+_SOURCE_SCHEMA_DIGESTS = frozenset(
+    {_PRE_ENTRY_QUALITY_SCHEMA_DIGEST, _PRE_CASH_SCHEMA_DIGEST, _CASH_SCHEMA_DIGEST}
+)
+# These fixed values encode the legacy (non-venue cash) behavior. They never
+# activate accounting or enter an order path; this module evaluates market gates
+# only. None of these fields is read by evaluate_trend_market.
+_LEGACY_CASH_VALUES = {
+    "settlement.cash_basis_version": 1,
+    "settlement.max_difference_per_fill_usdt": "0.000001",
+    "settlement.max_difference_episode_usdt": "0.0001",
 }
 MAX_SAMPLES = 100
 _VOLUME_KEY = "trend.min_volume_ratio"
@@ -169,40 +185,72 @@ def _environment(sample, environment):
             raise ValueError("ENVIRONMENT_MISMATCH")
 
 
-def _replay_config(config):
-    """Adapt exactly one known schema without changing any frozen evidence.
+def _validate_supplied_policy(policy):
+    """Validate the explicit cash contract and reject unknown settings.
 
-    Both features were absent from the old evaluator, so False is their explicit
-    legacy behavior, not a lookup of mutable current defaults. The independent
-    adapted hash records this research transformation; it never replaces the
-    authenticated source config hash or proves historical code equivalence.
+    Partial cash contracts cannot be repaired using defaults, including in a
+    metric-only comparison. The research evaluator must use the 198-key package.
     """
-    keys = set(config["policy"])
-    schema_digest = digest(canonical({"keys": sorted(keys)}))
-    missing = set(SCHEMA) - keys
-    if keys == set(SCHEMA):
-        mode, migration, additions = "EXACT_FROZEN_POLICY", None, {}
-    elif (
-        not keys - set(SCHEMA)
-        and missing == set(_LEGACY_DISABLED_FEATURES)
-        and schema_digest == _PRE_ENTRY_QUALITY_SCHEMA_DIGEST
-    ):
-        mode = "EXPLICIT_LEGACY_SCHEMA_ADAPTER"
-        migration = "PRE_ENTRY_QUALITY_20261107_TO_DISABLED_V1"
-        additions = dict(_LEGACY_DISABLED_FEATURES)
-    else:
+    supplied_cash = set(policy) & _LEGACY_CASH_VALUES.keys()
+    if supplied_cash and supplied_cash != _LEGACY_CASH_VALUES.keys():
         raise _MissingEvidence("INCOMPLETE_FROZEN_POLICY")
+    if set(policy) - SCHEMA.keys():
+        raise ValueError("UNKNOWN_FROZEN_POLICY_SETTING")
+    for key in supplied_cash:
+        value = policy[key]
+        if key == "settlement.cash_basis_version":
+            if type(value) is not int or value not in {1, 2}:
+                raise ValueError("INVALID_FROZEN_CASH_CONTRACT")
+        elif type(value) is not str or _decimal(value) > Decimal("0.01"):
+            raise ValueError("INVALID_FROZEN_CASH_CONTRACT")
+    # This validates supplied ordinary values. Any defaults in this intermediate
+    # result are discarded; a full replay separately requires a registered,
+    # complete source schema and an explicitly completed evaluation policy.
+    resolve(policy)
+
+
+def _replay_config(config):
+    """Adapt registered complete schemas without changing original evidence.
+
+    This is pure market-gate replay, NOT accounting replay or historical code
+    equivalence. Every added value and both hashes remain visible.
+    """
+    policy = config["policy"]
+    _validate_supplied_policy(policy)
+    keys = set(policy)
+    schema_digest = digest(canonical({"keys": sorted(keys)}))
+    evaluator_digest = digest(canonical({"keys": sorted(SCHEMA)}))
+    if (
+        schema_digest not in _SOURCE_SCHEMA_DIGESTS
+        or evaluator_digest != _CASH_SCHEMA_DIGEST
+    ):
+        raise _MissingEvidence("INCOMPLETE_FROZEN_POLICY")
+    additions = {}
+    migration = None
+    if schema_digest == _PRE_ENTRY_QUALITY_SCHEMA_DIGEST:
+        additions.update(_LEGACY_DISABLED_FEATURES)
+        migration = "PRE_ENTRY_QUALITY_20261107_TO_DISABLED_V1"
+    cash_adaptation = None
+    if not (keys & _LEGACY_CASH_VALUES.keys()):
+        additions.update(_LEGACY_CASH_VALUES)
+        cash_adaptation = "EXPLICIT_LEGACY_CASH_BASIS_V1"
     adapted = deepcopy(config)
     adapted["policy"].update(additions)
+    if set(adapted["policy"]) != set(SCHEMA):
+        raise _MissingEvidence("INCOMPLETE_FROZEN_POLICY")
+    resolve(adapted["policy"])
+    mode = "EXPLICIT_LEGACY_SCHEMA_ADAPTER" if additions else "EXACT_FROZEN_POLICY"
     return adapted, {
         "version": POLICY_COMPATIBILITY_VERSION,
         "mode": mode,
         "migration": migration,
         "source_schema_digest": schema_digest,
-        "evaluator_schema_digest": digest(canonical({"keys": sorted(SCHEMA)})),
+        "evaluator_schema_digest": evaluator_digest,
         "source_config_digest": digest(canonical(config)),
         "evaluation_config_digest": digest(canonical(adapted)),
         "explicit_legacy_values": additions,
+        "cash_basis_adaptation": cash_adaptation,
+        "adaptation_scope": "PURE_MARKET_GATES_ONLY_NOT_ACCOUNTING_REPLAY",
         "original_evidence_modified": False,
         "historical_code_identity": "NOT_PROVEN",
     }
@@ -333,11 +381,7 @@ def _evaluate_sample(sample, index, environment):
             raise _MissingEvidence("MISSING_FROZEN_VOLUME_THRESHOLD")
         if _decimal(threshold) != Decimal(_BASELINE):
             raise _MissingEvidence("BASELINE_OUTSIDE_FROZEN_STUDY_PLAN")
-        if set(config["policy"]) - set(SCHEMA):
-            raise ValueError("UNKNOWN_FROZEN_POLICY_SETTING")
-        # Validate supplied values even in metric-only mode. The resulting
-        # defaults are discarded, and are never used for historical replay.
-        resolve(config["policy"])
+        _validate_supplied_policy(config["policy"])
         try:
             replay_config, compatibility = _validate_replay(sample)
         except _MissingEvidence as incomplete:

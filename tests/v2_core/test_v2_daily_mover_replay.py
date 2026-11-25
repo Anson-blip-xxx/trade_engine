@@ -414,6 +414,9 @@ def test_registered_legacy_schema_preserves_immutable_evidence_and_reports_adapt
     for key in (
         "trend.breakout_body_guard_enabled",
         "trend.entry_quality_shadow_enabled",
+        "settlement.cash_basis_version",
+        "settlement.max_difference_per_fill_usdt",
+        "settlement.max_difference_episode_usdt",
     ):
         row[10]["policy"].pop(key)
     rehash(report, row)

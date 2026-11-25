@@ -82,6 +82,9 @@ def legacy_frozen_sample(**kwargs):
     for key in (
         "trend.breakout_body_guard_enabled",
         "trend.entry_quality_shadow_enabled",
+        "settlement.cash_basis_version",
+        "settlement.max_difference_per_fill_usdt",
+        "settlement.max_difference_episode_usdt",
     ):
         sample["config"]["policy"].pop(key)
     return sample
@@ -107,7 +110,11 @@ def test_registered_legacy_schema_replays_with_explicit_hash_preserving_adapter(
     assert provenance["explicit_legacy_values"] == {
         "trend.breakout_body_guard_enabled": False,
         "trend.entry_quality_shadow_enabled": False,
+        "settlement.cash_basis_version": 1,
+        "settlement.max_difference_per_fill_usdt": "0.000001",
+        "settlement.max_difference_episode_usdt": "0.0001",
     }
+    assert provenance["cash_basis_adaptation"] == "EXPLICIT_LEGACY_CASH_BASIS_V1"
     assert provenance["source_config_digest"] == row["config_digest"]
     assert provenance["evaluation_config_digest"] != row["config_digest"]
     assert provenance["original_evidence_modified"] is False

@@ -236,6 +236,9 @@ def test_setup_research_exposes_legacy_adapter_without_mutating_history():
     for key in (
         "trend.breakout_body_guard_enabled",
         "trend.entry_quality_shadow_enabled",
+        "settlement.cash_basis_version",
+        "settlement.max_difference_per_fill_usdt",
+        "settlement.max_difference_episode_usdt",
     ):
         sample["config"]["policy"].pop(key)
     original = deepcopy(sample)

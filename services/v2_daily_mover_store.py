@@ -5,6 +5,12 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
+from services.v2_daily_mover_history import (
+    HISTORY_SQL,
+    MAX_DAY_BYTES,
+    MAX_HISTORY_BYTES,
+    decode_history,
+)
 from v2_core.account_risk import AccountScope
 from v2_core.daily_movers import VERSION
 from v2_core.evidence import canonical, digest
@@ -131,14 +137,24 @@ class DailyMoverStore:
 
     def prior(self, scope, day):
         with self.connect() as c:
-            # Latest revision per completed day; bounded30day control window.
+            c.execute("SET TRANSACTION READ ONLY")
+            # Do not decode thirty full reports (account evidence, replay,
+            # paths and flow research). Accumulation needs only small fields.
             rows = c.execute(
-                """SELECT DISTINCT ON(day) report FROM v2_daily_mover_reports
-              WHERE scope_key=%s AND method_version=%s AND day<%s::date AND day>=%s::date-30
-              ORDER BY day DESC,created_at DESC LIMIT 30""",
-                (self.scope_key(scope), VERSION, day, day),
-            ).fetchall()
-            return [row[0] for row in rows]
+                HISTORY_SQL,
+                (
+                    self.scope_key(scope),
+                    VERSION,
+                    day,
+                    day,
+                    MAX_DAY_BYTES,
+                    MAX_DAY_BYTES,
+                    MAX_HISTORY_BYTES,
+                    MAX_DAY_BYTES,
+                    MAX_HISTORY_BYTES,
+                ),
+            )
+            return decode_history(rows, day)
 
     def existing(self, scope, day):
         with self.connect() as c:
