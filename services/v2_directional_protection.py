@@ -4,11 +4,8 @@ Never derives an old position's stop from a new signal or current configuration.
 Current venue coverage and market freshness remain the guarded installer's job.
 """
 
-from dataclasses import asdict
-
-from v2_core.ledger import amount
 from v2_core.partial_open_protection import PartialOpenProtection
-from v2_core.protection import ProtectionSpec
+from v2_core.strategy_plan import LegacyDirectionalPlan
 
 
 class DirectionalStopRecovery:
@@ -43,44 +40,13 @@ class DirectionalStopRecovery:
                 WHERE i.intent_id=%s""",
                 (order["episode_id"],),
             ).fetchone()
-        if (
-            version != "directional-admission-v2-1"
-            or config.get("mode") != "TESTNET_ADMISSION_ONLY"
-            or config.get("account_scope") != asdict(self.scope)
-            or config.get("strategy") not in {"S6", "S8"}
-            or producer != config["strategy"].lower()
-        ):
-            raise ValueError("DIRECTIONAL_STOP_EVIDENCE_REQUIRED")
-        evaluation = snapshot["features"]["evaluation"]
-        market, sizing, result = (
-            evaluation["market_plan"],
-            evaluation["sizing"],
-            snapshot["result"],
-        )
-        expected_side = "BUY" if config["strategy"] == "S6" else "SELL"
-        if (
-            evaluation.get("admission_authorized") is not True
-            or evaluation.get("execution_market_gate") != "MARKET_GATES_PASSED"
-            or market["strategy"] != config["strategy"]
-            or market["side"] != ("LONG" if expected_side == "BUY" else "SHORT")
-            or sizing["reason"] != "SIZED"
-            or result["action"] != "OPEN"
-            or result["side"] != expected_side
-            or order["side"] != expected_side
-            or snapshot["symbol"] != order["symbol"]
-            or amount(sizing["quantity"], positive=True)
-            != amount(order["intent"]["quantity"], positive=True)
-            or amount(result["quantity"], positive=True)
-            != amount(sizing["quantity"], positive=True)
-        ):
-            raise ValueError("DIRECTIONAL_STOP_EVIDENCE_MISMATCH")
-        return ProtectionSpec(
-            order["episode_id"],
-            order["symbol"],
-            "SELL" if expected_side == "BUY" else "BUY",
-            "STOP_MARKET",
-            sizing["stop_price"],
-        )
+        return LegacyDirectionalPlan.read(
+            scope=self.scope,
+            config=config,
+            snapshot=snapshot,
+            producer=producer,
+            strategy_version=version,
+        ).protection_spec(order)
 
     def ensure(self, order_id):
         return self.recovery.ensure(order_id, self.plan(order_id))

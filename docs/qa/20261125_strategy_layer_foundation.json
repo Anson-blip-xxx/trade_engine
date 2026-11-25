@@ -1,0 +1,121 @@
+{
+  "schema": "strategy-layer-foundation-acceptance-v1",
+  "date": "2026-11-25",
+  "timezone": "Asia/Shanghai",
+  "status": "FOUNDATION_SLICE_QA_PASSED_NOT_DEPLOYED",
+  "phase": "P0_P1_FOUNDATION_SLICE_NOT_FULL_P1",
+  "source_baseline_commit": "b93d7411c749aaf76337a8dfa41c440a46805638",
+  "baseline_scope": "Checked-out source comparison, not a claim about every running process.",
+  "tested_source_sha256": {
+    "v2_core/strategy_registry.py": "2ad4a387ebecb576d4edecab6060a91623c220f8a2a978277c06697988cddc24",
+    "v2_core/strategy_plan.py": "5312daf2e0ef7c45221a36d9c3b2f20f0bb74d44af9b5fb75900ea5a02a9da5a",
+    "services/v2_directional_protection.py": "62af561e7d0167b57dbb57270c0d38ec2dfd729496929da481973b6b623ab4ff",
+    "tests/v2_core/test_v2_strategy_registry.py": "65a296d19df840687db930f211876e7d9b488a13f6a4a7abfb3370c21d33810e",
+    "tests/v2_core/test_v2_strategy_plan.py": "8af4bf2757d3cbbb1c0c5ec88eb80809922e22c01ddcef4c53e4768b3beb2228",
+    "tests/v2_core/test_v2_strategy_plan_compatibility.py": "1ba648387df3694ef3998e872cc50b34f6d5c75bd3df2e76699a8c533404b872"
+  },
+  "implemented": [
+    "Pure explicit-whitelist strategy registry with immutable copied specs and deployment snapshots.",
+    "Stable consumer identity matching existing account-plus-producer scope, excluding code version and generation.",
+    "Typed immutable TradePlan with explicit direction, account, deployment generation, expiry and exit version/config.",
+    "Exact risk-distance and non-power-of-ten quantity-step checks independent of ambient Decimal precision.",
+    "Bounded JSON configuration recovery rejecting duplicate keys, credential-named fields and floating-point values.",
+    "Purpose-specific legacy S6/S8 protection projection integrated into DirectionalStopRecovery.plan.",
+    "Preserved original protection ownership checks and no additional requirement for entry freshness, model availability or research-only fields."
+  ],
+  "compatibility_boundaries": {
+    "legacy_initial_stop": "Original immutable PG admission evidence.",
+    "legacy_software_exit_policy": "Current account policy remains current; not retroactively frozen at entry.",
+    "partial_fill_contract": "Original requested quantity identifies the admission plan; actual remaining exposure belongs to the ledger and guarded installer.",
+    "partial_entry_tests": "Real isolated-PG admission and ledger, explicit fake complete fill evidence; plan reading only, not a real venue stop installation.",
+    "partial_exit_test": "Real service, state and ledger chain with fake venue responses; confirms remaining exposure and no duplicate close submission.",
+    "consumer_tests": "Identity compatibility only; no new cross-instance opportunity execution fence is claimed.",
+    "new_plan_execution_authorized": false,
+    "deployment_snapshot_execution_authorized": false,
+    "new_plan_integrated_into_admission_or_dispatch": false
+  },
+  "independent_review_fixes": [
+    "Reconstruct and copy AccountScope at plan and binding boundaries.",
+    "Reconstruct and copy StrategySpec on registration and binding.",
+    "Share strategy/handler identifier and exact JSON-safe generation validation between registry and plan.",
+    "Reject duplicate configuration keys at all nesting levels.",
+    "Bound both incoming UTF-8 bytes and canonical JSON output bytes, including Unicode escape expansion."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "pure_contract_tests": {"passed": 181, "failed": 0},
+    "isolated_harness": "scripts/qa_v2_data_core.sh",
+    "network_boundary": "tests/v2_core/conftest.py rejects AF_INET/AF_INET6 connect and sendto; PostgreSQL and Redis use dedicated Unix sockets.",
+    "initial_regression": {
+      "passed": 606,
+      "failed": 2,
+      "seconds": "245.93",
+      "diagnostics": "/tmp/v2-data-qa.JzVSAs/pytest.log",
+      "failure": "Two new partial-entry test fixtures omitted fills_complete evidence when cancelling a submitted order; existing Orders safety check correctly refused cancellation.",
+      "resolution": "Fixed fixture with explicit complete simulated fill set and asserted state/version transitions; Orders business checks unchanged.",
+      "temporary_database_retained": false
+    },
+    "final_regression": {
+      "passed": 608,
+      "failed": 0,
+      "seconds": "245.30",
+      "diagnostics": "/tmp/v2-data-qa.BFuNaj/pytest.log",
+      "temporary_database_retained": false,
+      "includes_pure_contract_tests": true,
+      "new_persisted_legacy_compatibility_cases": 10,
+      "ruff_check": "PASSED",
+      "ruff_format_check": "PASSED",
+      "git_diff_check": "PASSED"
+    },
+    "selections": [
+      "tests/v2_core/test_v2_strategy_registry.py",
+      "tests/v2_core/test_v2_strategy_plan.py",
+      "tests/v2_core/test_v2_strategy_plan_compatibility.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_directional_admission.py",
+      "tests/v2_core/test_v2_directional_lifecycle.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_directional_exit.py",
+      "tests/v2_core/test_v2_directional_cash.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_directional_outcomes.py",
+      "tests/v2_core/test_v2_venue_readiness.py",
+      "tests/v2_core/test_v2_quant_flow.py",
+      "tests/v2_core/test_v2_protection_failure_recovery.py",
+      "tests/v2_core/test_v2_protection_install.py",
+      "tests/v2_core/test_v2_protection_supervisor.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_strategy_correctness_flow.py",
+      "tests/v2_core/test_v2_precision_contract.py",
+      "tests/v2_core/test_v2_observed_entry_precision.py",
+      "tests/v2_core/test_v2_exit_precision.py",
+      "tests/v2_core/test_v2_capacity_decline_scheduling.py"
+    ],
+    "scope": "Targeted contract and affected trading-chain regression, not the whole repository or real exchange acceptance."
+  },
+  "runtime_actions": {
+    "deployed": false,
+    "services_restarted": false,
+    "runtime_configuration_changed": false,
+    "trading_database_changed": false,
+    "trading_database_schema_migrated": false,
+    "exchange_requests": 0,
+    "strategy_or_leverage_changes": 0,
+    "controller_observation": {
+      "working_directory": "/opt/trade-engine-v2/execution-controller",
+      "active_state": "active",
+      "active_enter_timestamp_utc8": "2026-11-23T17:26:19+08:00",
+      "scope": "Read-only service metadata, not a full trading health check."
+    }
+  },
+  "remaining_before_p1_acceptance": [
+    "Complete P0 runtime SLO and resource baseline measurement; source baseline alone does not freeze operating performance.",
+    "Persist and atomically fence deployment bindings at actual order authorization; handle PREPARED, SUBMITTING and UNKNOWN across switches.",
+    "Persist account-wide opportunity ownership across instances and versions, retaining consumption after a position closes.",
+    "Read new and old plans through admission, dispatch, software exit, cash verification, lifecycle, settlement and analytics.",
+    "Version actual exit handlers for new plans and retain support for active old plans without silently migrating existing positions.",
+    "Isolate strategy computation and model waits from protection and exit scheduling, including hard-timeout and resource-pressure tests.",
+    "Run complete isolated lifecycle, fault recovery, concurrency and bounded-load acceptance before enabling any new strategy."
+  ],
+  "profitability_claim": "None. No new strategy returns or executable market advantage have been demonstrated by these contract tests."
+}
