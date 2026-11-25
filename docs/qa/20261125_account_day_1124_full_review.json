@@ -1,0 +1,246 @@
+{
+  "version": "account-day-full-population-review-v1",
+  "review_day": "2026-11-24",
+  "timezone": "Asia/Shanghai",
+  "environment": "SANDBOX",
+  "evidence_as_of": "2026-11-25T09:42:40.399000+08:00",
+  "checked_at": "2026-11-25T09:47:04.892006+08:00",
+  "report_created_at": "2026-11-25T09:43:35.695190+08:00",
+  "account_review_content_digest": "a7b7217e70516b5640413962fcc4887ecfad616a966032656616b8fe27375775",
+  "read_boundary": {
+    "repeatable_read": true,
+    "read_only": true,
+    "statement_timeout_ms": 3000,
+    "lock_timeout_ms": 100,
+    "candidate_query": "Original bounded account-day close-fill query; maximum 501.",
+    "candidates": 52,
+    "exact_report_trade_ref_matches": 52,
+    "subsequent_order_evidence_lookup_count": 52,
+    "database_writes": 0,
+    "exchange_requests": 0,
+    "strategy_changes": 0
+  },
+  "coverage": {
+    "settled": 52,
+    "wins": 26,
+    "losses": 26,
+    "carry_ins": 4,
+    "excluded": 0,
+    "full_closed_settlement_population_proven": true,
+    "last_filled_close_reasons": 52,
+    "direct_sources": 52,
+    "plan_comparable": 52,
+    "native_stop_decomposition": 18
+  },
+  "totals": {
+    "net_usdt": "-5.91127446",
+    "gross_filled_price_pnl_usdt": "-2.96032930",
+    "recorded_fees_usdt": "2.87848057",
+    "funding_usdt": null,
+    "funding_status": "NOT_SEPARATELY_LOADED",
+    "profit_factor": "0.7960087667",
+    "median_hold_minutes": "90.268350"
+  },
+  "by_side": [
+    {
+      "side": "BUY",
+      "count": 21,
+      "wins": 12,
+      "losses": 9,
+      "net_usdt": "-0.90008926"
+    },
+    {
+      "side": "SELL",
+      "count": 31,
+      "wins": 14,
+      "losses": 17,
+      "net_usdt": "-5.01118520"
+    }
+  ],
+  "by_last_filled_close_reason": [
+    {
+      "reason": "PEAK_DRAWDOWN",
+      "count": 12,
+      "wins": 12,
+      "losses": 0,
+      "net_usdt": "19.18447978"
+    },
+    {
+      "reason": "VENUE_PROTECTION_CHILD",
+      "count": 18,
+      "wins": 0,
+      "losses": 18,
+      "net_usdt": "-25.21711717"
+    },
+    {
+      "reason": "EARLY_LOSS_MOMENTUM_WEAK",
+      "count": 3,
+      "wins": 0,
+      "losses": 3,
+      "net_usdt": "-2.63738929"
+    },
+    {
+      "reason": "TIME_STOP",
+      "count": 2,
+      "wins": 1,
+      "losses": 1,
+      "net_usdt": "0.25880744"
+    },
+    {
+      "reason": "LOW_YIELD_STAGNATION",
+      "count": 16,
+      "wins": 12,
+      "losses": 4,
+      "net_usdt": "1.41616463"
+    },
+    {
+      "reason": "ONE_HOUR_REVERSAL",
+      "count": 1,
+      "wins": 1,
+      "losses": 0,
+      "net_usdt": "1.08378015"
+    }
+  ],
+  "exit_classification_basis": "Last filled closing request; not all legs and not causal attribution.",
+  "multi_close_episodes": {
+    "count": 7,
+    "last_reason": "PEAK_DRAWDOWN",
+    "wins": 7,
+    "net_usdt": "15.15498743"
+  },
+  "held_minutes_bins": [
+    {
+      "range": "[0,30)",
+      "count": 8,
+      "wins": 2,
+      "losses": 6,
+      "net_usdt": "-6.86517067"
+    },
+    {
+      "range": "[30,60)",
+      "count": 5,
+      "wins": 0,
+      "losses": 5,
+      "net_usdt": "-6.59831687"
+    },
+    {
+      "range": "[60,120)",
+      "count": 32,
+      "wins": 18,
+      "losses": 14,
+      "net_usdt": "-1.17766097"
+    },
+    {
+      "range": "[120,240)",
+      "count": 5,
+      "wins": 4,
+      "losses": 1,
+      "net_usdt": "3.96340190"
+    },
+    {
+      "range": "[240,infinity)",
+      "count": 2,
+      "wins": 2,
+      "losses": 0,
+      "net_usdt": "4.76647215"
+    }
+  ],
+  "first_hour_exits": {
+    "count": 13,
+    "wins": 2,
+    "losses": 11,
+    "net_usdt": "-13.46348754",
+    "native_stop": {
+      "count": 9,
+      "net_usdt": "-13.78527969"
+    },
+    "early_loss": {
+      "count": 2,
+      "net_usdt": "-1.75468919"
+    },
+    "peak_drawdown": {
+      "count": 2,
+      "net_usdt": "2.07648134"
+    }
+  },
+  "direct_signal_sources": [
+    {
+      "source": "s3",
+      "count": 50,
+      "wins": 26,
+      "losses": 24,
+      "net_usdt": "-3.29868559"
+    },
+    {
+      "source": "tv_bridge",
+      "count": 2,
+      "wins": 0,
+      "losses": 2,
+      "net_usdt": "-2.61258887"
+    }
+  ],
+  "entry_reference_deviation": {
+    "positive_means_adverse": true,
+    "comparable_count": 52,
+    "actual_quantity_equals_requested_count": 52,
+    "adverse_count": 39,
+    "favorable_count": 10,
+    "unchanged_count": 3,
+    "signed_total_usdt": "4.52622530",
+    "buy_signed_total_usdt": "2.04447500",
+    "sell_signed_total_usdt": "2.48175030",
+    "interpretation": "Signed actual-quantity reference differences, NOT proven slippage or recoverable profit."
+  },
+  "native_stop_decomposition": {
+    "count": 18,
+    "planned_gross_loss_usdt": "22.71960300",
+    "actual_gross_loss_usdt": "24.15790700",
+    "actual_minus_planned_usdt": "1.43830400",
+    "entry_adverse_deviation_usdt": "1.23086500",
+    "stop_fill_adverse_deviation_usdt": "0.20743900",
+    "fees_included": false,
+    "exact_native_exit_trade_refs_match": true,
+    "other_episodes": {
+      "MULTIPLE_OR_UNKNOWN_CLOSE_ORDERS": 7,
+      "NOT_PROVEN_NATIVE_STOP_EXIT": 27
+    }
+  },
+  "next_research_plan": {
+    "status": "HYPOTHESES_REGISTERED_NOT_IMPLEMENTED_OR_PROMOTED",
+    "automatic_parameter_updates": false,
+    "order_authority": false,
+    "priorities": [
+      {
+        "priority": 1,
+        "hypothesis": "Entry reference and executable quote are misaligned.",
+        "check": "Same-environment quote source, timestamp, validity, spread and order-to-fill delay; preserve position risk and hard stops.",
+        "falsification": "If differences are caused by mark/reference-time convention rather than attainable quotes, do not report savings or tighten execution based on them."
+      },
+      {
+        "priority": 2,
+        "hypothesis": "Early structural failure explains first-hour losses.",
+        "check": "Use all retained candidates, not only trades or daily movers; single-factor entry-feature alternatives, frozen inputs, matched direction/volatility/cost and chronological holdout.",
+        "falsification": "Reject a filter if missed winners and waiting costs exceed avoided losses. Do not force a minimum hold based on survivors."
+      },
+      {
+        "priority": 3,
+        "hypothesis": "Trend residual positions and stagnating positions need distinct exit comparisons.",
+        "check": "Freeze original entries, hard stops and risk. Compare structural continuation versus baseline using same-environment executable paths, costs, capital occupation and adverse excursions.",
+        "falsification": "Reject longer holding if it adds drawdown without net performance improvement; do not remove peak protection from profitable outcome-conditioned groups."
+      }
+    ],
+    "constraints": [
+      "No global volume-gate relaxation: 11/24 reconstructed 100 inputs had 8 volume-gate changes but only 1 new market candidate; not proof of a profitable trade.",
+      "Do not increase leverage or remove protective stops from these one-day findings.",
+      "Unavailable paths, funding decomposition or frozen flow remain unknown; do not invent them."
+    ]
+  },
+  "limitations": [
+    "Last-close-day whole-episode settlement is not equity-day return.",
+    "Funding is not inferred from gross/net/fee differences.",
+    "Exit-reason groups are post-outcome groups, not alternative strategy backtests.",
+    "Longer-held winners do not prove a minimum-hold rule.",
+    "Direct source does not capture every TV contribution; two direct TV trades cannot establish effectiveness.",
+    "One-day exploratory evidence is not out-of-sample validation."
+  ]
+}
