@@ -311,7 +311,11 @@ class Orders:
                 from v2_core.account_risk import reserve_open
                 from v2_core.opening_halt import require_opening_allowed
 
-                require_opening_allowed(conn, row[2])
+                deployment = require_opening_allowed(conn, row[2])
+                if deployment is not None:
+                    encoded = canonical(
+                        {**json.loads(encoded), "strategy_deployment": deployment}
+                    )
 
                 proof = reserve_open(
                     conn,

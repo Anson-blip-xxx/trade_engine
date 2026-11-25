@@ -1,0 +1,148 @@
+{
+  "schema": "strategy-deployment-admission-acceptance-v1",
+  "date": "2026-11-25",
+  "timezone": "Asia/Shanghai",
+  "status": "SLICE_QA_PASSED_NOT_DEPLOYED",
+  "phase": "P1_DEPLOYMENT_ADMISSION_SLICE_NOT_FULL_LIFECYCLE",
+  "source_baseline_commit": "3b9f25e2d7b445e78fd9bcd4ee70365ddac23f70",
+  "tested_source_sha256": {
+    "v2_core/strategy_deployment.py": "e7b696dd0b2cb257dba6064313aecd1b2ee356dab16e330ff9166daeeb4d4270",
+    "v2_core/strategy_plan_admission.py": "50a5896e4714a6f02f441c3a5781361a15535ed5c288107c0e075d303db193bf",
+    "v2_core/strategy_plan_store.py": "41ac112769d0601d006fc0727db73f6b8d2818a79e447d682ad052541523ac8c",
+    "v2_core/opening_halt.py": "1a894c06cee27719ec9b2aab4712deb4f4c521ad02e520bd4355fbf2965b147a",
+    "v2_core/orders.py": "f1ce2ecb095ad26a0c32c318d321722fbf6d4636461457d699a93d5b8f729533",
+    "v2_core/runtime.py": "f2f34b166beeb5b88808e11793530f9a344c09d942472faffefa29ca596651bf",
+    "v2_core/account_risk.py": "31e59e92569a48ce8d991843dd3c44a9d7a9eeefcf8dbd92384b58622d652dbc",
+    "v2_core/strategy_plan.py": "c00e70d07940b4a4645ce6c11f4a3e31e93362146ccb13ad21ee3e7f5d0266e4",
+    "tests/v2_core/test_v2_strategy_deployment.py": "de5988f57325c3f7a7800a754ef0569f992151a5d74f2cb92547986f60e7f251",
+    "tests/v2_core/test_v2_strategy_plan_admission.py": "20a601d47aac18e18ea49468bcd2bac62e2c134980666aed57db16ba63b20f37",
+    "tests/v2_core/test_v2_strategy_deployment_execution.py": "5828f5c0eb90115171452558584803c0371568bd41bbf080a9e61b4ab38c9fc2",
+    "tests/v2_core/test_v2_diagnostic_retention.py": "f96ab49df8eaebd00595627f57a9beec759fa477fbb91ad68e1bf76fc980aa44"
+  },
+  "implemented": [
+    "Versioned PG deployment publication with CAS, immutable history and exact old-request replay without reactivation.",
+    "Account lock serializes publication and OPEN prepare/submission, including the initially absent deployment row.",
+    "Typed immutable plan admission, optional signal receipt and permanent account-wide opportunity claim commit atomically; no order preparation or venue I/O.",
+    "Opportunity execution identity excludes instance, code version, generation and signal source; exact replay retains the original intent without refreshing permission.",
+    "OPEN prepare and submission verify current deployment, full frozen plan binding, database-clock lifetime and permanent opportunity receipt plus history.",
+    "Generic IntentStore cannot bypass permanent opportunity receipt checks for a new-schema plan.",
+    "Submission event records deployment and account-risk proofs within the existing order authorization transaction.",
+    "Stale new-entry denial is terminal for existing DataRuntime/Runner, while CLOSE and SUBMITTING/UNKNOWN recovery remain independent of entry generation.",
+    "Historical plan reader validates original scope, configuration, version, symbol, side, quantity and timestamps without requiring current ACTIVE mode or entry freshness.",
+    "Explicit STRATEGY_CAPITAL_ADAPTER_REQUIRED blocks new-schema use of the not-yet-migrated dynamic capital model.",
+    "Diagnostic retention tests protect both new permanent namespaces."
+  ],
+  "independent_review_fixes": [
+    "Recheck new-plan entry lifetime at the database authorization point, even without an optional risk provider.",
+    "Reject a legacy deployment schema carrying a new-plan marker rather than silently skipping plan validation.",
+    "Enforce deterministic opportunity identity and permanent receipt at the generic Orders boundary, not only the high-level admission adapter.",
+    "Do not partially enable the legacy capital model by substituting only the leverage field.",
+    "Clarify that adapter failure rolls back admission; terminal handling of a second upstream signal belongs to the not-yet-connected worker."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "Dedicated disposable PostgreSQL/Redis instances; tests/v2_core/conftest.py rejects external TCP. Only fake exchange ports are used.",
+    "intermediate_runs": [
+      {
+        "passed": 97,
+        "failed": 22,
+        "seconds": "43.13",
+        "diagnostics": "/tmp/v2-data-qa.jlkzRW/pytest.log",
+        "failure": "New integration fixture called the keyword-only registry bind API positionally; corrected the fixture.",
+        "temporary_database_retained": false
+      },
+      {
+        "passed": 627,
+        "failed": 6,
+        "seconds": "253.64",
+        "diagnostics": "/tmp/v2-data-qa.giOtjn/pytest.log",
+        "failure": "Five new fixture paths omitted required simulated exchange outcome evidence; one enabled capital without a matching sizing pool fraction. Existing production guards correctly rejected both.",
+        "temporary_database_retained": false
+      },
+      {
+        "passed": 26,
+        "failed": 1,
+        "seconds": "13.34",
+        "diagnostics": "/tmp/v2-data-qa.NxogFE/pytest.log",
+        "failure": "Partial-fill fixture requested the full original close quantity; corrected to confirmed 0.005 exposure. No order safety check was loosened.",
+        "temporary_database_retained": false
+      }
+    ],
+    "final_regression": {
+      "status": "PASSED",
+      "passed": 1121,
+      "failed": 0,
+      "seconds": "395.25",
+      "test_files": 30,
+      "new_deployment_admission_execution_cases": 144,
+      "diagnostics": "/tmp/v2-data-qa.SBlRT1/pytest.log",
+      "temporary_database_retained": false,
+      "ruff_check": "PASSED",
+      "ruff_format_check": "PASSED",
+      "git_diff_check": "PASSED",
+      "tested_source_hashes_verified": true
+    },
+    "selections": [
+      "tests/v2_core/test_v2_strategy_deployment.py",
+      "tests/v2_core/test_v2_strategy_plan_admission.py",
+      "tests/v2_core/test_v2_strategy_deployment_execution.py",
+      "tests/v2_core/test_v2_account_risk.py",
+      "tests/v2_core/test_v2_account_draining.py",
+      "tests/v2_core/test_v2_opening_quarantine.py",
+      "tests/v2_core/test_v2_opening_cancel.py",
+      "tests/v2_core/test_v2_reduction_fence.py",
+      "tests/v2_core/test_v2_trading_pipeline.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_intent_admission.py",
+      "tests/v2_core/test_v2_diagnostic_retention.py",
+      "tests/v2_core/test_v2_jev_health_retention.py",
+      "tests/v2_core/test_v2_strategy_registry.py",
+      "tests/v2_core/test_v2_strategy_plan.py",
+      "tests/v2_core/test_v2_strategy_plan_compatibility.py",
+      "tests/v2_core/test_v2_directional_admission.py",
+      "tests/v2_core/test_v2_directional_lifecycle.py",
+      "tests/v2_core/test_v2_directional_exit_stage.py",
+      "tests/v2_core/test_v2_directional_exit.py",
+      "tests/v2_core/test_v2_directional_cash.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_directional_outcomes.py",
+      "tests/v2_core/test_v2_protection_failure_recovery.py",
+      "tests/v2_core/test_v2_protection_install.py",
+      "tests/v2_core/test_v2_protection_supervisor.py",
+      "tests/v2_core/test_v2_capital_model.py",
+      "tests/v2_core/test_v2_trend_capital_cost.py",
+      "tests/v2_core/test_v2_managed_portfolio.py",
+      "tests/v2_core/test_v2_precision_contract.py"
+    ],
+    "scope": "Affected core contracts and legacy-chain regression, not whole-repository or real exchange acceptance."
+  },
+  "runtime_actions": {
+    "deployed": false,
+    "services_restarted": false,
+    "execution_resumed": false,
+    "runtime_configuration_changed": false,
+    "trading_database_changed": false,
+    "schema_migration": false,
+    "exchange_requests": 0,
+    "read_only_service_observation": {
+      "execution_controller": "inactive/dead",
+      "legacy_testnet_daemon": "inactive/dead",
+      "legacy_testnet_watchdog": "inactive/dead",
+      "market_hub": "active/running",
+      "tradingview_ingress": "active/running",
+      "dashboard": "active/running",
+      "scope": "Service metadata only; previous pause/flatten acceptance is recorded separately."
+    }
+  },
+  "remaining_before_activation": [
+    "Complete shared old/new-plan capital and exposure adapters, including pending margin, stop risk and cost semantics.",
+    "Migrate protection, software exits, cash verification, settlement and analytics to explicit new-plan contracts without fabricating legacy strategy fields.",
+    "Retain versioned exit handlers for historical plans and isolate management scheduling from strategy/model waits.",
+    "Connect worker admission and persist terminal consumption for duplicate opportunities and expected denials; the adapter itself is not installed in a runtime worker.",
+    "Define causal TV/S3 opportunity identity upstream; identical supplied IDs deduplicate but unrelated source IDs do not self-normalize.",
+    "Define explicit migration for permanent namespaces before sandbox rebuild; current unknown-namespace rejection remains intact.",
+    "Complete new-plan lifecycle, venue-failure, load and recovery acceptance before any account execution is resumed."
+  ],
+  "profitability_claim": "None. This work proves bounded execution contracts, not improved strategy returns."
+}

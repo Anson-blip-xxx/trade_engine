@@ -255,6 +255,8 @@ def test_concurrent_job_is_skipped_and_locked_rows_not_deleted(database):
         "testnet-protection-v1",
         "directional-account-context-v1",
         "watchdog-delivery-v1",
+        "strategy-deployment-v1",
+        "strategy-opportunity-execution-v1",
     ],
 )
 def test_protected_namespaces_cannot_be_deleted_even_by_retention_role(

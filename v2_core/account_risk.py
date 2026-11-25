@@ -328,8 +328,15 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         or policy["max_positions"] is None
     ):
         from v2_core.managed_portfolio import reserve_capital
+        from v2_core.strategy_plan_store import read_trade_plan
 
         try:
+            plan = read_trade_plan(conn, row[0])
+            if plan is not None:
+                # Capital sizing, pending exposure and portfolio stop-risk
+                # still require a complete schema-specific adapter. Never
+                # forge legacy evaluation fields to activate a new plan.
+                raise ValueError("STRATEGY_CAPITAL_ADAPTER_REQUIRED")
             with money_context():
                 capital = reserve_capital(
                     conn,

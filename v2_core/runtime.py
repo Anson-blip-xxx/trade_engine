@@ -124,10 +124,17 @@ class DataRuntime:
         try:
             order_id, client_id = self.data.orders.prepare(identity)
         except AccountRiskDenied as exc:
-            if str(exc) not in {
-                "SYMBOL_OPENING_QUARANTINED",
-                "ACCOUNT_OPENING_DRAINING",
-            }:
+            from v2_core.strategy_deployment import STRATEGY_ENTRY_DENIALS
+
+            if (
+                str(exc)
+                not in {
+                    "SYMBOL_OPENING_QUARANTINED",
+                    "ACCOUNT_OPENING_DRAINING",
+                    "STRATEGY_OPPORTUNITY_RECEIPT_INVALID",
+                }
+                | STRATEGY_ENTRY_DENIALS
+            ):
                 raise
             self.data.intents.terminate_unstarted(
                 identity, status="REJECTED", reason=str(exc)

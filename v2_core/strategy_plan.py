@@ -1,7 +1,8 @@
 """Immutable strategy plans and purpose-specific legacy protection reads.
 
-These objects grant no execution authority and perform no I/O. New-schema plans
-are not wired into admission, dispatch or position management in this release.
+These objects grant no execution authority and perform no I/O. Admission and
+opening checks live in separate adapters; new-schema position management is not
+yet activated.
 Legacy stops keep their original contract: entry expiry, current policy, model
 availability and research-only fields cannot disable an existing protection.
 """

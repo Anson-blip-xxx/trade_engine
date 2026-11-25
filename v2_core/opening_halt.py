@@ -46,6 +46,17 @@ def require_opening_allowed(conn, episode):
     if BusinessState(lambda: nullcontext(conn)).read(key) is not None:
         # Even an unexpected tombstone fails closed; no silent unhalt.
         raise AccountRiskDenied("EPISODE_OPENING_HALTED", {"halt_id": key.identity})
+    from v2_core.strategy_deployment import require_strategy_opening
+
+    deployment = require_strategy_opening(conn, episode)
+    if deployment is not None:
+        from v2_core.strategy_plan import PLAN_SCHEMA
+
+        if deployment["spec"]["plan_schema"] == PLAN_SCHEMA:
+            from v2_core.strategy_plan_admission import require_plan_admission
+
+            require_plan_admission(conn, episode, deployment=deployment)
+    return deployment
 
 
 def halt_opening(connect, episode, *, scope):
