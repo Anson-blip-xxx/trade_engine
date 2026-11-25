@@ -13,6 +13,27 @@ from v2_core.ledger import amount
 from v2_core.strategy_plan import TradePlan
 
 
+def trade_plan_record(row):
+    """Give a joined intent/evidence row the shared batch-reader record shape."""
+    return {
+        "scope": dict(
+            zip(
+                ("exchange", "account_id", "environment", "product"),
+                row[:4],
+                strict=True,
+            )
+        ),
+        "producer": row[4],
+        "strategy_version": row[5],
+        "config_digest": row[6],
+        "payload": row[7],
+        "evidence_strategy_version": row[8],
+        "evidence_config_digest": row[9],
+        "config": row[10],
+        "snapshot": row[11],
+    }
+
+
 def read_trade_plan(conn, episode):
     row = conn.execute(
         "SELECT i.exchange,i.account_id,i.environment,i.product,i.producer,"
@@ -23,23 +44,38 @@ def read_trade_plan(conn, episode):
     ).fetchone()
     if row is None:
         raise ValueError("STRATEGY_PLAN_INTENT_REQUIRED")
-    snapshot = row[11]
+    return read_trade_plan_record(trade_plan_record(row))
+
+
+def read_trade_plan_record(record):
+    """Validate a fetched plan against its original intent, without new I/O.
+
+    Batch consumers use the same immutable binding checks as the episode reader.
+    The record is a projection of committed rows, not an execution permit and
+    not proof that a caller-provided object has ever been persisted.
+    """
+    if type(record) is not dict:
+        raise ValueError("STRATEGY_PLAN_EVIDENCE_INVALID")
+    snapshot = record.get("snapshot")
     if type(snapshot) is not dict:
         raise ValueError("STRATEGY_PLAN_EVIDENCE_INVALID")
     if "strategy_plan" not in snapshot:
         return None
     try:
         plan = TradePlan.from_payload(snapshot["strategy_plan"])
-        payload = row[7]
+        payload = record["payload"]
         if not (
-            plan.scope == AccountScope(*row[:4])
-            and plan.instance_id == row[4]
-            and plan.code_version == row[5] == row[8] == payload["strategy_version"]
+            plan.scope == AccountScope(**record["scope"])
+            and plan.instance_id == record["producer"]
+            and plan.code_version
+            == record["strategy_version"]
+            == record["evidence_strategy_version"]
+            == payload["strategy_version"]
             and plan.config_digest
-            == row[6]
-            == row[9]
+            == record["config_digest"]
+            == record["evidence_config_digest"]
             == payload["config_digest"]
-            == digest(canonical(row[10]))
+            == digest(canonical(record["config"]))
             and plan.symbol == payload["symbol"] == snapshot["symbol"]
             and plan.side == payload["side"]
             and amount(plan.quantity, positive=True)

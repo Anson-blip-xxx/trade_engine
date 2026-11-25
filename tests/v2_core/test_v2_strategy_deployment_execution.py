@@ -50,13 +50,22 @@ def now():
     return time.time_ns() // 1000000
 
 
-def binding():
+def binding(*, config=None):
     return REGISTRY.bind(
         scope=SCOPE,
         instance_id="structure-a",
         strategy_id="structure",
         code_version="v1",
-        config={"risk": "0.01"},
+        config=config
+        if config is not None
+        else {
+            "risk": "0.01",
+            "capital": {
+                "schema": "strategy-capital-v1",
+                "roundtrip_cost_fraction": "0.002",
+                "price_drift_fraction": "0.01",
+            },
+        },
         generation=1,
         mode="ACTIVE",
     )
@@ -142,8 +151,8 @@ def stored(database, **changes):
     return selected, plan, evidence, intent
 
 
-def ready(database, *, features=None):
-    selected, plan, _, intent = material()
+def ready(database, *, features=None, selected=None):
+    selected, plan, _, intent = material(selected=selected)
     publish(database, selected)
     result = StrategyPlanAdmission(database, REGISTRY).admit(
         plan,
@@ -151,6 +160,7 @@ def ready(database, *, features=None):
         rationale="core contract",
         features=features,
     )
+    risk(database)
     return selected, plan, None, replace(intent, intent_id=result["intent_id"])
 
 
@@ -175,8 +185,38 @@ def executor(database, *, submit=None, query=None):
 
 
 def risk(database):
+    from v2_core.managed_portfolio import publish_capital_snapshot
+
+    with database() as conn:
+        if conn.execute(
+            "SELECT 1 FROM v2_risk_accounts WHERE scope=%s", (SCOPE.key,)
+        ).fetchone():
+            return
     AccountRisk(database).configure(
         SCOPE, AccountPolicy("USDT", "100", 10, 0, "qa", 60000), expected_version=0
+    )
+    PolicyStore(database, SCOPE).patch(
+        {
+            "capital.enabled": True,
+            "portfolio_risk.enabled": True,
+            "sizing.pool_fraction": "0.70",
+        },
+        expected_version=0,
+        reason="qa capital contract",
+    )
+    tick = now()
+    publish_capital_snapshot(
+        database,
+        SCOPE,
+        account={
+            "totalInitialMargin": "0",
+            "availableBalance": "1000",
+            "totalWalletBalance": "1000",
+            "totalMarginBalance": "1000",
+        },
+        started=tick,
+        deadline=tick + 60000,
+        observation_id=str(uuid4()),
     )
 
 
@@ -394,7 +434,13 @@ def test_issued_permit_recovers_original_identity_after_off(database, status):
     selected, _, _, intent = ready(database)
     orders = Orders(database)
     order, _ = orders.prepare(intent.intent_id)
-    orders.transition(order, expected_version=1, status="SUBMITTING", evidence={})
+    orders.transition(
+        order,
+        expected_version=1,
+        status="SUBMITTING",
+        evidence={},
+        risk_reference=RiskReference("SANDBOX", "BTCUSDT", "qa", "100", now()),
+    )
     if status == "UNKNOWN":
         orders.transition(order, expected_version=2, status="UNKNOWN", evidence={})
     publish(database, replace(selected, generation=2, mode="OFF"))
@@ -414,12 +460,18 @@ def test_issued_permit_recovers_original_identity_after_off(database, status):
 def test_filled_open_can_close_after_off_but_cannot_add_open_allocation(database):
     selected, _, _, intent = ready(database)
     orders = Orders(database)
-    order, _ = orders.prepare(intent.intent_id, quantity="0.005")
-    orders.transition(order, expected_version=1, status="SUBMITTING", evidence={})
+    order, _ = orders.prepare(intent.intent_id)
+    orders.transition(
+        order,
+        expected_version=1,
+        status="SUBMITTING",
+        evidence={},
+        risk_reference=RiskReference("SANDBOX", "BTCUSDT", "qa", "100", now()),
+    )
     Ledger(database).record_fill(
         order_id=order,
         exchange_fill_id="qa-open",
-        quantity="0.005",
+        quantity="0.01",
         price="100",
         fee="0",
         fee_currency="USDT",
@@ -441,23 +493,18 @@ def test_filled_open_can_close_after_off_but_cannot_add_open_allocation(database
     assert executor(database).dispatch(closing) == "ACKNOWLEDGED"
 
 
-def test_unmigrated_capital_model_cannot_be_bypassed_by_legacy_looking_features(
+def test_missing_capital_contract_cannot_be_bypassed_by_legacy_looking_features(
     database,
 ):
     _, _, _, intent = ready(
         database,
         features={"evaluation": {"market_plan": {"leverage": 125}}},
-    )
-    risk(database)
-    PolicyStore(database, SCOPE).patch(
-        {"capital.enabled": True, "sizing.pool_fraction": "0.70"},
-        expected_version=0,
-        reason="qa boundary",
+        selected=binding(config={"risk": "0.01"}),
     )
     order, _ = Orders(database).prepare(intent.intent_id)
     assert (
         executor(
-            database, submit=lambda _: pytest.fail("capital adapter absent")
+            database, submit=lambda _: pytest.fail("capital contract absent")
         ).dispatch(order)
         == "DENIED"
     )
@@ -466,7 +513,7 @@ def test_unmigrated_capital_model_cannot_be_bypassed_by_legacy_looking_features(
             "SELECT evidence FROM v2_order_events WHERE order_id=%s AND status='CANCELLED'",
             (order,),
         ).fetchone()[0]
-        assert event["account_risk_code"] == "STRATEGY_CAPITAL_ADAPTER_REQUIRED"
+        assert event["account_risk_code"] == "STRATEGY_CAPITAL_CONFIG_REQUIRED"
         assert conn.execute("SELECT count(*) FROM v2_risk_reservations").fetchone() == (
             0,
         )

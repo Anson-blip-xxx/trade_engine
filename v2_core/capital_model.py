@@ -7,7 +7,8 @@ There is no timed reset of drawdown risk, and no martingale.
 
 import json
 from dataclasses import asdict
-from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from fractions import Fraction
 
 from v2_core.evidence import canonical, digest
 from v2_core.ledger import amount
@@ -241,6 +242,11 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
     LEFT JOIN deliberately exposes missing decision evidence instead of silently
     treating an unknown reservation as zero usage.
     """
+    from v2_core.strategy_capital import (
+        STRATEGY_CAPITAL_RECORD_SQL,
+        read_strategy_capital,
+    )
+
     with money_context():
         base, factor = Decimal(capital["base"]), Decimal(capital["factor"])
         if (
@@ -251,14 +257,16 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
         ):
             raise ValueError("INVALID_CAPITAL_RISK_BUDGET")
         rows = conn.execute(
-            """SELECT r.notional::text,
+            f"""SELECT r.notional::text,
               e.snapshot->'features'->'evaluation'->'market_plan'->>'stop_fraction',
               r.reference->'capital'->>'proposed_stop_risk',
               i.payload->>'quantity',
               e.snapshot->'features'->'evaluation'->'sizing'->>'stop_price',
               e.snapshot->'features'->'evaluation'->'market_plan'->>'side',
               e.snapshot->'features'->'evaluation'->'source_scoring',
-              e.snapshot->'features'->'evaluation'->'market_plan'->>'entry_mode'
+              e.snapshot->'features'->'evaluation'->'market_plan'->>'entry_mode',
+              ({STRATEGY_CAPITAL_RECORD_SQL}) ||
+                jsonb_build_object('reservation_capital',r.reference->'capital')
             FROM v2_risk_reservations r
             LEFT JOIN v2_trade_intents i ON i.intent_id=r.episode_id
             LEFT JOIN v2_decision_evidence e USING(evidence_ref)
@@ -267,17 +275,53 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
             (scope.key, exclude_episode, exclude_episode),
         ).fetchall()
         held = Decimal(0)
-        for notional, stop, original, quantity, stop_price, side, scoring, mode in rows:
-            cost = _decision_cost(settings, scoring, mode)
-            risk = amount(notional, positive=True) * (
-                amount(stop, positive=True) + cost
-            )
+        for (
+            notional,
+            stop,
+            original,
+            quantity,
+            stop_price,
+            side,
+            scoring,
+            mode,
+            record,
+        ) in rows:
+            strategy = read_strategy_capital(record, scope=scope)
+            if strategy is not None:
+                # Revaluing at today's lower cost cannot release yesterday's
+                # larger committed budget. Typed HELD records must retain both
+                # reservation floors bound to this exact immutable plan.
+                try:
+                    proof = record.get("reservation_capital")
+                    if (
+                        type(proof) is not dict
+                        or proof.get("strategy_plan_digest")
+                        != strategy.plan.plan_digest
+                    ):
+                        raise ValueError
+                    frozen_risk = report_amount(proof["proposed_stop_risk"])
+                    amount(proof["reserved_margin"], positive=True)
+                    if frozen_risk <= 0 or frozen_risk != report_amount(original):
+                        raise ValueError
+                except (KeyError, TypeError, ValueError, ArithmeticError):
+                    raise ValueError(
+                        "STRATEGY_CAPITAL_RESERVATION_UNVERIFIED"
+                    ) from None
+                risk = strategy.stop_risk(
+                    notional,
+                    current_cost_fraction=settings["sizing.cost_buffer_fraction"],
+                )
+            else:
+                cost = _decision_cost(settings, scoring, mode)
+                risk = amount(notional, positive=True) * (
+                    amount(stop, positive=True) + cost
+                )
             if original is not None:
                 recorded = report_amount(original)
                 if recorded <= 0:
                     raise ValueError("CAPITAL_ORIGINAL_STOP_RISK_UNVERIFIED")
                 risk = max(risk, recorded)
-            if stop_price is not None:
+            if strategy is None and stop_price is not None:
                 from v2_core.sizing_budget import fixed_stop_risk
 
                 risk = max(
@@ -304,29 +348,51 @@ def portfolio_budget(conn, scope, *, settings, capital, exclude_episode=None):
 
 
 def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
+    from v2_core.strategy_capital import (
+        STRATEGY_CAPITAL_RECORD_SQL,
+        read_strategy_capital,
+    )
+
     if leverage > 5 and not settings["leverage.adaptive_enabled"]:
         raise ValueError("CAPITAL_LEVERAGE_SAFETY_UNVERIFIED")
-    if not settings["portfolio_risk.enabled"]:
-        return {}
     with money_context():
         base, factor = Decimal(capital["base"]), Decimal(capital["factor"])
-        if factor == 0:
-            raise ValueError("CAPITAL_DRAWDOWN_HALT")
         plan = conn.execute(
-            """SELECT e.snapshot->'features'->'evaluation'->'market_plan',
+            f"""SELECT e.snapshot->'features'->'evaluation'->'market_plan',
                 e.snapshot->'features'->'evaluation'->'leverage_decision',i.payload->>'symbol',
                 e.snapshot->'features'->'evaluation'->'sizing_budget',
                 e.snapshot->'features'->'evaluation'->'sizing',i.payload->>'quantity',
-                e.snapshot->'features'->'evaluation'->'source_scoring'
+                e.snapshot->'features'->'evaluation'->'source_scoring',
+                {STRATEGY_CAPITAL_RECORD_SQL},
+                (SELECT r.reference->'capital'->>'proposed_stop_risk'
+                 FROM v2_risk_reservations r WHERE r.episode_id=i.intent_id AND r.status='HELD')
             FROM v2_trade_intents i JOIN v2_decision_evidence e USING(evidence_ref)
             WHERE i.intent_id=%s AND (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)""",
             (episode, *asdict(scope).values()),
         ).fetchone()
+        if plan:
+            strategy = read_strategy_capital(plan[7], scope=scope)
+            if strategy is not None:
+                return _guard_strategy_risk(
+                    conn,
+                    scope,
+                    episode=episode,
+                    strategy=strategy,
+                    original=plan[8],
+                    notional=notional,
+                    leverage=leverage,
+                    settings=settings,
+                    capital=capital,
+                )
+        if not settings["portfolio_risk.enabled"]:
+            return {}
+        if factor == 0:
+            raise ValueError("CAPITAL_DRAWDOWN_HALT")
         if not plan or not isinstance(plan[0], dict):
             raise ValueError("CAPITAL_STOP_PLAN_UNVERIFIED")
         leverage_proof = plan[1]
         symbol = plan[2]
-        sizing_proof, sizing, quantity, scoring = plan[3:]
+        sizing_proof, sizing, quantity, scoring = plan[3:7]
         plan = plan[0]
         cost = _decision_cost(settings, scoring, plan.get("entry_mode"))
         effective_settings = {**settings, "sizing.cost_buffer_fraction": str(cost)}
@@ -431,6 +497,128 @@ def guard_risk(conn, scope, *, episode, notional, leverage, settings, capital):
             "proposed_stop_risk": str(proposed),
             "capital_health": capital,
         }
+
+
+def _guard_strategy_risk(
+    conn, scope, *, episode, strategy, original, notional, leverage, settings, capital
+):
+    """Typed plan admission; never synthesize legacy strategy/scoring fields."""
+    from v2_core.adaptive_leverage import BOOST_CHECKS, safe_margin
+
+    if not settings["capital.enabled"] or not settings["portfolio_risk.enabled"]:
+        raise ValueError("STRATEGY_CAPITAL_RISK_POLICY_REQUIRED")
+    if Decimal(settings["capital.pool_fraction"]) > Decimal(".70"):
+        raise ValueError("CAPITAL_RESERVE_FLOOR_REQUIRED")
+    plan = strategy.plan
+    if (
+        type(leverage) is not int
+        or leverage != plan.leverage
+        or leverage not in {1, 2, 3, 4, 5, 8}
+    ):
+        raise ValueError("STRATEGY_CAPITAL_LEVERAGE_MISMATCH")
+    # Q and reference price are individually persisted facts; their product
+    # may legitimately have up to 36 decimal places. Do not round either fact
+    # or reject the exact derived value at the NUMERIC(38,18) storage boundary.
+    notional = report_amount(str(notional))
+    if notional <= 0:
+        raise ValueError("STRATEGY_CAPITAL_RISK_INPUT_INVALID")
+    price = Fraction(notional) / Fraction(plan.quantity)
+    entry, stop = Fraction(plan.entry_price), Fraction(plan.stop_price)
+    drift = min(
+        Fraction(strategy.price_drift_fraction),
+        Fraction(settings["entry.max_adverse_price_fraction"]),
+    )
+    if (plan.side == "BUY" and price <= stop) or (
+        plan.side == "SELL" and price >= stop
+    ):
+        raise ValueError("STRATEGY_CAPITAL_STOP_CROSSED")
+    if (plan.side == "BUY" and price > entry * (1 + drift)) or (
+        plan.side == "SELL" and price < entry * (1 - drift)
+    ):
+        raise ValueError("STRATEGY_CAPITAL_ENTRY_PRICE_DRIFT")
+    if settings["entry.force_isolated"] and plan.margin_mode != "ISOLATED":
+        raise ValueError("CAPITAL_ISOLATED_MARGIN_REQUIRED")
+    cost = max(strategy.cost_fraction, Decimal(settings["sizing.cost_buffer_fraction"]))
+    proposed = strategy.stop_risk(notional, current_cost_fraction=str(cost))
+    if original is not None:
+        recorded = report_amount(original)
+        if recorded <= 0:
+            raise ValueError("CAPITAL_ORIGINAL_STOP_RISK_UNVERIFIED")
+        proposed = max(proposed, recorded)
+    # The fixed stop must remain safe at the admissible current entry, not just
+    # at the initial price. Include the retained envelope and declared loss.
+    margin_stop = max(
+        strategy.stop_fraction,
+        (proposed / notional - cost).quantize(Decimal("1e-18"), rounding=ROUND_CEILING),
+    )
+    proof = strategy.leverage_proof
+    if settings["leverage.adaptive_enabled"] or leverage > 5:
+        if (
+            not settings["leverage.adaptive_enabled"]
+            or not isinstance(proof, dict)
+            or proof.get("selected") != leverage
+            or leverage
+            not in {
+                settings["leverage.low"],
+                settings["leverage.medium"],
+                settings["leverage.adaptive_high"],
+                settings["leverage.boost"] if settings["leverage.boost_enabled"] else 0,
+            }
+            or not isinstance(proof.get("venue"), dict)
+            or proof["venue"].get("symbol") != plan.symbol
+            or (
+                leverage > 5
+                and (
+                    not settings["leverage.boost_enabled"]
+                    or not all(
+                        proof.get("checks", {}).get(name) is True
+                        for name in BOOST_CHECKS
+                    )
+                )
+            )
+            or not safe_margin(
+                leverage,
+                margin_stop,
+                notional,
+                proof["venue"],
+                {**settings, "sizing.cost_buffer_fraction": str(cost)},
+            )
+        ):
+            raise ValueError("CAPITAL_LEVERAGE_SAFETY_UNVERIFIED")
+        if leverage >= settings["leverage.adaptive_high"] and (
+            Decimal(proof["venue"]["spread_fraction"])
+            > Decimal(settings["leverage.max_spread"])
+            or Decimal(proof["venue"]["top_notional"])
+            < notional * Decimal(settings["leverage.depth_multiple"])
+        ):
+            raise ValueError("CAPITAL_LEVERAGE_LIQUIDITY_UNVERIFIED")
+    base, factor = Decimal(capital["base"]), Decimal(capital["factor"])
+    if (
+        not base.is_finite()
+        or base < 0
+        or not factor.is_finite()
+        or not 0 <= factor <= 1
+    ):
+        raise ValueError("INVALID_CAPITAL_RISK_BUDGET")
+    if factor == 0:
+        raise ValueError("CAPITAL_DRAWDOWN_HALT")
+    if (
+        proposed > base * Decimal(settings["sizing.risk_fraction"]) * factor
+        or notional / leverage
+        > base * Decimal(settings["sizing.max_margin_fraction"]) * factor
+    ):
+        raise ValueError("CAPITAL_SINGLE_TRADE_RISK_EXCEEDED")
+    budget = portfolio_budget(
+        conn, scope, settings=settings, capital=capital, exclude_episode=episode
+    )
+    if proposed > Decimal(budget["remaining_stop_risk"]):
+        raise ValueError("CAPITAL_PORTFOLIO_RISK_EXCEEDED")
+    return {
+        **budget,
+        "proposed_stop_risk": str(proposed),
+        "capital_health": capital,
+        "strategy_plan_digest": plan.plan_digest,
+    }
 
 
 def rehearsal_profile(reference_wallet, *, started_at_ms=0):

@@ -259,8 +259,9 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         JOIN v2_risk_policies p USING(scope,version) WHERE a.scope=%s FOR UPDATE OF a""",
         (scope,),
     ).fetchone()
+    strategy_marker = "strategy_plan" in row[6]
     if config is None:
-        if required:
+        if required or strategy_marker:
             raise AccountRiskDenied("RISK_POLICY_MISSING")
         return None
     version, policy, last = config
@@ -307,11 +308,45 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
 
     from v2_core.runtime_policy import PolicyStore
 
-    capital_enabled = (
-        PolicyStore(lambda: nullcontext(conn), AccountScope(*row[1:5]))
-        .read()
-        .values["capital.enabled"]
+    capital_settings = (
+        PolicyStore(lambda: nullcontext(conn), AccountScope(*row[1:5])).read().values
     )
+    capital_enabled = capital_settings["capital.enabled"]
+    strategy = None
+    if strategy_marker:
+        from v2_core.strategy_capital import read_strategy_capital_for_episode
+
+        try:
+            strategy = read_strategy_capital_for_episode(
+                conn, row[0], scope=AccountScope(*row[1:5])
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            from v2_core.scheduling import diagnostic_code
+
+            raise deny(diagnostic_code(exc)) from None
+        if not capital_enabled or not capital_settings["portfolio_risk.enabled"]:
+            raise deny("STRATEGY_CAPITAL_RISK_POLICY_REQUIRED")
+        order = conn.execute(
+            """SELECT o.leg,o.quantity::text,
+                EXISTS(SELECT 1 FROM v2_orders sibling WHERE sibling.episode_id=o.episode_id
+                    AND sibling.leg='OPEN' AND sibling.order_id<>o.order_id),
+                EXISTS(SELECT 1 FROM v2_orders prior JOIN v2_fills f USING(order_id)
+                    WHERE prior.episode_id=o.episode_id AND prior.leg='OPEN')
+                FROM v2_orders o WHERE o.order_id=%s""",
+            (order_id,),
+        ).fetchone()
+        # Initial adapter deliberately supports one full-quantity opening only.
+        # Splitting/retrying after any OPEN outcome needs a separate proved
+        # remainder reservation; a partial fill never authorizes new exposure.
+        if (
+            order is None
+            or order[0] != "OPEN"
+            or amount(order[1], positive=True)
+            != amount(strategy.plan.quantity, positive=True)
+            or order[2]
+            or order[3]
+        ):
+            raise deny("STRATEGY_CAPITAL_SINGLE_OPEN_REQUIRED")
     if (
         capital_enabled
         and conn.execute(
@@ -328,15 +363,8 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
         or policy["max_positions"] is None
     ):
         from v2_core.managed_portfolio import reserve_capital
-        from v2_core.strategy_plan_store import read_trade_plan
 
         try:
-            plan = read_trade_plan(conn, row[0])
-            if plan is not None:
-                # Capital sizing, pending exposure and portfolio stop-risk
-                # still require a complete schema-specific adapter. Never
-                # forge legacy evaluation fields to activate a new plan.
-                raise ValueError("STRATEGY_CAPITAL_ADAPTER_REQUIRED")
             with money_context():
                 capital = reserve_capital(
                     conn,
@@ -344,9 +372,13 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
                     episode=row[0],
                     notional=amount(row[5]["quantity"], positive=True)
                     * amount(reference.price, positive=True),
-                    leverage=snapshot["features"]["evaluation"]["market_plan"][
-                        "leverage"
-                    ],
+                    leverage=(
+                        strategy.plan.leverage
+                        if strategy is not None
+                        else snapshot["features"]["evaluation"]["market_plan"][
+                            "leverage"
+                        ]
+                    ),
                     now=now,
                 )
         except (ValueError, KeyError, TypeError) as exc:
@@ -360,6 +392,26 @@ def reserve_open(conn, order_id, *, reference=None, required=False):
             existing[2]["price"], positive=True
         ):
             raise deny("RISK_REFERENCE_EXCEEDS_RESERVATION")
+        if strategy is not None:
+            # Existing reservations are immutable. Do not enlarge a short's
+            # fixed-stop risk on a lower entry, or expand after a policy change,
+            # without atomically increasing the recorded account reservation.
+            prior = existing[2].get("capital")
+            if (
+                not isinstance(prior, dict)
+                or prior.get("strategy_plan_digest") != strategy.plan.plan_digest
+            ):
+                raise deny("STRATEGY_CAPITAL_RESERVATION_UNVERIFIED")
+            try:
+                expansion = any(
+                    amount(capital[key], positive=True)
+                    > amount(prior.get(key), positive=True)
+                    for key in ("proposed_stop_risk", "reserved_margin")
+                )
+            except (ValueError, KeyError, TypeError):
+                raise deny("STRATEGY_CAPITAL_RESERVATION_UNVERIFIED") from None
+            if expansion:
+                raise deny("STRATEGY_CAPITAL_RESERVATION_EXPANSION_REQUIRED")
         if (
             policy["max_notional"] is not None
             and used > amount(policy["max_notional"], positive=True)

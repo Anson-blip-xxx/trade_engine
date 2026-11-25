@@ -53,7 +53,7 @@ def plan(mode="TREND_BREAKOUT"):
 
 
 def held(proof, *, mode="TREND_BREAKOUT", original="5", notional="1000"):
-    return (notional, "0.005", original, "10", "99.5", "LONG", proof, mode)
+    return (notional, "0.005", original, "10", "99.5", "LONG", proof, mode, None)
 
 
 class ReadOnlyRows:
@@ -69,6 +69,8 @@ class ReadOnlyRows:
             {"reason": "SIZED", "quantity": "10", "stop_price": "99.5"},
             "10",
             proof,
+            None,
+            None,
         )
 
     def execute(self, sql, _args):

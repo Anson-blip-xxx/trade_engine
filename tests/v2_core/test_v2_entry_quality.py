@@ -135,8 +135,8 @@ def test_budget_snapshot_and_final_guard_use_same_original_reservations(
             # Query now carries both frozen original risk and the actual fixed
             # stop. Neither may be discarded when residual risk is computed.
             return [
-                ("100", "0.048", original[0], "1", "95.2", "LONG", None, None),
-                ("200", "0.048", original[1], "2", "95.2", "LONG", None, None),
+                ("100", "0.048", original[0], "1", "95.2", "LONG", None, None, None),
+                ("200", "0.048", original[1], "2", "95.2", "LONG", None, None, None),
             ]
 
     conn = Conn()
