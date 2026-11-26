@@ -79,6 +79,7 @@ class BoundExecutionGuard:
         Route/registry row locks remain on this connection through the enclosing
         commit. Do not call across network work or catch failure and continue the
         transaction: a failed check requires the caller's complete rollback.
+        The returned phase belongs only to this fenced transaction.
         """
         if (
             type(scope) is not AccountScope
@@ -90,11 +91,14 @@ class BoundExecutionGuard:
         connection.execute(
             sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(EXECUTION_GUARD_ROLE))
         )
-        self._routes.require_transaction(connection, **self._args, operation=operation)
+        phase = self._routes.require_transaction(
+            connection, **self._args, operation=operation
+        )
         self._require_account_scope(connection, scope)
         connection.execute(
             sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(prior_role))
         )
+        return phase
 
     def _require_account_scope(self, connection, scope):
         bound_scope = connection.execute(

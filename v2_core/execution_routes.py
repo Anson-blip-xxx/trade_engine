@@ -225,6 +225,7 @@ class ExecutionRoutes:
 
         No connection, commit or network operation is owned here. Call before
         intent/account locks; the caller retains these locks until its commit.
+        Return the verified phase; this is not a reusable authorization token.
         """
         tenant, registry, token = map(uid, (tenant_id, registry_id, worker_token))
         if (
@@ -251,6 +252,7 @@ class ExecutionRoutes:
         ):
             raise ValueError("EXECUTION_FENCED")
         self._binding(c, tenant, registry, environment, binding_version)
+        return row[4]
 
     @contextmanager
     def submit_guard(self, **binding):

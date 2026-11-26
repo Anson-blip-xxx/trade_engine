@@ -1,0 +1,188 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "base_commit": "853efd4866a7a1dbc6c1559abbf0ea1d36691ed4",
+  "phase": "P1 twelfth increment: explicit typed sizing, single-signal producer bridge, bounded archive reads and audited never-submitted cleanup",
+  "status": "ISOLATED_COMPONENTS_ACCEPTED_NOT_ACTIVATED",
+  "implemented": [
+    "Exact typed sizing with explicit scoped account/quote/filter/leverage facts, maximum 70% margin pool after venue usage and pending reservations, portfolio residual stop risk, costs/drift, floor quantity and outward stop tick. No fabricated legacy score or automatic leverage selection.",
+    "Single-signal producer reads original durable receipt/candidate before fact I/O, then exact environment catalog, closed server bars, scoped sizing and plan-bound safety context. First writer freezes immutable original identity.",
+    "Freeze locks route then signal then account, checks current deployment and PG time in the commit transaction. Absolute expiry includes catalog/structure/availability/decision/account/filter/venue/book/quote limits, including safety read and lock waits.",
+    "Read-only single-symbol SANDBOX archive reader bounds raw rows including duplicates, bytes and time; checks complete windows, scope, payload digest, conflicting duplicates and candle shape. Dedicated exact read-only client profile, no implicit LIMIT, no retries, verified short receive timeout, driver-setting preflight.",
+    "Current MANAGE owner may terminate only order-free RECEIVED or a sole original MARKET PREPARED request with no fills/exchange identity/submission event, after original plan/opportunity/deployment proof. DRAINING/OFF/replaced/expired causes are journaled; UNKNOWN/SUBMITTING/ACK preserve risk and reconciliation.",
+    "Execution route guard returns phase only after full current account/binding/token validation and role restoration, while locks remain held until business commit."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "Single temporary PG16/Redis harness, Unix sockets, external TCP forbidden by test boundary. ClickHouse client tests are offline/fake responses, including installed real driver validation; no venue or running database calls.",
+    "selections": [
+      "tests/v2_core/test_v2_strategy_candidate_producer.py",
+      "tests/v2_core/test_v2_strategy_sizing.py",
+      "tests/v2_core/test_v2_strategy_market_reader.py",
+      "tests/v2_core/test_v2_strategy_pending_cleanup.py",
+      "tests/v2_core/test_v2_strategy_candidate_builder.py",
+      "tests/v2_core/test_v2_trend_structure.py",
+      "tests/v2_core/test_v2_trend_structure_flow.py",
+      "tests/v2_core/test_v2_strategy_entry_job.py",
+      "tests/v2_core/test_v2_entry_worker.py",
+      "tests/v2_core/test_v2_entry_worker_process.py",
+      "tests/v2_core/test_v2_entry_worker_database_process.py",
+      "tests/v2_core/test_v2_strategy_entry_store.py",
+      "tests/v2_core/test_v2_strategy_entry_worker.py",
+      "tests/v2_core/test_v2_strategy_entry_scheduler.py",
+      "tests/v2_core/test_v2_strategy_plan_admission.py",
+      "tests/v2_core/test_v2_strategy_prepare.py",
+      "tests/v2_core/test_v2_strategy_duplicate_signals.py",
+      "tests/v2_core/test_v2_strategy_duplicate_scheduler.py",
+      "tests/v2_core/test_v2_strategy_deployment.py",
+      "tests/v2_core/test_v2_strategy_deployment_execution.py",
+      "tests/v2_core/test_v2_strategy_execution_context.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_ready_queue.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_scheduler_metrics.py",
+      "tests/v2_core/test_v2_advisory_scheduler_isolation.py",
+      "tests/v2_core/test_v2_capacity_decline_scheduling.py",
+      "tests/v2_core/test_v2_directional_context_expiry.py",
+      "tests/v2_core/test_v2_bounded_job.py",
+      "tests/v2_core/test_v2_worker_group.py",
+      "tests/v2_core/test_v2_settlement_execution_fence.py",
+      "tests/v2_core/test_v2_settlement_job_process.py",
+      "tests/v2_core/test_v2_settlement_worker_process.py",
+      "tests/v2_core/test_v2_settlement_worker.py",
+      "tests/v2_core/test_v2_managed_settlement_work.py",
+      "tests/v2_core/test_v2_strategy_capital.py",
+      "tests/v2_core/test_v2_strategy_capital_guard.py",
+      "tests/v2_core/test_v2_strategy_capital_evidence.py",
+      "tests/v2_core/test_v2_strategy_capital_execution.py",
+      "tests/v2_core/test_v2_strategy_capital_settlement.py",
+      "tests/v2_core/test_v2_capital_model.py",
+      "tests/v2_core/test_v2_execution_routes.py",
+      "tests/v2_core/test_v2_execution_guard_acl.py",
+      "tests/v2_core/test_v2_strategy_opening_gate.py",
+      "tests/v2_core/test_v2_opening_cancel.py",
+      "tests/v2_core/test_v2_opening_quarantine.py"
+    ],
+    "selected_file_count": 46,
+    "test_counts_overlap_do_not_sum": true,
+    "intermediate_runs": [
+      {
+        "scope": "Cleanup, execution routes, settlement transaction fence",
+        "passed": 65,
+        "failed": 0,
+        "seconds": "58.11",
+        "diagnostics": "/tmp/v2-data-qa.TvQOmJ/pytest.log"
+      },
+      {
+        "scope": "Initial producer plus sizing/reader",
+        "passed": 219,
+        "failed": 19,
+        "seconds": "14.68",
+        "diagnostics": "/tmp/v2-data-qa.58Yb6B/pytest.log",
+        "correction": "Producer PG fixture omitted existing shared-market migration. Added it only in the isolated test schema."
+      },
+      {
+        "scope": "Initial producer fixture serialization",
+        "passed": 1,
+        "failed": 18,
+        "seconds": "14.74",
+        "diagnostics": "/tmp/v2-data-qa.SN6zjX/pytest.log",
+        "correction": "QA minute-list serialization incorrectly used object-only canonical(); use JSON array encoding accepted and revalidated by ClosedMarketBars."
+      },
+      {
+        "scope": "Producer sizing/freeze/PREPARED integration",
+        "passed": 19,
+        "failed": 0,
+        "seconds": "17.77",
+        "diagnostics": "/tmp/v2-data-qa.UsVRr4/pytest.log"
+      },
+      {
+        "scope": "Additional expiry/race coverage",
+        "passed": 30,
+        "failed": 1,
+        "seconds": "27.61",
+        "diagnostics": "/tmp/v2-data-qa.eQ0ZvF/pytest.log",
+        "correction": "Rollback assertion assumed an empty evidence table despite the fixture's preexisting capital snapshot. Assert original evidence count is unchanged, without relaxing business checks."
+      },
+      {
+        "scope": "Final producer including restricted role and fresh-deadline/final-writer recovery",
+        "passed": 32,
+        "failed": 0,
+        "seconds": "29.99",
+        "diagnostics": "/tmp/v2-data-qa.cK0tU6/pytest.log"
+      }
+    ],
+    "audit_corrections": [
+      "Clipped frozen plan expiry to every fact-validity deadline, not only source/plan TTL, and tested safety-reader delay and PG final transaction expiry.",
+      "Exact freeze-fence errors now reread original durable proof to recover a concurrent first writer even after a deployment switch.",
+      "Rejected driver implicit LIMIT, retries, unverifiable timeouts and mismatched/drop-ignored settings before querying. Existing shadow profile is explicitly incompatible; no runtime profile change was performed."
+    ],
+    "static_checks": {
+      "ruff_check": "passed",
+      "ruff_format_check": "passed",
+      "git_diff_check": "passed"
+    },
+    "sha256_before": {
+      "services/v2_execution_guard.py": "5f44caec24c81b140b8b45475eac0aeda4127b5dd8adc715e3b5771eea182d4d",
+      "v2_core/execution_routes.py": "045915f72573ac16e7463000ebc62b5ccd5e234cb69c740d52bb35bf64c3207e",
+      "services/v2_strategy_candidate_producer.py": "484f7e9a09cc10c5b88e428c07f07df4577174d1284fe048b3b2e35d348bddc8",
+      "services/v2_strategy_market_reader.py": "fb1a35bb7f2fda491e2584f82080142be9b8bc489db03c28c5ce8acf2d7126bd",
+      "v2_core/strategy_sizing.py": "ce7ff89702d8932ffa689e101fba02b3ce5d477e0d4bfee31aab61624db1a9dc",
+      "v2_core/strategy_pending_cleanup.py": "28ff9c8cc52837ecc49f5ba64a8eefdad20bfd5147c54e1bc39798746bc105ab",
+      "tests/v2_core/test_v2_strategy_candidate_producer.py": "74e76fd3ce880bd2e1b23c9ba484b791795966541400f7261b27bf1b1a0199b4",
+      "tests/v2_core/test_v2_strategy_market_reader.py": "cb766724a8c61860d5f4d7221aebd0978e33c6f89e4d0fc6071d6ebbc596db51",
+      "tests/v2_core/test_v2_strategy_sizing.py": "995c8837a2cce436b4ebb2088fef7d7385475cc77b67f6a4a9ba8fa665a2df5f",
+      "tests/v2_core/test_v2_strategy_pending_cleanup.py": "094474a41f6128d9bae04a1753d7850f5056b93bbde5fc7e0052ad784aff0471"
+    },
+    "final_run": {
+      "passed": 1768,
+      "failed": 0,
+      "seconds": "451.62",
+      "diagnostics": "/tmp/v2-data-qa.xHp7bg/pytest.log",
+      "database_retained": false,
+      "source_hashes_unchanged": true
+    },
+    "sha256_after": {
+      "services/v2_execution_guard.py": "5f44caec24c81b140b8b45475eac0aeda4127b5dd8adc715e3b5771eea182d4d",
+      "v2_core/execution_routes.py": "045915f72573ac16e7463000ebc62b5ccd5e234cb69c740d52bb35bf64c3207e",
+      "services/v2_strategy_candidate_producer.py": "484f7e9a09cc10c5b88e428c07f07df4577174d1284fe048b3b2e35d348bddc8",
+      "services/v2_strategy_market_reader.py": "fb1a35bb7f2fda491e2584f82080142be9b8bc489db03c28c5ce8acf2d7126bd",
+      "v2_core/strategy_sizing.py": "ce7ff89702d8932ffa689e101fba02b3ce5d477e0d4bfee31aab61624db1a9dc",
+      "v2_core/strategy_pending_cleanup.py": "28ff9c8cc52837ecc49f5ba64a8eefdad20bfd5147c54e1bc39798746bc105ab",
+      "tests/v2_core/test_v2_strategy_candidate_producer.py": "74e76fd3ce880bd2e1b23c9ba484b791795966541400f7261b27bf1b1a0199b4",
+      "tests/v2_core/test_v2_strategy_market_reader.py": "cb766724a8c61860d5f4d7221aebd0978e33c6f89e4d0fc6071d6ebbc596db51",
+      "tests/v2_core/test_v2_strategy_sizing.py": "995c8837a2cce436b4ebb2088fef7d7385475cc77b67f6a4a9ba8fa665a2df5f",
+      "tests/v2_core/test_v2_strategy_pending_cleanup.py": "094474a41f6128d9bae04a1753d7850f5056b93bbde5fc7e0052ad784aff0471"
+    }
+  },
+  "runtime": {
+    "activated": false,
+    "restarted": false,
+    "exchange_called": false,
+    "runtime_database_changed": false,
+    "runtime_data_deleted": false,
+    "observed_inactive": [
+      "trade-v2-execution-controller.service",
+      "trade-v2-testnet-daemon.service",
+      "trade-v2-testnet-watchdog.service"
+    ],
+    "disk": {
+      "total_gib_displayed": 296,
+      "used_gib_displayed": 213,
+      "available_gib_displayed": 71,
+      "used_percent": 76
+    },
+    "account_flatness": "NOT_REQUERIED; service inactivity is not venue flatness proof"
+  },
+  "remaining": [
+    "Trusted authenticated account/capital/reservation/leverage facts provider and provenance persistence; helpers in integration tests are synthetic.",
+    "Dedicated archive client/profile and transport-bounded process composition; existing shadow profile cannot be reused unchanged.",
+    "Independent catalog-driven closed-structure scan and bounded opportunity rotation. Legacy S3/TV inbox events do not prove full strategy coverage.",
+    "Audited terminal/expiry handling for unfrozen UNKNOWN/NO_SETUP/NO_BUDGET work.",
+    "Controller composition of entry/management/settlement and cleanup owner, permissions, source/job health and switch/stop acceptance.",
+    "Same-episode dispatch/fill/protection/exit/fees/settlement fault acceptance, historical-scale pressure and authorized Testnet observation.",
+    "Strategy common-opportunity, portfolio-capital/cost and prospective/out-of-sample comparison; component tests do not demonstrate profitability.",
+    "Archive manifest/export/isolated restore and safe retention work remains separate; no trading evidence deleted."
+  ]
+}
