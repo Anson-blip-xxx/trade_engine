@@ -146,6 +146,11 @@ class ExecutionController:
             )
 
     def start(self, target, *, recovering=False):
+        # A revoked token is not proof that the old OS process has exited.
+        # It may still hold protocol locks or be finishing recovery writes.
+        # Never overwrite the only handle that can confirm its termination.
+        if self.worker is not None:
+            return False
         token = str(uuid4())
         try:
             self.record(
@@ -211,6 +216,20 @@ class ExecutionController:
         actual, desired = self.actual(), self.desired()
         if (
             actual
+            and actual["phase"] in {"BLOCKED", "STOPPED"}
+            and self.worker is not None
+        ):
+            # A failed stop must remain authoritative even when a newer route
+            # request arrives. First retire that process, then recover the
+            # SAME source in manage-only mode before any account handover.
+            self.record(actual, "BLOCKED", blockers=["SOURCE_PROCESS_NOT_STOPPED"])
+            if not self.worker.stop():
+                return
+            self.worker = None
+            self.start(actual, recovering=True)
+            return
+        if (
+            actual
             and actual["phase"] == "BLOCKED"
             and actual["blockers"] == ["WORKER_START_FAILED"]
             and self.worker is None
@@ -235,6 +254,7 @@ class ExecutionController:
                         actual, "BLOCKED", blockers=["SOURCE_PROCESS_NOT_STOPPED"]
                     )
                     return
+                self.worker = None
                 self.start(actual, recovering=True)
                 return
             if hasattr(self.worker, "healthy") and not self.worker.healthy():

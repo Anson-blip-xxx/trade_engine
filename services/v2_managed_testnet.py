@@ -359,6 +359,101 @@ class TestnetPorts:
         return ChildWorker(self.tenant, target, self.values)
 
 
+def _worker_mode(values):
+    mode = values.get("V2_CONTROLLER_WORKER_MODE", "LEGACY")
+    if mode not in ("LEGACY", "MANAGEMENT_ONLY"):
+        raise ValueError("EXPLICIT_CONTROLLER_WORKER_MODE_REQUIRED")
+    if (
+        mode == "MANAGEMENT_ONLY"
+        and values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") != "false"
+    ):
+        raise ValueError("MANAGEMENT_ONLY_ENTRIES_DISABLED_REQUIRED")
+    return mode
+
+
+def _management_child(tenant, target, values, stop, release, channel, diagnostics):
+    """One managed writer, without constructing any strategy-side services."""
+    from services.v2_management_process import (
+        ManagementProcessConfig,
+        create_management_process,
+    )
+    from services.v2_management_runtime import ManagementBinding
+
+    scope = scope_for(tenant, target)
+    private = private_for(tenant, target, scope)
+    config = ManagementProcessConfig.from_mapping(
+        {
+            "V2_ACCOUNT_ID": scope.account_id,
+            "V2_ENVIRONMENT": "SANDBOX",
+            "V2_INTERVAL_SECONDS": values.get("V2_INTERVAL_SECONDS"),
+            "V2_EXIT_FEE_RATE": values.get("V2_EXIT_FEE_RATE"),
+            "V2_SHARED_MARKET": values.get("V2_SHARED_MARKET", "false"),
+            "V2_ENABLE_ENTRIES": "false",
+            "V2_ENABLE_PROTECTION_WRITES": "true",
+            "V2_ENABLE_REDUCE_ONLY_EXITS": "true",
+            "V2_TESTNET_WRITE_ACK": "SANDBOX:" + scope.account_id,
+        }
+    )
+    binding = ManagementBinding(
+        scope=scope,
+        tenant_id=tenant,
+        registry_id=target["target_registry"],
+        binding_version=target["binding_version"],
+        epoch=target["epoch"],
+        worker_token=target["worker_token"],
+    )
+    connect = database()
+    guard = create_execution_guard(connect, **binding.guard_args)
+    guard.preflight()
+    supervisor = create_management_process(
+        config,
+        {
+            "BINANCE_TESTNET_API_KEY": private["api_key"],
+            "BINANCE_TESTNET_API_SECRET": private["api_secret"],
+        },
+        connect=connect,
+        binding=binding,
+        execution_guard=guard,
+        clock_ms=lambda: time.time_ns() // 1000000,
+    )
+    channel.send("READY")
+    while not release.wait(0.5):
+        if stop.is_set():
+            return
+    while not stop.is_set():
+        started = time.monotonic()
+        with guard.connect() as c:
+            row = c.execute(
+                "SELECT phase,worker_token::text FROM v2_execution_routes WHERE tenant_id=%s AND environment='SANDBOX'",
+                (tenant,),
+            ).fetchone()
+        if (
+            row is None
+            or row[1] != binding.worker_token
+            or row[0] not in {"ACTIVE", "DRAINING"}
+        ):
+            return
+        degraded = False
+        try:
+            result = supervisor.run_once(stop_requested=stop.is_set)
+            if not isinstance(result, dict) or result.get("status") != "CLEAR":
+                raise ValueError("MANAGEMENT_CYCLE_NOT_CLEAR")
+            channel.send("CYCLE")
+            diagnostics.succeeded()
+        except Exception as exc:  # noqa: BLE001 - retain only redacted diagnostics
+            degraded = True
+            diagnostics.failed(exc)
+            channel.send("DEGRADED")
+        stop.wait(
+            cycle_delay(
+                config.daemon.interval_seconds,
+                started=started,
+                finished=time.monotonic(),
+                degraded=degraded,
+            )
+        )
+
+
 def child_main(tenant, target, values, stop, release, channel):
     maintenance = None
     cache = archive = process = None
@@ -366,6 +461,11 @@ def child_main(tenant, target, values, stop, release, channel):
         cycle_diagnostics = _CycleDiagnostics(
             int(values.get("V2_CONTROLLER_CYCLE_DIAGNOSTIC_INTERVAL_SECONDS", "60"))
         )
+        if _worker_mode(values) == "MANAGEMENT_ONLY":
+            _management_child(
+                tenant, target, values, stop, release, channel, cycle_diagnostics
+            )
+            return
         import clickhouse_connect
         import redis
 
@@ -547,6 +647,7 @@ def child_main(tenant, target, values, stop, release, channel):
 
 class ChildWorker:
     def __init__(self, tenant, target, values):
+        self.mode = _worker_mode(values)
         self.last_progress = time.monotonic()
         self.last_contact = self.last_progress
         self.progress_timeout = int(
@@ -606,6 +707,14 @@ class ChildWorker:
                         self.last_progress = self.last_contact
             except EOFError:
                 return False
+        if (
+            getattr(self, "mode", "LEGACY") == "MANAGEMENT_ONLY"
+            and time.monotonic() - self.last_contact > self.progress_timeout
+        ):
+            # Only a completed loop response is contact. A stuck management
+            # process must be fenced, stopped and recovered by the controller.
+            # Responsive DEGRADED cycles retain their owned protection worker.
+            return False
         return self.process.is_alive()
 
     def healthy(self):
