@@ -57,6 +57,27 @@
     "account_ledger_before_start": {"SETTLED": 950, "ABORTED": 59, "nonterminal": 0},
     "disk_available_before_release": "70 GiB; no historical trading data removed"
   },
+  "actual_paused_startup": {
+    "code_commit": "a04600a49ac8e185f57b766ed0561c85adc3723f",
+    "release": "/opt/trade-engine-v2/releases/typed-runtime-a04600a49ac8-20261126",
+    "controller_link": "/opt/trade-engine-v2/execution-controller",
+    "first_start": "2026-11-26T17:35:28+08:00",
+    "normal_restarts": ["2026-11-26T17:36:26+08:00", "2026-11-26T17:38:25+08:00"],
+    "systemd": {"ActiveState": "active", "SubState": "running", "NRestarts": 0, "enabled": true, "Restart": "on-failure", "RestartUSec": "10s"},
+    "process_environment_verified": {"V2_ENVIRONMENT": "SANDBOX", "V2_CONTROLLER_WORKER_MODE": "TYPED_STRATEGY", "V2_CONTROLLER_ENABLE_ENTRIES": "false", "V2_ENABLE_ENTRIES": "false", "V2_TYPED_RECOVER_PAUSED": "true"},
+    "route": "DRAINING, epoch 34, same account and credential binding, no ACTIVE event",
+    "management_cycles_observed": "CLEAR for recovery, protection and exits after startup and restart; current STARTED is only in-progress, not success",
+    "entry_auxiliary": "RUNNING with entry dispatch disabled; initial complete catalog rotation observed",
+    "typed_business_alerts_observed": [],
+    "typed_queue_scope": "UNKNOWN/NOT_EVALUATED, not silently called healthy",
+    "open_orders_before_and_after": 1009,
+    "last_open_order_updated_at_before_and_after": "2026-11-25T10:16:11.456692+08:00",
+    "new_strategy_intents": 0,
+    "shutdown": "Owned workers confirmed stopped. Second restart verified old main and all recorded direct children gone. systemd SIGKILL cleanup was matched to the recorded multiprocessing.resource_tracker PID, not a trading job. This is not an all-process graceful-exit claim.",
+    "other_services_restarted": false,
+    "automatic_restart_tested_by_crash": false,
+    "host_reboot_tested": false
+  },
   "not_proven": [
     "natural Binance Testnet matching lifecycle with the new strategy",
     "full typed queue business coverage",

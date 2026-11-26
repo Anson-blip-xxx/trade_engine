@@ -64,7 +64,26 @@ Ruff/diff 检查通过，QA 数据库已回收。详见
 [可核查 QA 记录](../qa/20261126_typed_runtime_paused_startup.json)。
 
 真实只读检查已验证实际 Python、表/权限、依赖和专用行情用户，BTC/ETH 各 1440 根
-连续已收盘分钟线可读。部署启动后的实际证据另记，不用前述测试代替。
+连续已收盘分钟线可读。
+
+## 服务器实测结果（UTC+8）
+
+2026-11-26 17:35:28 首次启动，17:36:26 和 17:38:25 两次正常重启。
+正式目录为 `/opt/trade-engine-v2/releases/typed-runtime-a04600a49ac8-20261126`，
+代码提交 `a04600a49ac8e185f57b766ed0561c85adc3723f`，已推送 V2 分支。
+实际进程环境确认 TYPED_STRATEGY、双 entry=false，部署保持 OFF。
+
+控制器 active/running，保持同账户 epoch 34 的 DRAINING；未产生 ACTIVE 事件。
+启动/重启后观测到 recovery、protection、exits 都为 CLEAR 的完整管理周期；
+辅助入场维护 RUNNING，首次完整目录轮转已完成。typed 告警集合为空，
+但完整队列观测仍是 UNKNOWN/NOT_EVALUATED，不能推导所有交易功能健康。
+OPEN 订单数量保持 1009，最后更新时间保持 11 月 25 日 10:16:11，新策略意图为零。
+
+停止日志确认交易 worker 无强制终止、controller 确认停止。第二次重启专门记录旧进程，
+主进程及全部直接子进程已消失；systemd 最后清理的 SIGKILL 对应已记录的 Python
+`multiprocessing.resource_tracker`，不冒称所有辅助进程都是优雅退出。
+服务已 enabled，故障重试配置 on-failure/10 秒；没有做整机重启或主动崩溃演练。
+数据库、行情、看板和 TV 入口未重启，旧 release 保留可回滚。
 
 仍需后续独立完成：全队列业务健康观测、自然信号的授权 Testnet 撮合闭环、
 多日容量/故障验收、共同机会成本后样本外对照；在此之前不宣称恢复交易或具备盈利优势。
