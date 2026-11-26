@@ -302,8 +302,21 @@ def test_order_free_unknown_intent_is_not_completed_preparation(database):
             "INSERT INTO v2_strategy_tasks(consumer,signal_id) VALUES(%s,%s)",
             (worker.scope.consumer, identity),
         )
-    assert scheduler(worker).run_once(limit=1) == {identity: "UNCHANGED"}
-    assert task(database, worker, identity)[1] is False
+    queue = scheduler(worker)
+    assert queue.run_once(limit=1) == {identity: "UNCHANGED"}
+    assert task(database, worker, identity)[1:] == (
+        False,
+        "STRATEGY_INTENT_RECONCILIATION_REQUIRED",
+        None,
+    )
+    assert queue.last_run_diagnostics["reconciliation_waits"] == [
+        {
+            "signal_id": identity,
+            "intent_id": accepted["intent_id"],
+            "reason": "STRATEGY_INTENT_RECONCILIATION_REQUIRED",
+            "execution_authorized": False,
+        }
+    ]
     assert counts(database)[5] == 0
 
 

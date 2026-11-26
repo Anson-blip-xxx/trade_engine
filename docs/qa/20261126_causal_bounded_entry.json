@@ -1,0 +1,174 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "base_commit": "0089ff83c56a9efb875a248df7e77e8d75a474f0",
+  "phase": "P1 eleventh increment: causal server-bar candidates and bounded fenced entry jobs; recoverable archive design",
+  "status": "ISOLATED_CAUSAL_ENTRY_COMPONENTS_ACCEPTED_NOT_ACTIVATED",
+  "implemented": [
+    "Explicit-policy causal candidate builder reuses server-owned closed 15m trend_structure. Symmetric breakout/pullback candidates, zero versus missing flow, exact threshold comparisons, no LLM/venue/sizing side effects.",
+    "Opportunity identity is stable across signal sources, builder/strategy versions and parameter changes for the same market/environment/symbol/side/closed-15m anchor. It does not identify an entire multi-bar trend.",
+    "Candidate assembly binds an externally sized TradePlan to exact policy, source digest, structure/time and execution safety evidence. Stored candidates or receipts must recover original facts, not reevaluate.",
+    "Independent database-only entry batch verifies current route and full account binding inside every business write transaction, before signal/intent/account locks. No exchange dispatch port.",
+    "Bounded cold-page discovery checkpoint survives disposable job restarts, wraps for late commits and advances only after confirmed discovery. Single-row hints, not append-only history or execution authority.",
+    "Direct spawn entry owner enforces absolute work/stop/terminate/kill budgets, rotates sources, retains unconfirmed child ownership and separates owner liveness from trading health.",
+    "Missing frozen inputs are visible typed waits; order-free UNKNOWN intents remain pending with reconciliation diagnostics/backoff; verified terminal intents are not falsely reported BLOCKED.",
+    "Dependency-aware archive design separates immutable content, permanent idempotency identity, FK/JSON dependencies, isolated restore proof and future cleanup. Design only; no live deletion."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "One temporary PG16/Redis harness at a time, Unix sockets, isolated conftest denies external TCP. No runtime configuration, exchange requests or runtime schema changes.",
+    "intermediate_runs": [
+      {
+        "scope": "Initial entry job cases",
+        "passed": 18,
+        "failed": 2,
+        "seconds": "16.90",
+        "diagnostics": "/tmp/v2-data-qa.pUZ8kt/pytest.log",
+        "correction": "QA route fixture tried BLOCKED/STOPPED with non-null worker token, violating existing schema constraints. Fixed fixture to reflect legal route state; no production constraints relaxed."
+      },
+      {
+        "scope": "Entry job/typed scheduler/worker",
+        "passed": 104,
+        "failed": 0,
+        "seconds": "26.80",
+        "diagnostics": "/tmp/v2-data-qa.eaXa15/pytest.log"
+      },
+      {
+        "scope": "Added BUY/SELL server-bar integration",
+        "passed": 20,
+        "failed": 2,
+        "seconds": "19.31",
+        "diagnostics": "/tmp/v2-data-qa.0BKJkG/pytest.log",
+        "correction": "Test queried nonexistent v2_orders.side. Corrected assertion to join immutable intent.payload.side; both integration paths already reached PREPARED/dedup before that assertion."
+      },
+      {
+        "scope": "Entry job and real PG+spawn",
+        "passed": 30,
+        "failed": 0,
+        "seconds": "33.89",
+        "diagnostics": "/tmp/v2-data-qa.CMePmE/pytest.log"
+      },
+      {
+        "scope": "31-file selected regression before strengthening two fault assertions",
+        "passed": 1040,
+        "failed": 0,
+        "seconds": "294.82",
+        "diagnostics": "/tmp/v2-data-qa.BNF0yO/pytest.log",
+        "note": "Subsequently strengthened real S3 progress after killed TV transaction and added committed-checkpoint response loss. Final rerun recorded separately."
+      }
+    ],
+    "selections": [
+      "tests/v2_core/test_v2_strategy_candidate_builder.py",
+      "tests/v2_core/test_v2_trend_structure.py",
+      "tests/v2_core/test_v2_trend_structure_flow.py",
+      "tests/v2_core/test_v2_strategy_entry_job.py",
+      "tests/v2_core/test_v2_entry_worker.py",
+      "tests/v2_core/test_v2_entry_worker_process.py",
+      "tests/v2_core/test_v2_entry_worker_database_process.py",
+      "tests/v2_core/test_v2_strategy_entry_store.py",
+      "tests/v2_core/test_v2_strategy_entry_worker.py",
+      "tests/v2_core/test_v2_strategy_entry_scheduler.py",
+      "tests/v2_core/test_v2_strategy_plan_admission.py",
+      "tests/v2_core/test_v2_strategy_prepare.py",
+      "tests/v2_core/test_v2_strategy_duplicate_signals.py",
+      "tests/v2_core/test_v2_strategy_duplicate_scheduler.py",
+      "tests/v2_core/test_v2_strategy_deployment.py",
+      "tests/v2_core/test_v2_strategy_deployment_execution.py",
+      "tests/v2_core/test_v2_strategy_execution_context.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_ready_queue.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_scheduler_metrics.py",
+      "tests/v2_core/test_v2_advisory_scheduler_isolation.py",
+      "tests/v2_core/test_v2_capacity_decline_scheduling.py",
+      "tests/v2_core/test_v2_directional_context_expiry.py",
+      "tests/v2_core/test_v2_bounded_job.py",
+      "tests/v2_core/test_v2_worker_group.py",
+      "tests/v2_core/test_v2_settlement_execution_fence.py",
+      "tests/v2_core/test_v2_settlement_job_process.py",
+      "tests/v2_core/test_v2_settlement_worker_process.py",
+      "tests/v2_core/test_v2_settlement_worker.py",
+      "tests/v2_core/test_v2_managed_settlement_work.py"
+    ],
+    "test_counts_overlap_do_not_sum": true,
+    "covered_faults": [
+      "Closed-minute/15m causality, gaps/future facts, zero versus missing taker flow, exact arithmetic under low ambient Decimal precision, symmetric thresholds and no breakout-buffer bypass.",
+      "Cross-source same-opportunity TV/S3 admission to one original intent and one PREPARED order for BUY and SELL, using synthetic closed server bars and isolated financial fixtures.",
+      "Route phase/epoch/account/token revocation before discovery and between admission/prepare; original identity resumes after permission restoration.",
+      "Business transaction role restored and route row lock retained until commit; cooperative stop rolls back uncommitted writes.",
+      "Direct child SIGTERM resistance and forced kill; backend transaction rollback proven by NOWAIT exclusive lock; TV receipt/intent absent; real S3 candidate for the same opportunity becomes sole winner and reaches PREPARED.",
+      "Committed financial work with lost IPC result reuses original intent/order/client IDs and exactly one PREPARED event; no SUBMIT.",
+      "Cursor survives disposable jobs and bounded scans wrap for late commits. Both pre-write checkpoint failure and committed-checkpoint acknowledgement loss preserve discoverability and independent hot work.",
+      "UNCHANGED terminal versus order-free UNKNOWN differentiation; unfrozen live signal stays DEFERRED without network context, new intent or false terminal."
+    ],
+    "static_checks": {
+      "ruff": "PASS",
+      "format_changed_python": "PASS",
+      "python_files": 11,
+      "git_diff_check": "PASS",
+      "preexisting_format_note": "A broader format check found an unrelated existing wrap in tests/v2_core/test_v2_trend_structure.py. That unmodified test file was preserved; all 11 changed Python files pass."
+    },
+    "selected_regression": {
+      "selected_files": 31,
+      "passed": 1041,
+      "failed": 0,
+      "seconds": "292.48",
+      "diagnostics": "/tmp/v2-data-qa.Cjkg9b/pytest.log",
+      "temporary_database_retained": false,
+      "note": "Final complete rerun of all 31 selected related test files after fault-case strengthening. Not all repository tests, a runtime process-group/venue lifecycle run, or evidence of strategy profitability."
+    },
+    "source_hashes_match_regression_start_and_finish": true,
+    "sha256": {
+      "services/v2_entry_worker.py": "a98763843947fb539688071be14fe5109ea23e97126f68daed1ef8b9647479bb",
+      "services/v2_strategy_entry_job.py": "9f28d016367e72ba0626fae98c37cdd28cd9879ca73c12f814af4c622052b785",
+      "v2_core/strategy_candidate_builder.py": "c3e4a5d15690f9163519de62a5e8f9af13e4f86ad05c92e4e799939c54674fe1",
+      "v2_core/strategy_entry_worker.py": "8d74440290df66a172a633bec053175425a4122c2ea2937a8300e8d0bdd569ca",
+      "v2_core/scheduling.py": "94aa437e5cf35b18b76810119d80b761fd62afc04ddd3e90051fa53d5e222c56",
+      "db/migrations/20261126_entry_discovery_cursors.sql": "1808f519f87565bd4a4ed47556d1adf162b749cbd79d482658ad3df2a99cf158",
+      "tests/v2_core/test_v2_strategy_entry_scheduler.py": "cf6f295c148d4f49f3ae1f45bd2b380a61c995fe2a47b568e066fe24d1f9623d",
+      "tests/v2_core/test_v2_strategy_candidate_builder.py": "f80bfac01ff13f6a8f4dc5e5875b4bf1654a5cee2e36a8fca7f49dd06558cd3b",
+      "tests/v2_core/test_v2_trend_structure.py": "ba4ec18437f8f3cc2797cb7c6234d56cb5a445a227d481b1be497e797b4132c1",
+      "tests/v2_core/test_v2_trend_structure_flow.py": "a10425c237f6156638c8f231b8d5d6b833641c41dd5b018a19aedd84e52ed849",
+      "tests/v2_core/test_v2_strategy_entry_job.py": "eddb2fd2d7f88e0ff1998aff65195c1685bab3f8152e896f78e3996b8a57cf66",
+      "tests/v2_core/test_v2_entry_worker.py": "64dc0bca4306fd5d44f41cb72e5caa813d559a012a8f344da3d689a3353dcb59",
+      "tests/v2_core/test_v2_entry_worker_process.py": "0b4705d5458131394ca05622dd35071a9d73bca68aa51aa8570f27bf7b933b8e",
+      "tests/v2_core/test_v2_entry_worker_database_process.py": "7ff0459a09481db8465577b7aaf016a2cb2bcf270a1c11e7c63bace37fecf623"
+    }
+  },
+  "runtime": {
+    "deployed": false,
+    "restarted": false,
+    "runtime_database_written": false,
+    "exchange_called": false,
+    "entries_resumed": false,
+    "position_inventory_queried": false,
+    "controller": "inactive/dead",
+    "legacy_daemon": "inactive/dead",
+    "legacy_watchdog": "inactive/dead",
+    "verified_at": "2026-11-26T15:43:01+08:00"
+  },
+  "remaining": [
+    "Trusted candidate producer, actual account sizing/stop/leverage and first-writer freezing are not runtime wired. Data-object digests do not authenticate client inputs.",
+    "Controller combination of entry, management and settlement; DRAINING cancellation/audited expiry of unsent PREPARED must be independently implemented/tested. UNKNOWN/SUBMITTING cannot be treated as absent exposure.",
+    "Full same-episode dispatch, fill, protection, exit, fee/cash and settlement acceptance plus slow-dependency, account-switch and historical-scale tests.",
+    "No-candidate audited expiry and optional asynchronous model lifecycle.",
+    "Live retention reference-index application and million-row-scale verification remain separate; current disk growth is not claimed resolved.",
+    "Archive export/manifest/isolated restore tool and cold proof readers are not implemented. No historical data cleanup or guaranteed reclaim size.",
+    "P2 deterministic strategy-family comparison and prospective research window have not started; no profitability claim."
+  ],
+  "disk": {
+    "sample_at": "2026-11-26T15:43:01+08:00",
+    "root_total_bytes": 316933189632,
+    "root_used_bytes": 228015988736,
+    "root_available_bytes": 75908960256,
+    "df_used_percent": 76,
+    "root_available_gib_rounded": 70.7,
+    "reference_audit": "docs/V2_DISK_AUDIT_20261126.md",
+    "archive_design": "docs/v2/DATA_ARCHIVE_PLAN_20261126.md",
+    "runtime_index_applied": false,
+    "runtime_cleanup_performed": false,
+    "other_project_data_touched": false,
+    "note": "Only isolated QA databases created for this turn were automatically removed after their processes stopped; diagnostics retained. Prior PG directory estimate ~109 GiB was not remeasured. This turn did not resolve live historical storage growth or claim reclaimable GB."
+  }
+}

@@ -375,6 +375,11 @@ class TypedEntryWorker:
             or result.get("execution_authorized") is not False
         ):
             raise ValueError("STRATEGY_ENTRY_PREPARATION_RESULT_INVALID")
+        if (
+            result.get("status") == "UNCHANGED"
+            and result.get("intent_status") == "UNKNOWN"
+        ):
+            result = {**result, "reason": "STRATEGY_INTENT_RECONCILIATION_REQUIRED"}
         return {**result, "signal_id": state.signal_id, "execution_authorized": False}
 
     def _terminal(self, state, outcome, reason):

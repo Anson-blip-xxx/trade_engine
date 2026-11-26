@@ -1076,6 +1076,43 @@ class StrategyScheduler:
                     metrics["context_ms"] += (time.perf_counter() - context_at) * 1000
                 else:
                     metrics["consume_ms"] += (time.perf_counter() - consuming_at) * 1000
+            if (
+                getattr(worker, "requires_audited_expiry", False)
+                and error is None
+                and isinstance(outcome, dict)
+                and outcome.get("status") == "DEFERRED"
+                and outcome.get("reason")
+                in {
+                    "STRATEGY_FROZEN_CANDIDATE_REQUIRED",
+                    "STRATEGY_CANDIDATE_NOT_YET_CURRENT",
+                }
+            ):
+                diagnostics.setdefault("typed_waits", []).append(
+                    {
+                        "signal_id": signal_id,
+                        "reason": outcome["reason"],
+                        "execution_authorized": False,
+                    }
+                )
+            if (
+                getattr(worker, "requires_audited_expiry", False)
+                and error is None
+                and isinstance(outcome, dict)
+                and outcome.get("status") == "UNCHANGED"
+                and outcome.get("intent_status") == "UNKNOWN"
+                and outcome.get("reason") == "STRATEGY_INTENT_RECONCILIATION_REQUIRED"
+            ):
+                # Not a failed order or permission to retry its submission.
+                # Keep the task pending with a visible, bounded-backoff reason.
+                error = "STRATEGY_INTENT_RECONCILIATION_REQUIRED"
+                diagnostics.setdefault("reconciliation_waits", []).append(
+                    {
+                        "signal_id": signal_id,
+                        "intent_id": outcome.get("intent_id"),
+                        "reason": error,
+                        "execution_authorized": False,
+                    }
+                )
             delay = (
                 interval_seconds
                 if error is None
