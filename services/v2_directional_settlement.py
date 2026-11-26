@@ -69,6 +69,7 @@ class DirectionalSettlementStage:
         # record must not monopolize every bounded batch or require a cursor DB
         # write whose failure could interfere with actual financial settlement.
         self._outcome_after = ""
+        self._settlement_after = ""
 
     def _plan(self, episode):
         with self.connect() as conn:
@@ -512,6 +513,22 @@ class DirectionalSettlementStage:
             "settlement_authorized": False,
         }
 
+    def _pending_episodes(self, *, after, limit):
+        """Select current financial obligations; the cursor only rotates work."""
+        with self.connect() as conn:
+            return conn.execute(
+                f"""SELECT i.intent_id::text FROM v2_trade_intents i JOIN v2_episodes e
+                ON e.episode_id=i.intent_id JOIN v2_orders o ON o.episode_id=i.intent_id
+                JOIN v2_fills f USING(order_id)
+                WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
+                AND {LIFECYCLE_EPISODE_SQL}
+                AND e.status<>'SETTLED' GROUP BY i.intent_id
+                HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0
+                AND sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE 0 END)>0
+                ORDER BY (i.intent_id::text<=%s),i.intent_id LIMIT %s""",
+                (*asdict(self.scope).values(), after, limit),
+            ).fetchall()
+
     def run_once(self):
         with session_advisory_lock(
             self.connect, "directional-settlement-stage:" + self.scope.key
@@ -580,19 +597,9 @@ class DirectionalSettlementStage:
                     }
                 finally:
                     self._outcome_after = episode
-            with self.connect() as conn:
-                rows = conn.execute(
-                    f"""SELECT i.intent_id::text FROM v2_trade_intents i JOIN v2_episodes e
-                    ON e.episode_id=i.intent_id JOIN v2_orders o ON o.episode_id=i.intent_id
-                    JOIN v2_fills f USING(order_id)
-                    WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
-                    AND {LIFECYCLE_EPISODE_SQL}
-                    AND e.status<>'SETTLED' GROUP BY i.intent_id
-                    HAVING sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE -f.quantity END)=0
-                    AND sum(CASE WHEN o.leg='OPEN' THEN f.quantity ELSE 0 END)>0
-                    ORDER BY i.intent_id LIMIT %s""",
-                    (*asdict(self.scope).values(), self.limit),
-                ).fetchall()
+            rows = self._pending_episodes(
+                after=self._settlement_after, limit=self.limit
+            )
             results = {}
             for (episode,) in rows:
                 try:
@@ -607,9 +614,18 @@ class DirectionalSettlementStage:
                         "status": "BLOCKED",
                         "error_code": diagnostic_code(exc),
                     }
+                finally:
+                    # Failure/BUSY must not strand every later obligation. This
+                    # hint is never financial completion and resets on restart.
+                    self._settlement_after = episode
             unresolved = any(r.get("status") != "SETTLED" for r in results.values())
+            # A successful rotated page is not account-wide clearance. Recheck
+            # the same scoped financial predicate, independently of either hint.
+            remaining = not unresolved and bool(
+                self._pending_episodes(after="", limit=1)
+            )
             return {
-                "status": "BLOCKED" if unresolved else "CLEAR",
+                "status": "BLOCKED" if unresolved or remaining else "CLEAR",
                 "settlements": results,
                 "outcomes": outcomes,
                 "settlement_authorized": False,

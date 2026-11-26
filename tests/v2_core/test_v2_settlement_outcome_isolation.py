@@ -115,6 +115,7 @@ def stage_case(monkeypatch):
     stage.scope = scope
     stage.limit = 10
     stage._outcome_after = ""
+    stage._settlement_after = ""
     stage.outcomes = SimpleNamespace(record=record)
     stage.strategy_outcomes = SimpleNamespace(
         record=lambda _: pytest.fail("legacy outcome must not use the new-plan journal")

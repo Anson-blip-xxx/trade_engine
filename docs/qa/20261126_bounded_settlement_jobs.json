@@ -1,0 +1,169 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "phase": "P1 eighth increment: bounded process primitive, financial settlement fairness and real spawn/PG recovery acceptance",
+  "base_commit": "bfb96f6bb93b87dd009771f77b54edabba88be61",
+  "status": "BOUNDED_JOB_AND_SETTLEMENT_FAIRNESS_ACCEPTED_NOT_ACTIVATED",
+  "implemented": [
+    "DirectionalSettlementStage retains an independent non-authoritative in-memory financial cursor. BLOCKED, BUSY and exceptions advance attempted work; closed-fill, lifecycle and account filters, account locks, financial checks and risk release rules are unchanged.",
+    "A successful page is not global clearance: requery current scoped pending obligations before CLEAR. Already unresolved pages remain BLOCKED without an extra scan. Query failure cannot manufacture CLEAR.",
+    "New unwired BoundedProcessJob owns one direct spawn child. Fixed IPC statuses only; absolute work/cooperative/terminate/kill deadlines; nonblocking poll/stop; late polling does not extend grace. Unconfirmed stop retains the handle and prevents replacement.",
+    "Cooperative stop uses a lock-free shared byte instead of multiprocessing.Event.set and its cross-process Condition. It is a hint, never an execution fence or stop proof. Child wait polls; owner must regularly poll the job.",
+    "Real spawn/isolated-PG tests exercise actual settlement cash/ledger commits, hung GET while holding the protocol account lock, ignored SIGTERM followed by kill, actual lock reacquisition, committed-success-with-missing-IPC replay, and interrupted transaction rollback. Synthetic OPEN/baseline and GET-only fake venue are explicit.",
+    "All started jobs require reconciliation, including COMPLETED. No process result independently releases risk or authorizes a trade; process exit alone is not proof of database rollback or immediate session lock release."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "One isolated temporary PostgreSQL/Redis harness at a time. Unix socket DSN pinned to v2_isolated_qa; dedicated V2 external TCP block, reinstalled in spawned child; no runtime DB or exchange access.",
+    "scope": "43 selected related files. Not all repository tests, production process-group acceptance, real exchange acceptance or profitability research.",
+    "intermediate_runs": [
+      {
+        "passed": 35,
+        "failed": 13,
+        "seconds": "49.81",
+        "diagnostics": "/tmp/v2-data-qa.rpj6iN/pytest.log",
+        "temporary_database_retained": false,
+        "note": "All 13 fairness fixtures lacked FILLED exchange-outcome evidence and were correctly rejected. Four real spawn/PG cases and existing settlement tests passed. Predates lock-free stop flag completion and stronger rollback evidence."
+      },
+      {
+        "passed": 13,
+        "failed": 0,
+        "seconds": "10.67",
+        "diagnostics": "/tmp/v2-data-qa.LQmqi4/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Fairness fixtures corrected and rerun; overlaps selected regression."
+      }
+    ],
+    "fixture_corrections": [
+      "FILLED fixtures now include explicit synthetic QA outcome evidence. Removed an invalid extra typed-plan fixture instead of weakening Orders.prepare checks or altering immutable evidence.",
+      "Independent review found account-lock reacquisition plus MVCC count=0 insufficient to prove a separate writer connection rolled back. Final test adds a negative control and requires ACCESS EXCLUSIVE table lock acquisition before confirming zero rows."
+    ],
+    "selections": [
+      "tests/v2_core/test_v2_bounded_job.py",
+      "tests/v2_core/test_v2_capital_income.py",
+      "tests/v2_core/test_v2_cash_reporting_basis.py",
+      "tests/v2_core/test_v2_cooperative_drain.py",
+      "tests/v2_core/test_v2_daily_mover_settlement_refresh.py",
+      "tests/v2_core/test_v2_dashboard_cash_basis_grants.py",
+      "tests/v2_core/test_v2_directional_cash.py",
+      "tests/v2_core/test_v2_directional_outcomes.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_execution_controller.py",
+      "tests/v2_core/test_v2_execution_guard_acl.py",
+      "tests/v2_core/test_v2_flat_controller_release.py",
+      "tests/v2_core/test_v2_guarded_transport.py",
+      "tests/v2_core/test_v2_income_ownership.py",
+      "tests/v2_core/test_v2_liquidation_cash.py",
+      "tests/v2_core/test_v2_management_process.py",
+      "tests/v2_core/test_v2_management_recovery.py",
+      "tests/v2_core/test_v2_management_runtime.py",
+      "tests/v2_core/test_v2_multi_cash_settlement.py",
+      "tests/v2_core/test_v2_precision_settlement.py",
+      "tests/v2_core/test_v2_reported_boundary_settlement.py",
+      "tests/v2_core/test_v2_session_lock_release.py",
+      "tests/v2_core/test_v2_settlement_analysis_health.py",
+      "tests/v2_core/test_v2_settlement_cash_basis.py",
+      "tests/v2_core/test_v2_settlement_entry.py",
+      "tests/v2_core/test_v2_settlement_entry_refresh.py",
+      "tests/v2_core/test_v2_settlement_fairness.py",
+      "tests/v2_core/test_v2_settlement_financial_projection.py",
+      "tests/v2_core/test_v2_settlement_job_process.py",
+      "tests/v2_core/test_v2_settlement_outcome_isolation.py",
+      "tests/v2_core/test_v2_settlement_pipeline_clearance.py",
+      "tests/v2_core/test_v2_settlement_precision_release_restart.py",
+      "tests/v2_core/test_v2_strategy_capital_settlement.py",
+      "tests/v2_core/test_v2_strategy_exit.py",
+      "tests/v2_core/test_v2_strategy_management_cycle.py",
+      "tests/v2_core/test_v2_strategy_settlement.py",
+      "tests/v2_core/test_v2_strategy_settlement_projection.py",
+      "tests/v2_core/test_v2_testnet_settlement.py",
+      "tests/v2_core/test_v2_venue_cash.py",
+      "tests/v2_core/test_v2_venue_cash_activation.py",
+      "tests/v2_core/test_v2_venue_cash_audit.py",
+      "tests/v2_core/test_v2_venue_cash_managed_restart.py",
+      "tests/v2_core/test_v2_venue_cash_settlement.py"
+    ],
+    "regression_source_hashes": {
+      "v2_core/bounded_job.py": "2ed42c732a9a22c7d19de1b429af20133347ea7ffd451b140177f901edbdeba8",
+      "services/v2_directional_settlement.py": "9f4be2850a2868fffb8318928258974dc2eb41d0c69dbf3f16d342917f997646",
+      "tests/v2_core/test_v2_bounded_job.py": "47771ad41dc28ee48e228c7e45dfb02707a700f99864dba08e5bca43dd3d96c2",
+      "tests/v2_core/test_v2_settlement_fairness.py": "ba6c6fdfb845cf14cbf2678f9191d5c34715c22a2d89ac1c49b4e57a8dbe78b8",
+      "tests/v2_core/test_v2_settlement_job_process.py": "5ec084838fbefeee9c44e5292f36823d56311bdf93f9100bbe80034849dacd5f",
+      "tests/v2_core/test_v2_settlement_outcome_isolation.py": "12ce540fed2827280b947c3e0207f313426ee18ba44d7f2d2f13502484dda538",
+      "tests/v2_core/test_v2_strategy_settlement.py": "f6bdb2d6f9fcdd3c6685e686f81b2d76f4d7526fcccf922d5d30f04b807f1045"
+    },
+    "selected_regression": {
+      "status": "PASSED",
+      "passed": 1152,
+      "failed": 0,
+      "seconds": "415.44",
+      "test_files": 43,
+      "diagnostics": "/tmp/v2-data-qa.QhkHfl/pytest.log",
+      "temporary_database_retained": false,
+      "tested_source_hashes_verified": true,
+      "note": "Before strengthening the rollback-only acceptance assertion. Production source is unchanged after this run; final test-only change separately rerun."
+    },
+    "final_supplemental": {
+      "status": "PASSED",
+      "passed": 103,
+      "failed": 0,
+      "seconds": "33.03",
+      "test_files": 3,
+      "selections": [
+        "tests/v2_core/test_v2_bounded_job.py",
+        "tests/v2_core/test_v2_settlement_fairness.py",
+        "tests/v2_core/test_v2_settlement_job_process.py"
+      ],
+      "diagnostics": "/tmp/v2-data-qa.bw7jmn/pytest.log",
+      "temporary_database_retained": false,
+      "tested_source_hashes_verified": true,
+      "note": "Final stronger rollback negative control and exclusive-lock proof. These 103 cases overlap the selected regression; counts are not added."
+    },
+    "independent_review": {
+      "status": "ACCEPTED_WITH_DOCUMENTED_SCOPE",
+      "production_blocking_defects_found": 0,
+      "qa_finding": "Separate uncommitted writer transaction was initially not proven ended by MVCC count=0.",
+      "resolution": "Negative control confirms count=0 while writer still holds its table lock. After kill, reacquire actual protocol lock and independently ACCESS EXCLUSIVE table lock before asserting zero rows.",
+      "remaining_scope": "Same-instance cursor fairness only; no claim of cross-job cursor transfer, controller wiring, fencing or production latency."
+    },
+    "final_checks": {
+      "ruff_check": "PASSED",
+      "ruff_format_check": "PASSED",
+      "git_diff_check": "PASSED"
+    }
+  },
+  "runtime_actions": {
+    "deployed": false,
+    "services_restarted": false,
+    "execution_resumed": false,
+    "runtime_configuration_changed": false,
+    "trading_database_changed": false,
+    "schema_migration": false,
+    "exchange_requests": 0,
+    "read_only_service_observation": {
+      "execution_controller": "inactive/dead",
+      "legacy_testnet_daemon": "inactive/dead",
+      "legacy_testnet_watchdog": "inactive/dead",
+      "scope": "Service metadata only; no current exchange position query or close action."
+    }
+  },
+  "remaining_before_activation": [
+    "BoundedProcessJob is not wired into the controller. Complete direct process-group ownership/shutdown; killing a parent must not leave a settlement grandchild. Unconfirmed stop must prohibit account replacement.",
+    "Add account epoch/token verification within short financial commit transactions without holding the route row lock across settlement network calls. The primitive provides no such fencing.",
+    "Retain financial and outcome cursors in the parent across disposable jobs, with explicit work selection and existing stage-level mutual exclusion. Current fairness only applies to consecutive runs of the same stage instance; each fresh test job recreates it.",
+    "Account locks are still shared with protection/exits; QA proves bounded recovery under continued polling and successful termination, not zero contention or an unconditional protection SLA.",
+    "poll/stop require regular parent scheduling; start/spawn/argument serialization is synchronous and outside their nonblocking guarantee. Targets must not spawn descendants and must open their own resources.",
+    "Post-timeout protection acceptance uses a flat synthetic account, not real open-position stop coverage. Historical-scale query cost, resource pressure and management heartbeat/alert projection remain unproven.",
+    "Typed entry worker, causal common opportunities, deterministic strategy comparison, real Testnet acceptance and runtime soak remain incomplete. Trading remains paused; no profitability claim."
+  ],
+  "source_hashes": {
+    "v2_core/bounded_job.py": "2ed42c732a9a22c7d19de1b429af20133347ea7ffd451b140177f901edbdeba8",
+    "services/v2_directional_settlement.py": "9f4be2850a2868fffb8318928258974dc2eb41d0c69dbf3f16d342917f997646",
+    "tests/v2_core/test_v2_bounded_job.py": "47771ad41dc28ee48e228c7e45dfb02707a700f99864dba08e5bca43dd3d96c2",
+    "tests/v2_core/test_v2_settlement_fairness.py": "ba6c6fdfb845cf14cbf2678f9191d5c34715c22a2d89ac1c49b4e57a8dbe78b8",
+    "tests/v2_core/test_v2_settlement_job_process.py": "63cf300402cfff44bc70b461cab0e384a502844ccf2f7470bc345dccf52036ff",
+    "tests/v2_core/test_v2_settlement_outcome_isolation.py": "12ce540fed2827280b947c3e0207f313426ee18ba44d7f2d2f13502484dda538",
+    "tests/v2_core/test_v2_strategy_settlement.py": "f6bdb2d6f9fcdd3c6685e686f81b2d76f4d7526fcccf922d5d30f04b807f1045"
+  }
+}

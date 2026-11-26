@@ -604,6 +604,7 @@ def test_outcome_scan_rotates_past_poison_without_authoritative_cursor(monkeypat
     stage = DirectionalSettlementStage.__new__(DirectionalSettlementStage)
     stage.connect = lambda: nullcontext(Connection())
     stage.scope, stage.limit, stage._outcome_after = SCOPE, 1, ""
+    stage._settlement_after = ""
     seen = []
 
     def outcome(episode):
