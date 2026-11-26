@@ -176,6 +176,16 @@ def test_ready_is_not_release_and_no_target_runs_in_owner(workers):
     assert job.policy == BoundedJobPolicy(1, 0.01, 0.01, 0.01)
 
 
+def test_explicit_downstream_entry_flag_is_visible_but_not_permission(workers):
+    case = workers(values=config(V2_CONTROLLER_ENABLE_ENTRIES="true"))
+    assert case.worker.ready()
+    state = case.worker.snapshot()
+    assert state["entry_dispatch_enabled"] is True
+    assert state["execution_authorized"] is False
+    assert state["trading_health"] == "NOT_EVALUATED"
+    assert case.starts == []
+
+
 def test_active_job_only_polled_locally_by_single_owner(workers):
     case = workers()
     start(case)

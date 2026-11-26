@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from services.v2_execution_controller import ExecutionController
 from services.v2_managed_health import build_managed_health
 from services.v2_managed_testnet import TestnetPorts, database
+from v2_core.account_registry import uid
 
 
 @contextmanager
@@ -99,6 +100,65 @@ def shutdown_controller(controller, *, wait=time.sleep):
         wait(0.2)
 
 
+def recover_paused_typed(controller, values):
+    """Explicit startup recovery of the same STOPPED binding, never activation.
+
+    The caller must own the controller's existing session lease. No request,
+    policy, epoch or account is changed here. The normal controller start path
+    creates a fresh worker token and leaves the route DRAINING. Any existing
+    local handle, including a previously unconfirmed stop, is left untouched.
+    """
+    enabled = values.get("V2_TYPED_RECOVER_PAUSED", "false")
+    if type(enabled) is not str or enabled not in {"false", "true"}:
+        raise ValueError("TYPED_PAUSED_RECOVERY_CONFIG_INVALID")
+    if enabled == "false":
+        return "DISABLED"
+    if (
+        values.get("V2_CONTROLLER_WORKER_MODE") != "TYPED_STRATEGY"
+        or values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") != "false"
+        or values.get("V2_ENVIRONMENT", "SANDBOX") != "SANDBOX"
+    ):
+        raise ValueError("TYPED_PAUSED_RECOVERY_CONFIG_INVALID")
+    if controller.worker is not None:
+        return "EXISTING_OWNER_RETAINED"
+    try:
+        actual, desired = controller.actual(), controller.desired()
+        if actual is None or actual.get("phase") != "STOPPED":
+            return "NOT_STOPPED"
+        if desired is None:
+            return "NO_MATCHING_REQUEST"
+        if any(
+            type(row) is not dict
+            or row.get("environment", "SANDBOX") != "SANDBOX"
+            or any(
+                type(row.get(key)) is not int or row[key] < 1
+                for key in ("epoch", "binding_version")
+            )
+            for row in (actual, desired)
+        ):
+            raise ValueError()
+        for row in (actual, desired):
+            uid(row["target_registry"])
+    except Exception:  # noqa: BLE001 - no route/SQL payload in startup diagnostics
+        raise ValueError("TYPED_PAUSED_RECOVERY_ROUTE_UNAVAILABLE") from None
+    # This helper runs immediately before the normal controller loop. Returning
+    # a no-op here would let step() consume a previously queued activation or
+    # account switch during explicitly paused startup. Fail inside the caller's
+    # lease/finally boundary instead; never change the pending request itself.
+    if any(
+        actual.get(key) != desired.get(key)
+        for key in ("target_registry", "binding_version")
+    ):
+        raise ValueError("TYPED_PAUSED_RECOVERY_DIFFERENT_BINDING_PENDING")
+    if desired["epoch"] > actual["epoch"]:
+        raise ValueError("TYPED_PAUSED_RECOVERY_NEW_REQUEST_PENDING")
+    return (
+        "RECOVERING"
+        if controller.start(actual, recovering=True) is True
+        else "RECOVERY_NOT_STARTED"
+    )
+
+
 def main():
     for unit in (
         "trade-v2-testnet-daemon.service",
@@ -130,7 +190,16 @@ def main():
         ),
     )
     stop = threading.Event()
-    health = build_managed_health(tenant, values, stop)
+
+    def runtime_snapshot():
+        from services.v2_strategy_runtime import TypedStrategyRuntime
+
+        worker = controller.worker
+        return worker.snapshot() if type(worker) is TypedStrategyRuntime else None
+
+    health = build_managed_health(
+        tenant, values, stop, runtime_snapshot=runtime_snapshot
+    )
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     with database()() as lease:
@@ -141,6 +210,7 @@ def main():
             raise ValueError("CONTROLLER_ALREADY_RUNNING")
         lease.commit()
         try:
+            recover_paused_typed(controller, values)
             while not stop.is_set():
                 lease.execute("SELECT 1")
                 lease.commit()

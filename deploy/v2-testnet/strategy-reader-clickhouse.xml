@@ -1,0 +1,24 @@
+<!-- Additive, localhost-only, SELECT-only. Do not reuse the default writer. -->
+<clickhouse>
+  <profiles>
+    <v2_strategy_readonly>
+      <readonly>1</readonly>
+      <max_threads>1</max_threads>
+      <max_execution_time>5</max_execution_time>
+      <timeout_overflow_mode>throw</timeout_overflow_mode>
+      <max_memory_usage>134217728</max_memory_usage>
+      <max_result_rows>2880</max_result_rows>
+      <max_result_bytes>4194304</max_result_bytes>
+      <result_overflow_mode>throw</result_overflow_mode>
+    </v2_strategy_readonly>
+  </profiles>
+  <users>
+    <tradev2strategy>
+      <password></password>
+      <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+      <profile>v2_strategy_readonly</profile>
+      <quota>default</quota>
+      <grants><query>GRANT SELECT ON trade_v2_testnet.v2_market_candles_incremental</query></grants>
+    </tradev2strategy>
+  </users>
+</clickhouse>

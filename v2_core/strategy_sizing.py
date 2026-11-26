@@ -182,6 +182,7 @@ class StrategySizingFacts:
     drawdown_factor: str
     selected_leverage: int
     leverage_proof_json: str
+    margin_buffer: str = "1"
 
     def __post_init__(self):
         if type(self.scope) is not AccountScope:
@@ -231,6 +232,11 @@ class StrategySizingFacts:
             object.__setattr__(self, name, decimal_text(value))
         if amount(self.drawdown_factor) > 1:
             raise ValueError("SIZING_DRAWDOWN_FACTOR_RANGE")
+        if not 1 <= amount(self.margin_buffer, positive=True) <= 2:
+            raise ValueError("SIZING_MARGIN_BUFFER_RANGE")
+        object.__setattr__(
+            self, "margin_buffer", decimal_text(amount(self.margin_buffer))
+        )
         for lower, upper in (
             ("min_quantity", "max_quantity"),
             ("min_notional", "max_notional"),
@@ -528,11 +534,12 @@ def size_candidate(
             )
         )
     )
+    margin_per_unit = high * _fraction(facts.margin_buffer) / leverage
     caps = {
-        "POOL_MARGIN": pool * leverage / high,
+        "POOL_MARGIN": pool / margin_per_unit,
         "AVAILABLE_MARGIN_AND_COST": available
-        / (high / leverage + high * _fraction(policy.cost_fraction)),
-        "SINGLE_MARGIN": single_margin * leverage / high,
+        / (margin_per_unit + high * _fraction(policy.cost_fraction)),
+        "SINGLE_MARGIN": single_margin / margin_per_unit,
         "STOP_RISK": risk / unit_risk,
         "VENUE_QUANTITY": _fraction(facts.max_quantity),
         "VENUE_NOTIONAL": _fraction(facts.max_notional) / high,
@@ -552,6 +559,7 @@ def size_candidate(
         "price_high": str(high),
         "price_low": str(low),
         "unit_stop_risk": str(unit_risk),
+        "margin_buffer": facts.margin_buffer,
     }
     if quantity <= 0:
         return result("NO_USABLE_BUDGET", **summary)
@@ -626,7 +634,7 @@ def size_candidate(
         "SIZED_WITH_EXPLICIT_RISK",
         plan,
         **summary,
-        reserved_margin=_text(quantity * high / leverage, up=True),
+        reserved_margin=_text(quantity * margin_per_unit, up=True),
         planned_loss=loss,
         quantity=plan.quantity,
     )

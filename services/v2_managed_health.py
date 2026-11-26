@@ -30,11 +30,13 @@ from v2_core.trade_notifications import TradeLifecycleNotifications
 class ManagedHealthMonitor:
     """Rebind all observers atomically; never report an old account as recovered."""
 
-    def __init__(self, tenant, *, scope_for, factory, stop):
+    def __init__(self, tenant, *, scope_for, factory, stop, runtime_mode="LEGACY"):
         self.tenant = uid(tenant)
         if not all(callable(port) for port in (scope_for, factory, stop.is_set)):
             raise ValueError("MANAGED_HEALTH_PORTS_REQUIRED")
         self.scope_for, self.factory, self.stop = scope_for, factory, stop
+        self.runtime_mode = runtime_mode
+        self.route = None
         self.identity = self.scope = self.watchdog = None
         self.lifecycle = frozenset()
         self.last_failure = None
@@ -42,6 +44,7 @@ class ManagedHealthMonitor:
     def _clear(self):
         self.identity = self.scope = self.watchdog = None
         self.lifecycle = frozenset()
+        self.route = None
 
     def _failure(self, code):
         result = {"status": "UNAVAILABLE", "error_code": code}
@@ -78,6 +81,7 @@ class ManagedHealthMonitor:
             return self._failure("MANAGED_HEALTH_ROUTE_INVALID")
         if identity != self.identity:
             self._clear()
+            self.route = dict(actual)
             try:
                 scope = self.scope_for(
                     self.tenant,
@@ -95,6 +99,7 @@ class ManagedHealthMonitor:
                 self.scope, self.watchdog, self.identity = scope, watchdog, identity
             except Exception:  # noqa: BLE001 - no raw DB/credential/path details
                 return self._failure("MANAGED_HEALTH_BINDING_UNAVAILABLE")
+        self.route = dict(actual)
         self.lifecycle = (
             frozenset({"EXECUTION_CONTROLLER_BLOCKED"})
             if phase == "BLOCKED"
@@ -113,6 +118,16 @@ class ManagedHealthMonitor:
                 "status": "MONITORED",
                 "account_scope": asdict(self.scope),
                 "active": sorted(active),
+                **(
+                    {
+                        "runtime_mode": "TYPED_STRATEGY",
+                        "execution_health": "UNKNOWN",
+                        "execution_authorized": False,
+                        "typed_queue_observation": "NOT_EVALUATED",
+                    }
+                    if self.runtime_mode == "TYPED_STRATEGY"
+                    else {}
+                ),
             }
         except Exception:  # noqa: BLE001 - retry next supervisor tick, no trading mutation
             return self._failure("MANAGED_HEALTH_CHECK_UNAVAILABLE")
@@ -187,11 +202,13 @@ def _notification_credentials(directory):
             os.close(fd)
 
 
-def build_managed_health(tenant, values, stop):
+def build_managed_health(tenant, values, stop, *, runtime_snapshot=None):
     """Compose lazily, so monitor failures are diagnosable and independently retryable."""
     from services.v2_managed_testnet import database, scope_for
 
     configuration = dict(values)
+    typed = configuration.get("V2_CONTROLLER_WORKER_MODE") == "TYPED_STRATEGY"
+    mode = "TYPED_STRATEGY" if typed else "LEGACY"
 
     def factory(scope, lifecycle):
         credentials = _notification_credentials(os.environ["CREDENTIALS_DIRECTORY"])
@@ -202,14 +219,41 @@ def build_managed_health(tenant, values, stop):
             raise ValueError("MANAGED_HEALTH_DM_REQUIRED")
         max_age = int(configuration.get("V2_WATCHDOG_HEARTBEAT_MAX_AGE_SECONDS", "180"))
         connect = database()
-        heartbeat = DaemonHeartbeat(
-            connect, account_id=scope.account_id, max_age_seconds=max_age
-        )
+        if typed:
+            from contextlib import contextmanager
+
+            from services.v2_typed_health import (
+                ManagementHeartbeat,
+                TypedDeliveryState,
+                typed_lane_failures,
+            )
+
+            raw_connect = connect
+
+            @contextmanager
+            def connect():
+                with raw_connect() as conn:
+                    conn.execute("SET LOCAL statement_timeout='3s'")
+                    conn.execute("SET LOCAL lock_timeout='1s'")
+                    yield conn
+
+            heartbeat = ManagementHeartbeat(
+                connect,
+                tenant=tenant,
+                scope=scope,
+                route_for=lambda: monitor.route,
+                max_age_seconds=max_age,
+            )
+        else:
+            heartbeat = DaemonHeartbeat(
+                connect, account_id=scope.account_id, max_age_seconds=max_age
+            )
         business = TradingHealth(
             connect,
             account_id=scope.account_id,
             tv_enabled=configuration.get("V2_ENABLE_TV_SIGNALS") == "true",
             quant_enabled=configuration.get("V2_ENABLE_QUANT_SIGNALS") == "true",
+            runtime_mode=mode,
         )
 
         def postgres():
@@ -232,8 +276,34 @@ def build_managed_health(tenant, values, stop):
         pins = TradeLifecycleNotifications(
             connect, sink, scope=scope, pin_messages=True
         )
+
+        def observe():
+            result = assessment() | lifecycle()
+            if typed:
+                result |= typed_lane_failures(
+                    runtime_snapshot, tenant=tenant, scope=scope, route=monitor.route
+                )
+            return result
+
+        def maintain():
+            if typed:
+                try:
+                    pins.run_once(limit=1)
+                except Exception:  # noqa: BLE001 - notification projection cannot stop other maintenance
+                    print(
+                        '{"component":"managed-health","error_code":"TRADE_NOTIFICATION_DELIVERY_UNAVAILABLE"}',
+                        flush=True,
+                    )
+            try:
+                pins._retry_pins(1)
+            except Exception:  # noqa: BLE001 - a pin error cannot stop diagnostics or management
+                print(
+                    '{"component":"managed-health","error_code":"TRADE_NOTIFICATION_PIN_UNAVAILABLE"}',
+                    flush=True,
+                )
+
         return HealthWatchdog(
-            lambda: assessment() | lifecycle(),
+            observe,
             notify=WatchdogTelegramNotifier(
                 sink,
                 account_id=scope.account_id,
@@ -242,8 +312,13 @@ def build_managed_health(tenant, values, stop):
             ),
             stop=stop,
             interval_seconds=10,
-            delivery_state=WatchdogDeliveryState(connect, scope.account_id),
-            maintenance=lambda: pins._retry_pins(1),
+            delivery_state=(TypedDeliveryState if typed else WatchdogDeliveryState)(
+                connect, scope.account_id
+            ),
+            maintenance=maintain if typed else lambda: pins._retry_pins(1),
         )
 
-    return ManagedHealthMonitor(tenant, scope_for=scope_for, factory=factory, stop=stop)
+    monitor = ManagedHealthMonitor(
+        tenant, scope_for=scope_for, factory=factory, stop=stop, runtime_mode=mode
+    )
+    return monitor

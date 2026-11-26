@@ -276,7 +276,7 @@ def test_main_finally_invokes_shutdown_before_lease_context_exits(monkeypatch):
     monkeypatch.setattr(
         supervisor,
         "build_managed_health",
-        lambda *_: SimpleNamespace(
+        lambda *_args, **_kwargs: SimpleNamespace(
             step=lambda _: pytest.fail("health must not run after failed step")
         ),
     )

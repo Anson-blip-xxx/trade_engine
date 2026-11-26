@@ -26,6 +26,7 @@ from v2_core.strategy_registry import (
     strategy_identifier,
 )
 from v2_core.strategy_signal_admission import StrategySignalAdmission
+from v2_core.strategy_signal_window import deployment_history_page
 
 _SOURCES = frozenset({"s2", "s3", "tv_bridge", "quant"})
 _COMPLETE = frozenset({"PREPARED", "EXISTING_ORDER", "IGNORED", "EXPIRED"})
@@ -167,6 +168,10 @@ def run_entry_work(
     history_page_size=100,
     history_budget_ms=500,
     guard=None,
+    candidate_producer=None,
+    maintenance=None,
+    store_factory=StrategyEntryStore,
+    deployment_window=False,
 ):
     """Paged cold discovery then hot consumption; no global historical sweep.
 
@@ -183,6 +188,16 @@ def run_entry_work(
         or not callable(connect)
         or not callable(clock_ms)
         or not callable(getattr(stop, "is_set", None))
+        or not callable(store_factory)
+        or type(deployment_window) is not bool
+        or (
+            candidate_producer is not None
+            and not callable(getattr(candidate_producer, "prepare", None))
+        )
+        or (
+            maintenance is not None
+            and not callable(getattr(maintenance, "maintain", None))
+        )
     ):
         raise ValueError("STRATEGY_ENTRY_JOB_PORTS_REQUIRED")
     guard = (
@@ -211,11 +226,37 @@ def run_entry_work(
             registry,
             scope=scope,
             source=source,
-            store=StrategyEntryStore(write),
+            store=store_factory(write),
             clock_ms=clock_ms,
             admission=StrategySignalAdmission(write, registry),
             preparation=StrategyPrepareRecovery(write, scope=binding.scope),
         )
+        if candidate_producer is not None or maintenance is not None:
+            # Hooks run only for genuinely unfrozen work. Original durable
+            # receipts/candidates always recover without acquiring new facts.
+            consume = worker.consume
+
+            def prepare_then_consume(signal_id, *, context):
+                state = worker._load(signal_id)
+                if state.receipt is None and state.candidate is None:
+                    if maintenance is not None:
+                        maintenance.maintain(signal_id)
+                        state = worker._load(signal_id)
+                    if (
+                        candidate_producer is not None
+                        and state.receipt is None
+                        and state.candidate is None
+                    ):
+                        prepared = candidate_producer.prepare(signal_id)
+                        if prepared.get("status") == "DEFERRED":
+                            return {
+                                **prepared,
+                                "signal_id": signal_id,
+                                "execution_authorized": False,
+                            }
+                return consume(signal_id, context=context)
+
+            worker.consume = prepare_then_consume
 
         def no_context(*_args, **_kwargs):
             raise ValueError("STRATEGY_ENTRY_NETWORK_CONTEXT_FORBIDDEN")
@@ -223,6 +264,13 @@ def run_entry_work(
         queue = StrategyScheduler(
             worker, context_provider=no_context, context_required=lambda _: False
         )
+        if deployment_window:
+            # Explicit typed-runtime subscription; generic callers retain their
+            # original discovery/recovery contract. Hot discovery already uses
+            # the stricter current expiry boundary, so is unchanged.
+            queue._history_page = lambda conn, *, cursor, size: deployment_history_page(
+                conn, scope=scope, source=source, cursor=cursor, size=size
+            )
         history_error = None
         try:
             before = _cursor(connect, scope, source)

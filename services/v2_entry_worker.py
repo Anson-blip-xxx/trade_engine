@@ -110,12 +110,19 @@ class EntryWorker:
             type(ports) is not EntryPorts
             or type(values) is not dict
             or values.get("V2_ENVIRONMENT", "SANDBOX") != "SANDBOX"
+            or values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false")
+            not in {"true", "false"}
             or not callable(job_factory)
             or not callable(clock)
         ):
             raise ValueError("EXPLICIT_SANDBOX_ENTRY_WORKER_REQUIRED")
         self.ports = EntryPorts(
             ports.binding, ports.job_target, ports.job_args, ports.sources
+        )
+        # Describes the explicitly configured downstream target, not permission
+        # to trade. The fixed runtime factory independently verifies that target.
+        self.entry_dispatch_enabled = (
+            values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") == "true"
         )
         self.policy = BoundedJobPolicy(
             *(
@@ -172,7 +179,7 @@ class EntryWorker:
                 "stop_requested": self._stop.is_set(),
                 "stop_confirmed": not self._thread.is_alive() and self._job is None,
                 "execution_authorized": False,
-                "entry_dispatch_enabled": False,
+                "entry_dispatch_enabled": self.entry_dispatch_enabled,
                 "health_scope": "PROCESS_OWNERSHIP_ONLY",
                 "trading_health": "NOT_EVALUATED",
                 "outcome_requires_reconciliation": self._job_id is not None,

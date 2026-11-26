@@ -1,0 +1,4 @@
+# Installed only with a reviewed immutable release and paused env overlay.
+# EnvironmentFile wins over Environment; keep this AFTER the existing env files.
+[Service]
+EnvironmentFile=/etc/trade-engine-v2/typed-strategy.env

@@ -132,6 +132,7 @@ class CandidateProducer:
         execution_reader,
         stop,
         guard=None,
+        store_factory=StrategyEntryStore,
     ):
         if (
             not callable(connect)
@@ -142,6 +143,7 @@ class CandidateProducer:
             or not callable(account_reader)
             or not callable(execution_reader)
             or not callable(getattr(stop, "is_set", None))
+            or not callable(store_factory)
         ):
             raise TypeError("STRATEGY_PRODUCER_PORTS_REQUIRED")
         strategy_identifier(instance_id)
@@ -157,7 +159,8 @@ class CandidateProducer:
         self.write = entry_transaction(
             connect, binding=binding, guard=self.guard, stop=stop
         )
-        self.store = StrategyEntryStore(connect)
+        self.store_factory = store_factory
+        self.store = store_factory(connect)
 
     @contextmanager
     def _read_connection(self):
@@ -206,7 +209,7 @@ class CandidateProducer:
                 if conn.execute(_CLOCK).fetchone()[0] >= candidate.expires_at_ms:
                     raise ValueError("STRATEGY_PRODUCER_EXPIRED_BEFORE_COMMIT")
 
-        return StrategyEntryStore(final_transaction).freeze(candidate)
+        return self.store_factory(final_transaction).freeze(candidate)
 
     def prepare(self, signal_id):
         identity = str(UUID(signal_id))

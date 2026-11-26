@@ -1,0 +1,54 @@
+{
+  "candidate_builder": {
+    "schema": "closed-structure-candidate-v1",
+    "policy": {
+      "min_volume_ratio": "1",
+      "min_directional_taker_ratio": "0.55",
+      "min_ema_slope_atr": "0.1",
+      "min_breakout_atr": "0.1",
+      "max_extension_atr": "3",
+      "max_atr_pct": "12",
+      "max_structure_age_ms": 1200000,
+      "max_decision_delay_ms": 60000
+    }
+  },
+  "sizing": {
+    "schema": "strategy-sizing-v1",
+    "policy": {
+      "pool_fraction": "0.70",
+      "single_margin_fraction": "0.10",
+      "single_risk_fraction": "0.005",
+      "cost_fraction": "0.002",
+      "price_drift_fraction": "0.001",
+      "stop_atr_multiple": "2",
+      "structure_buffer_atr": "0.25",
+      "max_stop_fraction": "0.12",
+      "max_margin_consumption": "0.80",
+      "max_spread_fraction": "0.002",
+      "depth_multiple": "3",
+      "allowed_leverages": [2, 3, 5],
+      "boost_enabled": false,
+      "max_fact_age_ms": 30000,
+      "max_quote_age_ms": 10000,
+      "entry_ttl_ms": 90000
+    }
+  },
+  "capital": {
+    "schema": "strategy-capital-v1",
+    "roundtrip_cost_fraction": "0.002",
+    "price_drift_fraction": "0.001"
+  },
+  "producer": {
+    "schema": "strategy-candidate-producer-v1",
+    "catalog_max_age_ms": 900000,
+    "exit_version": "v1",
+    "exit_config": {
+      "schema": "strategy-risk-trail-exit-v1",
+      "partial_take_profit_r": "2",
+      "partial_fraction": "0.3",
+      "trail_activation_r": "3",
+      "trail_giveback_r": "1",
+      "max_holding_ms": 0
+    }
+  }
+}

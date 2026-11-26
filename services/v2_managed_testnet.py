@@ -232,8 +232,11 @@ def _initialize_fresh_capital(conn, scope, *, wallet, started_at_ms):
 
 
 class TestnetPorts:
-    def __init__(self, tenant, values):
+    def __init__(self, tenant, values, *, typed_entry_ports_for=None):
         self.tenant, self.values = tenant, dict(values)
+        if typed_entry_ports_for is not None and not callable(typed_entry_ports_for):
+            raise TypeError("TYPED_ENTRY_PORTS_FACTORY_REQUIRED")
+        self.typed_entry_ports_for = typed_entry_ports_for
 
     def inventory(self, target):
         scope = scope_for(self.tenant, target)
@@ -357,7 +360,19 @@ class TestnetPorts:
             return ["TARGET_PREFLIGHT_FAILED"]
 
     def spawn(self, target):
-        if _worker_mode(self.values) == "MANAGEMENT_WITH_SETTLEMENT":
+        mode = _worker_mode(self.values)
+        if mode == "TYPED_STRATEGY":
+            from services.v2_strategy_runtime import StrategyRuntimeFactory
+
+            ports_for = self.typed_entry_ports_for
+            if ports_for is None:
+                from services.v2_strategy_runtime_job import typed_entry_ports_for
+
+                ports_for = typed_entry_ports_for
+            return StrategyRuntimeFactory(
+                self.tenant, self.values, entry_ports_for=ports_for
+            ).spawn(target)
+        if mode == "MANAGEMENT_WITH_SETTLEMENT":
             from services.v2_settlement_worker import SettlementWorker
             from services.v2_worker_group import WorkerGroup
 
@@ -377,10 +392,15 @@ class TestnetPorts:
 
 def _worker_mode(values):
     mode = values.get("V2_CONTROLLER_WORKER_MODE", "LEGACY")
-    if mode not in ("LEGACY", "MANAGEMENT_ONLY", "MANAGEMENT_WITH_SETTLEMENT"):
+    if mode not in (
+        "LEGACY",
+        "MANAGEMENT_ONLY",
+        "MANAGEMENT_WITH_SETTLEMENT",
+        "TYPED_STRATEGY",
+    ):
         raise ValueError("EXPLICIT_CONTROLLER_WORKER_MODE_REQUIRED")
     if (
-        mode != "LEGACY"
+        mode not in {"LEGACY", "TYPED_STRATEGY"}
         and values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") != "false"
     ):
         raise ValueError("MANAGEMENT_ONLY_ENTRIES_DISABLED_REQUIRED")
@@ -478,7 +498,7 @@ def child_main(tenant, target, values, stop, release, channel):
             int(values.get("V2_CONTROLLER_CYCLE_DIAGNOSTIC_INTERVAL_SECONDS", "60"))
         )
         mode = _worker_mode(values)
-        if mode == "MANAGEMENT_WITH_SETTLEMENT":
+        if mode in {"MANAGEMENT_WITH_SETTLEMENT", "TYPED_STRATEGY"}:
             raise ValueError("DIRECT_WORKER_GROUP_OWNER_REQUIRED")
         if mode == "MANAGEMENT_ONLY":
             _management_child(
@@ -667,7 +687,7 @@ def child_main(tenant, target, values, stop, release, channel):
 class ChildWorker:
     def __init__(self, tenant, target, values):
         self.mode = _worker_mode(values)
-        if self.mode == "MANAGEMENT_WITH_SETTLEMENT":
+        if self.mode in {"MANAGEMENT_WITH_SETTLEMENT", "TYPED_STRATEGY"}:
             raise ValueError("DIRECT_WORKER_GROUP_OWNER_REQUIRED")
         self.startup_failure = None
         self.last_progress = time.monotonic()

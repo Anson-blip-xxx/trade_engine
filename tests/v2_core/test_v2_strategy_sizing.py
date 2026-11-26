@@ -805,3 +805,20 @@ def test_duplicate_or_oversize_proof_json_is_rejected_before_interpretation():
         replace(facts, leverage_proof_json='{"selected":2,"selected":8}')
     with pytest.raises(ValueError, match="SIZING_JSON_BOUND"):
         replace(facts, leverage_proof_json=canonical({"padding": "x" * 65536}))
+
+
+@pytest.mark.parametrize("buffer", ["1.1", "2"])
+def test_real_margin_buffer_reduces_quantity_before_admission(buffer):
+    # Make margin, not stop risk, the active constraint.
+    selected = sizing_policy(single_margin_fraction=".01", single_risk_fraction=".1")
+    base = run_size(sizing_scene(policy=selected))
+    buffered = run_size(sizing_scene(policy=selected, margin_buffer=buffer))
+    assert buffered.status == "SIZED"
+    assert _q(buffered) < _q(base)
+    assert buffered.evidence["calculation"]["margin_buffer"] == buffer
+
+
+@pytest.mark.parametrize("buffer", ["0", ".99", "2.01", "NaN"])
+def test_invalid_margin_buffer_is_not_silently_discarded(buffer):
+    with pytest.raises(ValueError):
+        sizing_scene(margin_buffer=buffer)

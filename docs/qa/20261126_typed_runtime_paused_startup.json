@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-26",
+  "timezone": "Asia/Shanghai",
+  "baseline_commit": "9101420352b7ce2b1d5d5ef8c4d3c05550fb816e",
+  "scope": "typed runtime composition and paused startup; not live-trading authorization",
+  "integrated_regression": {
+    "passed": 2635,
+    "failed": 0,
+    "seconds": 702.78,
+    "diagnostics": "/tmp/v2-data-qa.Ubz8uj",
+    "selection": "strategy*, entry_worker*, execution_controller, execution_guard_acl, management*, settlement*, worker_group, paused_startup, typed_health*, supervisor_shutdown, trade_notifications, managed_health, trading_health, notification_resilience",
+    "caveat": "Final pending-route startup and notification boundary review changes were verified in the separate final targeted run; this is not a claim of a whole-repository rerun on the final revision."
+  },
+  "final_targeted_regression": {
+    "passed": 151,
+    "failed": 0,
+    "seconds": 53.41,
+    "diagnostics": "/tmp/v2-data-qa.ZwF5tS",
+    "selection": [
+      "test_v2_strategy_notifications.py",
+      "test_v2_strategy_connected_cycle.py",
+      "test_v2_trade_notifications.py",
+      "test_v2_notification_resilience.py",
+      "test_v2_paused_startup.py",
+      "test_v2_supervisor_shutdown.py",
+      "test_v2_strategy_runtime_job.py",
+      "test_v2_strategy_signal_window.py"
+    ],
+    "changed_python_digest_before_and_after": "a5f7910c85ab48757383673416b143ff47fc4faf40af2945e7784d7e4e89c96c",
+    "digest_command": "git ls-files --modified --others --exclude-standard | rg '\\.py$' | sort | xargs sha256sum | sha256sum",
+    "overlaps_integrated": true
+  },
+  "isolation": {
+    "postgres": "disposable Unix socket cluster, one harness at a time",
+    "external_network": "TCP/UDP forbidden by V2 pytest audit hook",
+    "venue": "synthetic HTTPS protocol responses; real production composition and PG ledger",
+    "qa_databases_retained": false,
+    "real_orders_submitted": 0
+  },
+  "review_fixes": [
+    "paused startup refuses an existing newer or different-account route request before entering controller.step",
+    "typed opening success requires NEW protection while ledger exposure remains",
+    "external-flat notification uses independently validated original resolution; not a fake cancellation",
+    "settled historical opening notifications explicitly label historical delivery",
+    "first immutable deployment boundary avoids expanding all predeployment history into new expiry audits while retaining original work recovery",
+    "actual guard role upgrade grants three scope-reading columns only"
+  ],
+  "server_readonly_preflight": {
+    "runtime_dependency_lock": "passed under managed-controller-20260927 Python",
+    "paused_boot_ready": true,
+    "entry_ready": false,
+    "entry_data_ready": true,
+    "closed_minute_window": "BTCUSDT and ETHUSDT: 1440 complete closed minutes",
+    "initial_history_page_ms": {"quant": 23, "tv_bridge": 14, "s3": 16},
+    "route_before_start": "STOPPED; same account/binding; actual and desired epoch 34",
+    "deployment": "causal-trend-v1 generation 1 OFF",
+    "account_ledger_before_start": {"SETTLED": 950, "ABORTED": 59, "nonterminal": 0},
+    "disk_available_before_release": "70 GiB; no historical trading data removed"
+  },
+  "not_proven": [
+    "natural Binance Testnet matching lifecycle with the new strategy",
+    "full typed queue business coverage",
+    "multi-day capacity and real-network fault soak",
+    "out-of-sample profitability",
+    "permission to resume entries or use LIVE"
+  ]
+}

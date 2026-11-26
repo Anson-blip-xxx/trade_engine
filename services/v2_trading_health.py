@@ -743,18 +743,28 @@ class TradingHealth:
         tv_enabled=False,
         quant_enabled=False,
         clock_ms=None,
+        runtime_mode="LEGACY",
     ):
+        if runtime_mode not in {"LEGACY", "TYPED_STRATEGY"}:
+            raise ValueError("TRADING_HEALTH_MODE_INVALID")
+        self.typed = runtime_mode == "TYPED_STRATEGY"
         self.connect = connect
         self.scope = AccountScope("BINANCE", account_id, "SANDBOX", "FUTURES")
         self.sources = (
-            ("s3",)
-            + (("tv_bridge",) if tv_enabled else ())
-            + (("quant",) if quant_enabled else ())
+            ()
+            if self.typed
+            else (
+                ("s3",)
+                + (("tv_bridge",) if tv_enabled else ())
+                + (("quant",) if quant_enabled else ())
+            )
         )
         self.clock = clock_ms or (lambda: time.time_ns() // 1000000)
         self.store = BusinessState(connect)
         self.key = StateKey(
-            **asdict(self.scope), namespace="trading-health-v1", key="latest"
+            **asdict(self.scope),
+            namespace="trading-health-v1",
+            key="typed-latest" if self.typed else "latest",
         )
 
     def notification_details(self, code):
@@ -995,20 +1005,27 @@ class TradingHealth:
                             "count": row[3],
                             "reason": "NON_DIRECTIONAL_BOOKKEEPING",
                         }
-            latest = conn.execute(
-                """SELECT payload FROM v2_business_state
+            latest = (
+                None
+                if self.typed
+                else conn.execute(
+                    """SELECT payload FROM v2_business_state
                 WHERE scope @> %s::jsonb AND NOT deleted
                 AND scope->>'namespace'='trading-pipeline-cycle-v1'
                 AND scope->>'account_id'=%s
                 AND payload->>'status' IN ('CYCLE_COMPLETE','ENTRY_BLOCKED')
                 ORDER BY (payload->>'started_at_ms')::bigint DESC LIMIT 1""",
-                (
-                    json.dumps(
-                        {**asdict(self.scope), "namespace": "trading-pipeline-cycle-v1"}
+                    (
+                        json.dumps(
+                            {
+                                **asdict(self.scope),
+                                "namespace": "trading-pipeline-cycle-v1",
+                            }
+                        ),
+                        self.scope.account_id,
                     ),
-                    self.scope.account_id,
-                ),
-            ).fetchone()
+                ).fetchone()
+            )
         if latest and latest[0].get("capacity_declines"):
             declines = latest[0]["capacity_declines"]
             expected_waits["opening_capacity"] = {
@@ -1096,8 +1113,10 @@ class TradingHealth:
                 **maintenance_finding,
                 "cycle_id": latest[0].get("cycle_id") if latest else None,
             }
-        jev_budget = read_budget_health(self.connect, self.scope)
-        jev_budget = apply_budget_health(findings, old, jev_budget)
+        jev_budget = None
+        if not self.typed:
+            jev_budget = read_budget_health(self.connect, self.scope)
+            jev_budget = apply_budget_health(findings, old, jev_budget)
         opening_incidents = retain_opening_incidents(
             self.connect, scope, old, findings, now
         )
@@ -1179,6 +1198,17 @@ class TradingHealth:
                 "opening": opening,
                 "opening_incidents": opening_incidents,
                 "jev_budget": jev_budget,
+                **(
+                    {
+                        "runtime_mode": "TYPED_STRATEGY",
+                        "execution_health": "UNKNOWN",
+                        "execution_authorized": False,
+                        "typed_queue_observation": "NOT_EVALUATED",
+                        "observation_scope": "ORDERS_RESIDUAL_CLOSES_SETTLEMENT_AND_CAPITAL",
+                    }
+                    if self.typed
+                    else {}
+                ),
             },
         )
         if result.code != "APPLIED":
