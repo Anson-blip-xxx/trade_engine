@@ -1,0 +1,211 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "phase": "P1 ninth increment: opt-in management and independently supervised settlement composition",
+  "base_commit": "0c8661cb09bf84ff164ebf7e581303caefbec980",
+  "status": "MANAGEMENT_SETTLEMENT_COMPOSITION_ACCEPTED_NOT_ACTIVATED",
+  "implemented": [
+    "Explicit MANAGEMENT_WITH_SETTLEMENT only, entries=false and SANDBOX. Legacy and MANAGEMENT_ONLY defaults unchanged. Controller directly owns management child and settlement owner; no child-spawned settlement grandchildren.",
+    "WorkerGroup retains handles after partial startup, release failure and unconfirmed stop. All members must be READY. Stop hints broadcast before bounded member stops. ChildWorker uses lock-free cooperative flags and retains a possibly started process on start failure.",
+    "Independent non-daemon settlement owner polls active jobs without DB, health or notification I/O; selects only with no active job. FINANCIAL and OUTCOME attempt cursors persist across jobs, including failed/timed-out attempts.",
+    "Financial commit fences full account scope, binding version, epoch/token and MANAGE permission inside the same SERIALIZABLE transaction. Temporary role is restored exactly; route/registry SHARE locks remain until commit. No route lock across venue GET. Optional guard does not change unwired old paths.",
+    "New financial jobs disable synchronous outcome recording. Already SETTLED replays require scoped committed settlement journal, avoiding repeated cash audit after IPC loss. OUTCOME is database-only and does not decrypt venue credentials.",
+    "Only financial progress participates in settlement controller health. Stale research is separately visible via snapshot.progress_fresh; fresh empty research cannot hide financial failure. Flat source and confirmed stop are still required for account handover.",
+    "Shutdown stops local workers before route DB access, retaining handles and the caller's lease context while stop is unconfirmed. Metadata write failures cannot skip local stopping."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "One isolated temporary PG/Redis harness at a time; Unix socket pinned to v2_isolated_qa. Dedicated V2 conftest denies external TCP; spawned PG helper reinstalls denial. Synthetic GET-only venue and synthetic fills, no runtime credentials or exchange calls.",
+    "scope": "52 selected related test files, not all repository tests, deployed cgroup acceptance, real exchange end-to-end testing or profitability validation.",
+    "intermediate_runs": [
+      {
+        "passed": 324,
+        "failed": 0,
+        "seconds": "62.07",
+        "diagnostics": "/tmp/v2-data-qa.NGhL49/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Initial role/fence/thread/group/management/bounded-process regression; before full-scope preflight and final composition corrections."
+      },
+      {
+        "passed": 36,
+        "failed": 3,
+        "seconds": "36.21",
+        "diagnostics": "/tmp/v2-data-qa.iiC0QU/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Actual adapter integration exposed settled replay cash reaudit and financial job synchronously generating derived outcome; third fixture expected direct EXECUTION_FENCED but inventory correctly converted denied GET into FINAL_ACCOUNT_NOT_RECONCILED."
+      },
+      {
+        "passed": 92,
+        "failed": 0,
+        "seconds": "37.38",
+        "diagnostics": "/tmp/v2-data-qa.WQIAlD/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Corrected adapter replay/independent outcome, complete scope preflight and shutdown; includes real owner-thread/spawn/fenced-PG normal and ignored-SIGTERM timeout cases. Predates final diagnostic-only OUTCOME health correction."
+      },
+      {
+        "passed": 1344,
+        "failed": 10,
+        "seconds": "462.52",
+        "diagnostics": "/tmp/v2-data-qa.gSSsf1/pytest.log",
+        "temporary_database_retained": false,
+        "note": "52-file regression. All 10 failures were in the offline management recovery fixture, which bypassed ChildWorker.__init__ and omitted its new startup_failure field. Production hashes unchanged. Fixture initialized that field; no behavior/assertion weakened."
+      }
+    ],
+    "corrections": [
+      "Settled financial replay now requires both scoped SETTLED status and existing v2_settlements evidence; no repeated venue cash audit or risk release.",
+      "DirectionalSettlementStage.settle retains default record_outcome=true for existing callers; new financial job explicitly chooses false.",
+      "Final-commit revocation test now revokes after network evidence acquisition and before the financial transaction, while a separate real stage test still covers revocation during network.",
+      "Independent review found stale derived outcomes would block controller account handover via healthy(); excluded them from authority health and added independent freshness diagnostics plus real PG controller/group transition tests.",
+      "Startup full-scope preflight now fails before READY on missing narrow metadata SELECT grants; existing-role upgrade script provided but not applied.",
+      "Management recovery fake ChildWorker bypassed __init__ and omitted startup_failure=None. Added only the missing field; its 17 pure tests passed after correction. Production source was unchanged."
+    ],
+    "selections": [
+      "tests/v2_core/test_v2_bounded_job.py",
+      "tests/v2_core/test_v2_capital_income.py",
+      "tests/v2_core/test_v2_cash_reporting_basis.py",
+      "tests/v2_core/test_v2_cooperative_drain.py",
+      "tests/v2_core/test_v2_daily_mover_settlement_refresh.py",
+      "tests/v2_core/test_v2_dashboard_cash_basis_grants.py",
+      "tests/v2_core/test_v2_directional_cash.py",
+      "tests/v2_core/test_v2_directional_outcomes.py",
+      "tests/v2_core/test_v2_directional_settlement.py",
+      "tests/v2_core/test_v2_execution_controller.py",
+      "tests/v2_core/test_v2_execution_guard_acl.py",
+      "tests/v2_core/test_v2_flat_controller_release.py",
+      "tests/v2_core/test_v2_guarded_transport.py",
+      "tests/v2_core/test_v2_income_ownership.py",
+      "tests/v2_core/test_v2_liquidation_cash.py",
+      "tests/v2_core/test_v2_management_process.py",
+      "tests/v2_core/test_v2_management_recovery.py",
+      "tests/v2_core/test_v2_management_runtime.py",
+      "tests/v2_core/test_v2_multi_cash_settlement.py",
+      "tests/v2_core/test_v2_precision_settlement.py",
+      "tests/v2_core/test_v2_reported_boundary_settlement.py",
+      "tests/v2_core/test_v2_session_lock_release.py",
+      "tests/v2_core/test_v2_settlement_analysis_health.py",
+      "tests/v2_core/test_v2_settlement_cash_basis.py",
+      "tests/v2_core/test_v2_settlement_entry.py",
+      "tests/v2_core/test_v2_settlement_entry_refresh.py",
+      "tests/v2_core/test_v2_settlement_fairness.py",
+      "tests/v2_core/test_v2_settlement_financial_projection.py",
+      "tests/v2_core/test_v2_settlement_job_process.py",
+      "tests/v2_core/test_v2_settlement_outcome_isolation.py",
+      "tests/v2_core/test_v2_settlement_pipeline_clearance.py",
+      "tests/v2_core/test_v2_settlement_precision_release_restart.py",
+      "tests/v2_core/test_v2_strategy_capital_settlement.py",
+      "tests/v2_core/test_v2_strategy_exit.py",
+      "tests/v2_core/test_v2_strategy_management_cycle.py",
+      "tests/v2_core/test_v2_strategy_settlement.py",
+      "tests/v2_core/test_v2_strategy_settlement_projection.py",
+      "tests/v2_core/test_v2_testnet_settlement.py",
+      "tests/v2_core/test_v2_venue_cash.py",
+      "tests/v2_core/test_v2_venue_cash_activation.py",
+      "tests/v2_core/test_v2_venue_cash_audit.py",
+      "tests/v2_core/test_v2_venue_cash_managed_restart.py",
+      "tests/v2_core/test_v2_venue_cash_settlement.py",
+      "tests/v2_core/test_v2_managed_settlement_work.py",
+      "tests/v2_core/test_v2_management_settlement_composition.py",
+      "tests/v2_core/test_v2_settlement_execution_fence.py",
+      "tests/v2_core/test_v2_settlement_worker.py",
+      "tests/v2_core/test_v2_settlement_worker_process.py",
+      "tests/v2_core/test_v2_supervisor_shutdown.py",
+      "tests/v2_core/test_v2_worker_group.py",
+      "tests/v2_core/test_v2_execution_routes.py",
+      "tests/v2_core/test_v2_settlement_group_controller.py"
+    ],
+    "regression_source_hashes": {
+      "services/v2_directional_settlement.py": "2e284465c279b7f08fff71df3a4547f026e838c0035f1fe351786e04e460ba37",
+      "services/v2_execution_guard.py": "0448a308ab675ab3a0731e03354a0eb235bc3aee40650030d42644a31e06286d",
+      "services/v2_execution_supervisor.py": "fff397855c9b1981cfd0728f658f5b41158d74a4970a7a42c6c894e8993bd763",
+      "services/v2_managed_testnet.py": "6fba4459b3d4644a1716bb57ec8933d93e6ff6ac473392750831a1ce6d54e1ea",
+      "services/v2_settlement_worker.py": "8a533d4ef9f584d25793cb9768f38fefb4150bf3a0ef9087389779276a11d985",
+      "services/v2_worker_group.py": "fb40bae491641d2b9c136bccb8bf5bb9755da36061bb0538f6c7759c4442a7a6",
+      "v2_core/bounded_job.py": "6d6d5ae91459a20e1ca0986af7409d8aafee306aff1f8f7c911351a9179953b8",
+      "v2_core/execution_routes.py": "d7c3f202d16dc096f803b474602519663e2f1a3b3220b465f061bb22274604c9",
+      "tests/v2_core/test_v2_managed_settlement_work.py": "7eb623f88b945e2895b3d6c8acde9a51d333d474ca69b855ae158e29604bae07",
+      "tests/v2_core/test_v2_management_settlement_composition.py": "0d01769ca54907717cc9a5f5b7c52789fba4eed12909dd411f3b9fff867b450d",
+      "tests/v2_core/test_v2_settlement_execution_fence.py": "839d03f72219fc079b7b98edef390cd4271a00b9ad92e0eea0e2b5884d29777f",
+      "tests/v2_core/test_v2_settlement_worker.py": "c4e183fd70133a4304c3eed3ba349a7bb73d15e050b888c7c2cee0bb077c0f04",
+      "tests/v2_core/test_v2_settlement_worker_process.py": "de95f5af35ddfa31c94b40e8487b7af26ac7813799db266fcbea1addafded61b",
+      "tests/v2_core/test_v2_supervisor_shutdown.py": "0c5150c5aecdf2ce5aa46a09bd07a004e83af08b5ea0e82ef921853c467f6bea",
+      "tests/v2_core/test_v2_worker_group.py": "a2e635627e014e293a5aa01657ef4f8edad494c6a1562b0a854a03055d6bed46",
+      "tests/v2_core/test_v2_settlement_group_controller.py": "c473c9139fbe76d552e02e60ae5f821cda9538f83279a541b79a64ac595e42d9",
+      "tests/v2_core/test_v2_management_recovery.py": "7c24eb068e5f7c658bef632b884d9f9a55eddd37bd14de0a40eb63e76872f27b"
+    },
+    "selected_regression": {
+      "status": "PASSED_AFTER_FIXTURE_RECHECK",
+      "selected_files": 52,
+      "unique_cases": 1354,
+      "unresolved_failures": 0,
+      "initial_run": {
+        "passed": 1344,
+        "failed": 10,
+        "seconds": "462.52",
+        "diagnostics": "/tmp/v2-data-qa.gSSsf1/pytest.log"
+      },
+      "final_related_recheck": {
+        "files": 14,
+        "passed": 416,
+        "failed": 0,
+        "seconds": "88.88",
+        "diagnostics": "/tmp/v2-data-qa.LHPLDg/pytest.log",
+        "temporary_database_retained": false
+      },
+      "note": "Not a second full 52-file run: after a single fixture-only initialization correction, all 10 failed cases and directly related contracts were rerun in 14 files. Unchanged production and new-test hashes checked. Overlapping counts must not be summed."
+    },
+    "test_counts_overlap_do_not_sum": true,
+    "final_recheck_selections": [
+      "tests/v2_core/test_v2_management_recovery.py",
+      "tests/v2_core/test_v2_management_process.py",
+      "tests/v2_core/test_v2_execution_controller.py",
+      "tests/v2_core/test_v2_execution_routes.py",
+      "tests/v2_core/test_v2_execution_guard_acl.py",
+      "tests/v2_core/test_v2_bounded_job.py",
+      "tests/v2_core/test_v2_managed_settlement_work.py",
+      "tests/v2_core/test_v2_management_settlement_composition.py",
+      "tests/v2_core/test_v2_settlement_execution_fence.py",
+      "tests/v2_core/test_v2_settlement_worker.py",
+      "tests/v2_core/test_v2_settlement_worker_process.py",
+      "tests/v2_core/test_v2_supervisor_shutdown.py",
+      "tests/v2_core/test_v2_worker_group.py",
+      "tests/v2_core/test_v2_settlement_group_controller.py"
+    ],
+    "source_hashes_match_final_recheck": true,
+    "static_checks": {
+      "ruff": "PASS",
+      "format": "PASS",
+      "python_files": 17,
+      "git_diff_check": "PASS"
+    }
+  },
+  "runtime": {
+    "deployed": false,
+    "restarted": false,
+    "runtime_database_written": false,
+    "exchange_called": false,
+    "entries_resumed": false,
+    "metadata_only_check": {
+      "controller": "inactive/dead",
+      "legacy_daemon": "inactive/dead",
+      "legacy_watchdog": "inactive/dead"
+    },
+    "position_inventory_queried": false,
+    "systemd_template_only": {
+      "kill_mode": "mixed",
+      "timeout_stop_seconds": 90,
+      "live_cgroup_failure_acceptance": false
+    }
+  },
+  "limits": [
+    "Task selection/bootstrap occurs with no active child and can still block; unknown stop retains ownership and prohibits replacement. Standard connector timeouts are not a hard OS/network bound.",
+    "Deadlines require the independent owner to remain scheduled. Synchronous spawn, OS stalls and server-side session lock release are not guaranteed by a local process result.",
+    "Standalone supervisor SIGKILL has no PDEATHSIG guarantee; repository systemd cgroup configuration is not tested live in this increment.",
+    "Controller main-loop DB/health blocking before finally, and advisory lease loss on connection failure, require later process-group acceptance.",
+    "Management and financial work still share protocol account locks. This is bounded recovery under tested conditions, not zero contention.",
+    "Intermediate observational journals may commit independently; final financial fence does not retroactively revoke those observations.",
+    "Progress timeout should cover the configured maximum settlement job cycle; extreme allowed timing combinations can produce a conservative stale signal.",
+    "Typed entry worker, full process-group lifecycle, historical scale and slow-dependency acceptance, and two deterministic strategy-family comparisons remain unfinished."
+  ],
+  "next": "Wire typed entry worker and frozen decisions, then full process-group acceptance before any activation or strategy evidence window."
+}

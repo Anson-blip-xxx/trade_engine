@@ -1,9 +1,11 @@
 """Single Testnet controller process; no LIVE activation or shell child commands."""
 
+import json
 import os
 import signal
 import subprocess
 import threading
+import time
 from contextlib import contextmanager
 
 from services.v2_execution_controller import ExecutionController
@@ -16,6 +18,85 @@ def control_connection():
     with database()() as c:
         c.execute("SET LOCAL ROLE trade_v2_execution_operator")
         yield c
+
+
+def shutdown_worker(controller):
+    """Stop local ownership first; DB availability never precedes stopping.
+
+    A failed/unknown stop retains the exact handle and performs no DB work.
+    Individual member stop calls still own their existing boundedness contract.
+    Only confirmed local termination permits a best-effort recovery marker;
+    this is not a route handover, account switch or permission to restart.
+    """
+    result = {
+        "status": "IDLE",
+        "stop_confirmed": True,
+        "route_recorded": False,
+        "request_stop_failed": False,
+        "error_code": None,
+        "execution_authorized": False,
+    }
+    worker = controller.worker
+    if worker is None:
+        return result
+    try:
+        request_stop = getattr(worker, "request_stop", None)
+        if callable(request_stop):
+            request_stop()
+    except Exception:  # noqa: BLE001 - a failed hint must not skip the real stop
+        result["request_stop_failed"] = True
+    try:
+        stopped = worker.stop() is True
+        error = None if stopped else "SOURCE_PROCESS_NOT_STOPPED"
+    except Exception:  # noqa: BLE001 - preserve local ownership, no exception payload
+        stopped, error = False, "WORKER_STOP_FAILED"
+    result.update(
+        status="STOPPED" if stopped else "STOP_UNCONFIRMED",
+        stop_confirmed=stopped,
+        error_code=error,
+    )
+    if not stopped:
+        return result
+    try:
+        actual = controller.actual()
+        if actual and actual["phase"] in {"ACTIVE", "STARTING", "DRAINING"}:
+            controller.record(
+                actual,
+                "DRAINING",
+                token=actual["worker_token"],
+                blockers=["CONTROLLER_RESTART_RECOVERY"],
+            )
+            result["route_recorded"] = True
+    except Exception:  # noqa: BLE001 - stop is confirmed even if its route marker cannot be saved
+        result["error_code"] = "CONTROLLER_STOP_ROUTE_UNRECORDED"
+    return result
+
+
+def shutdown_controller(controller, *, wait=time.sleep):
+    """Keep the caller's controller lease while any local stop is unconfirmed.
+
+    The main routine invokes this inside its existing lease context. There is
+    no ordinary return/lease handover until all owned members confirm stop.
+    Forced OS exit and systemd cgroup cleanup remain the final external bound;
+    this loop cannot prove termination of a process the OS has not reaped.
+    """
+    previous = None
+    while True:
+        result = shutdown_worker(controller)
+        if result != previous:
+            try:
+                print(
+                    json.dumps({"component": "execution-controller-stop", **result}),
+                    flush=True,
+                )
+            except Exception:  # noqa: BLE001,S110 - logging must not control handle ownership
+                pass
+            previous = result
+        if result["stop_confirmed"]:
+            return result
+        # The controller's stop Event is already set; waiting on it here would
+        # spin immediately and repeatedly call a failed member stop.
+        wait(0.2)
 
 
 def main():
@@ -69,18 +150,7 @@ def main():
                 health.step(controller.actual())
                 stop.wait(10)
         finally:
-            actual = controller.actual()
-            if controller.worker is not None:
-                try:
-                    if actual and actual["phase"] in {"ACTIVE", "STARTING", "DRAINING"}:
-                        controller.record(
-                            actual,
-                            "DRAINING",
-                            token=actual["worker_token"],
-                            blockers=["CONTROLLER_RESTART_RECOVERY"],
-                        )
-                finally:
-                    controller.worker.stop()
+            shutdown_controller(controller)
 
 
 if __name__ == "__main__":

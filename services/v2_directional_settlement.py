@@ -39,9 +39,13 @@ class DirectionalSettlementStage:
         clock_ms,
         limit=10,
         excluded_position_symbols=(),
+        commit_guard=None,
     ):
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValueError("bounded settlement batch required")
+        if commit_guard is not None and not callable(commit_guard):
+            raise TypeError("EXPLICIT_SETTLEMENT_COMMIT_GUARD_REQUIRED")
+        self.commit_guard = commit_guard
         self.connect, self.scope, self.clock, self.limit = (
             connect,
             scope,
@@ -130,7 +134,9 @@ class DirectionalSettlementStage:
             raise ValueError("VALID_OPENING_BASELINE_REQUIRED")
         return rows[0][0], proof, inventory, version
 
-    def settle(self, episode):
+    def settle(self, episode, *, record_outcome=True):
+        if type(record_outcome) is not bool:
+            raise ValueError("EXPLICIT_SETTLEMENT_OUTCOME_MODE_REQUIRED")
         episode = str(UUID(episode))
         # A known local blocker already makes final account settlement
         # impossible. Do not repeatedly spend income + seven-route inventory
@@ -172,7 +178,7 @@ class DirectionalSettlementStage:
                     "settlement_authorized": False,
                 }
             result = self._settle_locked(episode, cash)
-        if result.get("status") == "SETTLED":
+        if record_outcome and result.get("status") == "SETTLED":
             # Settlement and risk release have already committed. A derived
             # analysis failure cannot turn that financial fact back into a
             # blocked settlement; run_once retries missing outcomes separately.
@@ -328,6 +334,11 @@ class DirectionalSettlementStage:
             raise ValueError("CASH_OBSERVATION_SUPERSEDED")
         with self.connect() as conn:
             conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            # Network evidence acquisition is finished. Fence the exact route
+            # on this financial transaction before intent/account locks, never
+            # on a separate connector or across income/inventory requests.
+            if self.commit_guard is not None:
+                self.commit_guard(conn, scope=self.scope, operation="MANAGE")
             conn.execute(
                 "SELECT intent_id FROM v2_trade_intents WHERE intent_id=%s FOR UPDATE",
                 (episode,),
@@ -529,15 +540,11 @@ class DirectionalSettlementStage:
                 (*asdict(self.scope).values(), after, limit),
             ).fetchall()
 
-    def run_once(self):
-        with session_advisory_lock(
-            self.connect, "directional-settlement-stage:" + self.scope.key
-        ) as acquired:
-            if not acquired:
-                return {"status": "BLOCKED", "reason": "BUSY"}
-            with self.connect() as conn:
-                pending = conn.execute(
-                    f"""SELECT i.intent_id::text FROM v2_trade_intents i
+    def _pending_outcomes(self, *, after, limit):
+        """Select missing derived analysis without conflating financial work."""
+        with self.connect() as conn:
+            return conn.execute(
+                f"""SELECT i.intent_id::text FROM v2_trade_intents i
                     JOIN v2_episodes e ON e.episode_id=i.intent_id
                     WHERE (i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s)
                     AND {LIFECYCLE_EPISODE_SQL}
@@ -584,8 +591,18 @@ class DirectionalSettlementStage:
                         ELSE NOT EXISTS (SELECT 1 FROM v2_directional_outcomes d
                           WHERE d.episode_id=i.intent_id) END
                     ORDER BY (i.intent_id::text<=%s),i.intent_id LIMIT %s""",
-                    (*asdict(self.scope).values(), self._outcome_after, self.limit),
-                ).fetchall()
+                (*asdict(self.scope).values(), after, limit),
+            ).fetchall()
+
+    def run_once(self):
+        with session_advisory_lock(
+            self.connect, "directional-settlement-stage:" + self.scope.key
+        ) as acquired:
+            if not acquired:
+                return {"status": "BLOCKED", "reason": "BUSY"}
+            pending = self._pending_outcomes(
+                after=self._outcome_after, limit=self.limit
+            )
             outcomes = {}
             for (episode,) in pending:
                 try:

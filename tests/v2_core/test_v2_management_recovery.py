@@ -94,6 +94,7 @@ class RecoveryCase:
         process.join, process.terminate, process.kill = join, terminate, kill
         worker = managed.ChildWorker.__new__(managed.ChildWorker)
         worker.mode = "MANAGEMENT_ONLY"
+        worker.startup_failure = None
         worker.entries_enabled = False
         worker.last_contact = worker.last_progress = self.now
         worker.progress_timeout, worker.stop_grace = 30, 1

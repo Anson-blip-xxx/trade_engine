@@ -53,6 +53,11 @@ class _StopFlag:
         return True
 
 
+def cooperative_flag(context):
+    """Create a lock-free one-writer hint; never a permission or stop proof."""
+    return _StopFlag(context.RawValue("b", 0))
+
+
 @dataclass(frozen=True)
 class BoundedJobPolicy:
     work_seconds: float
@@ -170,7 +175,7 @@ class BoundedProcessJob:
             # Event.set acquires a process-shared Condition lock. A child
             # killed while owning it could deadlock this supervisor. The stop
             # hint therefore uses a raw byte, not a semaphore-backed Event.
-            self._stop_event = _StopFlag(self.context.RawValue("b", 0))
+            self._stop_event = cooperative_flag(self.context)
             self._channel, child = self.context.Pipe(duplex=False)
             self._process = self.context.Process(
                 target=_run, args=(self.target, self._stop_event, args, child)

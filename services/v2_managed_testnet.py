@@ -25,6 +25,7 @@ from services.v2_testnet_daemon_entry import (
 from v2_core.account_coverage import AccountCoverageAudit
 from v2_core.account_inventory import AccountInventory, persist_inventory
 from v2_core.account_risk import AccountPolicy, AccountRisk, AccountScope
+from v2_core.bounded_job import cooperative_flag
 from v2_core.cycle_cadence import cycle_delay
 from v2_core.database import connection_factory
 from v2_core.public_market import PublicRateBudget
@@ -356,15 +357,30 @@ class TestnetPorts:
             return ["TARGET_PREFLIGHT_FAILED"]
 
     def spawn(self, target):
+        if _worker_mode(self.values) == "MANAGEMENT_WITH_SETTLEMENT":
+            from services.v2_settlement_worker import SettlementWorker
+            from services.v2_worker_group import WorkerGroup
+
+            return WorkerGroup.create(
+                (
+                    lambda: ChildWorker(
+                        self.tenant,
+                        target,
+                        {**self.values, "V2_CONTROLLER_WORKER_MODE": "MANAGEMENT_ONLY"},
+                    ),
+                    lambda: SettlementWorker(self.tenant, target, self.values),
+                ),
+                entries_enabled=False,
+            )
         return ChildWorker(self.tenant, target, self.values)
 
 
 def _worker_mode(values):
     mode = values.get("V2_CONTROLLER_WORKER_MODE", "LEGACY")
-    if mode not in ("LEGACY", "MANAGEMENT_ONLY"):
+    if mode not in ("LEGACY", "MANAGEMENT_ONLY", "MANAGEMENT_WITH_SETTLEMENT"):
         raise ValueError("EXPLICIT_CONTROLLER_WORKER_MODE_REQUIRED")
     if (
-        mode == "MANAGEMENT_ONLY"
+        mode != "LEGACY"
         and values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") != "false"
     ):
         raise ValueError("MANAGEMENT_ONLY_ENTRIES_DISABLED_REQUIRED")
@@ -461,7 +477,10 @@ def child_main(tenant, target, values, stop, release, channel):
         cycle_diagnostics = _CycleDiagnostics(
             int(values.get("V2_CONTROLLER_CYCLE_DIAGNOSTIC_INTERVAL_SECONDS", "60"))
         )
-        if _worker_mode(values) == "MANAGEMENT_ONLY":
+        mode = _worker_mode(values)
+        if mode == "MANAGEMENT_WITH_SETTLEMENT":
+            raise ValueError("DIRECT_WORKER_GROUP_OWNER_REQUIRED")
+        if mode == "MANAGEMENT_ONLY":
             _management_child(
                 tenant, target, values, stop, release, channel, cycle_diagnostics
             )
@@ -648,6 +667,9 @@ def child_main(tenant, target, values, stop, release, channel):
 class ChildWorker:
     def __init__(self, tenant, target, values):
         self.mode = _worker_mode(values)
+        if self.mode == "MANAGEMENT_WITH_SETTLEMENT":
+            raise ValueError("DIRECT_WORKER_GROUP_OWNER_REQUIRED")
+        self.startup_failure = None
         self.last_progress = time.monotonic()
         self.last_contact = self.last_progress
         self.progress_timeout = int(
@@ -668,17 +690,30 @@ class ChildWorker:
             values.get("V2_CONTROLLER_ENABLE_ENTRIES", "false") == "true"
         )
         ctx = multiprocessing.get_context("spawn")
-        self.stop_event, self.release_event = ctx.Event(), ctx.Event()
+        self.stop_event, self.release_event = (
+            cooperative_flag(ctx),
+            cooperative_flag(ctx),
+        )
         self.channel, child = ctx.Pipe(duplex=False)
         self.process = ctx.Process(
             target=child_main,
             args=(tenant, target, values, self.stop_event, self.release_event, child),
         )
-        self.process.start()
-        child.close()
+        try:
+            self.process.start()
+        except Exception:  # noqa: BLE001 - retain a possibly started child for its owner
+            if self.process.pid is None:
+                self.channel.close()
+                self.process.close()
+                raise RuntimeError("WORKER_SPAWN_FAILED") from None
+            self.startup_failure = "WORKER_START_FAILED"
+            self.request_stop()
+        finally:
+            child.close()
 
     def ready(self):
-        self.startup_failure = None
+        if self.startup_failure is not None:
+            return False
         if not self.channel.poll(25):
             return False
         try:
@@ -720,8 +755,12 @@ class ChildWorker:
     def healthy(self):
         return time.monotonic() - self.last_progress <= self.progress_timeout
 
-    def stop(self):
+    def request_stop(self):
+        # A hint must never wait for a semaphore held by a dead child.
         self.stop_event.set()
+
+    def stop(self):
+        self.request_stop()
         self.process.join(self.stop_grace)
         forced = False
         if self.process.is_alive():

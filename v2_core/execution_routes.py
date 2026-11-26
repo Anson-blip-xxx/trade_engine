@@ -209,9 +209,9 @@ class ExecutionRoutes:
             )
             return result
 
-    @contextmanager
-    def submit_guard(
+    def require_transaction(
         self,
+        c,
         *,
         tenant_id,
         environment,
@@ -221,7 +221,11 @@ class ExecutionRoutes:
         worker_token,
         operation="OPEN",
     ):
-        """Hold the route through actual bounded I/O; never use a cached boolean."""
+        """Lock/check current authority on the caller's existing transaction.
+
+        No connection, commit or network operation is owned here. Call before
+        intent/account locks; the caller retains these locks until its commit.
+        """
         tenant, registry, token = map(uid, (tenant_id, registry_id, worker_token))
         if (
             type(binding_version) is not int
@@ -232,20 +236,25 @@ class ExecutionRoutes:
         ):
             raise ValueError("EXECUTION_FENCED")
         environment = self._environment(environment)
+        row = c.execute(
+            "SELECT target_registry::text,binding_version,epoch,worker_token::text,phase "
+            "FROM v2_execution_routes WHERE tenant_id=%s AND environment=%s FOR SHARE",
+            (tenant, environment),
+        ).fetchone()
+        if (
+            row is None
+            or row[:4] != (registry, binding_version, epoch, token)
+            or (
+                row[4] != "ACTIVE"
+                and not (row[4] == "DRAINING" and operation == "MANAGE")
+            )
+        ):
+            raise ValueError("EXECUTION_FENCED")
+        self._binding(c, tenant, registry, environment, binding_version)
+
+    @contextmanager
+    def submit_guard(self, **binding):
+        """Hold current authority through bounded I/O, never a cached boolean."""
         with self.connect() as c:
-            row = c.execute(
-                "SELECT target_registry::text,binding_version,epoch,worker_token::text,phase "
-                "FROM v2_execution_routes WHERE tenant_id=%s AND environment=%s FOR SHARE",
-                (tenant, environment),
-            ).fetchone()
-            if (
-                row is None
-                or row[:4] != (registry, binding_version, epoch, token)
-                or (
-                    row[4] != "ACTIVE"
-                    and not (row[4] == "DRAINING" and operation == "MANAGE")
-                )
-            ):
-                raise ValueError("EXECUTION_FENCED")
-            self._binding(c, tenant, registry, environment, binding_version)
+            self.require_transaction(c, **binding)
             yield
