@@ -215,6 +215,19 @@ def configure(connect, scope, changes, *, expected_version, reason, request_key=
 def validate_submission(conn, scope, order_id):
     """Require a new proposal after any change, under the account submit lock."""
     current = read(lambda: nullcontext(conn), scope)
+    from v2_core.strategy_execution_context import read_execution_context
+
+    try:
+        typed = read_execution_context(conn, scope, order_id)
+    except ValueError as exc:
+        if exc.args == ("STRATEGY_EXECUTION_ORDER_MISSING",):
+            raise ValueError("LIQUIDITY_CONTROLS_ORDER_MISSING") from None
+        raise
+    if typed is not None:
+        _, context = typed
+        if context["liquidity_controls"] != current.snapshot():
+            raise ValueError("LIQUIDITY_CONTROLS_CHANGED_REPROPOSE")
+        return typed
     account = _account(scope)
     row = conn.execute(
         "SELECT e.snapshot#>'{features,context,liquidity_controls}' FROM v2_orders o "

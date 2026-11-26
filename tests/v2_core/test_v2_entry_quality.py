@@ -471,9 +471,10 @@ def test_real_submission_binding_rechecks_and_never_sends_rejected_entries(
             gate(order)
         assert not sent
     sent.clear()
-    # Closing permission is independent: stale entry proof must not trap exits.
-    assert gate({**order, "leg": "CLOSE", "reduce_only": True}) == "sent"
-    assert len(sent) == 1
+    # A reduction needs its own durable identity, even with closing enabled.
+    with pytest.raises(SubmissionNotSent, match="REDUCE_ONLY_REVALIDATION_FAILED"):
+        gate({**order, "leg": "CLOSE", "reduce_only": True})
+    assert not sent
 
 
 def test_account_context_persists_remaining_stop_risk_for_sizing(database):

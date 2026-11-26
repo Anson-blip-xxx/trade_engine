@@ -40,8 +40,16 @@ def bind_directional_venue_gate(
         clock_ms=runtime.clock_ms,
         exclusions=excluded_position_symbols,
     )
+    from v2_core.strategy_opening import StrategyOpeningGate
+
+    typed_gate = StrategyOpeningGate(
+        runtime.data._connect, scope=scope, clock_ms=runtime.clock_ms
+    )
 
     def plan(order):
+        typed_terms = typed_gate.terms(order)
+        if typed_terms is not None:
+            return typed_terms
         with runtime.data._connect() as conn:
             config, snapshot, version = conn.execute(
                 """SELECT e.config,e.snapshot,i.strategy_version FROM v2_orders o
@@ -125,6 +133,9 @@ def bind_directional_venue_gate(
         return {"leverage": desired["leverage"], "margin_type": desired["margin_mode"]}
 
     def validate_reference(order, reference):
+        typed_reference = typed_gate.validate_reference(order, reference)
+        if typed_reference is not None:
+            return typed_reference
         from v2_core.runtime_policy import PolicyStore, resolve
 
         with runtime.data._connect() as conn:
@@ -210,6 +221,7 @@ def bind_directional_venue_gate(
         enabled=enabled,
         reduce_only_enabled=reduce_only_enabled,
         validate_reference=validate_reference,
+        validate_reduction=typed_gate.validate_reduction,
     )
     runtime.execution.submit = gate
     return gate

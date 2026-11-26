@@ -229,6 +229,35 @@ def configure(connect, scope, changes, *, expected_version, reason):
 def validate_submission(conn, scope, order_id, *, now_ms=None):
     """Called with the existing account submit lock; changed control requires a new proposal."""
     current = read(lambda: nullcontext(conn), scope)
+    from v2_core.strategy_execution_context import read_execution_context
+
+    try:
+        typed = read_execution_context(conn, scope, order_id)
+    except ValueError as exc:
+        if exc.args == ("STRATEGY_EXECUTION_ORDER_MISSING",):
+            raise ValueError("ENTRY_CONTROLS_ORDER_MISSING") from None
+        raise
+    if typed is not None:
+        _, context = typed
+        if context["entry_controls"] != current.snapshot():
+            raise ValueError("ENTRY_CONTROLS_CHANGED_REPROPOSE")
+        # These allocation/structure controls currently depend on directional
+        # replay and S6/S8 history. Equal snapshots alone do not enforce them.
+        if (
+            current.values["sizing.remaining_budget_enabled"]
+            or current.values["history.mode"] == "SOFT"
+            or current.values["reentry.mode"] == "ENFORCE"
+        ):
+            raise ValueError("STRATEGY_ENTRY_CONTROLS_UNSUPPORTED")
+        from v2_core.runtime_policy import PolicyStore
+
+        policy = PolicyStore(lambda: nullcontext(conn), scope).read().values
+        if (
+            context["policy"]["entry.reentry_enabled"]
+            or policy["entry.reentry_enabled"]
+        ):
+            raise ValueError("STRATEGY_REENTRY_POLICY_UNSUPPORTED")
+        return None
     row = conn.execute(
         "SELECT e.snapshot#>'{features,context,entry_controls}' FROM v2_orders o "
         "JOIN v2_trade_intents i ON i.intent_id=o.episode_id "

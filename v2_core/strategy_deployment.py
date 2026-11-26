@@ -3,9 +3,10 @@
 Deployment publication and entry validation share the existing account-risk
 transaction lock, including the first publication when no state row exists.
 Call ``require_strategy_opening`` only while holding the intent root lock, in
-the SAME transaction as preparation or the submission CAS. Nothing here sends
-orders, resumes account execution, or revokes an already committed submission
-permit. CLOSE, protection and recovery must not call the entry fence.
+the SAME transaction as preparation or the submission CAS. The typed venue
+adapter also rechecks it before the initial POST: a known-unsent request may
+still be denied. This does not retract a sent request or grant a second permit.
+CLOSE, protection and query recovery must not call the entry fence.
 """
 
 from contextlib import nullcontext

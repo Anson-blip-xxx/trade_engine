@@ -185,6 +185,7 @@ class GuardedOpeningSubmit:
         configure=None,
         reduce_only_enabled=False,
         validate_reference=None,
+        validate_reduction=None,
     ):
         if (
             type(enabled) is not bool
@@ -192,11 +193,13 @@ class GuardedOpeningSubmit:
             or not all(callable(p) for p in (reference, plan, submit))
             or (configure is not None and not callable(configure))
             or (validate_reference is not None and not callable(validate_reference))
+            or (validate_reduction is not None and not callable(validate_reduction))
         ):
             raise ValueError("explicit guarded submit ports required")
         self.connect, self.readiness = connect, readiness
         self.configure = configure
         self.validate_reference = validate_reference
+        self.validate_reduction = validate_reduction
         (
             self.reference,
             self.plan,
@@ -218,6 +221,13 @@ class GuardedOpeningSubmit:
         if order["leg"] == "CLOSE" and order.get("reduce_only") is True:
             if not self.reduce_only_enabled:
                 raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
+            if self.validate_reduction is not None:
+                try:
+                    self.validate_reduction(deepcopy(order))
+                except SubmissionNotSent:
+                    raise
+                except Exception:  # noqa: BLE001 - validation precedes submit
+                    raise SubmissionNotSent("REDUCE_ONLY_REVALIDATION_FAILED") from None
             return self.submit(order)
         if not self.enabled:
             raise SubmissionNotSent("ENDPOINT_OR_WRITE_DISABLED")
