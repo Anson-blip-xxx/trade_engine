@@ -1,0 +1,114 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "phase": "P1 seventh increment: audited duplicate signal terminalization and scheduler acknowledgement",
+  "base_commit": "ae2b54a70f5046c4f6100e2c9721c005357c542a",
+  "status": "DUPLICATE_SIGNAL_INCREMENT_ACCEPTED_NOT_ACTIVATED",
+  "source_hashes": {
+    "v2_core/strategy_signal_admission.py": "b953cfc375bc9eaaad82c9342bc8d0c8d5aef132d82e4f129c9641bc479898f8",
+    "tests/v2_core/test_v2_strategy_duplicate_signals.py": "9b7c48c3f027b2c441161f3a8b82f8d563406ba83e718364ad79fff8e60f125a",
+    "tests/v2_core/test_v2_strategy_duplicate_scheduler.py": "a53fc613439f0b566e14e90df71a1d946b920bf045fbce4b1b5127aba93a35cd"
+  },
+  "implemented": [
+    "New explicit StrategySignalAdmission wraps, but does not change, strict StrategyPlanAdmission. First acceptance retains the atomic plan/intent/opportunity protocol; no service is wired to the new adapter.",
+    "Duplicate resolution only follows precise already-claimed/intent-conflict errors after the original transaction has rolled back. Lock order is candidate signal -> winner intent root -> account; no winner signal lock is acquired.",
+    "Rehash winner evidence and verify frozen plan/deployment, permanent opportunity head/history and original INTENT receipt. Scope/opportunity/symbol/side must agree. Unknown commit, DB failures, mismatched identities and unproven winners are not silently ignored.",
+    "Foreign or incomplete decision/receipt, existing scoped intent without receipt, and changed frozen same-signal input are conflicts, never overwritten. Same signal across distinct consumers and independent account scopes retain their distinct consumption identities.",
+    "Atomically persist content-addressed rejection evidence, IGNORED strategy decision and signal receipt. Keep candidate input and winner references separately; ignored evidence has no top-level strategy_plan or OPEN result. Return no intent_id and always execution_authorized=false.",
+    "Exact ignored replay checks the complete frozen proposal and stored record, preserves decision time, and writes nothing. Historical deployment stop, settlement or expired duplicate does not revive entry authority. Expired duplicates are classified as opportunity-already-claimed, not EXPIRED.",
+    "Existing real StrategyWorker/StrategyScheduler acknowledges committed duplicate results, removes ready projection via its trigger, does not rerun context/strategy/JEV, and preserves unrelated live leases. Pre-ACK failure and lost post-commit ACK recover without business replay."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "One disposable PostgreSQL/Redis harness at a time, Unix sockets and dedicated V2 external TCP block. No running trading database or exchange calls.",
+    "scope": "29 selected related files; not the entire repository, production deployment, real exchange acceptance or profitability research.",
+    "intermediate_runs": [
+      {
+        "passed": 108,
+        "failed": 0,
+        "seconds": "44.84",
+        "diagnostics": "/tmp/v2-data-qa.N0EQpu/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Initial duplicate adapter cases plus existing strict admission, before seven additional boundary cases and shared evidence-cap constant import. Overlaps final regression."
+      },
+      {
+        "passed": 11,
+        "failed": 0,
+        "seconds": "7.36",
+        "diagnostics": "/tmp/v2-data-qa.FWRMqh/pytest.log",
+        "temporary_database_retained": false,
+        "note": "Real scheduler READY/CANONICAL, cross-source/cross-consumer, JEV no-call, lease and ACK fault acceptance. Overlaps final regression."
+      }
+    ],
+    "fixture_corrections": [
+      "Before running scheduler QA, independent same-signal consumer plans were aligned to the original signal timestamps instead of accidentally extending expiry. No admission checks relaxed."
+    ],
+    "selections": [
+      "tests/v2_core/test_v2_strategy_duplicate_signals.py",
+      "tests/v2_core/test_v2_strategy_duplicate_scheduler.py",
+      "tests/v2_core/test_v2_strategy_registry.py",
+      "tests/v2_core/test_v2_strategy_plan.py",
+      "tests/v2_core/test_v2_strategy_plan_compatibility.py",
+      "tests/v2_core/test_v2_strategy_deployment.py",
+      "tests/v2_core/test_v2_strategy_deployment_execution.py",
+      "tests/v2_core/test_v2_strategy_plan_admission.py",
+      "tests/v2_core/test_v2_strategy_prepare.py",
+      "tests/v2_core/test_v2_strategy_opening_gate.py",
+      "tests/v2_core/test_v2_strategy_execution_context.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_strategy_correctness_flow.py",
+      "tests/v2_core/test_v2_ready_queue.py",
+      "tests/v2_core/test_v2_scheduler_metrics.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_advisory_scheduler_isolation.py",
+      "tests/v2_core/test_v2_capacity_decline_scheduling.py",
+      "tests/v2_core/test_v2_signal_context_isolation.py",
+      "tests/v2_core/test_v2_signal_maintenance.py",
+      "tests/v2_core/test_v2_signal_lag_classification.py",
+      "tests/v2_core/test_v2_signal_queue_health_bounded.py",
+      "tests/v2_core/test_v2_signal_history_pages.py",
+      "tests/v2_core/test_v2_admission_transport_failures.py",
+      "tests/v2_core/test_v2_admission_budget.py",
+      "tests/v2_core/test_v2_admission_latency.py",
+      "tests/v2_core/test_v2_strategy_capital_guard.py",
+      "tests/v2_core/test_v2_management_runtime.py",
+      "tests/v2_core/test_v2_management_process.py"
+    ],
+    "final_regression": {
+      "status": "PASSED",
+      "passed": 994,
+      "failed": 0,
+      "seconds": "288.39",
+      "test_files": 29,
+      "diagnostics": "/tmp/v2-data-qa.VTh6K1/pytest.log",
+      "temporary_database_retained": false,
+      "ruff_check": "PASSED",
+      "ruff_format_check": "PASSED",
+      "git_diff_check": "PASSED",
+      "tested_source_hashes_verified": true
+    }
+  },
+  "runtime_actions": {
+    "deployed": false,
+    "services_restarted": false,
+    "execution_resumed": false,
+    "runtime_configuration_changed": false,
+    "trading_database_changed": false,
+    "schema_migration": false,
+    "exchange_requests": 0,
+    "read_only_service_observation": {
+      "execution_controller": "inactive/dead",
+      "legacy_testnet_daemon": "inactive/dead",
+      "legacy_testnet_watchdog": "inactive/dead",
+      "scope": "Service metadata only; no fresh exchange position query or close action."
+    }
+  },
+  "remaining_before_activation": [
+    "Typed entry worker, causal shared opportunity generation and source fusion are not wired. Permanent opportunity identity requires the upstream to identify the same real structure consistently.",
+    "Only verified duplicate opportunities gain terminal consumption here. Nonduplicate expiry, safety rejection and model wait classification remain a typed-worker integration task; the strict adapter still raises.",
+    "Independent entry/management/bounded-settlement process ownership and shutdown, slow-dependency isolation and management heartbeat dashboard/alert projection.",
+    "Historical-scale load and resource validation, real Testnet end-to-end acceptance, runtime soak and predefined out-of-sample strategy comparisons remain separate requirements.",
+    "No claim of production signal-lag resolution or profitability. User-requested trading pause remains in place."
+  ]
+}
