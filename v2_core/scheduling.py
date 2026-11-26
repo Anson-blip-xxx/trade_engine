@@ -386,6 +386,11 @@ class StrategyScheduler:
         acquiring locks so a concurrent committed decision is never discarded.
         Existing decisions/intents and active leases keep their recovery path.
         """
+        if getattr(self.worker, "requires_audited_expiry", False):
+            # Typed candidates have a separately frozen plan and decision proof.
+            # The legacy bulk shortcut cannot see that record and must not
+            # create a bare expiry receipt that bypasses its atomic resolution.
+            raise ValueError("TYPED_ENTRY_AUDITED_EXPIRY_REQUIRED")
         if type(limit) is not int or not 1 <= limit <= 5000:
             raise ValueError("bounded expiry batch required")
         self._history_bounds(history_page_size)
@@ -1127,16 +1132,43 @@ class StrategyScheduler:
                 )
             ack_at = time.perf_counter()
             diagnostics["stage"] = "ACK"
+            completion_guard = ""
+            if getattr(worker, "requires_audited_expiry", False):
+                # A raw receipt/order is insufficient for typed work: read may
+                # have rejected its proof, or a commit acknowledgement may have
+                # been lost. Release this attempt but require a fresh verified
+                # replay before marking it complete. Existing UNKNOWN orders
+                # belong to order recovery; an order-free UNKNOWN intent does
+                # not establish completed preparation.
+                verified = (
+                    error is None
+                    and wait_reason is None
+                    and isinstance(outcome, dict)
+                    and outcome.get("execution_authorized") is False
+                    and results[signal_id] == outcome.get("status")
+                    and (
+                        outcome.get("status")
+                        in {"PREPARED", "EXISTING_ORDER", "IGNORED", "EXPIRED"}
+                        or (
+                            outcome.get("status") == "UNCHANGED"
+                            and outcome.get("intent_status")
+                            in {"REJECTED", "CANCELLED", "EXPIRED"}
+                        )
+                    )
+                )
+                if not verified:
+                    completion_guard = "AND false"
             try:
                 with self._connect() as conn:
                     # Derive completion from committed business records, never
                     # a callback's return value. INTENT alone is insufficient.
                     conn.execute(
-                        """UPDATE v2_strategy_tasks t SET
+                        f"""UPDATE v2_strategy_tasks t SET
                         completed_at=CASE WHEN EXISTS (
                             SELECT 1 FROM v2_signal_receipts r
                             LEFT JOIN v2_trade_intents i ON i.intent_id=r.intent_id
                             WHERE r.consumer=t.consumer AND r.signal_id=t.signal_id
+                            {completion_guard}
                             AND (r.outcome<>'INTENT' OR i.status<>'RECEIVED'
                                 OR EXISTS (SELECT 1 FROM v2_orders o WHERE o.episode_id=i.intent_id))
                         ) THEN clock_timestamp() ELSE NULL END,

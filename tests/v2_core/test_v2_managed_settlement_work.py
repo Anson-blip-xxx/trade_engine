@@ -63,6 +63,22 @@ def test_real_job_settles_once_then_independent_outcome_records(fenced):
         assert after[key] == before[key]
 
 
+@pytest.mark.parametrize("kind", ["FINANCIAL", "OUTCOME"])
+def test_replay_requires_journal_for_current_accounting_revision(fenced, kind):
+    case = closed_plan(fenced.admin)
+    assert run(fenced, case) == "COMPLETED"
+    # Inject a stale-journal/episode inconsistency only in the disposable QA DB.
+    # A journal for an earlier revision is not proof that this revision settled.
+    with fenced.admin() as conn:
+        conn.execute(
+            "UPDATE v2_episodes SET accounting_revision=accounting_revision+1 "
+            "WHERE episode_id=%s",
+            (case.episode,),
+        )
+    with pytest.raises(ValueError, match="SETTLEMENT_JOURNAL_REQUIRED"):
+        run(fenced, case, kind=kind)
+
+
 def test_bootstrap_selects_without_venue_and_uses_independent_cursors(
     fenced, monkeypatch
 ):

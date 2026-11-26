@@ -116,7 +116,8 @@ def run_settlement_work(
         with connect() as conn:
             row = conn.execute(
                 f"SELECT e.status,EXISTS (SELECT 1 FROM v2_settlements s "
-                f"WHERE s.episode_id=e.episode_id) FROM v2_trade_intents i JOIN v2_episodes e "
+                f"WHERE s.episode_id=e.episode_id AND s.revision=e.accounting_revision "
+                f"AND s.currency='USDT') FROM v2_trade_intents i JOIN v2_episodes e "
                 f"ON e.episode_id=i.intent_id WHERE i.intent_id=%s AND "
                 f"(i.exchange,i.account_id,i.environment,i.product)=(%s,%s,%s,%s) "
                 f"AND {LIFECYCLE_EPISODE_SQL}",

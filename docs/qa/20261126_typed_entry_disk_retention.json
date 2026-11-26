@@ -1,0 +1,149 @@
+{
+  "date": "2026-11-26",
+  "timezone": "UTC+8",
+  "base_commit": "b907e67d7943fc83d491f9302f42d765acb017a3",
+  "phase": "P1 tenth increment: durable frozen candidate consumption and audited queue acknowledgement; read-only disk audit",
+  "status": "ISOLATED_ENTRY_CORE_ACCEPTED_NOT_ACTIVATED",
+  "implemented": [
+    "Immutable first-writer candidate association with bounded canonical evidence, full binding and original signal digest. No evaluation or new snapshot on retry.",
+    "Receipt-first recovery verifies permanent intent or negative proof before consulting a new candidate/current deployment. Missing, corrupt, foreign and orphan records do not become ignored signals.",
+    "New OPEN uses existing atomic StrategySignalAdmission and StrategyPrepareRecovery. Duplicate signal terminal proof does not prepare the winner again.",
+    "Own IGNORED/EXPIRED terminal is evidence-backed and atomic under signal lock, verifies the original frozen candidate, and uses PostgreSQL time for expiry. Unknown admission failures are not converted into terminal outcomes.",
+    "Typed scheduler requires a verified safe result plus committed business evidence before ACK. Legacy bulk expiry cannot be used with typed worker. Unknown order remains with order recovery; order-free UNKNOWN intent remains pending.",
+    "Settled replay requires current accounting_revision and USDT journal, not just any prior settlement row.",
+    "Offline and separately guarded online reference-index scripts add v2_s3_frames(state_id,state_version); wrong or invalid same-name index fails without automatic DROP. Online script is not executed on running database."
+  ],
+  "qa": {
+    "python": "/opt/trade-engine-v2/venvs/py312-system-v1/bin/python",
+    "harness": "scripts/qa_v2_data_core.sh",
+    "boundary": "One isolated temporary PostgreSQL 16 and Redis harness at a time. Unix sockets, dedicated V2 conftest external TCP denial. No exchange calls, runtime credentials or runtime schema changes.",
+    "selected_regression": {
+      "selected_files": 25,
+      "passed": 787,
+      "failed": 0,
+      "seconds": "268.30",
+      "diagnostics": "/tmp/v2-data-qa.Rn3Y9c/pytest.log",
+      "temporary_database_retained": false,
+      "note": "Full rerun of the 25 selected related files after fixture corrections. This is not all repository tests, live process-group acceptance, a venue end-to-end run or strategy profitability validation."
+    },
+    "intermediate_runs": [
+      {
+        "scope": "Settlement replay focused regression",
+        "passed": 13,
+        "failed": 0,
+        "seconds": "14.71",
+        "diagnostics": "/tmp/v2-data-qa.swFT7k/pytest.log"
+      },
+      {
+        "scope": "Five retention/index files",
+        "passed": 130,
+        "failed": 0,
+        "seconds": "48.29",
+        "diagnostics": "/tmp/v2-data-qa.hHEg3j/pytest.log"
+      },
+      {
+        "scope": "Entry store/worker/scheduler combined before final fixture fixes",
+        "passed": 113,
+        "failed": 2,
+        "seconds": "26.80",
+        "diagnostics": "/tmp/v2-data-qa.yBFoFH/pytest.log",
+        "correction": "Tests attempted financial UNKNOWN setup with risk policy absent or initialized after preparing an unreserved episode. Risk/capital configuration now precedes admission and financial fixtures use actual scoped risk reference. Production safety checks were not weakened."
+      }
+    ],
+    "test_counts_overlap_do_not_sum": true,
+    "covered_faults": [
+      "First-writer replay, immutable candidate, source/account scope, signal/time/plan digests, damaged evidence and unsafe credentials/feature payloads",
+      "Receipt priority after candidate loss or deployment change; original order identity retained",
+      "Admission, preparation and negative terminal commit acknowledgement lost, verified retry without extra intent/order",
+      "Actual ACK transaction rollback and committed-ACK response loss, lease-token protection, no false completion",
+      "DRAINED after read, no candidate, stale deployment and corrupt raw receipts remain uncompleted",
+      "Order-free UNKNOWN remains pending; existing UNKNOWN order is not reposted or falsely resolved",
+      "Expired duplicate keeps original duplicate reason; first expiry requires original frozen proof",
+      "Stale settlement revision does not count as current settlement completion",
+      "Reference-index repeat migration, exact index identity, invalid/wrong index retained on failure, exact-version and cross-environment reference protection",
+      "Unforced planner selects reference index with 24000 wide unrelated frames; retention preview/apply within original five-second budget for that isolated sample"
+    ],
+    "selections": [
+      "tests/v2_core/test_v2_strategy_entry_store.py",
+      "tests/v2_core/test_v2_strategy_entry_worker.py",
+      "tests/v2_core/test_v2_strategy_entry_scheduler.py",
+      "tests/v2_core/test_v2_strategy_plan_admission.py",
+      "tests/v2_core/test_v2_strategy_prepare.py",
+      "tests/v2_core/test_v2_strategy_duplicate_signals.py",
+      "tests/v2_core/test_v2_strategy_duplicate_scheduler.py",
+      "tests/v2_core/test_v2_strategy_deployment.py",
+      "tests/v2_core/test_v2_strategy_deployment_execution.py",
+      "tests/v2_core/test_v2_strategy_execution_context.py",
+      "tests/v2_core/test_v2_strategy.py",
+      "tests/v2_core/test_v2_ready_queue.py",
+      "tests/v2_core/test_v2_scheduler_fairness.py",
+      "tests/v2_core/test_v2_scheduler_metrics.py",
+      "tests/v2_core/test_v2_advisory_scheduler_isolation.py",
+      "tests/v2_core/test_v2_capacity_decline_scheduling.py",
+      "tests/v2_core/test_v2_directional_context_expiry.py",
+      "tests/v2_core/test_v2_managed_settlement_work.py",
+      "tests/v2_core/test_v2_settlement_worker.py",
+      "tests/v2_core/test_v2_settlement_execution_fence.py",
+      "tests/v2_core/test_v2_retention_reference_index.py",
+      "tests/v2_core/test_v2_diagnostic_retention.py",
+      "tests/v2_core/test_v2_jev_health_retention.py",
+      "tests/v2_core/test_v2_retention_health.py",
+      "tests/v2_core/test_v2_retention_artifacts.py"
+    ],
+    "source_hashes_match_regression_start_and_finish": true,
+    "sha256": {
+      "v2_core/strategy_entry_store.py": "1e85d76819fe653845632becfdd0f8a36af3c0884f53f1514d31ca8a0a7ccd04",
+      "v2_core/strategy_entry_worker.py": "3c32f9a25b8dc40708c4a3e05a620566e01d98d63706b1860d805decfb3fa3ce",
+      "v2_core/scheduling.py": "709c13003b1eb84d74d9829d31fcb8716272455c765b310b63e600a8ea965196",
+      "services/v2_settlement_worker.py": "5637c185683d2ae617fe677684e2a65cdb5f0eb04030a4385580c67307aa6f17",
+      "db/migrations/20261126_retention_reference_lookup.sql": "bc6c144fb23b13ea765c07394842a6c27326ed4552d1538a53d597648d0a4804",
+      "deploy/v2-testnet/retention-reference-index.sql": "a1988041490ba1693b7d0fc12839a5f03355402897b97e684c2b74418f60d9f1",
+      "db/migrations/20261126_strategy_entry_candidates.sql": "19977f79aa9e7f84e713ecd8ffbb771cd88edd9329efbe6296db0734f6b68f28",
+      "tests/v2_core/test_v2_strategy_entry_store.py": "e56cd267080d3a8eeb94aab80cf62de624d165f2c087412319460d9dfadef89d",
+      "tests/v2_core/test_v2_strategy_entry_worker.py": "6470e4a44d1f829f5163100efc1b09b1478849f61b7f436154aff294f221f523",
+      "tests/v2_core/test_v2_strategy_entry_scheduler.py": "5cc03486bd1ea02c1a87ec56942e5f83e2a24f3f2bc8c2e8f7587610794d7e1a",
+      "tests/v2_core/test_v2_retention_reference_index.py": "62c2f0e818d2e5bc30148b3737f1908c9f12c18ce172079f02a0c5076b4849f2",
+      "tests/v2_core/test_v2_managed_settlement_work.py": "e079d92137ddb9e19a74caeee40fa4099f5926764b1e10e7e3016050af084fdf"
+    },
+    "static_checks": {
+      "ruff": "PASS",
+      "format": "PASS",
+      "python_files": 9,
+      "git_diff_check": "PASS"
+    }
+  },
+  "disk": {
+    "audit": "docs/V2_DISK_AUDIT_20261126.md",
+    "final_sample_at": "2026-11-26T15:11:37+08:00",
+    "root_total_bytes": 316933189632,
+    "root_used_bytes": 227944964096,
+    "root_available_bytes": 75979984896,
+    "df_used_percent": 76,
+    "v2_pg_directory_approx_gib": 109,
+    "diagnosis": "Diagnostic retention candidate SELECT times out before deleting. EXPLAIN shows unindexed reverse reference anti-join scanning roughly 10.4 million S3 frames. Broader PG growth remains outside the current narrow retention whitelist.",
+    "runtime_index_applied": false,
+    "runtime_cleanup_performed": false,
+    "other_project_data_touched": false,
+    "note": "Only this turn's disposable QA databases were removed by the established isolated harness. No live accounting/evidence, logs, releases, user files or other project data were deleted. No reliable daily growth series or reclaimable-space estimate is claimed."
+  },
+  "runtime": {
+    "deployed": false,
+    "restarted": false,
+    "runtime_database_written": false,
+    "exchange_called": false,
+    "entries_resumed": false,
+    "position_inventory_queried": false,
+    "controller": "inactive/dead",
+    "legacy_daemon": "inactive/dead",
+    "legacy_watchdog": "inactive/dead"
+  },
+  "remaining": [
+    "Causal opportunity/candidate builder and independent entry-process composition; current tested endpoint is PREPARED, not venue dispatch.",
+    "Full process-group lifecycle, slow dependencies, runtime cgroup and historical-scale acceptance.",
+    "Order-free UNKNOWN keeps pending with normal retry; runtime wiring must add explicit coordination diagnostics, not present it as success.",
+    "No-candidate audited expiry and optional asynchronous model lifecycle are not implemented in this increment.",
+    "Live reference-index application and actual million-row-scale retention verification remain separate; 24000-row QA is not live performance acceptance.",
+    "Dependency-aware recoverable archive and bounded cleanup for major PG tables; preserve permanent idempotency and trade traceability.",
+    "P2 deterministic strategy-family comparison and prospective research window have not started."
+  ]
+}
