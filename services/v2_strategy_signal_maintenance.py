@@ -38,6 +38,7 @@ from v2_core.strategy_entry_worker import EntryReceipt
 from v2_core.strategy_pending_cleanup import StrategyPendingCleanup
 from v2_core.strategy_registry import strategy_identifier
 from v2_core.strategy_signal_window import (
+    HistoryPage,
     deployment_history_page,
     has_consumer_work,
     initial_signal_cutoff,
@@ -399,20 +400,30 @@ class SignalMaintenance:
                 rows = deployment_history_page(
                     conn, scope=self.scope, source=self.source, cursor=after, size=limit
                 )
-                return conn.execute(
+                matches = conn.execute(
                     "SELECT p.signal_id::text,p.request_key,"
                     "(r.signal_id IS NOT NULL OR c.signal_id IS NOT NULL) "
-                    "FROM unnest(%s::uuid[],%s::text[]) p(signal_id,request_key) "
-                    "LEFT JOIN v2_signal_receipts r ON r.signal_id=p.signal_id AND r.consumer=%s "
-                    "LEFT JOIN v2_strategy_entry_candidates c ON c.signal_id=p.signal_id AND c.consumer=%s "
-                    "ORDER BY p.request_key",
+                    "FROM unnest(%s::uuid[],%s::text[]) WITH ORDINALITY p(signal_id,request_key,ordinal) "
+                    "LEFT JOIN LATERAL (SELECT signal_id FROM v2_signal_receipts "
+                    "WHERE consumer=%s AND signal_id>=p.signal_id ORDER BY signal_id LIMIT 1) r "
+                    "ON r.signal_id=p.signal_id "
+                    "LEFT JOIN LATERAL (SELECT signal_id FROM v2_strategy_entry_candidates "
+                    "WHERE consumer=%s AND signal_id>=p.signal_id ORDER BY signal_id LIMIT 1) c "
+                    "ON c.signal_id=p.signal_id "
+                    "ORDER BY p.ordinal",
                     (
                         [row[0] for row in rows],
-                        [row[1] for row in rows],
+                        [rows.checkpoints[row[0]] for row in rows],
                         self.scope.consumer,
                         self.scope.consumer,
                     ),
                 ).fetchall()
+                return HistoryPage(
+                    matches,
+                    next_cursor=rows.next_cursor,
+                    scanned=rows.scanned,
+                    checkpoints=rows.checkpoints,
+                )
             # Limit the raw key page first; an anti-join must not scan an
             # unbounded completed history to find the next pending candidate.
             return conn.execute(
@@ -539,7 +550,15 @@ def run_signal_maintenance(
                 except Exception as exc:  # noqa: BLE001 - isolate only one item
                     result = port._result("BLOCKED", reason=diagnostic_code(exc))
                 results[lane][identity] = result
-            if complete and len(rows) < limit:
+            if complete and lane == "signals" and type(rows) is HistoryPage:
+                # Source filtering may return no matches after a full physical
+                # page. Persist its seek progress; empty != queue exhaustion.
+                request = rows.next_cursor
+                port._checkpoint(
+                    request=request, intent=intent, next_lane=next_lane, before=before
+                )
+                before = request, intent, next_lane
+            elif complete and len(rows) < limit:
                 if lane == "signals":
                     request = None
                 else:

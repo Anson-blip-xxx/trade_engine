@@ -357,6 +357,57 @@ def test_live_unfrozen_signal_is_typed_wait_not_context_failure(fenced):
     assert counts(fenced.admin)[0] == 0
 
 
+@pytest.mark.parametrize(
+    "observation,reason,expected",
+    [
+        ("NO_SETUP", "STRUCTURE_UNCONFIRMED", "COMPLETED"),
+        ("NO_SETUP", "VOLUME_UNCONFIRMED", "COMPLETED"),
+        ("UNKNOWN", "TAKER_FLOW_UNAVAILABLE", "BLOCKED"),
+        ("NO_SETUP", "UNRECOGNIZED_REASON", "BLOCKED"),
+        (None, "STRUCTURE_UNCONFIRMED", "BLOCKED"),
+    ],
+)
+def test_no_setup_is_completed_scan_not_terminal_receipt(
+    fenced, observation, reason, expected
+):
+    selected = case(fenced)
+    now = selected.worker.runtime._now()
+    identity = Signals(fenced.admin).admit(
+        source="s3",
+        environment="SANDBOX",
+        request_key=str(uuid4()),
+        snapshot={
+            "observed_at": now,
+            "expires_at_ms": now + 60000,
+            "symbol": selected.plan.symbol,
+            "signal": "STRUCTURE_SCAN",
+            "features": {},
+        },
+    )
+    producer = SimpleNamespace(
+        prepare=lambda _: {
+            "status": "DEFERRED",
+            "observation": observation,
+            "reason": reason,
+        }
+    )
+    result = run(fenced, selected, source="s3", candidate_producer=producer)
+    assert result["status"] == expected
+    assert result["signals"] == {identity: "DEFERRED"}
+    assert result["expected_waits"] == (
+        {identity: reason} if expected == "COMPLETED" else {}
+    )
+    with fenced.admin() as conn:
+        assert conn.execute(
+            "SELECT completed_at FROM v2_strategy_tasks WHERE signal_id=%s",
+            (identity,),
+        ).fetchone() == (None,)
+        assert conn.execute(
+            "SELECT count(*) FROM v2_signal_receipts WHERE signal_id=%s", (identity,)
+        ).fetchone() == (0,)
+    assert counts(fenced.admin)[0] == 0
+
+
 @pytest.mark.parametrize("status", ["REJECTED", "CANCELLED", "EXPIRED", "UNKNOWN"])
 def test_terminal_unchanged_is_completed_but_unknown_stays_visible(fenced, status):
     from v2_core.intents import IntentStore

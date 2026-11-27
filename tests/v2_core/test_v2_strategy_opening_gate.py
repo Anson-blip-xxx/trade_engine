@@ -348,6 +348,93 @@ def fill_opening(case):
     return occurred
 
 
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+@pytest.mark.parametrize("mark", ["99.5", "100.5", "101"])
+def test_typed_initial_reservation_covers_allowed_prepost_price_drift(
+    database, side, mark
+):
+    case = setup(database, side=side)
+    case.reference["mark_price"] = mark
+    assert case.runtime.execution.dispatch(case.opening) == "ACKNOWLEDGED"
+    assert len(case.venue.opening_posts) == 1
+    with database() as conn:
+        reserved = conn.execute(
+            "SELECT reference->'capital'->>'reserved_margin' "
+            "FROM v2_risk_reservations WHERE episode_id=%s",
+            (case.episode,),
+        ).fetchone()[0]
+    assert Decimal(reserved) == Decimal("0.5555")
+    assert Decimal(
+        readiness(database, case.opening)["capital_budget"]["proposed_margin"]
+    ) <= Decimal(reserved)
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+@pytest.mark.parametrize("mark", ["98.999999999999999999", "101.000000000000000001"])
+def test_full_margin_reservation_does_not_authorize_outside_frozen_price_window(
+    database, side, mark
+):
+    case = setup(database, side=side)
+    case.reference["mark_price"] = mark
+    assert case.runtime.execution.dispatch(case.opening) == "REJECTED"
+    assert not case.venue.opening_posts
+    assert readiness(database, case.opening) is None
+
+
+def test_typed_full_margin_envelope_must_fit_available_balance_before_post(database):
+    case = setup(database)
+    publish_capital_snapshot(
+        database,
+        SCOPE,
+        account={
+            "totalInitialMargin": "0",
+            "availableBalance": "0.552",
+            "totalWalletBalance": "1000",
+            "totalMarginBalance": "1000",
+        },
+        started=case.tick[0],
+        deadline=case.tick[0] + 60000,
+        observation_id=str(uuid4()),
+    )
+    # The old reference-only .55 reservation fits; the complete .5555 does not.
+    assert case.runtime.execution.dispatch(case.opening) == "DENIED"
+    assert not case.venue.opening_posts
+    assert not case.venue.setting_posts
+    assert not case.venue.calls
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_risk_reservations").fetchone() == (
+            0,
+        )
+
+
+def test_typed_full_margin_envelope_must_fit_seventy_percent_pool_before_post(database):
+    case = setup(database)
+    assert case.policy.read().values["capital.pool_fraction"] == "0.70"
+    publish_capital_snapshot(
+        database,
+        SCOPE,
+        account={
+            "totalInitialMargin": "699.448",
+            "availableBalance": "300.552",
+            "totalWalletBalance": "1000",
+            "totalMarginBalance": "1000",
+        },
+        started=case.tick[0],
+        deadline=case.tick[0] + 60000,
+        observation_id=str(uuid4()),
+    )
+    # Availability is ample. Only the full frozen envelope breaches the pool:
+    # 699.448 + .55 <= 700, but 699.448 + .5555 > 700.
+    assert case.runtime.execution.dispatch(case.opening) == "DENIED"
+    assert not case.venue.opening_posts
+    assert not case.venue.setting_posts
+    assert not case.venue.calls
+    with database() as conn:
+        assert conn.execute("SELECT count(*) FROM v2_risk_reservations").fetchone() == (
+            0,
+        )
+
+
 @pytest.mark.parametrize("side,close_price", [("BUY", "108"), ("SELL", "92")])
 def test_guarded_open_recovery_management_and_financial_completion(
     database, side, close_price

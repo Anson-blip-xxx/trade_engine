@@ -19,6 +19,7 @@ from v2_core.state import BusinessState, StateKey
 from v2_core.strategy_capital import (
     STRATEGY_CAPITAL_RECORD_SQL,
     read_strategy_capital,
+    read_strategy_capital_for_episode,
 )
 
 
@@ -35,6 +36,28 @@ def _margin(notional, leverage, buffer):
     units = -(-(exact.numerator * 10**18) // exact.denominator)
     integer, fraction = divmod(units, 10**18)
     return amount(f"{integer}.{fraction:018d}", positive=True)
+
+
+def _initial_margin(notional, leverage, buffer, *, strategy=None):
+    """Reserve a typed opening's entire permitted price window at first CAS.
+
+    Final readiness cannot enlarge a reservation. Reserving only the older
+    closed-minute reference would therefore reject an otherwise valid rising
+    mark, even inside the immutable plan's drift envelope. Both sides need the
+    upper price endpoint for margin; the fixed stop-risk floor is independent.
+    Legacy openings retain their existing reference-notional calculation.
+    """
+    ceiling = Fraction(notional)
+    if strategy is not None:
+        if leverage != strategy.plan.leverage:
+            raise ValueError("STRATEGY_CAPITAL_LEVERAGE_MISMATCH")
+        ceiling = max(
+            ceiling,
+            Fraction(strategy.plan.quantity)
+            * Fraction(strategy.plan.entry_price)
+            * (1 + Fraction(strategy.price_drift_fraction)),
+        )
+    return _margin(ceiling, leverage, buffer)
 
 
 def _reserved_margin(value):
@@ -337,6 +360,18 @@ def reserve_capital(conn, scope, *, episode, notional, leverage, now):
             settings=policy.values,
             capital=capital,
         )
+        if "strategy_plan_digest" in risk:
+            strategy = read_strategy_capital_for_episode(conn, episode, scope=scope)
+            if (
+                strategy is None
+                or strategy.plan.plan_digest != risk["strategy_plan_digest"]
+            ):
+                raise ValueError("STRATEGY_CAPITAL_RESERVATION_UNVERIFIED")
+            proposed = _initial_margin(notional, leverage, buffer, strategy=strategy)
+            # The envelope is real reserved capacity, not permission to exceed
+            # the pool or venue balance. It is frozen before any venue POST.
+            if used + pending + proposed > limit or pending + proposed > available:
+                raise ValueError("ACCOUNT_MARGIN_BUDGET_EXCEEDED")
         return {
             **risk,
             "policy_version": policy.version,

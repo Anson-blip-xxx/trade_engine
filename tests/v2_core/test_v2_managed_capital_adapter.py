@@ -19,6 +19,7 @@ from v2_core.managed_portfolio import (
     ManagedPortfolio,
     OpeningCapital,
     PendingMargin,
+    _initial_margin,
     _margin,
     _opening_episode,
     _pending_margin,
@@ -29,6 +30,7 @@ from v2_core.managed_portfolio import (
 )
 from v2_core.runtime_policy import PolicyStore
 from v2_core.service import TradingData
+from v2_core.strategy_capital import read_strategy_capital
 
 database = database_fixture
 
@@ -201,6 +203,34 @@ def test_margin_exact_under_hostile_decimal_context():
         assert pending([pending_row(new=True), pending_row()]) == Decimal(
             "229.166666666666666667"
         )
+
+
+@pytest.mark.parametrize("side,stop", [("BUY", "95"), ("SELL", "105")])
+def test_initial_typed_margin_covers_frozen_upper_price_for_both_sides(side, stop):
+    _, record = material(plan_changes={"side": side, "stop_price": stop})
+    strategy = read_strategy_capital(record, scope=SCOPE)
+    with localcontext() as ctx:
+        ctx.prec = 3
+        ctx.traps[Inexact] = True
+        assert _initial_margin(
+            Decimal(250), 3, Decimal("1.1"), strategy=strategy
+        ) == Decimal("92.583333333333333334")
+        # A higher observed reference can never lower an existing margin floor.
+        assert _initial_margin(
+            Decimal(300), 3, Decimal("1.1"), strategy=strategy
+        ) == Decimal(110)
+
+
+def test_legacy_initial_margin_has_no_new_price_envelope():
+    assert _initial_margin(Decimal(250), 3, Decimal("1.1")) == _margin(
+        Decimal(250), 3, Decimal("1.1")
+    )
+
+
+def test_initial_typed_margin_refuses_a_different_leverage():
+    strategy = read_strategy_capital(material()[1], scope=SCOPE)
+    with pytest.raises(ValueError, match="STRATEGY_CAPITAL_LEVERAGE_MISMATCH"):
+        _initial_margin(Decimal(250), 5, Decimal("1.1"), strategy=strategy)
 
 
 @pytest.mark.parametrize("value", ["0.700000000000000001", "0.8", "1"])
@@ -518,6 +548,7 @@ def test_pg_margin_budget_boundary_includes_mixed_pending(database):
             now=150,
         )
         assert Decimal(result["pending_margin"]) == Decimal("229.166666666666666667")
+        assert Decimal(result["reserved_margin"]) == Decimal(440)
     with (
         database() as conn,
         pytest.raises(ValueError, match="ACCOUNT_MARGIN_BUDGET_EXCEEDED"),

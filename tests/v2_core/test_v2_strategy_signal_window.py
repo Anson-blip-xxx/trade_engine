@@ -1,13 +1,16 @@
 """Initial typed subscription: real isolated PG, no venue/service operations."""
 
-from dataclasses import asdict, replace
-from uuid import uuid4
+import json
+import time
+from contextlib import contextmanager
+from dataclasses import replace
+from uuid import UUID, uuid4
 
 import pytest
 from psycopg.types.json import Jsonb
 
 from tests.v2_core.test_v2_settlement_execution_fence import database, fenced
-from tests.v2_core.test_v2_strategy_entry_job import case, run
+from tests.v2_core.test_v2_strategy_entry_job import ROOT, case, run
 from tests.v2_core.test_v2_strategy_plan_admission import counts
 from tests.v2_core.test_v2_strategy_signal_maintenance import (
     adapter,
@@ -17,16 +20,27 @@ from tests.v2_core.test_v2_strategy_signal_maintenance import (
     read,
     sweep,
 )
+from v2_core import strategy_signal_window as window
 from v2_core.evidence import canonical, digest
 from v2_core.strategy_deployment import StrategyDeployments
 from v2_core.strategy_entry_worker import FrozenEntryCandidate
 from v2_core.strategy_signal_window import (
-    _PAGE_SQL,
+    HistoryPage,
+    _lane_page,
     deployment_history_page,
+    history_progress,
     initial_signal_cutoff,
 )
 
 __all__ = ["database", "fenced"]
+
+
+@pytest.fixture(autouse=True)
+def seek_index(fenced):
+    with fenced.admin() as conn:
+        conn.execute(
+            (ROOT / "db/migrations/20261127_strategy_history_seek.sql").read_text()
+        )
 
 
 def cutoff(connect, selected):
@@ -39,6 +53,41 @@ def page(connect, selected, *, source="tv_bridge", cursor=None, size=100):
         return deployment_history_page(
             conn, scope=selected.worker.scope, source=source, cursor=cursor, size=size
         )
+
+
+def sweep_pages(connect, selected, *, source="tv_bridge", size=100):
+    cursor, collected = None, {}
+    for _ in range(1000):
+        result = page(connect, selected, source=source, cursor=cursor, size=size)
+        collected.update(result)
+        cursor = result.next_cursor
+        if cursor is None:
+            return list(collected.items())
+    pytest.fail("bounded fixture sweep never completed")
+
+
+def explain_lane(conn, **values):
+    class RecordingConnection:
+        def execute(self, query, args):
+            self.query, self.args = query, args
+            return conn.execute(query, args)
+
+    recorded = RecordingConnection()
+    _lane_page(recorded, **values)
+    return conn.execute(
+        "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + recorded.query, recorded.args
+    ).fetchone()[0]
+
+
+def plan_nodes(value):
+    if isinstance(value, dict):
+        if "Node Type" in value:
+            yield value
+        for child in value.values():
+            yield from plan_nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from plan_nodes(child)
 
 
 def seed_history(connect, size=20000):
@@ -87,39 +136,29 @@ def test_actual_page_uses_expiry_index_for_large_predeployment_history(fenced):
     scope = selected.worker.scope
     with fenced.admin() as conn:
         boundary = initial_signal_cutoff(conn, scope)
-        plan = conn.execute(
-            "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + _PAGE_SQL,
-            (
-                "tv_bridge",
-                scope.environment,
-                boundary,
-                scope.consumer,
-                scope.consumer,
-                scope.consumer,
-                scope.consumer,
-                *asdict(scope).values(),
-                "tv_bridge",
-                scope.environment,
-                None,
-                None,
-                100,
-            ),
-        ).fetchone()[0]
-    indexes = []
-
-    def walk(value):
-        if isinstance(value, dict):
-            if "Index Name" in value:
-                indexes.append(value["Index Name"])
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-
-    walk(plan)
-    assert "v2_signals_live_discovery" in indexes
-    assert [row[0] for row in page(fenced.admin, selected)] == [selected.identity]
+        plan = explain_lane(
+            conn,
+            scope=scope,
+            source="tv_bridge",
+            cutoff=boundary,
+            lane=0,
+            position=None,
+            size=100,
+        )
+    nodes = list(plan_nodes(plan))
+    # With only one eligible row, either expiry index is a bounded valid plan;
+    # requiring a particular index name would test planner costing, not scope.
+    assert {"v2_signals_typed_history_seek", "v2_signals_live_discovery"} & {
+        node.get("Index Name") for node in nodes
+    }
+    assert all(
+        node["Actual Rows"] <= 100
+        for node in nodes
+        if node.get("Relation Name") == "v2_inbound_signals"
+    )
+    assert [row[0] for row in sweep_pages(fenced.admin, selected)] == [
+        selected.identity
+    ]
 
 
 def test_initial_generation_not_restart_or_current_generation_owns_boundary(fenced):
@@ -132,7 +171,7 @@ def test_initial_generation_not_restart_or_current_generation_owns_boundary(fenc
         request_id="window-paused-generation-two",
     )
     assert cutoff(fenced.admin, selected) == first
-    assert identity in {row[0] for row in page(fenced.admin, selected)}
+    assert identity in {row[0] for row in sweep_pages(fenced.admin, selected)}
     assert (
         adapter(fenced, selected, deployment_window=True).maintain(identity)["status"]
         == "EXPIRED"
@@ -149,10 +188,10 @@ def test_late_arriving_predeployment_expiry_is_not_reaudited(fenced):
     assert result["status"] == "OUT_OF_WINDOW"
     assert result["initial_cutoff_ms"] == first
     assert counts(fenced.admin) == before
-    assert identity not in {row[0] for row in page(fenced.admin, selected)}
+    assert identity not in {row[0] for row in sweep_pages(fenced.admin, selected)}
     # Legacy/generic opt-out preserves its pre-existing explicit audit contract.
     assert adapter(fenced, selected).maintain(identity)["status"] == "EXPIRED"
-    assert identity in {row[0] for row in page(fenced.admin, selected)}
+    assert identity in {row[0] for row in sweep_pages(fenced.admin, selected)}
     assert (
         adapter(fenced, selected, deployment_window=True).maintain(identity)["status"]
         == "RECOVERY_REQUIRED"
@@ -168,7 +207,7 @@ def test_old_scheduled_work_remains_recoverable_and_terminal(fenced):
             "INSERT INTO v2_strategy_tasks(consumer,signal_id) VALUES(%s,%s)",
             (selected.worker.scope.consumer, identity),
         )
-    assert identity in {row[0] for row in page(fenced.admin, selected)}
+    assert identity in {row[0] for row in sweep_pages(fenced.admin, selected)}
     assert (
         adapter(fenced, selected, deployment_window=True).maintain(identity)["status"]
         == "EXPIRED"
@@ -193,12 +232,16 @@ def test_frozen_old_candidate_recovers_before_window_and_not_as_raw_expiry(fence
         expires_at_ms=first - 1,
     )
     selected.worker.store.freeze(candidate)
-    assert identity in {row[0] for row in page(fenced.admin, selected)}
+    assert identity in {row[0] for row in sweep_pages(fenced.admin, selected)}
     result = adapter(fenced, selected, deployment_window=True).maintain(identity)
     assert result["status"] == "RECOVERY_REQUIRED"
     assert result["reason"] == "STRATEGY_FROZEN_CANDIDATE_REQUIRED"
-    result = run(fenced, selected, deployment_window=True)
-    assert result["signals"][identity] == "EXPIRED"
+    outcomes = {}
+    for _ in range(7):
+        outcomes.update(run(fenced, selected, deployment_window=True)["signals"])
+        if identity in outcomes:
+            break
+    assert outcomes[identity] == "EXPIRED"
     assert (
         read(fenced, selected, identity).receipt.reason == "STRATEGY_CANDIDATE_EXPIRED"
     )
@@ -218,7 +261,7 @@ def test_missing_expiry_is_visible_corruption_not_silently_old_history(fenced):
                 ),
             ),
         )
-    assert identity in {row[0] for row in page(fenced.admin, selected)}
+    assert identity in {row[0] for row in sweep_pages(fenced.admin, selected)}
     before = counts(fenced.admin)
     with pytest.raises(ValueError):
         adapter(fenced, selected, deployment_window=True).maintain(identity)
@@ -233,11 +276,13 @@ def test_source_isolation_and_keyset_wrap_preserved(fenced):
         for i in range(3)
     ]
     other, _ = raw(fenced.admin, source="s3", expires_at_ms=tick + 60000)
+    actual = sweep_pages(fenced.admin, selected, size=1)
+    assert {row[0] for row in actual} == {*identities, selected.identity}
+    assert other not in {row[0] for row in actual}
     first = page(fenced.admin, selected, size=1)
-    second = page(fenced.admin, selected, cursor=first[0][1], size=1)
-    assert [first[0][0], second[0][0]] == identities[:2]
-    assert other not in {row[0] for row in page(fenced.admin, selected)}
-    assert page(fenced.admin, selected, cursor="zzzz") == []
+    assert first.next_cursor is not None
+    # Legacy request-key checkpoints safely replay, not translate across orders.
+    assert page(fenced.admin, selected, cursor="zzzz", size=1) == first
     assert page(fenced.admin, selected, size=1) == first
 
 
@@ -248,3 +293,326 @@ def test_missing_initial_publication_is_not_a_silent_empty_subscription(fenced):
         deployment_history_page(
             conn, scope=scope, source="tv_bridge", cursor=None, size=10
         )
+
+
+def test_large_postdeployment_inbox_is_index_seek_not_full_history_sort(fenced):
+    selected = case(fenced)
+    boundary = cutoff(fenced.admin, selected)
+    scope = selected.worker.scope
+    with fenced.admin() as conn:
+        conn.execute(
+            "INSERT INTO v2_inbound_signals(signal_id,source,environment,request_key,snapshot) "
+            "SELECT md5('typed-window-live-'||n)::uuid,'tv_bridge','SANDBOX',"
+            "'!live-'||lpad(n::text,8,'0'),jsonb_build_object("
+            "'observed_at',%s,'expires_at_ms',%s,'symbol','BTCUSDT',"
+            "'signal','TREND_UP_LONG','features','{}'::jsonb) "
+            "FROM generate_series(1,20000) n",
+            (boundary, boundary + 600000),
+        )
+        conn.execute("ANALYZE v2_inbound_signals")
+        first = _lane_page(
+            conn,
+            scope=scope,
+            source="tv_bridge",
+            cutoff=boundary,
+            lane=0,
+            position=None,
+            size=10,
+        )
+        plan = explain_lane(
+            conn,
+            scope=scope,
+            source="tv_bridge",
+            cutoff=boundary,
+            lane=0,
+            position=[first[-1][2], first[-1][0]],
+            size=10,
+        )
+    nodes = list(plan_nodes(plan))
+    assert any(
+        node.get("Index Name") == "v2_signals_typed_history_seek" for node in nodes
+    )
+    assert not any(
+        node["Node Type"] in {"Sort", "Incremental Sort", "Seq Scan"} for node in nodes
+    )
+    inbox = [
+        node for node in nodes if node.get("Relation Name") == "v2_inbound_signals"
+    ]
+    assert len(inbox) == 1
+    assert inbox[0]["Actual Rows"] == 10
+    assert inbox[0].get("Rows Removed by Filter", 0) == 0
+
+
+def foreign_tasks(connect, scope, count=20000):
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO v2_inbound_signals(signal_id,source,environment,request_key,snapshot) "
+            "SELECT md5('typed-window-foreign-'||n)::uuid,'s3','SANDBOX',"
+            "'!foreign-'||lpad(n::text,8,'0'),jsonb_build_object("
+            "'observed_at',1,'expires_at_ms',2,'symbol','BTCUSDT',"
+            "'signal','TREND_UP_LONG','features','{}'::jsonb) "
+            "FROM generate_series(1,%s) n",
+            (count,),
+        )
+        conn.execute(
+            "INSERT INTO v2_strategy_tasks(consumer,signal_id) "
+            "SELECT %s,signal_id FROM v2_inbound_signals WHERE source='s3'",
+            (scope.consumer,),
+        )
+        conn.execute("ANALYZE v2_strategy_tasks")
+        conn.execute("ANALYZE v2_inbound_signals")
+
+
+def before_task_lane(connect, selected):
+    cursor = None
+    # Raw, missing expiry, frozen candidates, receipts, then tasks.
+    for _ in range(4):
+        cursor = page(connect, selected, cursor=cursor, size=100).next_cursor
+        assert cursor is not None
+    return cursor
+
+
+def test_empty_source_match_advances_physical_seek_and_keeps_recovery_fair(fenced):
+    selected = case(fenced)
+    scope = selected.worker.scope
+    foreign_tasks(fenced.admin, scope)
+    cursor = before_task_lane(fenced.admin, selected)
+    result = page(fenced.admin, selected, cursor=cursor, size=100)
+    assert type(result) is HistoryPage
+    assert result == []
+    assert result.scanned == 100
+    assert result.next_cursor not in {None, cursor}
+    progress, metrics = history_progress(result, 100, time.perf_counter())
+    assert progress == result.next_cursor
+    assert metrics["history_scanned"] == 100
+    assert metrics["history_sweep_complete"] is False
+    with fenced.admin() as conn:
+        plan = explain_lane(
+            conn,
+            scope=scope,
+            source="tv_bridge",
+            cutoff=cutoff(fenced.admin, selected),
+            lane=4,
+            position=None,
+            size=100,
+        )
+    nodes = list(plan_nodes(plan))
+    tasks = [node for node in nodes if node.get("Relation Name") == "v2_strategy_tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["Actual Rows"] == 100
+    assert tasks[0]["Index Name"] == "v2_strategy_tasks_pkey"
+    assert max(node["Actual Loops"] for node in nodes) <= 100
+
+
+def test_both_callers_checkpoint_empty_physical_page_without_stopping_hot_work(fenced):
+    selected = case(fenced)
+    migration(fenced.admin)
+    scope = selected.worker.scope
+    foreign_tasks(fenced.admin, scope, 250)
+    cursor = before_task_lane(fenced.admin, selected)
+    with fenced.admin() as conn:
+        conn.execute(
+            "INSERT INTO v2_entry_discovery_cursors(consumer,source,environment,request_cursor) "
+            "VALUES(%s,'tv_bridge','SANDBOX',%s)",
+            (scope.consumer, cursor),
+        )
+        conn.execute(
+            "INSERT INTO v2_strategy_maintenance_cursors(consumer,source,environment,request_cursor) "
+            "VALUES(%s,'tv_bridge','SANDBOX',%s)",
+            (scope.consumer, cursor),
+        )
+    maintained = sweep(fenced, selected, deployment_window=True)
+    assert maintained["signals"] == {}
+    assert maintained["request_cursor"] not in {None, cursor}
+    result = run(fenced, selected, deployment_window=True)
+    assert result["signals"][selected.identity] == "PREPARED"
+    with fenced.admin() as conn:
+        after = conn.execute(
+            "SELECT request_cursor FROM v2_entry_discovery_cursors "
+            "WHERE consumer=%s AND source='tv_bridge'",
+            (scope.consumer,),
+        ).fetchone()[0]
+    assert after not in {None, cursor}
+
+
+def test_maintenance_receipt_probes_never_expand_into_full_consumer_history(fenced):
+    selected = case(fenced)
+    scope = selected.worker.scope
+    foreign_tasks(fenced.admin, scope)
+    with fenced.admin() as conn:
+        # Synthetic index/lookup fixtures, not a claim of financial settlement.
+        conn.execute(
+            "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason) "
+            "SELECT %s,signal_id,'EXPIRED','synthetic lookup-only fixture' "
+            "FROM v2_inbound_signals WHERE source='s3'",
+            (scope.consumer,),
+        )
+        conn.execute("ANALYZE v2_signal_receipts")
+    now = clock(fenced.admin)
+    for n in range(10):
+        raw(
+            fenced.admin,
+            request_key=f"current-receipt-probe-{n}",
+            expires_at_ms=now + 60000,
+        )
+    captured = []
+
+    @contextmanager
+    def recording():
+        with fenced.admin() as connection:
+
+            class Record:
+                def execute(self, query, args=None):
+                    if "WITH ORDINALITY" in query:
+                        captured.append((query, args))
+                    return connection.execute(query, args)
+
+            yield Record()
+
+    result = adapter(
+        fenced,
+        selected,
+        connect=recording,
+        deployment_window=True,
+    )._signal_page(None, 10)
+    assert len(result) == 10
+    # Nearest-index seek is not membership: an unrelated later receipt/candidate
+    # must not make a fresh signal appear completed/frozen.
+    assert all(row[2] is (row[0] == selected.identity) for row in result)
+    assert len(captured) == 1
+    with fenced.admin() as conn:
+        plan = conn.execute(
+            "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + captured[0][0],
+            captured[0][1],
+        ).fetchone()[0]
+    lookups = [
+        node
+        for node in plan_nodes(plan)
+        if node.get("Relation Name")
+        in {"v2_signal_receipts", "v2_strategy_entry_candidates"}
+    ]
+    assert len(lookups) == 2
+    assert all(
+        node["Actual Rows"] <= 1 and node["Actual Loops"] <= 10 for node in lookups
+    )
+    assert (
+        next(
+            node for node in lookups if node["Relation Name"] == "v2_signal_receipts"
+        ).get("Index Name")
+        == "v2_signal_receipts_pkey"
+    )
+
+
+def test_membership_seek_rejects_next_uuid_and_empty_tail(fenced):
+    selected = case(fenced)
+    tick = clock(fenced.admin)
+    low, high = str(UUID(int=0)), str(UUID(int=2**128 - 1))
+    with fenced.admin() as conn:
+        for identity in (low, high):
+            conn.execute(
+                "INSERT INTO v2_inbound_signals(signal_id,source,environment,request_key,snapshot) "
+                "VALUES(%s,'tv_bridge','SANDBOX',%s,%s)",
+                (
+                    identity,
+                    "membership-" + identity,
+                    Jsonb(
+                        {
+                            "observed_at": tick,
+                            "expires_at_ms": tick + 60000,
+                            "symbol": "BTCUSDT",
+                            "signal": "TREND_UP_LONG",
+                        }
+                    ),
+                ),
+            )
+        conn.execute(
+            "INSERT INTO v2_signal_receipts(consumer,signal_id,outcome,reason) "
+            "VALUES(%s,%s,'EXPIRED','synthetic lookup-only fixture')",
+            (selected.worker.scope.consumer, selected.identity),
+        )
+    result = adapter(fenced, selected, deployment_window=True)._signal_page(None, 10)
+    membership = {row[0]: row[2] for row in result}
+    assert membership == {low: False, high: False, selected.identity: True}
+
+
+@pytest.mark.parametrize(
+    "bad_cursor", ["legacy-key", "typed-history-v2:not-json", "typed-history-v2:[]"]
+)
+def test_invalid_or_legacy_hint_replays_without_changing_admission(fenced, bad_cursor):
+    selected = case(fenced)
+    before = counts(fenced.admin)
+    first = page(fenced.admin, selected, size=1)
+    assert page(fenced.admin, selected, cursor=bad_cursor, size=1) == first
+    assert counts(fenced.admin) == before
+
+
+def test_missing_expiry_lane_and_per_item_checkpoints_are_independent(fenced):
+    selected = case(fenced)
+    identities = []
+    with fenced.admin() as conn:
+        for n in range(3):
+            identity = str(uuid4())
+            identities.append(identity)
+            conn.execute(
+                "INSERT INTO v2_inbound_signals(signal_id,source,environment,request_key,snapshot) "
+                "VALUES(%s,'tv_bridge','SANDBOX',%s,%s)",
+                (
+                    identity,
+                    f"!missing-{n}",
+                    Jsonb({"symbol": "BTCUSDT", "observed_at": 1}),
+                ),
+            )
+    first = page(fenced.admin, selected)
+    missing = page(fenced.admin, selected, cursor=first.next_cursor, size=2)
+    assert missing.scanned == 2
+    assert {row[0] for row in missing} <= set(identities)
+    checkpoint = missing.checkpoints[missing[0][0]]
+    assert len(checkpoint) < 4096
+    # Interrupted page resumes after the last attempted item, not the untried tail.
+    cursor, recovered = checkpoint, set()
+    for _ in range(30):
+        current = page(fenced.admin, selected, cursor=cursor, size=2)
+        recovered.update(row[0] for row in current)
+        cursor = current.next_cursor
+        if cursor is None:
+            break
+    assert set(identities) - {missing[0][0]} <= recovered
+    state = json.loads(checkpoint.split(":", 1)[1])
+    assert state[3][1] == missing[0][0]
+
+
+def test_continuously_full_raw_lane_cannot_starve_late_original_recovery(
+    fenced, monkeypatch
+):
+    selected = case(fenced)
+    monkeypatch.setattr(window, "initial_signal_cutoff", lambda *_: 100)
+    calls, lanes, sequence = 0, [], 0
+    late = str(uuid4())
+
+    def lane_page(_conn, *, lane, position, **_kwargs):
+        nonlocal calls, sequence
+        calls += 1
+        lanes.append(lane)
+        if lane == 0:
+            sequence += 1
+            return [(str(UUID(int=sequence)), f"live-{sequence}", 1000 + sequence)]
+        # First receipt visit is empty, then an old expired signal commits.
+        # Recovery is deliberately independent of the raw expiry frontier.
+        if lane == 3 and calls >= 10 and position is None:
+            return [(late, "old-original-receipt")]
+        return []
+
+    monkeypatch.setattr(window, "_lane_page", lane_page)
+    cursor, found = None, set()
+    for _ in range(21):
+        result = deployment_history_page(
+            None,
+            scope=selected.worker.scope,
+            source="tv_bridge",
+            cursor=cursor,
+            size=1,
+        )
+        found.update(row[0] for row in result)
+        cursor = result.next_cursor
+    assert late in found
+    assert lanes == list(range(7)) * 3

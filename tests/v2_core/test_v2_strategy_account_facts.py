@@ -626,6 +626,142 @@ def test_real_v3_account_does_not_require_v2_multi_asset_flag(monkeypatch):
         h.collect()
 
 
+def idle_v3_asset(asset, wallet):
+    """Public V3 response shape; values are synthetic, not account identifiers."""
+    return {
+        "asset": asset,
+        "walletBalance": wallet,
+        "unrealizedProfit": "0.00000000",
+        "marginBalance": wallet,
+        "maintMargin": "0.00000000",
+        "initialMargin": "0.00000000",
+        "positionInitialMargin": "0.00000000",
+        "openOrderInitialMargin": "0.00000000",
+        "crossWalletBalance": wallet,
+        "crossUnPnl": "0.00000000",
+        "availableBalance": wallet,
+        "maxWithdrawAmount": wallet,
+        "updateTime": 0,
+    }
+
+
+def with_idle_v3_wallets(h):
+    account = h.responses["/fapi/v3/account"]
+    account["assets"].extend(
+        [idle_v3_asset("BTC", "0.01"), idle_v3_asset("USDC", "5000")]
+    )
+    return account
+
+
+def test_real_v3_idle_other_wallets_are_not_spendable_usdt(monkeypatch):
+    h = Harness(monkeypatch)
+    before = h.collect()
+    account = with_idle_v3_wallets(h)
+    provider = h.provider()
+    facts = h.collect(provider)
+    assert facts.payload() == before.payload()
+    assert facts.capital_base == "1000"
+    assert facts.available_margin == "850"
+    assert facts.used_margin == "150"
+    assert provider.last_verified_account.account["totalWalletBalance"] == "1000"
+    assert "assets" not in provider.last_verified_account.account
+    assert h.health_calls[-1][1] == h.health_calls[-2][1]
+    # Even very large unrelated balances never increase the USDT risk budget.
+    account["assets"][1] = idle_v3_asset("BTC", "10000")
+    account["assets"][2] = idle_v3_asset("USDC", "1000000000")
+    assert h.collect().payload() == facts.payload()
+    assert all(method == "GET" for method, _ in h.http_calls)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "initialMargin",
+        "positionInitialMargin",
+        "openOrderInitialMargin",
+        "maintMargin",
+        "unrealizedProfit",
+        "crossUnPnl",
+    ],
+)
+@pytest.mark.parametrize("value", ["0.00000001", "-0.00000001", None, "NaN", 0])
+def test_other_wallet_missing_or_nonzero_risk_never_becomes_idle(
+    monkeypatch, field, value
+):
+    h = Harness(monkeypatch)
+    row = with_idle_v3_wallets(h)["assets"][1]
+    if value is None:
+        del row[field]
+    else:
+        row[field] = value
+    provider = h.provider()
+    with pytest.raises(ValueError, match="OTHER_COLLATERAL_UNSUPPORTED"):
+        h.collect(provider)
+    assert not h.health_calls and provider.last_verified_account is None
+    assert all(method == "GET" for method, _ in h.http_calls)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "walletBalance",
+        "marginBalance",
+        "crossWalletBalance",
+        "availableBalance",
+        "maxWithdrawAmount",
+    ],
+)
+@pytest.mark.parametrize("value", ["-0.00000001", None, "Infinity", 0])
+def test_other_wallet_balance_must_be_known_and_nonnegative(monkeypatch, field, value):
+    h = Harness(monkeypatch)
+    row = with_idle_v3_wallets(h)["assets"][2]
+    if value is None:
+        del row[field]
+    else:
+        row[field] = value
+    with pytest.raises(ValueError, match="OTHER_COLLATERAL_UNSUPPORTED"):
+        h.collect()
+    assert not h.health_calls
+
+
+@pytest.mark.parametrize(
+    "field", ["totalWalletBalance", "totalMarginBalance", "availableBalance"]
+)
+def test_idle_other_wallets_do_not_permit_usdt_global_total_mismatch(
+    monkeypatch, field
+):
+    h = Harness(monkeypatch)
+    account = with_idle_v3_wallets(h)
+    account[field] = str(Decimal(account[field]) + Decimal(5000))
+    with pytest.raises(ValueError, match="USDT_TOTALS_UNVERIFIED"):
+        h.collect()
+
+
+@pytest.mark.parametrize("mode", ["multiAssetsMargin", "dualSidePosition"])
+def test_idle_other_wallets_do_not_authorize_multi_asset_or_hedge_mode(
+    monkeypatch, mode
+):
+    h = Harness(monkeypatch)
+    with_idle_v3_wallets(h)
+    h.responses["/fapi/v1/accountConfig"][mode] = True
+    with pytest.raises(ValueError, match="SINGLE_ASSET_ONE_WAY_REQUIRED"):
+        h.collect()
+
+
+@pytest.mark.parametrize("quantity", ["0.01", "-0.01"])
+def test_other_quote_position_cannot_hide_behind_zero_asset_margin(
+    monkeypatch, quantity
+):
+    h = Harness(monkeypatch)
+    with_idle_v3_wallets(h)
+    h.responses["/fapi/v3/positionRisk"] = [
+        {"symbol": "BTCUSDC", "positionSide": "BOTH", "positionAmt": quantity}
+    ]
+    with pytest.raises(ValueError, match="NON_USDT_EXPOSURE_UNSUPPORTED"):
+        h.collect()
+    assert h.http_calls == [("GET", "/fapi/v3/positionRisk")]
+
+
 def test_exact_spread_is_rounded_up_to_typed_evidence_precision(monkeypatch):
     h = Harness(monkeypatch)
     facts = h.collect()

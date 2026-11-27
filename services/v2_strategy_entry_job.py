@@ -26,10 +26,20 @@ from v2_core.strategy_registry import (
     strategy_identifier,
 )
 from v2_core.strategy_signal_admission import StrategySignalAdmission
-from v2_core.strategy_signal_window import deployment_history_page
+from v2_core.strategy_signal_window import deployment_history_page, history_progress
 
 _SOURCES = frozenset({"s2", "s3", "tv_bridge", "quant"})
 _COMPLETE = frozenset({"PREPARED", "EXISTING_ORDER", "IGNORED", "EXPIRED"})
+_NO_SETUP_REASONS = frozenset(
+    {
+        "VOLATILITY_LIMIT",
+        "VOLUME_UNCONFIRMED",
+        "FLOW_UNCONFIRMED",
+        "EXTENSION_LIMIT",
+        "BREAKOUT_BUFFER_UNCONFIRMED",
+        "STRUCTURE_UNCONFIRMED",
+    }
+)
 
 
 def _cursor(connect, scope, source):
@@ -231,6 +241,7 @@ def run_entry_work(
             admission=StrategySignalAdmission(write, registry),
             preparation=StrategyPrepareRecovery(write, scope=binding.scope),
         )
+        expected_waits = {}
         if candidate_producer is not None or maintenance is not None:
             # Hooks run only for genuinely unfrozen work. Original durable
             # receipts/candidates always recover without acquiring new facts.
@@ -249,6 +260,16 @@ def run_entry_work(
                     ):
                         prepared = candidate_producer.prepare(signal_id)
                         if prepared.get("status") == "DEFERRED":
+                            # A proven absence of a setup is a successful scan,
+                            # not an unhealthy worker. Do not ACK it: later
+                            # closed bars can still produce a fresh structure.
+                            # Unknown data, sizing or ownership failures must
+                            # remain visible blockers, never inferred healthy.
+                            if (
+                                prepared.get("observation") == "NO_SETUP"
+                                and prepared.get("reason") in _NO_SETUP_REASONS
+                            ):
+                                expected_waits[signal_id] = prepared["reason"]
                             return {
                                 **prepared,
                                 "signal_id": signal_id,
@@ -271,6 +292,7 @@ def run_entry_work(
             queue._history_page = lambda conn, *, cursor, size: deployment_history_page(
                 conn, scope=scope, source=source, cursor=cursor, size=size
             )
+            queue._history_progress = history_progress
         history_error = None
         try:
             before = _cursor(connect, scope, source)
@@ -318,6 +340,7 @@ def run_entry_work(
             for key in ("typed_waits", "reconciliation_waits")
             for value in diagnostics.get(key, [])
         }
+        wait_reasons.update(expected_waits)
         waits = [
             {"signal_id": identity, "reason": wait_reasons.get(identity, status)}
             for identity, status in signals.items()
@@ -326,7 +349,7 @@ def run_entry_work(
         clear = (
             not stop.is_set()
             and not history_error
-            and not waits
+            and not any(row["signal_id"] not in expected_waits for row in waits)
             and not diagnostics.get("failures")
         )
         return {
@@ -334,6 +357,7 @@ def run_entry_work(
             "status": "COMPLETED" if clear else "BLOCKED",
             "signals": signals,
             "pending": waits,
+            "expected_waits": expected_waits,
             "history_error": history_error,
             "diagnostics": diagnostics,
             "metrics": queue.last_run_metrics,

@@ -85,6 +85,8 @@ def _positions(rows, target):
             raise ValueError("STRATEGY_FACTS_ONE_WAY_REQUIRED")
         name = symbol(row.get("symbol"))
         quantity = decimal_text(amount(row.get("positionAmt")))
+        if not name.endswith("USDT") and amount(quantity) != 0:
+            raise ValueError("STRATEGY_FACTS_NON_USDT_EXPOSURE_UNSUPPORTED")
         if name == target and amount(quantity) != 0:
             raise ValueError("STRATEGY_FACTS_EXISTING_POSITION")
         normalized.append((name, quantity))
@@ -137,13 +139,37 @@ def _account(raw, config):
         if value < 0 or asset_value < 0 or value != asset_value:
             raise ValueError("STRATEGY_FACTS_USDT_TOTALS_UNVERIFIED")
         result[key] = decimal_text(value)
-    # Never count collateral from another asset as spendable USDT. This narrow
-    # provider deliberately refuses mixed-asset accounts, rather than guessing
-    # whether Binance's global total happens to include a second balance.
+    # V3 can return idle BTC/USDC wallets even in single-asset mode. Its global
+    # totals are USDT-only in that mode, verified against the USDT row above.
+    # Do not add or convert those wallets into capital. Require complete zero
+    # risk evidence before ignoring them; missing values never mean zero.
     for row in assets:
-        if row["asset"] != "USDT" and any(
-            amount(row.get(key)) != 0 for key in ("walletBalance", "initialMargin")
-        ):
+        if row["asset"] == "USDT":
+            continue
+        try:
+            idle = all(
+                amount(row.get(key)) == 0
+                for key in (
+                    "initialMargin",
+                    "positionInitialMargin",
+                    "openOrderInitialMargin",
+                    "maintMargin",
+                    "unrealizedProfit",
+                    "crossUnPnl",
+                )
+            ) and all(
+                amount(row.get(key)) >= 0
+                for key in (
+                    "walletBalance",
+                    "marginBalance",
+                    "crossWalletBalance",
+                    "availableBalance",
+                    "maxWithdrawAmount",
+                )
+            )
+        except ValueError:
+            idle = False
+        if not idle:
             raise ValueError("STRATEGY_FACTS_OTHER_COLLATERAL_UNSUPPORTED")
     if Fraction(result["totalInitialMargin"]) < Fraction(
         result["totalPositionInitialMargin"]
