@@ -4,6 +4,7 @@ SQL-shape assertions below are not PostgreSQL query/lock acceptance. The real
 typed gate and request wrappers are constructed without calling external I/O.
 """
 
+import json
 import threading
 from contextlib import contextmanager
 from dataclasses import asdict, replace
@@ -121,6 +122,56 @@ class Guard:
 
 def forbidden(*_, **__):
     pytest.fail("pure test attempted an unauthorized external dependency")
+
+
+def test_history_diagnostic_exposes_stage_not_sensitive_payload(capsys):
+    module._history_diagnostic(
+        {
+            "history_error": "QueryCanceled",
+            "history_diagnostics": {
+                "phase": "DISCOVERY_WRITE",
+                "scanned": 100,
+                "elapsed_ms": 501,
+                "sql": "sensitive-value",
+            },
+            "pending": [{"signal_id": "sensitive-value"}],
+        },
+        "quant",
+    )
+    output = capsys.readouterr().out
+    assert "sensitive-value" not in output
+    report = json.loads(output)
+    assert report["phase"] == "DISCOVERY_WRITE"
+    assert report["error_code"] == "QueryCanceled"
+    assert report["scanned"] == 100
+
+
+@pytest.mark.parametrize("error", ["secret=private-value", "PRIVATE_TOKEN_ABC123"])
+def test_history_diagnostic_ignores_success_and_sanitizes_unknowns(capsys, error):
+    module._history_diagnostic({"history_error": None}, "quant")
+    assert capsys.readouterr().out == ""
+    module._history_diagnostic(
+        {
+            "history_error": error,
+            "history_diagnostics": {
+                "phase": "private-value",
+                "scanned": "private-value",
+            },
+        },
+        "private-value",
+    )
+    output = capsys.readouterr().out
+    assert "private-value" not in output
+    assert error not in output
+    assert json.loads(output)["error_code"] == "HISTORY_UNAVAILABLE"
+
+
+def test_history_diagnostic_failure_cannot_interrupt_work(monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError("unavailable journal")
+
+    monkeypatch.setattr("builtins.print", fail)
+    module._history_diagnostic({"history_error": "QueryCanceled"}, "quant")
 
 
 class Public:

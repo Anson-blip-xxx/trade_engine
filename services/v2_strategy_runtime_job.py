@@ -6,6 +6,7 @@ route/deployment, current capital guards and exact immutable plan evidence.
 No legacy evaluator, model, Redis context or dynamic import name is accepted.
 """
 
+import json
 import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
@@ -89,6 +90,64 @@ def typed_entry_ports_for(tenant, target, values):
 
 def _clock():
     return time.time_ns() // 1000000
+
+
+def _history_diagnostic(result, source):
+    """One bounded failed-page journal record; no SQL, identities or payloads.
+
+    The child otherwise returns only a status string. Preserve the failing
+    stage so a cold-history timeout cannot hide behind a generic batch alert.
+    Logging never changes hot work, dispatch, or order reconciliation.
+    """
+    error = result.get("history_error")
+    if not error:
+        return
+    code = (
+        error
+        if type(error) is str
+        and error
+        in {
+            "QueryCanceled",
+            "LockNotAvailable",
+            "OperationalError",
+            "InterfaceError",
+            "TimeoutError",
+            "DeadlockDetected",
+            "SerializationFailure",
+            "InsufficientPrivilege",
+            "UndefinedTable",
+            "UndefinedColumn",
+            "HISTORY_PAGE_BUDGET_EXHAUSTED",
+            "STRATEGY_HISTORY_PROGRESS_REQUIRED",
+            "STRATEGY_SIGNAL_WINDOW_DEPLOYMENT_REQUIRED",
+            "STRATEGY_SIGNAL_WINDOW_HISTORY_INVALID",
+        }
+        else "HISTORY_UNAVAILABLE"
+    )
+    details = result.get("history_diagnostics")
+    details = details if type(details) is dict else {}
+    phase = details.get("phase")
+    payload = {
+        "component": "typed-entry-history",
+        "status": "DEGRADED",
+        "error_code": code,
+        "source": source
+        if type(source) is str and source in {"quant", "tv_bridge", "s3"}
+        else "UNKNOWN",
+        "phase": phase
+        if type(phase) is str
+        and phase
+        in {"CONNECT_SETUP", "PAGE_READ", "DISCOVERY_WRITE", "COMMIT", "COMPLETE"}
+        else "UNKNOWN",
+    }
+    for key in ("budget_ms", "page_size", "scanned", "elapsed_ms"):
+        value = details.get(key)
+        if type(value) is int and 0 <= value <= 3600000:
+            payload[key] = value
+    try:
+        print(json.dumps(payload, separators=(",", ":")), flush=True)
+    except Exception:  # noqa: BLE001,S110 - diagnostics cannot control trading
+        pass
 
 
 def _bounded_connect(connect):
@@ -463,6 +522,7 @@ def typed_runtime_job(stop, config, source):
             ),
             store_factory=MaintainedEntryStore,
         )
+        _history_diagnostic(result, source)
         if stop.is_set():
             return "STOPPED"
         runtime = _dispatch_runtime(

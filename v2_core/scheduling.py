@@ -777,6 +777,9 @@ class StrategyScheduler:
                     *((now,) if not reconcile else ()),
                     consumer,
                 )
+            # Force an ordered (consumer, signal_id) seek even when stale
+            # cardinality estimates prefer the recent-decision index. A nearest
+            # successor is not membership: the outer equality is essential.
             conn.execute(
                 f"""WITH undiscovered AS MATERIALIZED (
                 {pending})
@@ -786,8 +789,9 @@ class StrategyScheduler:
                     SELECT i.signal_id,i.snapshot,i.received_at FROM v2_inbound_signals i
                     WHERE i.signal_id=p.signal_id OFFSET 0) s
                 ORDER BY CASE
-                    WHEN EXISTS (SELECT 1 FROM v2_strategy_decisions d
-                        WHERE d.consumer=%s AND d.signal_id=s.signal_id OFFSET 0) THEN 0
+                    WHEN (SELECT d.signal_id FROM v2_strategy_decisions d
+                        WHERE d.consumer=%s AND d.signal_id>=s.signal_id
+                        ORDER BY d.signal_id LIMIT 1)=s.signal_id THEN 0
                     WHEN (s.snapshot->>'observed_at')::bigint<=%s
                         AND (s.snapshot->>'expires_at_ms')::bigint>%s THEN 1
                     ELSE 2 END,

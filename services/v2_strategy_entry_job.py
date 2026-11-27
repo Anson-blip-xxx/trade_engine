@@ -359,6 +359,7 @@ def run_entry_work(
             "pending": waits,
             "expected_waits": expected_waits,
             "history_error": history_error,
+            "history_diagnostics": getattr(queue, "last_history_diagnostics", {}),
             "diagnostics": diagnostics,
             "metrics": queue.last_run_metrics,
             "trading_health": "NOT_EVALUATED",

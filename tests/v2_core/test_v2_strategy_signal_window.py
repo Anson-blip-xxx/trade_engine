@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from psycopg.types.json import Jsonb
 
+from services.v2_strategy_entry_job import run_entry_work
 from tests.v2_core.test_v2_settlement_execution_fence import database, fenced
 from tests.v2_core.test_v2_strategy_entry_job import ROOT, case, run
 from tests.v2_core.test_v2_strategy_plan_admission import counts
@@ -22,6 +23,7 @@ from tests.v2_core.test_v2_strategy_signal_maintenance import (
 )
 from v2_core import strategy_signal_window as window
 from v2_core.evidence import canonical, digest
+from v2_core.scheduling import StrategyScheduler
 from v2_core.strategy_deployment import StrategyDeployments
 from v2_core.strategy_entry_worker import FrozenEntryCandidate
 from v2_core.strategy_signal_window import (
@@ -370,6 +372,180 @@ def before_task_lane(connect, selected):
         cursor = page(connect, selected, cursor=cursor, size=100).next_cursor
         assert cursor is not None
     return cursor
+
+
+def lookup_decisions(conn, consumer, identities):
+    # Synthetic immutable index fixtures, not financial or strategy evidence.
+    conn.execute(
+        "INSERT INTO v2_decision_evidence(evidence_ref,config_digest,strategy_version,config,snapshot) "
+        "SELECT md5('lookup-'||signal_id),md5('fixture'),'lookup-only','{}',"
+        "jsonb_build_object('signal_id',signal_id) "
+        "FROM unnest(%s::text[]) p(signal_id)",
+        (identities,),
+    )
+    conn.execute(
+        "INSERT INTO v2_strategy_decisions(decision_id,consumer,signal_id,evidence_ref,action) "
+        "SELECT md5('lookup-'||signal_id)::uuid,%s,signal_id::uuid,"
+        "md5('lookup-'||signal_id),'EXPIRED' FROM unnest(%s::text[]) p(signal_id)",
+        (consumer, identities),
+    )
+
+
+def record_discovery(connect, captured):
+    """Observe the actual INSERT's read plan, then execute/commit that INSERT."""
+
+    @contextmanager
+    def recording():
+        with connect() as connection:
+
+            class Record:
+                def __getattr__(self, name):
+                    return getattr(connection, name)
+
+                def execute(self, query, args=None):
+                    if (
+                        isinstance(query, str)
+                        and "WITH undiscovered AS MATERIALIZED" in query
+                        and "unnest(%s::uuid[])" in query
+                    ):
+                        read_query = query.replace(
+                            "INSERT INTO v2_strategy_tasks(consumer,signal_id)", ""
+                        ).replace("ON CONFLICT DO NOTHING", "")
+                        plan = connection.execute(
+                            "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + read_query,
+                            args,
+                        ).fetchone()[0]
+                        order = connection.execute(read_query, args).fetchall()
+                        captured.append((plan, [str(row[1]) for row in order]))
+                    return connection.execute(query, args)
+
+            yield Record()
+
+    return recording
+
+
+def test_discovery_commits_and_checkpoints_with_large_stale_decision_history(fenced):
+    selected = case(fenced)
+    scope = selected.worker.scope
+    foreign_tasks(fenced.admin, scope)
+    with fenced.admin() as conn:
+        # Reproduce the competing runtime index and statistics predating the
+        # new consumer. ANALYZE alone is not the fix for this query shape.
+        conn.execute(
+            "CREATE INDEX v2_decisions_analysis_recent "
+            "ON v2_strategy_decisions(consumer,created_at DESC,decision_id)"
+        )
+        conn.execute("ANALYZE v2_strategy_decisions")
+        identities = [
+            row[0]
+            for row in conn.execute(
+                "SELECT signal_id::text FROM v2_inbound_signals WHERE source='s3'"
+            )
+        ]
+        lookup_decisions(conn, scope.consumer, identities)
+    now = clock(fenced.admin)
+    fresh = {
+        raw(
+            fenced.admin,
+            request_key=f"current-discovery-probe-{n}",
+            expires_at_ms=now + 60000,
+        )[0]
+        for n in range(10)
+    }
+    captured = []
+    result = run_entry_work(
+        record_discovery(fenced.admin, captured),
+        binding=selected.binding,
+        registry=selected.registry,
+        producer=selected.deployment.instance_id,
+        source="tv_bridge",
+        stop=selected.stop,
+        clock_ms=selected.worker.runtime._now,
+        deployment_window=True,
+        limit=1,
+    )
+    assert result["history_error"] is None
+    assert len(captured) == 1
+    plan, discovered = captured[0]
+    assert fresh <= set(discovered)
+    lookups = [
+        node
+        for node in plan_nodes(plan)
+        if node.get("Relation Name") == "v2_strategy_decisions"
+    ]
+    assert len(lookups) == 1
+    assert lookups[0]["Index Name"] == "v2_strategy_decisions_consumer_signal_id_key"
+    assert lookups[0]["Actual Rows"] <= 1
+    assert 0 < lookups[0]["Actual Loops"] <= 100
+    assert lookups[0].get("Rows Removed by Filter", 0) == 0
+    with fenced.admin() as conn:
+        assert (
+            conn.execute(
+                "SELECT request_cursor FROM v2_entry_discovery_cursors "
+                "WHERE consumer=%s AND source='tv_bridge' AND environment='SANDBOX'",
+                (scope.consumer,),
+            )
+            .fetchone()[0]
+            .startswith("typed-history-v2:")
+        )
+        committed = {
+            row[0]
+            for row in conn.execute(
+                "SELECT signal_id::text FROM v2_strategy_tasks "
+                "WHERE consumer=%s AND signal_id=ANY(%s::uuid[])",
+                (scope.consumer, list(fresh)),
+            )
+        }
+    assert committed == fresh
+
+
+def test_discovery_ranking_does_not_promote_successor_or_empty_tail(fenced):
+    selected = case(fenced)
+    now = selected.worker.runtime._now()
+    low, member, high = (str(UUID(int=n)) for n in (0, 1, 2**128 - 1))
+    with fenced.admin() as conn:
+        for identity, expiry in (
+            (low, now - 2),
+            (member, now - 1),
+            (high, now + 60000),
+        ):
+            conn.execute(
+                "INSERT INTO v2_inbound_signals(signal_id,source,environment,request_key,snapshot) "
+                "VALUES(%s,'tv_bridge','SANDBOX',%s,%s)",
+                (
+                    identity,
+                    "ranking-" + identity,
+                    Jsonb(
+                        {
+                            "observed_at": now - 100,
+                            "expires_at_ms": expiry,
+                            "symbol": "BTCUSDT",
+                            "signal": "TREND_UP_LONG",
+                        }
+                    ),
+                ),
+            )
+        lookup_decisions(conn, selected.worker.scope.consumer, [member])
+    captured = []
+    queue = StrategyScheduler(
+        selected.worker,
+        context_provider=lambda *_: pytest.fail("discovery cannot request context"),
+        context_required=lambda _: False,
+    )
+    queue._connect = record_discovery(fenced.admin, captured)
+    queue._history_page = lambda *_args, **_kwargs: [
+        (identity, "ranking-" + identity) for identity in (low, high, member)
+    ]
+    assert queue.run_once(limit=3, discover_only=True, history_page_size=3) == {}
+    # Actual member first even when expired, then fresh nonmember, then old
+    # nonmember. A next-greater UUID or empty index tail must not be a decision.
+    assert captured[0][1] == [member, high, low]
+    with fenced.admin() as conn:
+        assert conn.execute(
+            "SELECT count(*) FROM v2_strategy_tasks WHERE consumer=%s "
+            "AND signal_id=ANY(%s::uuid[])",
+            (selected.worker.scope.consumer, [low, member, high]),
+        ).fetchone() == (3,)
 
 
 def test_empty_source_match_advances_physical_seek_and_keeps_recovery_fair(fenced):
